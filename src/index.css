@@ -1,0 +1,518 @@
+@import '~antd/dist/reset.css';
+
+/* ============================================================
+   Global Font & Color System - Dark Theme (Default)
+   ============================================================ */
+:root {
+  /* Text colors */
+  --text-primary: #f0f2f5;
+  --text-secondary: #b0b8c8;
+  --text-muted: #8892a4;
+  --text-disabled: #5c6478;
+
+  /* Background layers */
+  --bg-base: #0d1017;
+  --bg-surface: #161b26;
+  --bg-elevated: #1e2433;
+  --bg-hover: #272e3f;
+  --bg-active: #2f3849;
+
+  /* Border */
+  --border-color: #2a3142;
+  --border-light: #343d52;
+
+  /* Accent */
+  --accent-blue: #5ba3f5;
+  --accent-green: #4ade80;
+  --accent-yellow: #fbbf24;
+  --accent-red: #fb7185;
+  --accent-purple: #c084fc;
+  --accent-cyan: #22d3ee;
+  --accent-orange: #fb923c;
+
+  /* Font sizes */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-3xl: 28px;
+
+  /* Font weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Font families */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+}
+
+/* ============================================================
+   Light Theme Overrides
+   ============================================================ */
+[data-theme="light"] {
+  /* Text colors */
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;
+
+  /* Background layers */
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f1f5f9;
+  --bg-hover: #e2e8f0;
+  --bg-active: #cbd5e1;
+
+  /* Border */
+  --border-color: #e2e8f0;
+  --border-light: #cbd5e1;
+
+  /* Accent - slightly darker for light theme */
+  --accent-blue: #2563eb;
+  --accent-green: #16a34a;
+  --accent-yellow: #d97706;
+  --accent-red: #dc2626;
+  --accent-purple: #7c3aed;
+  --accent-cyan: #0891b2;
+  --accent-orange: #ea580c;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+code, pre, .mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* ============================================================
+   Ant Design Theme Overrides
+   ============================================================ */
+
+/* Layout */
+.ant-layout {
+  background: var(--bg-base) !important;
+}
+
+.ant-layout-header {
+  background: linear-gradient(135deg, var(--bg-surface), var(--bg-elevated)) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* Card */
+.ant-card {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-card-head {
+  background: var(--bg-elevated) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-md) !important;
+  font-weight: var(--font-weight-semibold) !important;
+  min-height: 48px !important;
+}
+
+.ant-card-head-title {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-md) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-card-body {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-base) !important;
+}
+
+/* Table - CRITICAL for readability */
+.ant-table {
+  background: var(--bg-elevated) !important;
+  font-size: var(--font-size-sm) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: var(--font-weight-semibold) !important;
+  padding: 12px 16px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-sm) !important;
+  padding: 10px 16px !important;
+  line-height: 1.5;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+.ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--bg-active) !important;
+}
+
+.ant-table-placeholder {
+  background: var(--bg-elevated) !important;
+}
+
+.ant-empty-description {
+  color: var(--text-muted) !important;
+  font-size: var(--font-size-base) !important;
+}
+
+/* Tabs */
+.ant-tabs {
+  color: var(--text-primary) !important;
+}
+
+.ant-tabs-tab {
+  color: var(--text-secondary) !important;
+  font-size: var(--font-size-base) !important;
+  font-weight: var(--font-weight-medium) !important;
+  padding: 10px 20px !important;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--text-primary) !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--accent-blue) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--accent-blue) !important;
+}
+
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  background: var(--bg-elevated) !important;
+  border-bottom-color: var(--bg-elevated) !important;
+}
+
+/* Tag */
+.ant-tag {
+  border: none !important;
+  font-size: var(--font-size-xs) !important;
+  font-weight: var(--font-weight-medium) !important;
+  padding: 2px 10px !important;
+  border-radius: 4px !important;
+  line-height: 20px !important;
+}
+
+/* Alert */
+.ant-alert {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
+}
+
+.ant-alert-message {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-base) !important;
+  font-weight: var(--font-weight-medium) !important;
+}
+
+.ant-alert-description {
+  color: var(--text-secondary) !important;
+  font-size: var(--font-size-sm) !important;
+}
+
+/* Force all alert types to use readable text colors */
+.ant-alert-success .ant-alert-message,
+.ant-alert-error .ant-alert-message,
+.ant-alert-warning .ant-alert-message,
+.ant-alert-info .ant-alert-message {
+  color: var(--text-primary) !important;
+}
+
+.ant-alert-success .ant-alert-description,
+.ant-alert-error .ant-alert-description,
+.ant-alert-warning .ant-alert-description,
+.ant-alert-info .ant-alert-description {
+  color: var(--text-secondary) !important;
+}
+
+/* Alert action / close button colors */
+.ant-alert-action,
+.ant-alert-close-icon {
+  color: var(--text-muted) !important;
+}
+
+.ant-alert-success {
+  background: rgba(74, 222, 128, 0.08) !important;
+  border-color: rgba(74, 222, 128, 0.25) !important;
+}
+
+.ant-alert-error {
+  background: rgba(251, 113, 133, 0.08) !important;
+  border-color: rgba(251, 113, 133, 0.25) !important;
+}
+
+.ant-alert-warning {
+  background: rgba(251, 191, 36, 0.08) !important;
+  border-color: rgba(251, 191, 36, 0.25) !important;
+}
+
+.ant-alert-info {
+  background: rgba(91, 163, 245, 0.08) !important;
+  border-color: rgba(91, 163, 245, 0.25) !important;
+}
+
+/* Descriptions */
+.ant-descriptions-item-label {
+  color: var(--text-secondary) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: var(--font-weight-medium) !important;
+}
+
+.ant-descriptions-item-content {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-sm) !important;
+}
+
+/* Input & Select */
+.ant-input,
+.ant-select-selector,
+.ant-input-search .ant-input {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-base) !important;
+}
+
+.ant-input::placeholder,
+.ant-select-selection-placeholder {
+  color: var(--text-secondary) !important;
+  opacity: 1 !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 2px rgba(91, 163, 245, 0.15) !important;
+}
+
+.ant-select-dropdown {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.ant-select-item {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-base) !important;
+}
+
+.ant-select-item-option-active {
+  background: var(--bg-hover) !important;
+}
+
+.ant-select-item-option-selected {
+  background: var(--bg-active) !important;
+}
+
+/* Button */
+.ant-btn {
+  font-size: var(--font-size-base) !important;
+  font-weight: var(--font-weight-medium) !important;
+  border-radius: 8px !important;
+}
+
+.ant-btn-default {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-btn-default:hover {
+  border-color: var(--accent-blue) !important;
+  color: var(--accent-blue) !important;
+}
+
+.ant-btn-primary {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+
+/* Upload */
+.ant-upload-drag {
+  background: var(--bg-surface) !important;
+  border: 2px dashed var(--border-light) !important;
+  border-radius: 16px !important;
+  transition: border-color 0.3s;
+}
+
+.ant-upload-drag:hover,
+.ant-upload-drag-active {
+  border-color: var(--accent-blue) !important;
+  background: rgba(91, 163, 245, 0.03) !important;
+}
+
+/* Progress */
+.ant-progress-text {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-sm) !important;
+}
+
+/* Badge */
+.ant-badge-status-text {
+  color: var(--text-secondary) !important;
+}
+
+/* Spin */
+.ant-spin-text {
+  color: var(--text-secondary) !important;
+  font-size: var(--font-size-base) !important;
+}
+
+/* Pagination */
+.ant-pagination {
+  color: var(--text-primary) !important;
+}
+
+.ant-pagination-item {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+}
+
+.ant-pagination-item a {
+  color: var(--text-primary) !important;
+}
+
+.ant-pagination-item-active {
+  border-color: var(--accent-blue) !important;
+}
+
+.ant-pagination-item-active a {
+  color: var(--accent-blue) !important;
+}
+
+.ant-pagination-prev button,
+.ant-pagination-next button {
+  color: var(--text-primary) !important;
+}
+
+.ant-pagination-options-quick-jumper input {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Divider */
+.ant-divider {
+  border-color: var(--border-color) !important;
+}
+
+/* Tooltip */
+.ant-tooltip-inner {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-sm) !important;
+  border: 1px solid var(--border-color);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-disabled);
+}
+
+/* ============================================================
+   Custom Utility Classes
+   ============================================================ */
+
+.text-primary { color: var(--text-primary) !important; }
+.text-secondary { color: var(--text-secondary) !important; }
+.text-muted { color: var(--text-muted) !important; }
+.text-mono { font-family: var(--font-mono); }
+.text-sm { font-size: var(--font-size-sm); }
+.text-base { font-size: var(--font-size-base); }
+.text-md { font-size: var(--font-size-md); }
+.font-medium { font-weight: var(--font-weight-medium); }
+.font-semibold { font-weight: var(--font-weight-semibold); }
+.font-bold { font-weight: var(--font-weight-bold); }
+
+/* ============================================================
+   Dark Modal Styles
+   ============================================================ */
+.netlog-modal-dark .ant-modal-content {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-color);
+}
+
+.netlog-modal-dark .ant-modal-header {
+  background: var(--bg-elevated) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+.netlog-modal-dark .ant-modal-title {
+  color: var(--text-primary) !important;
+}
+
+.netlog-modal-dark .ant-modal-body {
+  background: var(--bg-elevated) !important;
+  padding: 16px 24px;
+}
+
+.netlog-modal-dark .ant-modal-footer {
+  background: var(--bg-elevated) !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+.netlog-modal-dark .ant-modal-close {
+  color: var(--text-muted) !important;
+}
+
+.netlog-modal-dark .ant-modal-close:hover {
+  color: var(--text-primary) !important;
+}
+
+.netlog-modal-dark .ant-list-item {
+  border-bottom: 1px solid var(--border-color) !important;
+}

@@ -1,0 +1,410 @@
+import { useMemo } from 'react';
+import { Card, Table, Tag, Empty, Alert } from 'antd';
+import { AnalysisResult } from '../parser';
+
+interface SSLTabProps {
+  result: AnalysisResult;
+}
+
+// ============================================================
+// SSL/TLS Health Assessment
+// ============================================================
+
+interface SSLHealthResult {
+  status: 'healthy' | 'warning' | 'critical';
+  score: number; // 0-100
+  summary: string;
+  findings: { icon: string; text: string; severity: 'info' | 'warning' | 'error' }[];
+  suggestions: string[];
+}
+
+function assessSSLHealth(result: AnalysisResult): SSLHealthResult {
+  const findings: SSLHealthResult['findings'] = [];
+  const suggestions: string[] = [];
+  let score = 100;
+
+  const versions: Record<string, number> = {};
+  const ciphers: Record<string, number> = {};
+  const sslHosts: Record<string, { events: any[]; errors: any[]; version: string; cipher: string; handshakeDuration?: number }> = {};
+
+  for (const evt of result.sslEvents) {
+    const ver = evt.params.encrypted_protocol || evt.params.version || evt.params.tls_version || 'unknown';
+    versions[ver] = (versions[ver] || 0) + 1;
+
+    const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
+    if (cipher !== 'unknown') ciphers[cipher] = (ciphers[cipher] || 0) + 1;
+
+    const host = evt.params.host || evt.params.server_info || 'unknown';
+    if (!sslHosts[host]) sslHosts[host] = { events: [], errors: [], version: '', cipher: '' };
+    sslHosts[host].events.push(evt);
+    if (evt.params.encrypted_protocol || evt.params.version) {
+      sslHosts[host].version = evt.params.encrypted_protocol || evt.params.version;
+    }
+    if (evt.params.cipher_suite || evt.params.cipher) {
+      sslHosts[host].cipher = evt.params.cipher_suite || evt.params.cipher;
+    }
+    if (evt.params.net_error || evt.params.error_code) {
+      sslHosts[host].errors.push(evt.params.net_error || evt.params.error_code);
+    }
+  }
+
+  // 1. Check TLS version distribution
+  const totalSsl = result.sslEvents.length;
+  const tls13Count = versions['TLS 1.3'] || versions['TLSv1.3'] || 0;
+  const tls12Count = versions['TLS 1.2'] || versions['TLSv1.2'] || 0;
+  const tls11Count = versions['TLS 1.1'] || versions['TLSv1.1'] || 0;
+  const tls10Count = versions['TLS 1.0'] || versions['TLSv1.0'] || 0;
+  const tls13Ratio = totalSsl > 0 ? tls13Count / totalSsl : 0;
+  const tls12Ratio = totalSsl > 0 ? tls12Count / totalSsl : 0;
+  const oldTlsCount = tls11Count + tls10Count;
+
+  if (tls13Ratio > 0.5) {
+    findings.push({ icon: '✅', text: `TLS 1.3 占比 ${((tls13Ratio) * 100).toFixed(0)}%，协议版本优秀`, severity: 'info' });
+  } else if (tls12Ratio > 0.5) {
+    findings.push({ icon: 'ℹ️', text: `TLS 1.2 占比 ${((tls12Ratio) * 100).toFixed(0)}%，协议版本正常（建议升级到 TLS 1.3）`, severity: 'info' });
+    score -= 5;
+  }
+
+  if (oldTlsCount > 0) {
+    const oldHosts = Object.values(sslHosts).filter(h => h.version.includes('1.0') || h.version.includes('1.1'));
+    findings.push({
+      icon: '⚠️',
+      text: `检测到 ${oldTlsCount} 次旧版 TLS 连接（TLS 1.0/1.1），涉及 ${oldHosts.length} 个主机。旧版协议存在安全风险，可能被防火墙降级`,
+      severity: 'warning',
+    });
+    score -= 20;
+    suggestions.push('联系服务端运维升级 TLS 版本至 1.2+，旧版 TLS 1.0/1.1 已不安全');
+    suggestions.push('排查防火墙是否强制降级了 TLS 版本');
+  }
+
+  // 2. Check certificate issues
+  const certErrorCount = result.certIssues.length;
+  const failedHosts = Object.values(sslHosts).filter(h => h.errors.length > 0);
+
+  if (certErrorCount > 0) {
+    const errorCodes = [...new Set(result.certIssues.map(ci => ci.error))];
+    findings.push({
+      icon: '🚨',
+      text: `${certErrorCount} 个证书错误，涉及 ${failedHosts.length} 个主机，错误码: ${errorCodes.join(', ')}`,
+      severity: 'error',
+    });
+    score -= 30;
+
+    // Analyze specific cert error patterns
+    for (const code of errorCodes) {
+      const numCode = typeof code === 'number' ? code : parseInt(String(code), 10);
+      if (numCode === -202) {
+        suggestions.push('ERR_CERT_AUTHORITY_INVALID (-202)：极大概率是防火墙/审计系统 MITM 替换证书，需联系 IT 排查');
+      } else if (numCode === -200) {
+        suggestions.push('ERR_CERT_COMMON_NAME_INVALID (-200)：可能是未登录 Wi-Fi 认证页面，或防火墙替换证书');
+      } else if (numCode === -201) {
+        suggestions.push('ERR_CERT_DATE_INVALID (-201)：证书过期，检查系统时间是否正确');
+      } else if (numCode === -107) {
+        suggestions.push('ERR_SSL_PROTOCOL_ERROR (-107)：大面积出现则为防火墙 SSL 解密导致');
+      } else {
+        suggestions.push(`证书错误码 ${code}，需进一步排查`);
+      }
+    }
+  } else {
+    findings.push({ icon: '✅', text: '所有 SSL/TLS 握手均成功完成，无证书错误', severity: 'info' });
+  }
+
+  // 3. Check SSL handshake duration (from timeline)
+  const sslTimings = result.urlRequests
+    .filter(r => r.timeline.ssl && r.timeline.ssl.duration > 0)
+    .map(r => r.timeline.ssl!.duration);
+
+  if (sslTimings.length > 0) {
+    const avgSsl = sslTimings.reduce((a, b) => a + b, 0) / sslTimings.length;
+    const maxSsl = Math.max(...sslTimings);
+    const verySlowSslCount = sslTimings.filter(t => t > 1000).length;
+
+    if (avgSsl < 100) {
+      findings.push({ icon: '✅', text: `SSL 握手平均耗时 ${avgSsl.toFixed(0)}ms，表现优秀`, severity: 'info' });
+    } else if (avgSsl < 300) {
+      findings.push({ icon: 'ℹ️', text: `SSL 握手平均耗时 ${avgSsl.toFixed(0)}ms，表现正常`, severity: 'info' });
+      score -= 3;
+    } else {
+      findings.push({
+        icon: '⚠️',
+        text: `SSL 握手平均耗时 ${avgSsl.toFixed(0)}ms（最大 ${maxSsl.toFixed(0)}ms），偏慢。可能原因：防火墙 SSL 解密、证书链过长、OCSP 响应慢`,
+        severity: 'warning',
+      });
+      score -= 15;
+      suggestions.push('SSL 握手偏慢，排查防火墙是否有 SSL 解密/HTTPS Inspection 功能');
+      suggestions.push('检查证书链是否过长，考虑启用 OCSP Stapling');
+    }
+
+    if (verySlowSslCount > 0) {
+      findings.push({
+        icon: '⚠️',
+        text: `${verySlowSslCount} 个请求 SSL 握手超过 1s，严重影响加载速度`,
+        severity: 'warning',
+      });
+      score -= 10;
+    }
+  }
+
+  // 4. Check cipher suite diversity and security
+  const cipherEntries = Object.entries(ciphers).sort((a, b) => b[1] - a[1]);
+  if (cipherEntries.length > 0) {
+    const weakCiphers = cipherEntries.filter(([name]) =>
+      name.includes('RC4') || name.includes('DES') || name.includes('3DES') ||
+      name.includes('NULL') || name.includes('EXPORT') || name.includes('anon')
+    );
+    if (weakCiphers.length > 0) {
+      findings.push({
+        icon: '🚨',
+        text: `检测到 ${weakCiphers.length} 种弱密码套件：${weakCiphers.map(([n]) => n).join(', ')}`,
+        severity: 'error',
+      });
+      score -= 25;
+      suggestions.push('存在弱密码套件，存在安全风险，建议升级服务器密码套件配置');
+    } else {
+      findings.push({ icon: '✅', text: `使用 ${cipherEntries.length} 种密码套件，未检测到弱密码套件`, severity: 'info' });
+    }
+  }
+
+  // 5. Check if proxy might be interfering with SSL
+  if (result.proxyInfo.hasProxy || result.proxyInfo.isVPN) {
+    findings.push({
+      icon: '⚠️',
+      text: `检测到代理/VPN 环境（${result.proxyInfo.proxyType || '未知'}），代理可能导致 SSL 握手异常或证书替换`,
+      severity: 'warning',
+    });
+    score -= 10;
+    suggestions.push('代理/VPN 可能干扰 SSL 握手，尝试关闭代理后对比测试');
+  }
+
+  // Determine overall status
+  let status: SSLHealthResult['status'] = 'healthy';
+  if (score < 50) status = 'critical';
+  else if (score < 80) status = 'warning';
+
+  const summaryMap: Record<string, string> = {
+    healthy: 'SSL/TLS 状态良好，协议版本和证书均正常',
+    warning: 'SSL/TLS 存在部分问题，建议关注并排查',
+    critical: 'SSL/TLS 存在严重问题，需要立即排查处理',
+  };
+
+  return {
+    status,
+    score: Math.max(0, score),
+    summary: summaryMap[status],
+    findings,
+    suggestions,
+  };
+}
+
+const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
+  const health = useMemo(() => assessSSLHealth(result), [result]);
+
+  if (result.sslEvents.length === 0) {
+    return <Empty description="未检测到 SSL/TLS 事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+  }
+
+  // Version distribution
+  const versions: Record<string, number> = {};
+  const ciphers: Record<string, number> = {};
+  const sslHosts: Record<string, { events: any[]; errors: any[] }> = {};
+
+  for (const evt of result.sslEvents) {
+    const ver = evt.params.encrypted_protocol || evt.params.version || evt.params.tls_version || 'unknown';
+    versions[ver] = (versions[ver] || 0) + 1;
+
+    const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
+    if (cipher !== 'unknown') ciphers[cipher] = (ciphers[cipher] || 0) + 1;
+
+    const host = evt.params.host || evt.params.server_info || 'unknown';
+    if (!sslHosts[host]) sslHosts[host] = { events: [], errors: [] };
+    sslHosts[host].events.push(evt);
+    if (evt.params.net_error || evt.params.error_code) {
+      sslHosts[host].errors.push(evt.params.net_error || evt.params.error_code);
+    }
+  }
+  const maxVer = Math.max(...Object.values(versions));
+
+  const hostColumns = [
+    { title: '主机', dataIndex: 'host', key: 'host', ellipsis: true },
+    { title: 'TLS 版本', dataIndex: 'version', key: 'version', width: 120, render: (v: string) => {
+      const isOld = v.includes('1.0') || v.includes('1.1');
+      return <Tag color={isOld ? 'red' : 'blue'}>{v}</Tag>;
+    }},
+    { title: '密码套件', dataIndex: 'cipher', key: 'cipher', width: 280, render: (c: string) => <code style={{ fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{c}</code> },
+    { title: '握手次数', dataIndex: 'count', key: 'count', width: 80 },
+    { title: '状态', dataIndex: 'hasError', key: 'status', width: 80, render: (e: boolean) => e ? <Tag color="red">失败</Tag> : <Tag color="green">成功</Tag> },
+  ];
+
+  const hostData = Object.entries(sslHosts).map(([host, info]) => {
+    const last = info.events[info.events.length - 1];
+    return {
+      host,
+      version: last.params.encrypted_protocol || last.params.version || '-',
+      cipher: last.params.cipher_suite || last.params.cipher || '-',
+      count: info.events.length,
+      hasError: info.errors.length > 0,
+    };
+  }).sort((a, b) => {
+    // Sort: errors first, then by count desc
+    if (a.hasError !== b.hasError) return a.hasError ? -1 : 1;
+    return b.count - a.count;
+  });
+
+  const statusColor = health.status === 'healthy' ? '#34d399' : health.status === 'warning' ? '#fbbf24' : '#f87171';
+  const statusText = health.status === 'healthy' ? '正常' : health.status === 'warning' ? '需关注' : '异常';
+  const statusBg = health.status === 'healthy' ? 'rgba(52, 211, 153, 0.08)' : health.status === 'warning' ? 'rgba(251, 191, 36, 0.08)' : 'rgba(248, 113, 113, 0.08)';
+
+  return (
+    <>
+      {/* SSL/TLS Health Assessment */}
+      <Card
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>🩺 SSL/TLS 健康评估</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>综合评分</span>
+              <span style={{
+                fontSize: 20, fontWeight: 700, color: statusColor,
+                background: statusBg, padding: '2px 12px', borderRadius: 12,
+              }}>
+                {health.score}
+              </span>
+              <Tag color={statusColor} style={{ fontWeight: 600 }}>{statusText}</Tag>
+            </div>
+          </div>
+        }
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
+          {health.summary}
+        </div>
+
+        {/* Findings */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: health.suggestions.length > 0 ? 16 : 0 }}>
+          {health.findings.map((f, i) => (
+            <div
+              key={i}
+              style={{
+                padding: '10px 14px',
+                background: 'var(--bg-surface)',
+                borderRadius: 8,
+                border: `1px solid ${f.severity === 'error' ? 'rgba(248, 113, 113, 0.2)' : f.severity === 'warning' ? 'rgba(251, 191, 36, 0.2)' : 'rgba(52, 211, 153, 0.15)'}`,
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {f.text}
+            </div>
+          ))}
+        </div>
+
+        {/* Suggestions */}
+        {health.suggestions.length > 0 && (
+          <div style={{
+            padding: '12px 14px',
+            background: 'rgba(74, 158, 255, 0.06)',
+            borderRadius: 8,
+            border: '1px solid rgba(74, 158, 255, 0.15)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', marginBottom: 8 }}>
+              🔧 定因排查建议
+            </div>
+            {health.suggestions.map((s, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: i < health.suggestions.length - 1 ? 6 : 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                <span style={{ color: '#4a9eff', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                <span>{s}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* TLS Version Distribution */}
+      <Card title="📊 TLS 版本分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        {Object.entries(versions).sort((a, b) => b[1] - a[1]).map(([ver, count]) => {
+          const isOld = ver.includes('TLSv1') && !ver.includes('1.3') && !ver.includes('1.2');
+          const isTls13 = ver.includes('1.3');
+          const barColor = isOld ? '#f87171' : isTls13 ? '#34d399' : '#4a9eff';
+          return (
+            <div key={ver} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0' }}>
+              <div style={{ width: 120, fontSize: 13, color: 'var(--text-secondary)' }}>{ver}</div>
+              <div style={{ flex: 1, height: 8, background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(count / maxVer * 100).toFixed(1)}%`, background: barColor, borderRadius: 4 }} />
+              </div>
+              <div style={{ width: 40, textAlign: 'right', fontSize: 13 }}>{count}</div>
+              <div style={{ width: 60, textAlign: 'right', fontSize: 12, color: 'var(--text-muted)' }}>
+                {((count / result.sslEvents.length) * 100).toFixed(0)}%
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+
+      {/* Cipher Suite Distribution */}
+      {Object.keys(ciphers).length > 0 && (
+        <Card title="🔐 密码套件分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+          {Object.entries(ciphers).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cipher, count]) => {
+            const isWeak = cipher.includes('RC4') || cipher.includes('DES') || cipher.includes('3DES') || cipher.includes('NULL');
+            return (
+              <div key={cipher} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '6px 0' }}>
+                <div style={{ flex: 1, fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", color: isWeak ? '#f87171' : 'var(--text-secondary)' }}>
+                  {cipher}
+                  {isWeak && <Tag color="red" style={{ marginLeft: 8, fontSize: 10 }}>弱</Tag>}
+                </div>
+                <div style={{ width: 40, textAlign: 'right', fontSize: 13 }}>{count}</div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {/* SSL Connection Details by Host */}
+      <Card title="🌐 SSL 连接详情（按主机）" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Table dataSource={hostData} columns={hostColumns} rowKey="host" pagination={false} size="small" scroll={{ y: 400 }} />
+      </Card>
+
+      {/* Certificate Issues */}
+      {result.certIssues.length > 0 && (
+        <Card title="⚠️ 证书问题详情" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+          {result.certIssues.map((ci, i) => {
+            const evt = ci.event;
+            const issuer = evt.params.issuer || evt.params.cert_issuer || '-';
+            const numCode = typeof ci.error === 'number' ? ci.error : parseInt(String(ci.error), 10);
+            let errorHint = '';
+            if (numCode === -202) errorHint = '证书颁发机构不受信任 — 可能是防火墙 MITM 替换证书';
+            else if (numCode === -200) errorHint = '证书域名不匹配 — 可能是未登录 Wi-Fi 认证页面或防火墙替换证书';
+            else if (numCode === -201) errorHint = '证书已过期 — 检查系统时间是否正确';
+            else if (numCode === -107) errorHint = 'SSL 协议错误 — 大面积出现则为防火墙 SSL 解密导致';
+
+            return (
+              <Alert
+                key={i}
+                message={
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {ci.host} — SSL/TLS 握手失败
+                  </span>
+                }
+                description={
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    <div>错误码: <Tag color="red">{ci.error}</Tag></div>
+                    {issuer !== '-' && <div>证书颁发者: <code>{issuer}</code></div>}
+                    {errorHint && (
+                      <div style={{ marginTop: 4, padding: '6px 10px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 6, border: '1px solid rgba(251, 191, 36, 0.15)', fontSize: 12 }}>
+                        💡 {errorHint}
+                      </div>
+                    )}
+                  </div>
+                }
+                type="error"
+                style={{ marginBottom: 8, background: 'var(--bg-surface)' }}
+              />
+            );
+          })}
+        </Card>
+      )}
+    </>
+  );
+};
+
+export default SSLTab;
