@@ -17,6 +17,7 @@ import {
   LoadingOutlined,
 } from '@ant-design/icons';
 import { parseLog, ParsedEvent, AnalysisResult } from './parser';
+import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
 import { exportReport } from './diagnosis';
 import { useTheme } from './theme';
 import UploadZone from './components/UploadZone';
@@ -27,6 +28,7 @@ import SSLTab from './components/SSLTab';
 import ProtocolTab from './components/ProtocolTab';
 import DiagnosisTab from './components/DiagnosisTab';
 import EventsTab from './components/EventsTab';
+import HarResultPage from './components/har/HarResultPage';
 
 const { Header, Content } = Layout;
 
@@ -34,6 +36,8 @@ const App: React.FC = () => {
   const [hasData, setHasData] = useState(false);
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
+  const [fileType, setFileType] = useState<'netlog' | 'har'>('netlog');
   const [loading, setLoading] = useState(false);
   const [showBackTop, setShowBackTop] = useState(false);
   const { mode, toggleTheme } = useTheme();
@@ -50,9 +54,20 @@ const App: React.FC = () => {
     setLoading(true);
     setTimeout(() => {
       try {
+        // 自动识别文件类型：HAR 走独立解析逻辑，NetLog 走原有逻辑
+        if (isHarFile(data)) {
+          const harAnalysis = parseHar(data);
+          setHarResult(harAnalysis);
+          setFileType('har');
+          setHasData(true);
+          setLoading(false);
+          message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
+          return;
+        }
         const { events: parsedEvents, result: analysisResult } = parseLog(data);
         setEvents(parsedEvents);
         setResult(analysisResult);
+        setFileType('netlog');
         setHasData(true);
         setLoading(false);
         message.success(`成功解析 ${parsedEvents.length} 个事件`);
@@ -67,6 +82,8 @@ const App: React.FC = () => {
     setHasData(false);
     setEvents([]);
     setResult(null);
+    setHarResult(null);
+    setFileType('netlog');
   };
 
   const handleExport = () => {
@@ -143,7 +160,7 @@ const App: React.FC = () => {
               NetLog 网络日志定因分析工具
             </h1>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-              Chrome / Edge 网络日志可视化分析平台
+              Chrome / Edge 网络日志 (NetLog) 与 HAR 可视化分析平台
             </div>
           </div>
         </div>
@@ -190,19 +207,21 @@ const App: React.FC = () => {
               >
                 重新上传
               </Button>
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                onClick={handleExport}
-                style={{
-                  background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-                  border: 'none',
-                  fontWeight: 600,
-                  boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
-                }}
-              >
-                导出报告
-              </Button>
+              {fileType === 'netlog' && (
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={handleExport}
+                  style={{
+                    background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                    border: 'none',
+                    fontWeight: 600,
+                    boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
+                  }}
+                >
+                  导出报告
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -240,6 +259,8 @@ const App: React.FC = () => {
           <div style={{ maxWidth: 900, margin: '48px auto' }}>
             <UploadZone onFileLoaded={handleFileLoaded} />
           </div>
+        ) : fileType === 'har' && harResult ? (
+          <HarResultPage result={harResult} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             {result && <SummaryCards result={result} />}

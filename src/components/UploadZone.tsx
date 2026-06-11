@@ -70,8 +70,9 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
   };
 
   const beforeUpload = (file: File) => {
-    if (!file.name.endsWith('.json')) {
-      message.error('请上传 .json 格式的 NetLog 文件');
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.json') && !lower.endsWith('.har')) {
+      message.error('请上传 .json (NetLog) 或 .har 格式的文件');
       return false;
     }
     return true;
@@ -189,6 +190,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       <Dragger
         customRequest={customRequest}
         beforeUpload={beforeUpload}
+        accept=".json,.har"
         showUploadList={false}
         disabled={reading}
         style={{
@@ -235,12 +237,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
 
           {/* Title */}
           <p style={{ fontSize: 20, color: 'var(--text-primary)', marginBottom: 10, fontWeight: 600 }}>
-            {dragOver ? '松开鼠标上传文件' : '拖拽或点击上传 NetLog JSON 文件'}
+            {dragOver ? '松开鼠标上传文件' : '拖拽或点击上传 NetLog / HAR 文件'}
           </p>
 
           {/* Description */}
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
             支持 chrome://net-export/ 或 edge://net-export/ 导出的 .json 文件
+            <br />
+            也支持浏览器 DevTools → Network → 导出的 .har 文件（上传后自动识别类型）
           </p>
 
           {/* Feature badges */}
