@@ -77,7 +77,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
         description: `「${file.name}」无法解析。请上传 .json (NetLog) 或 .har 文件。`,
         placement: 'top',
         duration: 4,
-        style: { width: 420 },
+        style: {
+          width: 420,
+          borderRadius: 14,
+          boxShadow: '0 12px 32px -8px rgba(17, 24, 39, 0.14), 0 4px 12px -4px rgba(17, 24, 39, 0.08)',
+          border: '1px solid rgba(0, 0, 0, 0.04)',
+        },
       });
       return false;
     }
