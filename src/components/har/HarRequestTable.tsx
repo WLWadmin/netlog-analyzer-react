@@ -6,31 +6,52 @@ import {
   HarRequestEntry,
   HarAnalysisResult,
   CATEGORY_LABELS,
-  statusColor,
+  statusStyle,
+  categoryStyle,
   categoryColor,
+  filterTagStyle,
   formatBytes,
   formatHarTime,
 } from '../../harParser';
 import HarRequestDetail from './HarRequestDetail';
 
+export type StatusFilter = 'all' | 'failed' | 'slow';
+
 interface HarRequestTableProps {
   result: HarAnalysisResult;
+  statusFilter?: StatusFilter;
+  onStatusFilterChange?: (f: StatusFilter) => void;
 }
 
-const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
-  const [filter, setFilter] = useState<string>('all');
+const STATUS_FILTERS: { key: StatusFilter; label: string; color: string; bg: string }[] = [
+  { key: 'all', label: '全部状态', color: '#374151', bg: '#e5e7eb' },
+  { key: 'failed', label: '失败请求', color: '#b91c1c', bg: '#fee2e2' },
+  { key: 'slow', label: '慢请求', color: '#c2410c', bg: '#ffedd5' },
+];
+
+const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter, onStatusFilterChange }) => {
+  const [category, setCategory] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
+  const [innerStatus, setInnerStatus] = useState<StatusFilter>('all');
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const status: StatusFilter = statusFilter ?? innerStatus;
+  const setStatus = (f: StatusFilter) => {
+    setInnerStatus(f);
+    onStatusFilterChange?.(f);
+  };
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return result.entries.filter(e => {
-      if (filter !== 'all' && e.category !== filter) return false;
+      if (category !== 'all' && e.category !== category) return false;
+      if (status === 'failed' && !e.isFailed) return false;
+      if (status === 'slow' && !e.isSlow) return false;
       if (kw && !e.url.toLowerCase().includes(kw)) return false;
       return true;
     });
-  }, [result.entries, filter, keyword]);
+  }, [result.entries, category, status, keyword]);
 
   const openDetail = (entry: HarRequestEntry) => {
     setSelected(entry);
@@ -46,9 +67,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
       width: 260,
       render: (name: string, r) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span
-            style={{ width: 6, height: 6, borderRadius: '50%', background: categoryColor(r.category), flexShrink: 0 }}
-          />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: categoryColor(r.category), flexShrink: 0 }} />
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', cursor: 'pointer' }} title={r.url}>
             {name || '/'}
           </span>
@@ -59,13 +78,16 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 96,
       sorter: (a, b) => a.status - b.status,
-      render: (s: number, r) => (
-        <Tag color={statusColor(s)} style={{ color: '#fff', fontFamily: 'var(--font-mono)' }}>
-          {s === 0 ? '失败' : s}
-        </Tag>
-      ),
+      render: (s: number) => {
+        const st = statusStyle(s);
+        return (
+          <Tag style={{ color: st.color, background: st.bg, border: 'none', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+            {s === 0 ? '失败' : s}
+          </Tag>
+        );
+      },
     },
     {
       title: 'Protocol',
@@ -97,11 +119,12 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
       key: 'category',
       width: 110,
       sorter: (a, b) => a.category.localeCompare(b.category),
-      render: (c: string, r) => (
-        <Tag style={{ color: categoryColor(r.category), background: `${categoryColor(r.category)}1a` }}>
-          {r.rawType || c}
-        </Tag>
-      ),
+      render: (c: string, r) => {
+        const cs = categoryStyle(r.category);
+        return (
+          <Tag style={{ color: cs.color, background: cs.bg, border: 'none', fontWeight: 600 }}>{r.rawType || c}</Tag>
+        );
+      },
     },
     {
       title: 'Size',
@@ -128,32 +151,34 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* 工具栏：类型筛选 + 搜索 */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 第一行：类型筛选 + 搜索 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {CATEGORY_LABELS.map(c => {
-            const count =
-              c.key === 'all' ? result.totalRequests : result.typeCounts[c.key as keyof typeof result.typeCounts] || 0;
-            const isActive = filter === c.key;
+            const count = c.key === 'all' ? result.totalRequests : result.typeCounts[c.key as keyof typeof result.typeCounts] || 0;
+            const isActive = category === c.key;
+            const st = filterTagStyle(c.key);
             return (
               <span
                 key={c.key}
-                onClick={() => setFilter(c.key)}
+                onClick={() => setCategory(c.key)}
                 style={{
                   cursor: 'pointer',
                   padding: '4px 12px',
                   borderRadius: 6,
                   fontSize: 13,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? '#fff' : 'var(--text-secondary)',
-                  background: isActive ? 'var(--accent-blue)' : 'var(--bg-surface)',
-                  border: `1px solid ${isActive ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                  fontWeight: isActive ? 700 : 500,
+                  color: st.color,
+                  background: st.bg,
+                  border: `1.5px solid ${isActive ? st.color : 'transparent'}`,
+                  boxShadow: isActive ? `0 0 0 2px ${st.bg}` : 'none',
+                  opacity: isActive ? 1 : 0.78,
                   transition: 'all 0.2s',
                 }}
               >
                 {c.label}
-                <span style={{ marginLeft: 6, opacity: 0.7, fontSize: 12 }}>{count}</span>
+                <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.75 }}>{count}</span>
               </span>
             );
           })}
@@ -168,9 +193,38 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
         />
       </div>
 
-      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-        共 {filtered.length} 条请求
-        {filter !== 'all' || keyword ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
+      {/* 第二行：状态快捷筛选 + 计数 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 2 }}>状态：</span>
+          {STATUS_FILTERS.map(f => {
+            const isActive = status === f.key;
+            return (
+              <span
+                key={f.key}
+                onClick={() => setStatus(f.key)}
+                style={{
+                  cursor: 'pointer',
+                  padding: '3px 12px',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: isActive ? 700 : 500,
+                  color: f.color,
+                  background: f.bg,
+                  border: `1.5px solid ${isActive ? f.color : 'transparent'}`,
+                  opacity: isActive ? 1 : 0.78,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {f.label}
+              </span>
+            );
+          })}
+        </div>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          共 {filtered.length} 条请求
+          {category !== 'all' || keyword || status !== 'all' ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
+        </span>
       </div>
 
       <Table<HarRequestEntry>
@@ -179,27 +233,17 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result }) => {
         rowKey="id"
         size="small"
         scroll={{ x: 1100 }}
-        pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100', '200'] }}
-        onRow={record => ({
-          onClick: () => openDetail(record),
-          style: { cursor: 'pointer' },
-        })}
+        pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100', '200'] }}
+        onRow={record => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })}
       />
 
       <Drawer
         title={
           selected ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <Badge color={statusColor(selected.status)} />
+              <Badge color={statusStyle(selected.status).color} />
               <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 14,
-                  color: 'var(--text-primary)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={selected.url}
               >
                 {selected.name}

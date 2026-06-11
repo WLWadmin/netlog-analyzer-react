@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, Fragment } from 'react';
 import { Tabs, Empty, Tag } from 'antd';
 import {
   HarRequestEntry,
   decodeResponseBody,
-  statusColor,
+  statusStyle,
 } from '../../harParser';
 import CopyText from './CopyText';
 import HarTimingChart from './HarTimingChart';
@@ -30,34 +30,51 @@ const sectionTitle = (text: string) => (
 const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ headers }) => {
   if (!headers.length) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>无</div>;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', fontSize: 13 }}>
       {headers.map((h, i) => (
-        <div
-          key={i}
-          style={{
-            display: 'flex',
-            gap: 12,
-            padding: '6px 0',
-            borderBottom: '1px solid var(--border-color)',
-            fontSize: 13,
-          }}
-        >
-          <span style={{ color: 'var(--text-muted)', minWidth: 200, maxWidth: 240, wordBreak: 'break-all', fontFamily: 'var(--font-mono)' }}>
+        <Fragment key={i}>
+          <span
+            style={{
+              color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono)',
+              wordBreak: 'break-all',
+              padding: '6px 16px 6px 0',
+              borderBottom: '1px solid var(--border-color)',
+            }}
+          >
             {h.name}
           </span>
-          <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all', flex: 1, fontFamily: 'var(--font-mono)' }}>
+          <span
+            style={{
+              color: 'var(--text-primary)',
+              fontFamily: 'var(--font-mono)',
+              wordBreak: 'break-all',
+              padding: '6px 0',
+              borderBottom: '1px solid var(--border-color)',
+            }}
+          >
             {h.value}
           </span>
-        </div>
+        </Fragment>
       ))}
     </div>
   );
 };
 
 const GeneralRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div style={{ display: 'flex', gap: 12, padding: '6px 0', borderBottom: '1px solid var(--border-color)', fontSize: 13 }}>
-    <span style={{ color: 'var(--text-muted)', minWidth: 120, flexShrink: 0 }}>{label}</span>
-    <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: '150px 1fr',
+      columnGap: 16,
+      alignItems: 'center',
+      padding: '8px 0',
+      borderBottom: '1px solid var(--border-color)',
+      fontSize: 13,
+    }}
+  >
+    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+    <div style={{ minWidth: 0 }}>{children}</div>
   </div>
 );
 
@@ -76,7 +93,15 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{entry.method}</span>
         </GeneralRow>
         <GeneralRow label="Status Code">
-          <Tag color={statusColor(entry.status)} style={{ color: '#fff' }}>
+          <Tag
+            style={{
+              color: statusStyle(entry.status).color,
+              background: statusStyle(entry.status).bg,
+              border: 'none',
+              fontWeight: 700,
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
             {entry.status === 0 ? '失败/未完成' : entry.status} {entry.statusText}
           </Tag>
         </GeneralRow>

@@ -340,6 +340,44 @@ export function categoryColor(cat: HarCategory): string {
   return map[cat] || '#8892a4';
 }
 
+// 浅色背景 + 深色字体的标签样式（兼顾深浅主题，背景始终为浅色）
+export interface TagStyle {
+  bg: string;
+  color: string;
+}
+
+// 分类标签配色：淡色背景 + 同色系深色字体
+export function categoryStyle(cat: HarCategory): TagStyle {
+  const map: Record<HarCategory, TagStyle> = {
+    doc: { bg: '#dbeafe', color: '#1e40af' },    // 淡蓝
+    css: { bg: '#ede9fe', color: '#6d28d9' },    // 淡紫
+    js: { bg: '#fef08a', color: '#854d0e' },     // 淡明黄
+    font: { bg: '#ffedd5', color: '#c2410c' },   // 淡橙
+    img: { bg: '#dcfce7', color: '#15803d' },    // 淡绿
+    media: { bg: '#fce7f3', color: '#be185d' },  // 淡粉
+    xhr: { bg: '#cffafe', color: '#0e7490' },    // 淡青
+    other: { bg: '#e5e7eb', color: '#374151' },  // 淡灰
+  };
+  return map[cat] || { bg: '#e5e7eb', color: '#374151' };
+}
+
+// 「All」筛选项样式：黑色字体 + 淡黄背景
+export const ALL_TAG_STYLE: TagStyle = { bg: '#fef9c3', color: '#713f12' };
+
+// 根据筛选项 key 取样式（含 all）
+export function filterTagStyle(key: string): TagStyle {
+  return key === 'all' ? ALL_TAG_STYLE : categoryStyle(key as HarCategory);
+}
+
+// 状态码标签配色：淡色背景 + 高对比深色字体
+export function statusStyle(status: number): TagStyle {
+  if (status === 0 || status >= 500) return { bg: '#fee2e2', color: '#b91c1c' };  // 淡红
+  if (status >= 400) return { bg: '#ffedd5', color: '#c2410c' };                  // 淡橙
+  if (status >= 300) return { bg: '#cffafe', color: '#0e7490' };                  // 淡青
+  if (status >= 200) return { bg: '#dcfce7', color: '#15803d' };                  // 淡绿
+  return { bg: '#e5e7eb', color: '#374151' };
+}
+
 export const CATEGORY_LABELS: { key: string; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'xhr', label: 'Fetch/XHR' },

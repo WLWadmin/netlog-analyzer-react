@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { Tabs, Alert } from 'antd';
 import { UnorderedListOutlined, MedicineBoxOutlined, WarningOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
-import HarRequestTable from './HarRequestTable';
+import HarRequestTable, { StatusFilter } from './HarRequestTable';
 import HarSummaryDiagnosis from './HarSummaryDiagnosis';
 
 interface HarResultPageProps {
@@ -11,6 +12,14 @@ interface HarResultPageProps {
 
 // HAR 解析结果整体页面（汇总卡片 + 请求列表 / 汇总诊断 两个 Tab）
 const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
+  const [activeKey, setActiveKey] = useState('requests');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  const jumpToRequests = (filter: StatusFilter) => {
+    setStatusFilter(filter);
+    setActiveKey('requests');
+  };
+
   const tabItems = [
     {
       key: 'requests',
@@ -20,7 +29,9 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
           请求列表
         </span>
       ),
-      children: <HarRequestTable result={result} />,
+      children: (
+        <HarRequestTable result={result} statusFilter={statusFilter} onStatusFilterChange={setStatusFilter} />
+      ),
     },
     {
       key: 'diagnosis',
@@ -36,7 +47,11 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <HarSummaryCards result={result} />
+      <HarSummaryCards
+        result={result}
+        onFilterFailed={() => jumpToRequests('failed')}
+        onFilterSlow={() => jumpToRequests('slow')}
+      />
       <Alert
         message={
           <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
@@ -63,7 +78,13 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
           padding: '0 4px',
         }}
       >
-        <Tabs items={tabItems} type="card" style={{ background: 'var(--bg-surface)', padding: '8px 12px 16px' }} />
+        <Tabs
+          activeKey={activeKey}
+          onChange={setActiveKey}
+          items={tabItems}
+          type="card"
+          style={{ background: 'var(--bg-surface)', padding: '8px 12px 16px' }}
+        />
       </div>
     </div>
   );

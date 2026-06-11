@@ -10,9 +10,11 @@ import { HarAnalysisResult, formatBytes, formatHarTime, HAR_SLOW_THRESHOLD_MS } 
 
 interface HarSummaryCardsProps {
   result: HarAnalysisResult;
+  onFilterFailed?: () => void;
+  onFilterSlow?: () => void;
 }
 
-const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result }) => {
+const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFailed, onFilterSlow }) => {
   const cards = [
     {
       title: '总请求数',
@@ -21,24 +23,27 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result }) => {
       color: '#0ea5e9',
       icon: <LinkOutlined />,
       bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.08))',
+      onClick: undefined as undefined | (() => void),
     },
     {
       title: '失败请求',
       value: result.failedCount,
-      suffix: result.failedCount > 0 ? '状态码 ≥400 或 0' : '无失败',
+      suffix: result.failedCount > 0 ? '点击筛选失败请求 ›' : '无失败',
       color: result.failedCount > 0 ? '#f87171' : '#34d399',
       icon: <CloseCircleOutlined />,
       bg: result.failedCount > 0
         ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))'
         : 'linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(34, 211, 238, 0.08))',
+      onClick: result.failedCount > 0 ? onFilterFailed : undefined,
     },
     {
       title: '慢请求',
       value: result.slowCount,
-      suffix: `耗时 ≥${HAR_SLOW_THRESHOLD_MS}ms`,
+      suffix: result.slowCount > 0 ? `≥${HAR_SLOW_THRESHOLD_MS}ms · 点击筛选 ›` : `耗时 ≥${HAR_SLOW_THRESHOLD_MS}ms`,
       color: result.slowCount > 0 ? '#fb923c' : '#34d399',
       icon: <ClockCircleOutlined />,
       bg: 'linear-gradient(135deg, rgba(251, 146, 60, 0.12), rgba(248, 113, 113, 0.08))',
+      onClick: result.slowCount > 0 ? onFilterSlow : undefined,
     },
     {
       title: '总传输大小',
@@ -47,6 +52,7 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result }) => {
       color: '#22d3ee',
       icon: <CloudDownloadOutlined />,
       bg: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.08))',
+      onClick: undefined,
     },
     {
       title: '总耗时',
@@ -55,6 +61,7 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result }) => {
       color: '#a78bfa',
       icon: <FieldTimeOutlined />,
       bg: 'linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(192, 132, 252, 0.08))',
+      onClick: undefined,
     },
   ];
 
@@ -63,7 +70,14 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result }) => {
       {cards.map((card, i) => (
         <Col key={i} flex="1 1 180px" style={{ minWidth: 180 }}>
           <Card
-            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden' }}
+            onClick={card.onClick}
+            style={{
+              background: 'var(--bg-elevated)',
+              border: card.onClick ? '1px solid ' + card.color : '1px solid var(--border-color)',
+              borderRadius: 12,
+              overflow: 'hidden',
+              cursor: card.onClick ? 'pointer' : 'default',
+            }}
             styles={{ body: { padding: 0 } }}
             hoverable
           >

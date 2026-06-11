@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   HarAnalysisResult,
   HarRequestEntry,
-  statusColor,
+  statusStyle,
   formatHarTime,
   HAR_SLOW_THRESHOLD_MS,
 } from '../../harParser';
@@ -89,11 +89,14 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       title: '状态',
       key: 'status',
       width: 90,
-      render: (_: any, r) => (
-        <Tag color={statusColor(r.entry.status)} style={{ color: '#fff', fontFamily: 'var(--font-mono)' }}>
-          {r.entry.status === 0 ? '失败' : r.entry.status}
-        </Tag>
-      ),
+      render: (_: any, r) => {
+        const st = statusStyle(r.entry.status);
+        return (
+          <Tag style={{ color: st.color, background: st.bg, border: 'none', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+            {r.entry.status === 0 ? '失败' : r.entry.status}
+          </Tag>
+        );
+      },
     },
     {
       title: '详情',
@@ -164,7 +167,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             dataSource={anomalies}
             rowKey={(r) => `${r.type}-${r.entry.id}`}
             size="small"
-            pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
           />
         ) : (
           <Alert type="success" showIcon message="未发现失败请求、慢请求或 Server-Timing 异常" />
@@ -184,7 +187,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             rowKey="id"
             size="small"
             scroll={{ x: 980 }}
-            pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'] }}
+            pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'] }}
           />
         ) : (
           <Empty description="无可用关键字段" image={Empty.PRESENTED_IMAGE_SIMPLE} />

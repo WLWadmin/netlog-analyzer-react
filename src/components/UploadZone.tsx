@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Upload, message, Progress } from 'antd';
+import { Upload, message, Progress, notification } from 'antd';
 import {
   CloudUploadOutlined,
   FileTextOutlined,
@@ -72,7 +72,13 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
   const beforeUpload = (file: File) => {
     const lower = file.name.toLowerCase();
     if (!lower.endsWith('.json') && !lower.endsWith('.har')) {
-      message.error('请上传 .json (NetLog) 或 .har 格式的文件');
+      notification.error({
+        message: '文件格式不支持',
+        description: `「${file.name}」无法解析。请上传 .json (NetLog) 或 .har 文件。`,
+        placement: 'top',
+        duration: 4,
+        style: { width: 420 },
+      });
       return false;
     }
     return true;
@@ -244,7 +250,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
             支持 chrome://net-export/ 或 edge://net-export/ 导出的 .json 文件
             <br />
-            也支持浏览器 DevTools → Network → 导出的 .har 文件（上传后自动识别类型）
+            支持浏览器 DevTools → Network → 导出的 .har 文件（上传后自动识别类型）
           </p>
 
           {/* Feature badges */}
