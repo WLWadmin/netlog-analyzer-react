@@ -1,12 +1,14 @@
-# NetLog 网络日志定因分析工具
+# NetLog / HAR 网络日志定因分析工具
 
-> 一个面向 Chrome / Edge `NetLog` 文件的本地可视化分析工具，用于快速梳理网络请求、错误码、协议、证书、代理、DNS 与性能瓶颈，辅助定位浏览器侧网络访问问题。
+> 一个面向 Chrome / Edge `NetLog` 与 `HAR` 文件的本地可视化分析工具，用于快速梳理网络请求、错误码、协议、证书、代理、DNS 与性能瓶颈，辅助定位浏览器侧网络访问问题。上传文件后会**自动识别类型**（NetLog JSON / HAR），分别进入对应的解析结果页面。
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
 ## 项目用途
 
 本项目用于解析 `chrome://net-export/` 或 `edge://net-export/` 导出的 `.json` 网络日志文件，并在浏览器本地完成分析与展示。工具不会把日志上传到服务器，适合用于包含访问链路、网络错误、代理配置、TLS 握手、HTTP/2、QUIC、DNS 解析、请求耗时等信息的排查场景。
+
+除 NetLog 外，工具也支持解析浏览器 DevTools → Network 面板导出的 `.har` 文件。上传后会自动识别文件类型：NetLog 走原有的 6 个分析 Tab，HAR 则进入独立的「请求列表 + 汇总诊断」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键诊断字段。
 
 典型使用场景包括：
 
@@ -17,7 +19,8 @@
 
 ## 核心特性
 
-- **纯前端本地解析**：通过 `FileReader` 在浏览器内读取 JSON 文件，不上传服务器。
+- **纯前端本地解析**：通过 `FileReader` 在浏览器内读取文件，不上传服务器。
+- **NetLog / HAR 双格式自动识别**：上传后根据文件结构自动判断 NetLog JSON 或 HAR，并进入对应的解析结果页面。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
 - **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
@@ -35,24 +38,28 @@
 
 按页面提示开始记录，复现网络问题后停止记录，导出 `.json` 文件。
 
+> 如果排查的是页面 / 接口层面的请求，也可以使用 HAR 文件：打开浏览器 DevTools（F12）→ **Network** 面板 → 复现问题后右键请求列表选择「Save all as HAR」（或点击导出按钮），得到 `.har` 文件。
+
 ### 2. 上传并解析
 
 打开在线地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
-将导出的 `.json` 文件拖拽到页面上传区域，或点击上传区域选择文件。页面会在本地读取并解析文件。
+将导出的 `.json`（NetLog）或 `.har` 文件拖拽到页面上传区域，或点击上传区域选择文件。页面会在本地读取并自动识别文件类型后完成解析。
 
 ### 3. 查看分析结果
 
-解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
+**NetLog 文件**解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
 
 1. **总览**：先看整体错误、失败域名、协议分布和关键异常。
 2. **定因诊断**：查看自动生成的根因建议和下一步排查动作。
 3. **事件列表**：必要时回到原始事件级别核对细节。
 4. **SSL/TLS、协议分析、性能分析**：针对证书、HTTP/2、QUIC、耗时分布等方向深入定位。
 
+**HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求列表」与「汇总诊断」两个 Tab，详见下文「HAR 解析模块说明」。
+
 ### 4. 导出报告
 
-解析完成后点击页面顶部的导出按钮，可下载 `netlog-analysis-report-<timestamp>.md` 格式的 Markdown 报告。
+（NetLog 模式）解析完成后点击页面顶部的导出按钮，可下载 `netlog-analysis-report-<timestamp>.md` 格式的 Markdown 报告。HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复制。
 
 ## 页面模块说明
 
@@ -60,13 +67,14 @@
 
 对应文件：`src/components/UploadZone.tsx`
 
-负责 NetLog 文件的入口交互，包括：
+负责 NetLog / HAR 文件的入口交互，包括：
 
 - 支持拖拽上传和点击上传。
-- 限制上传文件为 `.json` 格式。
+- 支持 `.json`（NetLog）与 `.har` 两种格式（`accept=".json,.har"`），并自动识别类型。
 - 使用 `FileReader` 在浏览器本地读取文件内容。
 - 展示读取进度、拖拽高亮和解析中的加载状态。
-- JSON 解析成功后将原始数据传给主应用继续分析。
+- 上传非法格式时通过醒目的 `notification` 弹窗提示。
+- 解析成功后将原始数据传给主应用，由主应用判定走 NetLog 或 HAR 解析逻辑。
 
 ### 摘要卡片：`SummaryCards`
 
@@ -160,6 +168,54 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 适合排查页面加载慢、接口响应慢、DNS 慢、TLS 握手慢、下载慢等性能问题。
 
+## HAR 解析模块说明
+
+当上传文件被识别为 HAR 时，主应用会渲染一套独立于 NetLog 的结果页面，相关组件位于 `src/components/har/` 目录。
+
+### 结果页容器：`HarResultPage`
+
+对应文件：`src/components/har/HarResultPage.tsx`
+
+- 组合顶部汇总卡片与「请求列表」「汇总诊断」两个 Tab。
+- 维护当前激活 Tab 与状态筛选（全部 / 失败 / 慢请求），实现卡片点击联动到请求列表。
+
+### 汇总卡片：`HarSummaryCards`
+
+对应文件：`src/components/har/HarSummaryCards.tsx`
+
+- 展示总请求数、失败请求、慢请求、总传输大小、总耗时。
+- 「失败请求」「慢请求」卡片可点击，自动跳转到请求列表并按对应条件筛选。
+
+### 请求列表：`HarRequestTable`
+
+对应文件：`src/components/har/HarRequestTable.tsx`
+
+- 列：Name、Status、Protocol、Domain、Remote Address、Type、Size、Time。
+- 顶部按资源类型筛选（All / Fetch·XHR / Doc / CSS / JS / Font / Img / Media / Other），以及失败 / 慢请求状态快捷筛选。
+- 支持列头排序（Status / Domain / Type / Size / Time）与 URL 关键词搜索。
+- 分类标签与状态标签采用淡色背景 + 同色系字体，点击行可打开请求详情抽屉。
+
+### 请求详情：`HarRequestDetail`
+
+对应文件：`src/components/har/HarRequestDetail.tsx`
+
+- **Headers**：General（URL / Method / Status / Remote Address / Protocol）+ 响应头 + 请求头，采用网格对齐排版。
+- **Preview**：响应体 JSON 格式化预览（自动处理 base64 编码）。
+- **Timing**：DNS / Connect / SSL / Send / Wait / Receive 各阶段耗时瀑布图（`HarTimingChart`）。
+- **诊断**：提取 `Server-Timing`、`x-tt-logid`、`x-tt-cip`、`x-lsc-source-ip`、Remote Address 等关键字段，支持一键复制。
+
+### 汇总诊断：`HarSummaryDiagnosis`
+
+对应文件：`src/components/har/HarSummaryDiagnosis.tsx`
+
+- 汇总所有请求中的异常（失败请求、慢请求、Server-Timing 缓存未命中 / 源站耗时偏高等）。
+- 提供关键字段速查表（Remote Address、x-tt-logid、x-tt-cip、x-lsc-source-ip），支持一键复制。
+
+### 辅助组件：`HarTimingChart` / `CopyText`
+
+- `HarTimingChart`：各网络阶段的分段耗时条与占比明细。
+- `CopyText`：通用「文本 + 一键复制」字段组件，供详情页与汇总诊断复用。
+
 ## 核心代码模块说明
 
 ### 应用入口：`src/App.tsx`
@@ -167,20 +223,21 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 `App.tsx` 是主应用容器，负责：
 
 - 管理是否已有数据、解析事件、分析结果、加载状态等全局状态。
-- 调用 `parseLog()` 将上传的 NetLog JSON 转换为结构化分析结果。
+- 自动识别上传文件类型：NetLog 调用 `parseLog()` 生成 `AnalysisResult`，HAR 调用 `parseHar()` 生成 `HarAnalysisResult`。
 - 组织页面 Header、上传区、摘要卡片和各个 Tab。
 - 处理重置、返回顶部、主题切换和报告导出。
 
 整体数据流如下：
 
 ```text
-NetLog JSON 文件
+NetLog / HAR 文件
   → UploadZone 本地读取
-  → App.handleFileLoaded
-  → parser.parseLog
-  → AnalysisResult
-  → SummaryCards / OverviewTab / DiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
-  → diagnosis.exportReport 导出报告
+  → App.handleFileLoaded（自动识别类型）
+  ├─ NetLog：parser.parseLog → AnalysisResult
+  │    → SummaryCards / OverviewTab / DiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
+  │    → diagnosis.exportReport 导出报告
+  └─ HAR：harParser.parseHar → HarAnalysisResult
+       → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
 ```
 
 ### 解析引擎：`src/parser.ts`
@@ -203,6 +260,17 @@ NetLog JSON 文件
 - 提取响应头中的 IP 线索，例如 `x-response-cinfo`、`x-tt-cip`、`x-lsc-source-ip`、`x-response-sinfo`。
 - 识别失败请求、失败域名、错误码、慢请求、证书问题、代理 / VPN 线索等。
 - 输出统一的 `AnalysisResult`，供所有页面模块使用。
+
+### HAR 解析引擎：`src/harParser.ts`
+
+`harParser.ts` 是 HAR 文件的独立解析模块，与 NetLog 的 `parser.ts` 互不影响，主要能力包括：
+
+- `isHarFile()`：根据 `log.entries` 结构判断是否为 HAR 文件，供主应用自动识别类型。
+- `parseHar()`：将 HAR 的每条 `entry` 转换为统一的 `HarRequestEntry`，并汇总为 `HarAnalysisResult`（总请求数 / 失败数 / 慢请求数 / 总大小 / 总耗时 / 各类型计数）。
+- 资源类型归一化（`_resourceType` + mimeType 兜底）、协议归一化、传输大小计算（优先 `_transferSize`）。
+- 解析 `Server-Timing` 响应头，提取 `x-tt-logid`、`x-tt-cip`、`x-lsc-source-ip` 等关键诊断字段。
+- `decodeResponseBody()`：解码响应体（含 base64）并尝试 JSON 格式化。
+- 提供分类标签 / 状态标签的淡色配色（`categoryStyle` / `statusStyle`）与格式化工具（`formatBytes` / `formatHarTime`）。
 
 ### 诊断与报告：`src/diagnosis.ts`
 
@@ -272,6 +340,21 @@ NetLog JSON 文件
 | `failedDomains` | 失败域名聚合信息 |
 | `systemInfo` | 系统、浏览器、NetLog 版本等信息 |
 
+HAR 模式下，`parseHar()` 返回的核心结构是 `HarAnalysisResult`，主要字段如下：
+
+| 字段 | 含义 |
+| --- | --- |
+| `entries` | 解析出的请求列表（`HarRequestEntry[]`） |
+| `totalRequests` | 总请求数 |
+| `failedCount` | 失败请求数（状态码 ≥400 或 0） |
+| `slowCount` | 慢请求数（耗时 ≥ 阈值，默认 1000ms） |
+| `totalSize` | 总传输大小 |
+| `totalTime` | 首尾请求时间跨度 |
+| `typeCounts` | 各资源类型计数 |
+| `creator` | HAR 来源（导出工具及版本） |
+
+每条 `HarRequestEntry` 含 URL、方法、状态、协议、域名、Remote Address、类型、大小、耗时、各阶段 timings、请求 / 响应头、响应体，以及 `serverTiming`、`xTtLogid`、`xTtCip`、`xLscSourceIp` 等诊断字段。
+
 ## 技术栈
 
 - React 19
@@ -326,7 +409,7 @@ npm test
 
 ## 使用注意事项
 
-- 请上传 Chrome / Edge NetLog 导出的原始 `.json` 文件，不支持压缩包或其他格式。
+- 请上传 Chrome / Edge NetLog 导出的原始 `.json` 文件，或浏览器 DevTools → Network 导出的 `.har` 文件，不支持压缩包或其他格式。
 - 大型 NetLog 文件解析可能需要数秒，浏览器性能会影响处理速度。
 - 工具提供的是基于日志特征的辅助诊断，最终根因仍建议结合用户网络环境、服务端日志、代理 / 防火墙配置和复现路径综合判断。
 - 页面正文显示“本地解析，不上传服务器”，适合处理需要在本机浏览器内完成初步分析的日志。
@@ -339,3 +422,5 @@ npm test
 4. 如果涉及 HTTP/2、QUIC、连接复用或代理兼容性，查看 **协议分析页**。
 5. 如果问题表现为慢，查看 **性能分析页** 的瀑布流和阶段耗时。
 6. 最后在 **事件列表页** 中按错误码、Source ID 或关键词回溯原始事件。
+
+> 若上传的是 HAR 文件，则先看 **汇总卡片** 与 **汇总诊断 Tab** 锁定失败 / 慢请求，再在 **请求列表** 中按类型或状态筛选，点击具体请求查看 Headers、响应体、耗时瀑布与关键诊断字段。
