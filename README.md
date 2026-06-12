@@ -23,6 +23,9 @@
 - **NetLog / HAR 双格式自动识别**：上传后根据文件结构自动判断 NetLog JSON 或 HAR，并进入对应的解析结果页面。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
+- **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
+- **一键复制能力**：请求列表的 Domain / Remote Address 列、详情页的关键诊断字段均支持一键复制。
+- **使用说明引导**：首页提供 HAR 和 NetLog 文件获取教程链接，帮助新用户快速上手。
 - **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown 格式的分析报告。
@@ -75,6 +78,14 @@
 - 展示读取进度、拖拽高亮和解析中的加载状态。
 - 上传非法格式时通过醒目的 `notification` 弹窗提示。
 - 解析成功后将原始数据传给主应用，由主应用判定走 NetLog 或 HAR 解析逻辑。
+
+### 使用说明模块
+
+位于首页上传区域下方，帮助新用户了解如何获取待分析文件：
+
+- **HAR 文件获取指南**：链接到飞书文档，引导用户通过浏览器 DevTools → Network 面板导出 HAR 文件。
+- **NetLog 文件获取指南**：链接到飞书文档，引导用户通过 `chrome://net-export/` 或 `edge://net-export/` 导出网络日志。
+- 两列卡片布局，hover 时有上浮 + 边框高亮交互效果。
 
 ### 摘要卡片：`SummaryCards`
 
@@ -191,16 +202,22 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 对应文件：`src/components/har/HarRequestTable.tsx`
 
 - 列：Name、Status、Protocol、Domain、Remote Address、Type、Size、Time。
+- **Domain 和 Remote Address 列支持一键复制**，点击复制图标即可复制对应值。
 - 顶部按资源类型筛选（All / Fetch·XHR / Doc / CSS / JS / Font / Img / Media / Other），以及失败 / 慢请求状态快捷筛选。
 - 支持列头排序（Status / Domain / Type / Size / Time）与 URL 关键词搜索。
+- 支持屏蔽域名过滤（逗号分隔多个域名）。
 - 分类标签与状态标签采用淡色背景 + 同色系字体，点击行可打开请求详情抽屉。
 
 ### 请求详情：`HarRequestDetail`
 
 对应文件：`src/components/har/HarRequestDetail.tsx`
 
-- **Headers**：General（URL / Method / Status / Remote Address / Protocol）+ 响应头 + 请求头，采用网格对齐排版。
-- **Preview**：响应体 JSON 格式化预览（自动处理 base64 编码）。
+- **Headers**：
+  - General（URL / Method / Status / Remote Address / Protocol），URL 和 Remote Address 支持一键复制。
+  - **关键响应头**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 以卡片形式置顶展示，其中 `x-response-cinfo`、`x-response-sinfo`、`x-tt-logid` 支持一键复制。
+  - 其余响应头和请求头以网格对齐排版展示。
+- **Preview**：响应体 JSON 格式化预览（自动处理 base64 编码）、图片预览、媒体预览。
+- **Payload**：Query String Parameters 和 Request Payload 展示，JSON 自动格式化。
 - **Timing**：DNS / Connect / SSL / Send / Wait / Receive 各阶段耗时瀑布图（`HarTimingChart`）。
 - **诊断**：提取 `Server-Timing`、`x-tt-logid`、`x-tt-cip`、`x-lsc-source-ip`、Remote Address 等关键字段，支持一键复制。
 
@@ -208,13 +225,12 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 对应文件：`src/components/har/HarSummaryDiagnosis.tsx`
 
-- 汇总所有请求中的异常（失败请求、慢请求、Server-Timing 缓存未命中 / 源站耗时偏高等）。
-- 提供关键字段速查表（Remote Address、x-tt-logid、x-tt-cip、x-lsc-source-ip），支持一键复制。
+- 当前为占位模块，后续将补充汇总诊断功能。
 
 ### 辅助组件：`HarTimingChart` / `CopyText`
 
 - `HarTimingChart`：各网络阶段的分段耗时条与占比明细。
-- `CopyText`：通用「文本 + 一键复制」字段组件，供详情页与汇总诊断复用。
+- `CopyText`：通用「文本 + 一键复制」字段组件，支持 clipboard API 不可用时的兜底处理。供请求列表、详情页与诊断 Tab 复用。
 
 ## 核心代码模块说明
 

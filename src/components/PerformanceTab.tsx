@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Card, Table, Empty, Tag, Modal, Descriptions } from 'antd';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../parser';
 
 interface PerformanceTabProps {
@@ -62,23 +63,77 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       title: 'URL',
       dataIndex: 'url',
       key: 'url',
+      width: 320,
+      ellipsis: true,
       render: (url: string, record: any) => (
         <span
-          style={{ cursor: 'pointer', color: '#5ba3f5' }}
+          style={{ cursor: 'pointer', color: '#5ba3f5', fontFamily: 'var(--font-mono)', fontSize: 12 }}
           onClick={() => setSelectedReq(record)}
-          title="点击查看各阶段耗时详情"
+          title={`${url}\n点击查看各阶段耗时详情`}
         >
-          {truncateUrl(url, 50)}
+          {truncateUrl(url, 55)}
         </span>
       ),
     },
-    { title: '总耗时', dataIndex: 'duration', key: 'duration', render: (d: number) => <span style={{ color: '#f87171', fontWeight: 600 }}>{formatDuration(d)}</span> },
-    { title: 'DNS', dataIndex: 'timeline', key: 'dns', render: (t: any) => t.dns ? formatDuration(t.dns.duration) : '-' },
-    { title: '连接', dataIndex: 'timeline', key: 'connect', render: (t: any) => t.connect ? formatDuration(t.connect.duration) : '-' },
-    { title: 'SSL', dataIndex: 'timeline', key: 'ssl', render: (t: any) => t.ssl ? formatDuration(t.ssl.duration) : '-' },
-    { title: '发送', dataIndex: 'timeline', key: 'send', render: (t: any) => t.send ? formatDuration(t.send.duration) : '-' },
-    { title: '等待', dataIndex: 'timeline', key: 'wait', render: (t: any) => t.wait ? formatDuration(t.wait.duration) : '-' },
-    { title: '下载', dataIndex: 'timeline', key: 'download', render: (t: any) => t.download ? formatDuration(t.download.duration) : '-' },
+    {
+      title: '总耗时',
+      dataIndex: 'duration',
+      key: 'duration',
+      width: 90,
+      align: 'right',
+      render: (d: number) => <span style={{ color: '#f87171', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{formatDuration(d)}</span>,
+    },
+    {
+      title: '各阶段耗时分解',
+      dataIndex: 'timeline',
+      key: 'timeline',
+      width: 280,
+      render: (timeline: any, record: any) => {
+        const total = record.duration || 1;
+        const phases = Object.entries(timeline).filter(([, info]: [string, any]) => info);
+        if (phases.length === 0) return <span style={{ color: 'var(--text-muted)' }}>无阶段数据</span>;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {phases.map(([phase, info]: [string, any]) => {
+              const pct = (info.duration / total) * 100;
+              return (
+                <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {PHASE_NAMES[phase]}
+                  </span>
+                  <div style={{ flex: 1, height: 6, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
+                    <div
+                      style={{
+                        width: `${Math.min(100, pct)}%`,
+                        height: '100%',
+                        background: PHASE_COLORS[phase],
+                        borderRadius: 3,
+                        minWidth: pct > 0 ? 2 : 0,
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', width: 60, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {formatDuration(info.duration)} ({pct.toFixed(0)}%)
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 80,
+      align: 'center',
+      render: (s: string, r: any) => {
+        if (s === 'error' || r.error) return <Tag color="error" style={{ fontSize: 11, border: 'none' }}>失败</Tag>;
+        if (r.statusCode >= 400) return <Tag color="warning" style={{ fontSize: 11, border: 'none' }}>{r.statusCode}</Tag>;
+        return <Tag color="success" style={{ fontSize: 11, border: 'none' }}>{r.statusCode || 'OK'}</Tag>;
+      },
+    },
   ];
 
   return (
@@ -101,18 +156,33 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         </div>
 
         <h4 style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-secondary)' }}>各阶段平均耗时</h4>
-        {Object.entries(phaseStats).filter(([, vals]) => vals.length > 0).map(([phase, vals]) => {
-          const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        {(() => {
+          const phaseChartData = Object.entries(phaseStats)
+            .filter(([, vals]) => vals.length > 0)
+            .map(([phase, vals]) => ({
+              name: PHASE_NAMES[phase],
+              avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+              fill: PHASE_COLORS[phase],
+            }));
           return (
-            <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0' }}>
-              <div style={{ width: 100, fontSize: 13, color: 'var(--text-secondary)' }}>{PHASE_NAMES[phase]}</div>
-              <div style={{ flex: 1, height: 8, background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, avg / stats.max * 100)}%`, background: PHASE_COLORS[phase], borderRadius: 4, transition: 'width 0.5s' }} />
-              </div>
-              <div style={{ width: 80, textAlign: 'right', fontSize: 13 }}>avg {formatDuration(avg)}</div>
-            </div>
+            <ResponsiveContainer width="100%" height={Math.max(200, phaseChartData.length * 40)}>
+              <BarChart data={phaseChartData} layout="vertical" margin={{ left: 20, right: 80 }}>
+                <XAxis type="number" hide />
+                <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any) => [formatDuration(Number(value) || 0), '平均耗时']}
+                />
+                <Bar dataKey="avg" radius={[0, 4, 4, 0]} barSize={24}>
+                  {phaseChartData.map((entry, index) => (
+                    <Cell key={index} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           );
-        })}
+        })()}
       </Card>
 
       {/* Waterfall Chart */}
@@ -124,12 +194,15 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             return (
               <div
                 key={req.id}
+                className="waterfall-row"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   height: 28,
                   marginBottom: 4,
                   cursor: 'pointer',
+                  borderRadius: 4,
+                  transition: 'background 0.15s ease',
                 }}
                 onClick={() => setSelectedReq(req)}
               >
@@ -203,7 +276,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {result.slowRequests.length > 0 && (
         <Card title="🐌 慢请求详情 (>3s)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          <Table dataSource={result.slowRequests} columns={slowColumns} rowKey="id" pagination={false} size="small" scroll={{ y: 400 }} />
+          <Table dataSource={result.slowRequests} columns={slowColumns as any} rowKey="id" pagination={false} size="small" scroll={{ x: 800, y: 400 }} />
         </Card>
       )}
 

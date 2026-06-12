@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag, Empty } from 'antd';
 import { AnalysisResult } from '../parser';
+import { HealthAssessmentCard, HealthAssessment } from './shared/HealthAssessmentCard';
 
 interface ProtocolTabProps {
   result: AnalysisResult;
@@ -10,16 +11,8 @@ interface ProtocolTabProps {
 // Protocol Health Assessment
 // ============================================================
 
-interface ProtocolHealthResult {
-  status: 'healthy' | 'warning' | 'critical';
-  score: number;
-  summary: string;
-  findings: { icon: string; text: string; severity: 'info' | 'warning' | 'error' }[];
-  suggestions: string[];
-}
-
-function assessProtocolHealth(result: AnalysisResult): ProtocolHealthResult {
-  const findings: ProtocolHealthResult['findings'] = [];
+function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
+  const findings: HealthAssessment['findings'] = [];
   const suggestions: string[] = [];
   let score = 100;
 
@@ -210,7 +203,7 @@ function assessProtocolHealth(result: AnalysisResult): ProtocolHealthResult {
   }
 
   // Determine overall status
-  let status: ProtocolHealthResult['status'] = 'healthy';
+  let status: HealthAssessment['status'] = 'healthy';
   if (score < 50) status = 'critical';
   else if (score < 80) status = 'warning';
 
@@ -295,75 +288,10 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     time: e.time.toFixed(2) + 'ms',
   }));
 
-  const statusColor = health.status === 'healthy' ? '#34d399' : health.status === 'warning' ? '#fbbf24' : '#f87171';
-  const statusText = health.status === 'healthy' ? '正常' : health.status === 'warning' ? '需关注' : '异常';
-  const statusBg = health.status === 'healthy' ? 'rgba(52, 211, 153, 0.08)' : health.status === 'warning' ? 'rgba(251, 191, 36, 0.08)' : 'rgba(248, 113, 113, 0.08)';
-
   return (
     <>
       {/* Protocol Health Assessment */}
-      <Card
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>🩺 协议健康评估</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>综合评分</span>
-              <span style={{
-                fontSize: 20, fontWeight: 700, color: statusColor,
-                background: statusBg, padding: '2px 12px', borderRadius: 12,
-              }}>
-                {health.score}
-              </span>
-              <Tag color={statusColor} style={{ fontWeight: 600 }}>{statusText}</Tag>
-            </div>
-          </div>
-        }
-        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-      >
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
-          {health.summary}
-        </div>
-
-        {/* Findings */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: health.suggestions.length > 0 ? 16 : 0 }}>
-          {health.findings.map((f, i) => (
-            <div
-              key={i}
-              style={{
-                padding: '10px 14px',
-                background: 'var(--bg-surface)',
-                borderRadius: 8,
-                border: `1px solid ${f.severity === 'error' ? 'rgba(248, 113, 113, 0.2)' : f.severity === 'warning' ? 'rgba(251, 191, 36, 0.2)' : 'rgba(52, 211, 153, 0.15)'}`,
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: 'var(--text-secondary)',
-              }}
-            >
-              {f.text}
-            </div>
-          ))}
-        </div>
-
-        {/* Suggestions */}
-        {health.suggestions.length > 0 && (
-          <div style={{
-            padding: '12px 14px',
-            background: 'rgba(74, 158, 255, 0.06)',
-            borderRadius: 8,
-            border: '1px solid rgba(74, 158, 255, 0.15)',
-          }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', marginBottom: 8 }}>
-              🔧 定因排查建议
-            </div>
-            {health.suggestions.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: i < health.suggestions.length - 1 ? 6 : 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <span style={{ color: '#4a9eff', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-                <span>{s}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <HealthAssessmentCard title="协议健康评估" assessment={health} />
 
       {/* HTTP/2 Analysis */}
       {hasHttp2 && (

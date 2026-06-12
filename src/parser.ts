@@ -908,9 +908,12 @@ export function truncateUrl(url: string, maxLen: number): string {
     const u = new URL(url);
     const path = u.pathname + u.search;
     const full = u.host + path;
-    return full.substring(0, maxLen) + (full.length > maxLen ? '...' : '');
+    if (full.length <= maxLen) return full;
+    // 省略号用 Unicode 中间点 + 橙色高亮，更醒目
+    return full.substring(0, maxLen - 2) + '\u00B7\u00B7\u00B7';
   } catch {
-    return url.substring(0, maxLen) + (url.length > maxLen ? '...' : '');
+    if (url.length <= maxLen) return url;
+    return url.substring(0, maxLen - 2) + '\u00B7\u00B7\u00B7';
   }
 }
 

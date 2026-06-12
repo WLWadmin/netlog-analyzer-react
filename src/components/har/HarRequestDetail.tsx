@@ -4,6 +4,7 @@ import {
   HarRequestEntry,
   decodeResponseBody,
   statusStyle,
+  formatBytes,
 } from '../../harParser';
 import CopyText from './CopyText';
 import HarTimingChart from './HarTimingChart';
@@ -78,8 +79,50 @@ const GeneralRow: React.FC<{ label: string; children: React.ReactNode }> = ({ la
   </div>
 );
 
+const JsonTree: React.FC<{ data: any; depth?: number }> = ({ data, depth = 0 }) => {
+  if (data === null) return <span style={{ color: '#9ca3af' }}>null</span>;
+  if (typeof data !== 'object') return <span style={{ color: typeof data === 'string' ? '#34d399' : '#fbbf24' }}>{JSON.stringify(data)}</span>;
+
+  const isArray = Array.isArray(data);
+  const entries = Object.entries(data);
+  if (entries.length === 0) return <span>{isArray ? '[]' : '{}'}</span>;
+
+  return (
+    <div style={{ marginLeft: depth > 0 ? 16 : 0 }}>
+      {entries.map(([key, value]) => (
+        <div key={key} style={{ margin: '2px 0' }}>
+          <span style={{ color: '#93c5fd' }}>{isArray ? '' : `${key}: `}</span>
+          <JsonTree data={value} depth={depth + 1} />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const PRIORITY_HEADERS = ['server-timing', 'x-response-cinfo', 'x-response-sinfo', 'x-tt-logid', 'server'];
+const COPYABLE_PRIORITY_HEADERS = ['x-response-cinfo', 'x-response-sinfo', 'x-tt-logid'];
+
 const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
   const decoded = useMemo(() => decodeResponseBody(entry), [entry]);
+
+  const { priorityHeaders, otherResponseHeaders } = useMemo(() => {
+    const priority: { name: string; value: string }[] = [];
+    const other: { name: string; value: string }[] = [];
+    entry.responseHeaders.forEach(h => {
+      if (PRIORITY_HEADERS.includes(h.name.toLowerCase())) {
+        priority.push(h);
+      } else {
+        other.push(h);
+      }
+    });
+    // 按 PRIORITY_HEADERS 顺序排序
+    priority.sort((a, b) => {
+      const idxA = PRIORITY_HEADERS.indexOf(a.name.toLowerCase());
+      const idxB = PRIORITY_HEADERS.indexOf(b.name.toLowerCase());
+      return idxA - idxB;
+    });
+    return { priorityHeaders: priority, otherResponseHeaders: other };
+  }, [entry.responseHeaders]);
 
   // Headers Tab
   const headersTab = (
@@ -112,9 +155,45 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{entry.protocol}</span>
         </GeneralRow>
       </div>
+
+      {priorityHeaders.length > 0 && (
+        <div>
+          {sectionTitle('关键响应头')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {priorityHeaders.map((h, i) => {
+              const canCopy = COPYABLE_PRIORITY_HEADERS.includes(h.name.toLowerCase());
+              return (
+                <div
+                  key={i}
+                  style={{
+                    padding: '10px 12px',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {h.name}
+                    </span>
+                  </div>
+                  {canCopy ? (
+                    <CopyText text={h.value} label={h.name} />
+                  ) : (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+                      {h.value}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div>
         {sectionTitle('Response Headers')}
-        <HeaderList headers={entry.responseHeaders} />
+        <HeaderList headers={otherResponseHeaders} />
       </div>
       <div>
         {sectionTitle('Request Headers')}
@@ -124,30 +203,62 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
   );
 
   // Preview Tab
-  const previewTab = decoded.text ? (
+  const previewTab = decoded.isImage && decoded.imageSrc ? (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+        图片预览 · {entry.mimeType || '未知类型'} · {formatBytes(entry.contentSize)}
+      </div>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, textAlign: 'center', maxHeight: 520, overflow: 'auto' }}>
+        <img
+          src={decoded.imageSrc}
+          alt={entry.name}
+          style={{ maxWidth: '100%', maxHeight: 480, borderRadius: 4, objectFit: 'contain' }}
+        />
+      </div>
+    </div>
+  ) : decoded.isMedia && decoded.imageSrc ? (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+        媒体预览 · {entry.mimeType || '未知类型'} · {formatBytes(entry.contentSize)}
+      </div>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, textAlign: 'center' }}>
+        <video
+          src={decoded.imageSrc}
+          controls
+          style={{ maxWidth: '100%', maxHeight: 480, borderRadius: 4 }}
+        />
+      </div>
+    </div>
+  ) : decoded.text ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
         {decoded.isJson ? 'JSON 已格式化' : '原始响应体'} · {entry.mimeType || '未知类型'}
       </div>
-      <pre
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 8,
-          padding: 14,
-          fontSize: 12.5,
-          lineHeight: 1.6,
-          color: 'var(--text-primary)',
-          fontFamily: 'var(--font-mono)',
-          maxHeight: 480,
-          overflow: 'auto',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-          margin: 0,
-        }}
-      >
-        {decoded.text}
-      </pre>
+      {decoded.isJson && decoded.parsed ? (
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 12.5, maxHeight: 480, overflow: 'auto' }}>
+          <JsonTree data={decoded.parsed} />
+        </div>
+      ) : (
+        <pre
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 8,
+            padding: 14,
+            fontSize: 12.5,
+            lineHeight: 1.6,
+            color: 'var(--text-primary)',
+            fontFamily: 'var(--font-mono)',
+            maxHeight: 480,
+            overflow: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            margin: 0,
+          }}
+        >
+          {decoded.text}
+        </pre>
+      )}
     </div>
   ) : (
     <Empty description="该请求未捕获响应体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -155,6 +266,75 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
 
   // Timing Tab
   const timingTab = <HarTimingChart timings={entry.timings} total={entry.time} />;
+
+  // Payload Tab
+  const payloadTab = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {entry.queryString.length > 0 && (
+        <div>
+          {sectionTitle('Query String Parameters')}
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
+              {entry.queryString.map((q, i) => (
+                <Fragment key={i}>
+                  <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{q.name}</span>
+                  <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{q.value}</span>
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {entry.postData ? (
+        <div>
+          {sectionTitle('Request Payload')}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            {entry.postData.mimeType || '未知类型'}
+          </div>
+          {entry.postData.params && entry.postData.params.length > 0 ? (
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 13 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
+                {entry.postData.params.map((p, i) => (
+                  <Fragment key={i}>
+                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.name}</span>
+                    <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{p.value}</span>
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          ) : entry.postData.text ? (
+            (() => {
+              const isJsonPayload = entry.postData.mimeType?.includes('json') || (entry.postData.text.trim().startsWith('{') || entry.postData.text.trim().startsWith('['));
+              let parsedPayload: any = null;
+              if (isJsonPayload) {
+                try { parsedPayload = JSON.parse(entry.postData.text); } catch { /* not valid json */ }
+              }
+              return (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                    {parsedPayload ? 'JSON 已格式化' : '原始 Payload'} · {entry.postData.mimeType || '未知类型'}
+                  </div>
+                  {parsedPayload ? (
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 12.5, maxHeight: 480, overflow: 'auto' }}>
+                      <JsonTree data={parsedPayload} />
+                    </div>
+                  ) : (
+                    <pre style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', maxHeight: 480, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+                      {entry.postData.text}
+                    </pre>
+                  )}
+                </div>
+              );
+            })()
+          ) : (
+            <Empty description="Payload 内容为空" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </div>
+      ) : (
+        <Empty description="该请求无 Payload" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      )}
+    </div>
+  );
 
   // 诊断 Tab
   const diagItem = (label: string, value: string, hint?: string) => (
@@ -222,9 +402,12 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
     </div>
   );
 
+  const hasPayload = entry.queryString.length > 0 || !!entry.postData;
+
   const items = [
     { key: 'headers', label: 'Headers', children: headersTab },
     { key: 'preview', label: 'Preview', children: previewTab },
+    ...(hasPayload ? [{ key: 'payload', label: 'Payload', children: payloadTab }] : []),
     { key: 'timing', label: 'Timing', children: timingTab },
     { key: 'diagnosis', label: '诊断', children: diagnosisTab },
   ];

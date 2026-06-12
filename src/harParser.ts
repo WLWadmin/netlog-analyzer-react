@@ -27,6 +27,17 @@ export interface HarServerTiming {
 
 export type HarCategory = 'xhr' | 'doc' | 'css' | 'js' | 'font' | 'img' | 'media' | 'other';
 
+export interface HarQueryParam {
+  name: string;
+  value: string;
+}
+
+export interface HarPostData {
+  mimeType: string;
+  text: string;
+  params?: { name: string; value: string }[];
+}
+
 export interface HarRequestEntry {
   id: number;
   name: string;
@@ -50,6 +61,8 @@ export interface HarRequestEntry {
   responseHeaders: HarHeader[];
   responseBody: string;
   responseEncoding: string;
+  queryString: HarQueryParam[];
+  postData?: HarPostData;
   // 关键诊断字段
   serverTiming: HarServerTiming[];
   xTtLogid: string;
@@ -215,6 +228,19 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
   let remoteAddress = entry.serverIPAddress || '';
   if (remoteAddress && entry.connection) remoteAddress += ':' + entry.connection;
 
+  // 提取 queryString 和 postData
+  const queryString: HarQueryParam[] = (req.queryString || []).map((q: any) => ({
+    name: q.name || '',
+    value: q.value || '',
+  }));
+
+  const postDataRaw = req.postData || {};
+  const postData: HarPostData | undefined = postDataRaw.text || postDataRaw.params ? {
+    mimeType: postDataRaw.mimeType || '',
+    text: postDataRaw.text || '',
+    params: (postDataRaw.params || []).map((p: any) => ({ name: p.name || '', value: p.value || '' })),
+  } : undefined;
+
   return {
     id,
     name,
@@ -232,7 +258,7 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
     contentSize: num(content.size),
     time,
     startedDateTime: entry.startedDateTime || '',
-    startMs: entry.startedDateTime ? new Date(entry.startedDateTime).getTime() : 0,
+    startMs: entry.startedDateTime ? (new Date(entry.startedDateTime).getTime() || 0) : 0,
     timings: {
       blocked: num(t.blocked),
       dns: num(t.dns),
@@ -246,6 +272,8 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
     responseHeaders,
     responseBody: content.text || '',
     responseEncoding: content.encoding || '',
+    queryString,
+    postData,
     serverTiming,
     xTtLogid,
     xTtCip,
@@ -297,21 +325,47 @@ export function parseHar(data: any): HarAnalysisResult {
 }
 
 // 解码响应体（处理 base64）并尝试 JSON 格式化
-export function decodeResponseBody(entry: HarRequestEntry): { text: string; isJson: boolean } {
+export function decodeResponseBody(entry: HarRequestEntry): { text: string; isJson: boolean; parsed?: any; isImage: boolean; isMedia: boolean; imageSrc?: string } {
   let raw = entry.responseBody || '';
+  const mimeType = (entry.mimeType || '').toLowerCase();
+  const isImage = mimeType.startsWith('image/');
+  const isMedia = mimeType.startsWith('video/') || mimeType.startsWith('audio/');
+
+  // 图片和媒体：base64 编码时直接生成 data URL
   if (entry.responseEncoding === 'base64' && raw) {
+    if (isImage) {
+      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: `data:${entry.mimeType};base64,${raw}` };
+    }
+    if (isMedia) {
+      return { text: '', isJson: false, isImage: false, isMedia: true, imageSrc: `data:${entry.mimeType};base64,${raw}` };
+    }
     try {
-      raw = decodeURIComponent(escape(window.atob(raw)));
+      raw = new TextDecoder().decode(Uint8Array.from(window.atob(raw), c => c.charCodeAt(0)));
     } catch {
       try { raw = window.atob(raw); } catch { /* keep raw */ }
     }
   }
-  if (!raw) return { text: '', isJson: false };
+
+  // 非 base64 的图片/媒体（如 data URL 或空）
+  if (isImage && raw) {
+    // 如果已经是 data URL 或可解码内容
+    if (raw.startsWith('data:')) {
+      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: raw };
+    }
+    // 尝试作为 base64 解码
+    try {
+      window.atob(raw); // 验证是否为有效 base64
+      const src = `data:${entry.mimeType};base64,${raw}`;
+      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: src };
+    } catch { /* fall through */ }
+  }
+
+  if (!raw) return { text: '', isJson: false, isImage: false, isMedia: false };
   try {
     const obj = JSON.parse(raw);
-    return { text: JSON.stringify(obj, null, 2), isJson: true };
+    return { text: JSON.stringify(obj, null, 2), isJson: true, parsed: obj, isImage: false, isMedia: false };
   } catch {
-    return { text: raw, isJson: false };
+    return { text: raw, isJson: false, isImage: false, isMedia: false };
   }
 }
 

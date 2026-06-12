@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { Row, Col, Card } from 'antd';
+import { Row, Col } from 'antd';
 import {
   FileTextOutlined,
   LinkOutlined,
@@ -10,12 +10,14 @@ import {
 } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { formatDuration } from '../parser';
+import { SummaryCard } from './shared/SummaryCard';
 
 interface SummaryCardsProps {
   result: AnalysisResult;
+  onNavigate?: (tab: string, search?: string) => void;
 }
 
-const SummaryCards: FC<SummaryCardsProps> = ({ result }) => {
+const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
   const completedCount = result.urlRequests.filter(q => q.endTime).length;
   const failedReqs = result.urlRequests.filter(q => q.status === 'error').length;
   const durations = result.urlRequests.filter(q => q.duration).map(q => q.duration!);
@@ -53,6 +55,7 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result }) => {
       color: '#22d3ee',
       icon: <LinkOutlined />,
       bgGradient: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.08))',
+      onClick: () => onNavigate?.('events', 'URL_REQUEST'),
     },
     {
       title: proxyLabel,
@@ -71,6 +74,7 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result }) => {
       bgGradient: result.errors.length > 0
         ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))'
         : 'linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(34, 211, 238, 0.08))',
+      onClick: result.errors.length > 0 ? () => onNavigate?.('events', 'net_error') : undefined,
     },
     {
       title: '平均耗时',
@@ -94,101 +98,15 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result }) => {
     <Row gutter={[16, 16]} style={{ marginBottom: 4 }}>
       {cards.map((card, i) => (
         <Col xs={12} sm={8} md={8} lg={4} key={i}>
-          <Card
-            style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 12,
-              overflow: 'hidden',
-              transition: 'all 0.3s ease',
-              cursor: 'default',
-            }}
-            bodyStyle={{ padding: 0 }}
-            hoverable
-          >
-            {/* Top accent bar */}
-            <div
-              style={{
-                height: 3,
-                background: card.color,
-                opacity: 0.7,
-              }}
-            />
-            <div style={{ padding: '16px 14px', position: 'relative' }}>
-              {/* Background gradient */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: card.bgGradient,
-                  opacity: 0.5,
-                  pointerEvents: 'none',
-                }}
-              />
-              {/* Icon + Title row */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  marginBottom: 10,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                <span
-                  style={{
-                    color: card.color,
-                    fontSize: 14,
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  {card.icon}
-                </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--text-muted)',
-                    fontWeight: 500,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  {card.title}
-                </span>
-              </div>
-              {/* Value */}
-              <div
-                style={{
-                  fontSize: 26,
-                  fontWeight: 700,
-                  color: card.color,
-                  lineHeight: 1.2,
-                  position: 'relative',
-                  zIndex: 1,
-                  fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                }}
-              >
-                {card.value}
-              </div>
-              {/* Suffix */}
-              <div
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-muted)',
-                  marginTop: 6,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                {card.suffix}
-              </div>
-            </div>
-          </Card>
+          <SummaryCard
+            title={card.title}
+            value={card.value}
+            suffix={card.suffix}
+            color={card.color}
+            icon={card.icon}
+            bgGradient={card.bgGradient}
+            onClick={card.onClick}
+          />
         </Col>
       ))}
     </Row>

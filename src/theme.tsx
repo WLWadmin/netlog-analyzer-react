@@ -18,8 +18,9 @@ export const useTheme = () => useContext(ThemeContext);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mode, setModeState] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem('netlog-theme');
-    return (saved as ThemeMode) || 'dark';
+    const raw = localStorage.getItem('netlog-theme');
+    const saved: ThemeMode = raw === 'dark' || raw === 'light' ? raw : 'dark';
+    return saved;
   });
 
   useEffect(() => {

@@ -6,7 +6,6 @@ import {
   DashboardOutlined,
   ClockCircleOutlined,
   SafetyOutlined,
-  ApiOutlined,
   MedicineBoxOutlined,
   UnorderedListOutlined,
   RadarChartOutlined,
@@ -15,6 +14,10 @@ import {
   VerticalAlignTopOutlined,
   WarningOutlined,
   LoadingOutlined,
+  GlobalOutlined,
+  QuestionCircleOutlined,
+  FileTextOutlined,
+  CloudUploadOutlined,
 } from '@ant-design/icons';
 import { parseLog, ParsedEvent, AnalysisResult } from './parser';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
@@ -28,6 +31,7 @@ import SSLTab from './components/SSLTab';
 import ProtocolTab from './components/ProtocolTab';
 import DiagnosisTab from './components/DiagnosisTab';
 import EventsTab from './components/EventsTab';
+import NetLogRequestList from './components/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
 
 const { Header, Content } = Layout;
@@ -40,6 +44,8 @@ const App: React.FC = () => {
   const [fileType, setFileType] = useState<'netlog' | 'har'>('netlog');
   const [loading, setLoading] = useState(false);
   const [showBackTop, setShowBackTop] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [eventsSearch, setEventsSearch] = useState('');
   const { mode, toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -50,7 +56,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleFileLoaded = (data: any) => {
+  const handleFileLoaded = (data: unknown) => {
     setLoading(true);
     setTimeout(() => {
       try {
@@ -101,33 +107,23 @@ const App: React.FC = () => {
 
   const tabItems = [
     { key: 'overview', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DashboardOutlined />总览</span>, children: result ? <OverviewTab result={result} /> : null },
+    { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />图列预览</span>, children: result ? <NetLogRequestList result={result} /> : null },
     { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} /> : null },
-    { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} /> },
-    { key: 'ssl', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />SSL/TLS</span>, children: result ? <SSLTab result={result} /> : null },
-    { key: 'protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ApiOutlined />协议分析</span>, children: result ? <ProtocolTab result={result} /> : null },
+    { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} initialSearch={eventsSearch} /> },
+    { key: 'ssl-protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />安全与协议</span>, children: result ? (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <SSLTab result={result} />
+        <ProtocolTab result={result} />
+      </div>
+    ) : null },
     { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
   ];
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
       {/* ====== Modern Header ====== */}
-      <Header
-        style={{
-          background: 'var(--bg-surface)',
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 40px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          height: 68,
-          lineHeight: 'normal',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+      <Header className="app-header">
+        <div className="app-header-title">
           {/* Logo icon - Network/Radar themed */}
           <div
             style={{
@@ -157,15 +153,15 @@ const App: React.FC = () => {
                 lineHeight: 1.3,
               }}
             >
-              NetLog 网络日志定因分析工具
+              浏览器文件分析工具
             </h1>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-              Chrome / Edge 网络日志 (NetLog) 与 HAR 可视化分析平台
+              Chrome / Edge NetLog 与 HAR 文件可视化分析
             </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, flexShrink: 0, alignItems: 'center' }}>
+        <div className="app-header-actions">
           {/* Theme Toggle Button */}
           <Button
             icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
@@ -228,7 +224,7 @@ const App: React.FC = () => {
       </Header>
 
       {/* ====== Main Content ====== */}
-      <Content style={{ maxWidth: 1440, margin: '0 auto', padding: '28px 32px', width: '100%' }}>
+      <Content style={{ maxWidth: 1920, margin: '0 auto', padding: '24px clamp(20px, 3vw, 48px)', width: '100%', boxSizing: 'border-box' }}>
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
             <div
@@ -256,14 +252,127 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : !hasData ? (
-          <div style={{ maxWidth: 900, margin: '48px auto' }}>
+          <div style={{ maxWidth: 900, margin: '48px auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
             <UploadZone onFileLoaded={handleFileLoaded} />
+
+            {/* 使用说明 */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <QuestionCircleOutlined style={{ fontSize: 16, color: 'var(--accent-blue)' }} />
+                <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>不知道如何获取文件？</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                {/* HAR 文件 */}
+                <a
+                  href="https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'block',
+                    padding: '20px 24px',
+                    background: 'var(--bg-surface)',
+                    borderRadius: 14,
+                    border: '1px solid var(--border-color)',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = 'var(--accent-blue)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(14, 165, 233, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.12))',
+                        border: '1px solid rgba(14, 165, 233, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FileTextOutlined style={{ fontSize: 18, color: '#0ea5e9' }} />
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>HAR 文件获取指南</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    通过浏览器 DevTools → Network 面板导出网络请求记录
+                  </p>
+                  <span style={{ fontSize: 12, color: 'var(--accent-blue)', marginTop: 8, display: 'inline-block' }}>
+                    查看详细教程 →
+                  </span>
+                </a>
+
+                {/* NetLog 文件 */}
+                <a
+                  href="https://bytedance.larkoffice.com/docx/NfwtdMpCLoh04yx0xnec1PXCnnf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'block',
+                    padding: '20px 24px',
+                    background: 'var(--bg-surface)',
+                    borderRadius: 14,
+                    border: '1px solid var(--border-color)',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = '#6366f1';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(99, 102, 241, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12))',
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CloudUploadOutlined style={{ fontSize: 18, color: '#6366f1' }} />
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>NetLog 文件获取指南</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    通过 chrome://net-export/ 或 edge://net-export/ 导出网络日志
+                  </p>
+                  <span style={{ fontSize: 12, color: '#6366f1', marginTop: 8, display: 'inline-block' }}>
+                    查看详细教程 →
+                  </span>
+                </a>
+              </div>
+            </div>
           </div>
         ) : fileType === 'har' && harResult ? (
           <HarResultPage result={harResult} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {result && <SummaryCards result={result} />}
+            {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) setEventsSearch(search); }} />}
             <Alert
               message={
                 <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
@@ -294,6 +403,8 @@ const App: React.FC = () => {
               }}
             >
               <Tabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
                 items={tabItems}
                 type="card"
                 style={{

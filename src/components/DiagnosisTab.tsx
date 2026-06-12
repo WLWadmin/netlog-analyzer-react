@@ -1,165 +1,15 @@
 import { useState, useMemo } from 'react';
-import { Card, Alert, Tag, Badge, Collapse, Button } from 'antd';
+import { Card, Alert, Tag, Collapse, Button } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { generateSuggestions, generateNextStepInfo } from '../diagnosis';
+import { groupIssues, groupByCategory, IssueAlert } from './shared/IssueDisplay';
 
 const { Panel } = Collapse;
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
 }
-
-// Group issues by category+message, keeping slow requests separate
-function groupIssues(issues: Array<{ category: string; message: string; severity: string; detail: string; time: number }>) {
-  const grouped = new Map<
-    string,
-    {
-      category: string;
-      message: string;
-      severity: string;
-      count: number;
-      items: typeof issues;
-    }
-  >();
-
-  for (const item of issues) {
-    const isSlowRequest = item.category === '慢请求';
-    const key = isSlowRequest ? `slow-${item.message}` : `${item.category}|${item.message}`;
-
-    if (grouped.has(key)) {
-      const g = grouped.get(key)!;
-      g.count++;
-      g.items.push(item);
-    } else {
-      grouped.set(key, {
-        category: item.category,
-        message: item.message,
-        severity: item.severity,
-        count: 1,
-        items: [item],
-      });
-    }
-  }
-
-  return Array.from(grouped.values()).sort((a, b) => {
-    const order: Record<string, number> = { error: 0, critical: 0, warning: 1, info: 2, ok: 3 };
-    if ((order[a.severity] || 3) !== (order[b.severity] || 3)) {
-      return (order[a.severity] || 3) - (order[b.severity] || 3);
-    }
-    return b.count - a.count;
-  });
-}
-
-// Group by category for load-more
-function groupByCategory(
-  issues: ReturnType<typeof groupIssues>
-) {
-  const map = new Map<string, typeof issues>();
-  for (const item of issues) {
-    const cat = item.category;
-    if (!map.has(cat)) map.set(cat, []);
-    map.get(cat)!.push(item);
-  }
-  return map;
-}
-
-// Single issue alert component
-const IssueAlert: React.FC<{
-  item: ReturnType<typeof groupIssues>[0];
-  index: number;
-  expandedKeys: string[];
-  setExpandedKeys: (keys: string[]) => void;
-}> = ({ item, index, expandedKeys, setExpandedKeys }) => {
-  const isSlowRequest = item.category === '慢请求';
-  const hasMultiple = item.count > 1 && !isSlowRequest;
-  const color = item.severity === 'error' || item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'orange' : item.severity === 'ok' ? 'green' : 'blue';
-
-  return (
-    <Alert
-      key={`issue-${index}`}
-      message={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Badge color={color} />
-          <Tag color={color} style={{ fontWeight: 600 }}>{item.category}</Tag>
-          <span
-            style={{
-              color: 'var(--text-primary)',
-              fontWeight: 600,
-              fontSize: 14,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
-            title={item.message}
-          >
-            {item.message}
-          </span>
-          {hasMultiple && (
-            <Tag color={color} style={{ marginLeft: 'auto', flexShrink: 0 }}>
-              × {item.count}
-            </Tag>
-          )}
-        </div>
-      }
-      description={
-        <div style={{ marginTop: 10 }}>
-          {isSlowRequest ? (
-            <pre style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", lineHeight: 1.6 }}>
-              {item.items[0].detail}
-            </pre>
-          ) : hasMultiple ? (
-            <Collapse
-              ghost
-              bordered={false}
-              activeKey={expandedKeys}
-              onChange={(keys) => setExpandedKeys(keys as string[])}
-              style={{ background: 'transparent' }}
-            >
-              <Panel
-                header={<span style={{ color: '#9ca3af', fontSize: 13 }}>点击查看 {item.count} 条详情</span>}
-                key={`panel-${index}`}
-                style={{ padding: 0 }}
-              >
-                {item.items.map((sub, idx) => (
-                  <pre
-                    key={idx}
-                    style={{
-                      margin: '4px 0',
-                      fontSize: 12,
-                      color: 'var(--text-secondary)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                      lineHeight: 1.5,
-                      padding: '8px 12px',
-                      background: 'var(--bg-base)',
-                      borderRadius: 6,
-                    }}
-                  >
-                    {sub.detail}
-                  </pre>
-                ))}
-              </Panel>
-            </Collapse>
-          ) : (
-            <pre style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", lineHeight: 1.6 }}>
-              {item.items[0].detail}
-            </pre>
-          )}
-        </div>
-      }
-      type={color as any}
-      style={{
-        marginBottom: 10,
-        background: 'var(--bg-surface)',
-        border: `1px solid ${color === 'red' ? 'rgba(248, 113, 113, 0.2)' : color === 'orange' ? 'rgba(251, 191, 36, 0.2)' : color === 'green' ? 'rgba(52, 211, 153, 0.2)' : 'rgba(91, 163, 245, 0.2)'}`,
-      }}
-    />
-  );
-};
 
 // Next step info collection panel (uses generateNextStepInfo from diagnosis.ts)
 const NextStepPanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
@@ -251,16 +101,7 @@ const NextStepPanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
 };
 
 const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
-  const allIssuesRaw = [
-    ...result.errors.map(e => ({ ...e, severity: 'error' as const })),
-    ...result.warnings.map(e => ({ ...e, severity: 'warning' as const })),
-    ...result.info.map(e => ({ ...e, severity: e.severity as any })),
-  ].sort((a, b) => {
-    const order: Record<string, number> = { error: 0, critical: 0, warning: 1, info: 2, ok: 3 };
-    return (order[a.severity] || 3) - (order[b.severity] || 3);
-  });
-
-  const groupedIssues = useMemo(() => groupIssues(allIssuesRaw), [allIssuesRaw]);
+  const groupedIssues = useMemo(() => groupIssues(result.errors, [...result.warnings, ...result.info] as any), [result]);
   const byCategory = useMemo(() => groupByCategory(groupedIssues), [groupedIssues]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [loadedCategories, setLoadedCategories] = useState<Map<string, number>>(new Map());

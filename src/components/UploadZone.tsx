@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, message, Progress, notification } from 'antd';
 import {
   CloudUploadOutlined,
@@ -11,7 +11,7 @@ import {
 const { Dragger } = Upload;
 
 interface UploadZoneProps {
-  onFileLoaded: (data: any) => void;
+  onFileLoaded: (data: unknown) => void;
 }
 
 const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
@@ -19,6 +19,16 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
   const [dragOver, setDragOver] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
   const dropRef = useRef<HTMLDivElement>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  // 组件卸载时清理定时器，防止内存泄漏
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
 
   const customRequest = ({ file, onSuccess }: any) => {
     setReading(true);
@@ -26,10 +36,13 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
 
     const reader = new FileReader();
 
-    const progressInterval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       setReadProgress(prev => {
         if (prev >= 90) {
-          clearInterval(progressInterval);
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = undefined;
+          }
           return 90;
         }
         return prev + Math.random() * 15;
@@ -44,7 +57,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
     };
 
     reader.onload = (e) => {
-      clearInterval(progressInterval);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
       setReadProgress(100);
       try {
         const json = JSON.parse(e.target?.result as string);
@@ -61,7 +77,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       }
     };
     reader.onerror = () => {
-      clearInterval(progressInterval);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
       setReading(false);
       setReadProgress(0);
       message.error('文件读取失败');

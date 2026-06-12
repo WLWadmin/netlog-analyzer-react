@@ -149,6 +149,16 @@ code, pre, .mono {
   color: var(--text-primary) !important;
 }
 
+/* Table sorter arrow colors */
+.ant-table-column-sorter-up,
+.ant-table-column-sorter-down {
+  color: var(--text-muted) !important;
+}
+.ant-table-column-sorter-up.active,
+.ant-table-column-sorter-down.active {
+  color: var(--accent-blue) !important;
+}
+
 .ant-table-thead > tr > th {
   background: var(--bg-surface) !important;
   color: var(--text-secondary) !important;
@@ -304,17 +314,20 @@ code, pre, .mono {
 
 /* Input & Select */
 .ant-input,
+.ant-input-affix-wrapper,
 .ant-select-selector,
 .ant-input-search .ant-input {
-  background: var(--bg-surface) !important;
+  background: var(--bg-elevated) !important;
   border-color: var(--border-color) !important;
   color: var(--text-primary) !important;
   font-size: var(--font-size-base) !important;
 }
 
+/* Placeholder: adaptive color for both light and dark themes */
 .ant-input::placeholder,
-.ant-select-selection-placeholder {
-  color: var(--text-secondary) !important;
+.ant-select-selection-placeholder,
+.ant-input-affix-wrapper .ant-input::placeholder {
+  color: var(--text-muted) !important;
   opacity: 1 !important;
 }
 
@@ -515,4 +528,145 @@ code, pre, .mono {
 
 .netlog-modal-dark .ant-list-item {
   border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* ============================================================
+   Waterfall Row Hover
+   ============================================================ */
+.waterfall-row:hover {
+  background: var(--bg-surface) !important;
+}
+
+/* 主题切换平滑过渡 */
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .ant-card,
+  .ant-table,
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td,
+  .ant-tabs,
+  .ant-modal-content,
+  .ant-tag,
+  .ant-alert,
+  .ant-input,
+  .ant-select-selector,
+  .ant-btn,
+  .ant-collapse,
+  .ant-descriptions,
+  .ant-drawer-content,
+  .ant-pagination {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+}
+
+/* 瀑布图行 hover 高亮 */
+.waterfall-row {
+  transition: background-color 0.15s ease;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.waterfall-row:hover {
+  background-color: var(--bg-surface);
+}
+
+/* 表格行 hover 增强 */
+.ant-table-tbody > tr:hover > td {
+  background: var(--bg-surface) !important;
+}
+
+/* HAR 请求列表选中行高亮 */
+.har-request-row-selected > td {
+  background: rgba(74, 158, 255, 0.08) !important;
+}
+.har-request-row-selected:hover > td {
+  background: rgba(74, 158, 255, 0.12) !important;
+}
+
+/* 表头和单元格禁止换行 */
+.ant-table-thead > tr > th,
+.ant-table-tbody > tr > td {
+  white-space: nowrap !important;
+}
+
+/* HAR 详情面板滑入动画 */
+@keyframes harDetailSlideIn {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Tab 内容切换淡入 */
+.ant-tabs-tabpane {
+  animation: tabFadeIn 0.25s ease;
+}
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .ant-card-head-title {
+    font-size: 14px !important;
+  }
+  .ant-table {
+    font-size: 12px;
+  }
+  .ant-tabs-nav {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .ant-card {
+    border-radius: 8px !important;
+  }
+  .ant-card-head {
+    padding: 0 12px !important;
+    min-height: 40px !important;
+  }
+  .ant-card-body {
+    padding: 12px !important;
+  }
+}
+
+/* App Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, var(--bg-elevated), var(--bg-surface));
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+}
+.app-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-btn {
+  background: rgba(74, 158, 255, 0.12);
+  border: 1px solid rgba(74, 158, 255, 0.25);
+  color: #4a9eff;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.export-btn:hover {
+  background: rgba(74, 158, 255, 0.2);
+  border-color: rgba(74, 158, 255, 0.4);
 }

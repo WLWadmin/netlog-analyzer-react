@@ -1,39 +1,39 @@
-import { Row, Col, Card } from 'antd';
+import { Row, Col } from 'antd';
 import {
-  LinkOutlined,
+  FileTextOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
   CloudDownloadOutlined,
   FieldTimeOutlined,
 } from '@ant-design/icons';
 import { HarAnalysisResult, formatBytes, formatHarTime, HAR_SLOW_THRESHOLD_MS } from '../../harParser';
+import { SummaryCard } from '../shared/SummaryCard';
 
 interface HarSummaryCardsProps {
   result: HarAnalysisResult;
   onFilterFailed?: () => void;
   onFilterSlow?: () => void;
+  onFilterAll?: () => void; // 新增
 }
 
-const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFailed, onFilterSlow }) => {
+const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFailed, onFilterSlow, onFilterAll }) => {
   const cards = [
     {
       title: '总请求数',
       value: result.totalRequests.toLocaleString(),
       suffix: `来源: ${result.creator || 'HAR'}`,
       color: '#0ea5e9',
-      icon: <LinkOutlined />,
+      icon: <FileTextOutlined />,
       bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.08))',
-      onClick: undefined as undefined | (() => void),
+      onClick: onFilterAll,
     },
     {
       title: '失败请求',
       value: result.failedCount,
       suffix: result.failedCount > 0 ? '点击筛选失败请求 ›' : '无失败',
-      color: result.failedCount > 0 ? '#f87171' : '#34d399',
+      color: '#f87171',
       icon: <CloseCircleOutlined />,
-      bg: result.failedCount > 0
-        ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))'
-        : 'linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(34, 211, 238, 0.08))',
+      bg: 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))',
       onClick: result.failedCount > 0 ? onFilterFailed : undefined,
     },
     {
@@ -69,45 +69,15 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
     <Row gutter={[16, 16]} style={{ marginBottom: 4 }}>
       {cards.map((card, i) => (
         <Col key={i} flex="1 1 180px" style={{ minWidth: 180 }}>
-          <Card
+          <SummaryCard
+            title={card.title}
+            value={card.value}
+            suffix={card.suffix}
+            color={card.color}
+            icon={card.icon}
+            bgGradient={card.bg}
             onClick={card.onClick}
-            style={{
-              background: 'var(--bg-elevated)',
-              border: card.onClick ? '1px solid ' + card.color : '1px solid var(--border-color)',
-              borderRadius: 12,
-              overflow: 'hidden',
-              cursor: card.onClick ? 'pointer' : 'default',
-            }}
-            styles={{ body: { padding: 0 } }}
-            hoverable
-          >
-            <div style={{ height: 3, background: card.color, opacity: 0.7 }} />
-            <div style={{ padding: '16px 14px', position: 'relative' }}>
-              <div style={{ position: 'absolute', inset: 0, background: card.bg, opacity: 0.5, pointerEvents: 'none' }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, position: 'relative', zIndex: 1 }}>
-                <span style={{ color: card.color, fontSize: 14, display: 'flex', alignItems: 'center' }}>{card.icon}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {card.title}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: 26,
-                  fontWeight: 700,
-                  color: card.color,
-                  lineHeight: 1.2,
-                  position: 'relative',
-                  zIndex: 1,
-                  fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                }}
-              >
-                {card.value}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, position: 'relative', zIndex: 1 }}>
-                {card.suffix}
-              </div>
-            </div>
-          </Card>
+          />
         </Col>
       ))}
     </Row>

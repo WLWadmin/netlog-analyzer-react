@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Alert, Descriptions, Progress, Badge, Modal, Button, List, Collapse } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List } from 'antd';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../parser';
+import { IssueSummaryList } from './shared/IssueDisplay';
 
-const { Panel } = Collapse;
+// 协议颜色映射
+const PROTOCOL_COLORS = ['#4a9eff', '#22d3ee', '#34d399', '#a78bfa', '#fb923c', '#f87171', '#fbbf24'];
 
 interface OverviewTabProps {
   result: AnalysisResult;
@@ -113,304 +115,6 @@ const ErrorDescCell: React.FC<{
   );
 };
 
-// Group issues by category+message, keeping slow requests separate
-function groupIssues(
-  errors: AnalysisResult['errors'],
-  warnings: AnalysisResult['warnings']
-) {
-  const all = [
-    ...errors.map(e => ({ ...e, severity: 'error' as const })),
-    ...warnings.map(w => ({ ...w, severity: 'warning' as const })),
-  ];
-
-  const grouped = new Map<
-    string,
-    {
-      category: string;
-      message: string;
-      severity: 'error' | 'warning';
-      count: number;
-      items: typeof all;
-    }
-  >();
-
-  for (const item of all) {
-    // Slow requests: keep each one separate (group by full message)
-    const isSlowRequest = item.category === '慢请求';
-    const key = isSlowRequest ? `slow-${item.message}` : `${item.category}|${item.message}`;
-
-    if (grouped.has(key)) {
-      const g = grouped.get(key)!;
-      g.count++;
-      g.items.push(item);
-    } else {
-      grouped.set(key, {
-        category: item.category,
-        message: item.message,
-        severity: item.severity,
-        count: 1,
-        items: [item],
-      });
-    }
-  }
-
-  return Array.from(grouped.values()).sort((a, b) => {
-    const order = { error: 0, warning: 1 };
-    if (order[a.severity] !== order[b.severity]) {
-      return order[a.severity] - order[b.severity];
-    }
-    return b.count - a.count;
-  });
-}
-
-// Group by category for load-more
-function groupByCategory(
-  issues: ReturnType<typeof groupIssues>
-) {
-  const map = new Map<string, typeof issues>();
-  for (const item of issues) {
-    const cat = item.category;
-    if (!map.has(cat)) map.set(cat, []);
-    map.get(cat)!.push(item);
-  }
-  return map;
-}
-
-// Single issue alert component
-const IssueAlert: React.FC<{
-  item: ReturnType<typeof groupIssues>[0];
-  index: number;
-  expandedKeys: string[];
-  setExpandedKeys: (keys: string[]) => void;
-}> = ({ item, index, expandedKeys, setExpandedKeys }) => {
-  const isSlowRequest = item.category === '慢请求';
-  const hasMultiple = item.count > 1 && !isSlowRequest;
-  const color = item.severity === 'error' ? 'red' : 'orange';
-
-  return (
-    <Alert
-      key={`issue-${index}`}
-      message={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Badge color={color} />
-          <Tag color={color}>{item.category}</Tag>
-          <span
-            style={{
-              color: 'var(--text-primary)',
-              fontWeight: 600,
-              fontSize: 14,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
-            title={item.message}
-          >
-            {item.message}
-          </span>
-          {hasMultiple && (
-            <Tag color={color} style={{ marginLeft: 'auto', flexShrink: 0 }}>
-              × {item.count}
-            </Tag>
-          )}
-        </div>
-      }
-      description={
-        <div style={{ marginTop: 8 }}>
-          {isSlowRequest ? (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 13,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-                fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                lineHeight: 1.6,
-              }}
-            >
-              {item.items[0].detail}
-            </pre>
-          ) : hasMultiple ? (
-            <Collapse
-              ghost
-              bordered={false}
-              activeKey={expandedKeys}
-              onChange={(keys) => setExpandedKeys(keys as string[])}
-              style={{ background: 'transparent' }}
-            >
-              <Panel
-                header={
-                  <span style={{ color: '#9ca3af', fontSize: 13 }}>
-                    点击查看 {item.count} 条详情
-                  </span>
-                }
-                key={`panel-${index}`}
-                style={{ padding: 0 }}
-              >
-                {item.items.map((sub, idx) => (
-                  <pre
-                    key={idx}
-                    style={{
-                      margin: '4px 0',
-                      fontSize: 12,
-                      color: 'var(--text-secondary)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                      lineHeight: 1.5,
-                      padding: '8px 12px',
-                      background: 'var(--bg-base)',
-                      borderRadius: 6,
-                    }}
-                  >
-                    {sub.detail}
-                  </pre>
-                ))}
-              </Panel>
-            </Collapse>
-          ) : (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 13,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-                fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-                lineHeight: 1.6,
-              }}
-            >
-              {item.items[0].detail}
-            </pre>
-          )}
-        </div>
-      }
-      type={item.severity as any}
-      style={{
-        marginBottom: 10,
-        background: 'var(--bg-surface)',
-        border: `1px solid ${color === 'red' ? 'rgba(248, 113, 113, 0.2)' : 'rgba(251, 191, 36, 0.2)'}`,
-      }}
-    />
-  );
-};
-
-// Issue Summary List Component with category grouping and load-more
-const IssueSummaryList: React.FC<{
-  errors: AnalysisResult['errors'];
-  warnings: AnalysisResult['warnings'];
-}> = ({ errors, warnings }) => {
-  const grouped = useMemo(() => groupIssues(errors, warnings), [errors, warnings]);
-  const byCategory = useMemo(() => groupByCategory(grouped), [grouped]);
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [loadedCategories, setLoadedCategories] = useState<Map<string, number>>(new Map());
-
-  const INITIAL_SHOW = 10;
-  const LOAD_MORE_STEP = 100;
-  const FULL_THRESHOLD = 300;
-
-  return (
-    <>
-      {Array.from(byCategory.entries()).map(([category, items]) => {
-        const clickCount = loadedCategories.get(category) || 0;
-        // Special marker for "load all" state
-        const isAllLoaded = clickCount === 999;
-        const visibleCount = isAllLoaded ? items.length : INITIAL_SHOW + clickCount * LOAD_MORE_STEP;
-        const visibleItems = items.slice(0, visibleCount);
-        const remaining = items.length - visibleCount;
-        const showLoadAll = visibleCount >= FULL_THRESHOLD && items.length > visibleCount;
-        const hasMore = remaining > 0;
-
-        return (
-          <div key={category} style={{ marginBottom: 16 }}>
-            {/* Category header */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 10,
-                padding: '6px 0',
-                borderBottom: '1px solid var(--border-color)',
-              }}
-            >
-              <Tag
-                color={items[0]?.severity === 'error' ? 'red' : 'orange'}
-                style={{ fontWeight: 600, fontSize: 13 }}
-              >
-                {category}
-              </Tag>
-              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                共 {items.length} 条
-              </span>
-            </div>
-
-            {/* Issue items */}
-            {visibleItems.map((item, i) => (
-              <IssueAlert
-                key={`${category}-${i}`}
-                item={item}
-                index={i}
-                expandedKeys={expandedKeys}
-                setExpandedKeys={setExpandedKeys}
-              />
-            ))}
-
-            {/* Load more / Collapse button */}
-            {hasMore ? (
-              <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                <Button
-                  type="link"
-                  icon={<DownOutlined />}
-                  onClick={() =>
-                    setLoadedCategories(prev => {
-                      const newMap = new Map(prev);
-                      if (showLoadAll || isAllLoaded) {
-                        // Load all: set marker to 999
-                        newMap.set(category, 999);
-                      } else {
-                        newMap.set(category, (prev.get(category) || 0) + 1);
-                      }
-                      return newMap;
-                    })
-                  }
-                  style={{ color: '#0ea5e9', fontSize: 13 }}
-                >
-                  {showLoadAll ? `加载全部 (剩余${remaining}条)` : `加载更多 (剩余${remaining}条)`}
-                </Button>
-              </div>
-            ) : clickCount > 0 ? (
-              <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                <Button
-                  type="link"
-                  icon={<UpOutlined />}
-                  onClick={() =>
-                    setLoadedCategories(prev => {
-                      const newMap = new Map(prev);
-                      newMap.delete(category);
-                      return newMap;
-                    })
-                  }
-                  style={{ color: 'var(--text-muted)', fontSize: 13 }}
-                >
-                  收起
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-      {(errors.length > 0 || warnings.length > 0) && grouped.length < errors.length + warnings.length && (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '8px 0' }}>
-          已合并重复项，更多详情请查看「定因诊断」选项卡
-        </div>
-      )}
-    </>
-  );
-};
-
 const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
   const pi = result.proxyInfo;
 
@@ -418,7 +122,6 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
   const protocolData = Object.entries(result.protocols)
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => ({ name, count }));
-  const maxProto = protocolData.length > 0 ? Math.max(...protocolData.map(p => p.count)) : 1;
 
   // Top slow requests
   const topRequests = result.urlRequests
@@ -522,30 +225,33 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
         </Card>
       )}
 
-      {/* Issue Summary */}
-      {(result.errors.length > 0 || result.warnings.length > 0) && (
-        <Card title="⚠️ 问题摘要" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          <IssueSummaryList errors={result.errors} warnings={result.warnings} />
+      {/* Top Slow Requests */}
+      {topRequests.length > 0 && (
+        <Card title="🐌 耗时最长的请求 (Top 20)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+          <Table dataSource={topRequests} columns={requestColumns} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content', y: 400 }} sticky={{ offsetHeader: 0 }} />
         </Card>
       )}
 
       {/* Protocol Distribution */}
       {protocolData.length > 0 && (
         <Card title="📡 协议分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          {protocolData.map(p => (
-            <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0' }}>
-              <div style={{ width: 100, fontSize: 13, color: 'var(--text-secondary)' }}>{p.name}</div>
-              <Progress percent={Math.round(p.count / maxProto * 100)} showInfo={false} strokeColor="#4a9eff" trailColor="var(--bg-surface)" style={{ flex: 1 }} />
-              <div style={{ width: 40, textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{p.count}</div>
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {/* Top Slow Requests */}
-      {topRequests.length > 0 && (
-        <Card title="🐌 耗时最长的请求 (Top 20)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          <Table dataSource={topRequests} columns={requestColumns} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content', y: 400 }} sticky={{ offsetHeader: 0 }} />
+          <ResponsiveContainer width="100%" height={Math.max(200, protocolData.length * 40)}>
+            <BarChart data={protocolData} layout="vertical" margin={{ left: 20, right: 40 }}>
+              <XAxis type="number" hide />
+              <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
+              <Tooltip
+                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                labelStyle={{ color: 'var(--text-primary)' }}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any) => [`${value}`, '请求数']}
+              />
+              <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={24}>
+                {protocolData.map((_, index) => (
+                  <Cell key={index} fill={PROTOCOL_COLORS[index % PROTOCOL_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </Card>
       )}
 
@@ -559,6 +265,13 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               </Descriptions.Item>
             ))}
           </Descriptions>
+        </Card>
+      )}
+
+      {/* Issue Summary — 放在最底部 */}
+      {(result.errors.length > 0 || result.warnings.length > 0) && (
+        <Card title="⚠️ 问题摘要" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+          <IssueSummaryList errors={result.errors} warnings={result.warnings} />
         </Card>
       )}
     </>

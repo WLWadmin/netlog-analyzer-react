@@ -1,6 +1,16 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag, Empty, Alert } from 'antd';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AnalysisResult } from '../parser';
+import { HealthAssessmentCard, HealthAssessment } from './shared/HealthAssessmentCard';
+
+// 版本颜色
+const VERSION_COLORS: Record<string, string> = {
+  'TLS 1.3': '#34d399', 'TLSv1.3': '#34d399',
+  'TLS 1.2': '#4a9eff', 'TLSv1.2': '#4a9eff',
+  'TLS 1.1': '#fbbf24', 'TLSv1.1': '#fbbf24',
+  'TLS 1.0': '#f87171', 'TLSv1.0': '#f87171',
+};
 
 interface SSLTabProps {
   result: AnalysisResult;
@@ -10,16 +20,8 @@ interface SSLTabProps {
 // SSL/TLS Health Assessment
 // ============================================================
 
-interface SSLHealthResult {
-  status: 'healthy' | 'warning' | 'critical';
-  score: number; // 0-100
-  summary: string;
-  findings: { icon: string; text: string; severity: 'info' | 'warning' | 'error' }[];
-  suggestions: string[];
-}
-
-function assessSSLHealth(result: AnalysisResult): SSLHealthResult {
-  const findings: SSLHealthResult['findings'] = [];
+function assessSSLHealth(result: AnalysisResult): HealthAssessment {
+  const findings: HealthAssessment['findings'] = [];
   const suggestions: string[] = [];
   let score = 100;
 
@@ -177,7 +179,7 @@ function assessSSLHealth(result: AnalysisResult): SSLHealthResult {
   }
 
   // Determine overall status
-  let status: SSLHealthResult['status'] = 'healthy';
+  let status: HealthAssessment['status'] = 'healthy';
   if (score < 50) status = 'critical';
   else if (score < 80) status = 'warning';
 
@@ -222,7 +224,6 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
       sslHosts[host].errors.push(evt.params.net_error || evt.params.error_code);
     }
   }
-  const maxVer = Math.max(...Object.values(versions));
 
   const hostColumns = [
     { title: '主机', dataIndex: 'host', key: 'host', ellipsis: true },
@@ -250,95 +251,48 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
     return b.count - a.count;
   });
 
-  const statusColor = health.status === 'healthy' ? '#34d399' : health.status === 'warning' ? '#fbbf24' : '#f87171';
-  const statusText = health.status === 'healthy' ? '正常' : health.status === 'warning' ? '需关注' : '异常';
-  const statusBg = health.status === 'healthy' ? 'rgba(52, 211, 153, 0.08)' : health.status === 'warning' ? 'rgba(251, 191, 36, 0.08)' : 'rgba(248, 113, 113, 0.08)';
-
   return (
     <>
       {/* SSL/TLS Health Assessment */}
-      <Card
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>🩺 SSL/TLS 健康评估</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>综合评分</span>
-              <span style={{
-                fontSize: 20, fontWeight: 700, color: statusColor,
-                background: statusBg, padding: '2px 12px', borderRadius: 12,
-              }}>
-                {health.score}
-              </span>
-              <Tag color={statusColor} style={{ fontWeight: 600 }}>{statusText}</Tag>
-            </div>
-          </div>
-        }
-        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-      >
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
-          {health.summary}
-        </div>
-
-        {/* Findings */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: health.suggestions.length > 0 ? 16 : 0 }}>
-          {health.findings.map((f, i) => (
-            <div
-              key={i}
-              style={{
-                padding: '10px 14px',
-                background: 'var(--bg-surface)',
-                borderRadius: 8,
-                border: `1px solid ${f.severity === 'error' ? 'rgba(248, 113, 113, 0.2)' : f.severity === 'warning' ? 'rgba(251, 191, 36, 0.2)' : 'rgba(52, 211, 153, 0.15)'}`,
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: 'var(--text-secondary)',
-              }}
-            >
-              {f.text}
-            </div>
-          ))}
-        </div>
-
-        {/* Suggestions */}
-        {health.suggestions.length > 0 && (
-          <div style={{
-            padding: '12px 14px',
-            background: 'rgba(74, 158, 255, 0.06)',
-            borderRadius: 8,
-            border: '1px solid rgba(74, 158, 255, 0.15)',
-          }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', marginBottom: 8 }}>
-              🔧 定因排查建议
-            </div>
-            {health.suggestions.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: i < health.suggestions.length - 1 ? 6 : 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <span style={{ color: '#4a9eff', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-                <span>{s}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <HealthAssessmentCard title="SSL/TLS 健康评估" assessment={health} />
 
       {/* TLS Version Distribution */}
       <Card title="📊 TLS 版本分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-        {Object.entries(versions).sort((a, b) => b[1] - a[1]).map(([ver, count]) => {
-          const isOld = ver.includes('TLSv1') && !ver.includes('1.3') && !ver.includes('1.2');
-          const isTls13 = ver.includes('1.3');
-          const barColor = isOld ? '#f87171' : isTls13 ? '#34d399' : '#4a9eff';
+        {(() => {
+          const versionChartData = Object.entries(versions).sort((a, b) => b[1] - a[1]).map(([ver, count]) => ({
+            name: ver,
+            value: count,
+          }));
           return (
-            <div key={ver} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0' }}>
-              <div style={{ width: 120, fontSize: 13, color: 'var(--text-secondary)' }}>{ver}</div>
-              <div style={{ flex: 1, height: 8, background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${(count / maxVer * 100).toFixed(1)}%`, background: barColor, borderRadius: 4 }} />
-              </div>
-              <div style={{ width: 40, textAlign: 'right', fontSize: 13 }}>{count}</div>
-              <div style={{ width: 60, textAlign: 'right', fontSize: 12, color: 'var(--text-muted)' }}>
-                {((count / result.sslEvents.length) * 100).toFixed(0)}%
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie
+                  data={versionChartData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  labelLine={{ stroke: 'var(--text-muted)' }}
+                >
+                  {versionChartData.map((entry) => (
+                    <Cell key={entry.name} fill={VERSION_COLORS[entry.name] || '#4a9eff'} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any) => [`${value} 次`, '连接数']}
+                />
+                <Legend
+                  formatter={(value) => <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{value}</span>}
+                />
+              </PieChart>
+            </ResponsiveContainer>
           );
-        })}
+        })()}
       </Card>
 
       {/* Cipher Suite Distribution */}

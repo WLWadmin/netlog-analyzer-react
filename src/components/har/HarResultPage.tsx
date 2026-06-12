@@ -14,9 +14,11 @@ interface HarResultPageProps {
 const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
   const [activeKey, setActiveKey] = useState('requests');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   const jumpToRequests = (filter: StatusFilter) => {
     setStatusFilter(filter);
+    setCategoryFilter('all'); // 卡片点击时重置类型筛选为 All
     setActiveKey('requests');
   };
 
@@ -30,7 +32,13 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
         </span>
       ),
       children: (
-        <HarRequestTable result={result} statusFilter={statusFilter} onStatusFilterChange={setStatusFilter} />
+        <HarRequestTable
+          result={result}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          categoryFilter={categoryFilter}
+          onCategoryFilterChange={setCategoryFilter}
+        />
       ),
     },
     {
@@ -51,6 +59,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
         result={result}
         onFilterFailed={() => jumpToRequests('failed')}
         onFilterSlow={() => jumpToRequests('slow')}
+        onFilterAll={() => jumpToRequests('all')}
       />
       <Alert
         message={

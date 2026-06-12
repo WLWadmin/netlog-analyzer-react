@@ -27,6 +27,7 @@ yarn-error.log*
 .vscode/
 *.swp
 *.swo
+.trae/
 
 # OS
 Thumbs.db

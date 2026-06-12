@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal } from 'antd';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../parser';
 
 interface EventsTabProps {
   events: ParsedEvent[];
+  initialSearch?: string;
 }
 
 // Extract error info from event params
@@ -43,14 +44,38 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
   return result;
 };
 
-const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
-  const [search, setSearch] = useState('');
+const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => {
+  const [search, setSearch] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // 当外部传入的 initialSearch 变化时，同步更新内部搜索状态
+  useEffect(() => {
+    setSearch(initialSearch);
+    setDebouncedSearch(initialSearch);
+  }, [initialSearch]);
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+    }, 300);
+  };
   const [phaseFilter, setPhaseFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [sourceIdFilter, setSourceIdFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState('');
   const [pagination, setPagination] = useState({ current: 1, pageSize: 100 });
+  const [filtering, setFiltering] = useState(false);
+
+  // 筛选条件变化时短暂显示 loading
+  useEffect(() => {
+    setFiltering(true);
+    const timer = setTimeout(() => setFiltering(false), 80);
+    return () => clearTimeout(timer);
+  }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
 
   const filtered = useMemo(() => {
     return events.filter(e => {
@@ -58,21 +83,30 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       if (sourceIdFilter) {
         return e.source.id.toString() === sourceIdFilter;
       }
-      const matchSearch = !search ||
-        e.typeName.toLowerCase().includes(search.toLowerCase()) ||
-        e.source.typeName.toLowerCase().includes(search.toLowerCase()) ||
-        JSON.stringify(e.params).toLowerCase().includes(search.toLowerCase());
-      const matchPhase = !phaseFilter || e.phaseName === phaseFilter;
-      const matchSource = !sourceFilter || e.source.typeName === sourceFilter;
 
-      // When searching for "net_error", exclude events where net_error = 0 (no error)
-      const matchNoError = search === 'net_error'
-        ? (e.params?.net_error === undefined || e.params?.net_error !== 0)
-        : true;
+      // Phase filter must always be respected
+      if (phaseFilter && e.phaseName !== phaseFilter) {
+        return false;
+      }
 
-      return matchSearch && matchPhase && matchSource && matchNoError;
+      // Source type filter must always be respected
+      if (sourceFilter && e.source.typeName !== sourceFilter) {
+        return false;
+      }
+
+      // When searching for "net_error", use special error-only filter
+      if (debouncedSearch === 'net_error') {
+        return e.params?.net_error !== undefined && e.params?.net_error !== 0;
+      }
+
+      const matchSearch = !debouncedSearch ||
+        e.typeName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        e.source.typeName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        JSON.stringify(e.params).toLowerCase().includes(debouncedSearch.toLowerCase());
+
+      return matchSearch;
     });
-  }, [events, search, phaseFilter, sourceFilter, sourceIdFilter]);
+  }, [events, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
 
   const phases = [...new Set(events.map(e => e.phaseName))];
   const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
@@ -95,6 +129,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   // Quick filter for error events
   const filterByError = () => {
     setSearch('net_error');
+    setDebouncedSearch('net_error');
   };
 
   const columns = [
@@ -213,7 +248,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
           <Input
             placeholder="搜索事件类型、参数内容..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
             disabled={!!sourceIdFilter}
             style={{
               width: '100%',
@@ -263,7 +298,9 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
             style={{ cursor: 'pointer', fontSize: 12 }}
             onClick={() => {
               if (sourceIdFilter) return;
-              setSearch(search === type ? '' : type);
+              const next = search === type ? '' : type;
+              setSearch(next);
+              setDebouncedSearch(next);
             }}
           >
             {type}
@@ -271,21 +308,23 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         ))}
       </div>
 
-      <Table
-        dataSource={filtered}
-        columns={columns}
-        rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
-        pagination={{
-          current: pagination.current,
-          pageSize: pagination.pageSize,
-          showSizeChanger: true,
-          pageSizeOptions: ['50', '100', '200', '500', '1000'],
-          showTotal: (total) => `共 ${total.toLocaleString()} 条`,
-          onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-        }}
-        size="small"
-        scroll={{ y: 500 }}
-      />
+      <Spin spinning={filtering} tip="筛选中..." size="small">
+        <Table
+          dataSource={filtered}
+          columns={columns}
+          rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            showSizeChanger: true,
+            pageSizeOptions: ['50', '100', '200', '500', '1000'],
+            showTotal: (total) => `共 ${total.toLocaleString()} 条`,
+            onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
+          }}
+          size="small"
+          scroll={{ y: 500 }}
+        />
+      </Spin>
       <Modal
         open={modalOpen}
         title="事件参数详情"
@@ -295,7 +334,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
           <Button key="copy" type="primary" onClick={() => navigator.clipboard.writeText(modalContent)}>复制 JSON</Button>,
         ]}
         width={700}
-        bodyStyle={{ maxHeight: 500, overflow: 'auto' }}
+        styles={{ body: { maxHeight: 500, overflow: 'auto' } }}
       >
         <pre style={{ margin: 0, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
           {modalContent}

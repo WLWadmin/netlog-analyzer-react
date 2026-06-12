@@ -16,10 +16,16 @@ const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText
 
   const handleCopy = () => {
     if (!hasValue) return;
+    if (!navigator.clipboard) {
+      message.error('当前环境不支持复制');
+      return;
+    }
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       message.success(`${label || '内容'} 已复制`);
       setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {
+      message.error('复制失败');
     });
   };
 
