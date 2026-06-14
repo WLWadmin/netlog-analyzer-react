@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Tooltip, message } from 'antd';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
+import { copyText } from '../../utils/copyText';
 
 interface CopyTextProps {
   text: string;
@@ -14,19 +15,16 @@ const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText
   const [copied, setCopied] = useState(false);
   const hasValue = text !== undefined && text !== null && text !== '' && text !== '-';
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!hasValue) return;
-    if (!navigator.clipboard) {
-      message.error('当前环境不支持复制');
-      return;
-    }
-    navigator.clipboard.writeText(text).then(() => {
+    try {
+      await copyText(text);
       setCopied(true);
       message.success(`${label || '内容'} 已复制`);
       setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {
-      message.error('复制失败');
-    });
+    } catch {
+      message.error('复制失败，请手动选择内容复制');
+    }
   };
 
   return (

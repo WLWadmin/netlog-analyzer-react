@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [fileType, setFileType] = useState<'netlog' | 'har'>('netlog');
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [showBackTop, setShowBackTop] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [eventsSearch, setEventsSearch] = useState('');
@@ -58,10 +59,12 @@ const App: React.FC = () => {
 
   const handleFileLoaded = (data: unknown) => {
     setLoading(true);
+    setLoadingText('正在识别文件类型...');
     setTimeout(() => {
       try {
         // 自动识别文件类型：HAR 走独立解析逻辑，NetLog 走原有逻辑
         if (isHarFile(data)) {
+          setLoadingText('正在分析 HAR 请求...');
           const harAnalysis = parseHar(data);
           setHarResult(harAnalysis);
           setFileType('har');
@@ -70,6 +73,7 @@ const App: React.FC = () => {
           message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
           return;
         }
+        setLoadingText('正在分析 NetLog 事件...');
         const { events: parsedEvents, result: analysisResult } = parseLog(data);
         setEvents(parsedEvents);
         setResult(analysisResult);
@@ -244,7 +248,7 @@ const App: React.FC = () => {
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                正在分析日志数据...
+                {loadingText}
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                 请稍候，正在提取事件、统计指标和诊断信息

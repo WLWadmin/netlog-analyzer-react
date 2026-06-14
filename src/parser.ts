@@ -1,4 +1,4 @@
-import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription } from './constants';
+import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
 
 export interface ParsedEvent {
   time: number;
@@ -262,6 +262,33 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
   return peak;
 }
 
+function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
+  const p = evt.params;
+  return inRange(evt.type, 26, 28) ||
+    evt.typeName.includes('PROXY') ||
+    Boolean(
+      p.proxy_config ||
+      p.proxy_list ||
+      p.fallback_proxy ||
+      p.proxy_server ||
+      p.pac_string ||
+      p.tunnel_host
+    );
+}
+
+function addProxyEvent(evt: ParsedEvent, r: AnalysisResult) {
+  const exists = r.proxyEvents.some(e =>
+    e.source.id === evt.source.id &&
+    e.type === evt.type &&
+    e.phase === evt.phase &&
+    e.time === evt.time
+  );
+  if (!exists) {
+    r.proxyEvents.push(evt);
+  }
+  analyzeProxyEvent(evt, r.proxyInfo);
+}
+
 function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
   const t = evt.type;
   const st = evt.source.type;
@@ -302,11 +329,11 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
   if (inRange(t, 199, 238)) {
     r.http2Events.push(evt);
     r.protocols['HTTP/2'] = (r.protocols['HTTP/2'] || 0) + 1;
-    if (t === 212 || t === 213) {
+    if (isHttp2Goaway(evt)) {
       r.errors.push({
         severity: 'warning',
         category: 'HTTP/2',
-        message: `HTTP/2 ${t === 212 ? '接收' : '发送'} GOAWAY 帧`,
+        message: `HTTP/2 ${isHttp2GoawayRecv(evt) ? '接收' : '发送'} GOAWAY 帧`,
         detail: `Last Stream ID: ${p.last_stream_id}, Error: ${p.error_code || p.status}`,
         time: evt.time,
       });
@@ -407,16 +434,9 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
     r.connectEvents.push(evt);
   }
 
-  // ---- Proxy events (type 26-28 PROXY_RESOLUTION_SERVICE) ----
-  if (inRange(t, 26, 28)) {
-    r.proxyEvents.push(evt);
-    analyzeProxyEvent(evt, r.proxyInfo);
-  }
-
-  // Also handle proxy-related params from other event types
-  if (p.proxy_server || p.pac_string) {
-    r.proxyEvents.push(evt);
-    analyzeProxyEvent(evt, r.proxyInfo);
+  // ---- Proxy events ----
+  if (shouldAnalyzeProxyEvent(evt)) {
+    addProxyEvent(evt, r);
   }
 
   // ---- Cache events (type 128-140 HTTP_CACHE, 141-152 DISK_CACHE, 416-448 SIMPLE_CACHE) ----
@@ -438,7 +458,7 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
 function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
   const p = evt.params;
 
-  if (evt.type === 201 && p.proxy_config) {
+  if (p.proxy_config) {
     pi.hasProxy = true;
     pi.proxySettings = p.proxy_config;
     const cfg = p.proxy_config;
@@ -481,16 +501,17 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  if (evt.type === 202 && p.proxy_list) {
+  if (p.proxy_list) {
     pi.hasProxy = true;
-    for (const proxy of p.proxy_list) {
+    const proxyList = Array.isArray(p.proxy_list) ? p.proxy_list : [p.proxy_list];
+    for (const proxy of proxyList) {
       if (proxy && !pi.proxyList.includes(proxy)) {
         pi.proxyList.push(proxy);
       }
     }
   }
 
-  if (evt.type === 203 && p.fallback_proxy) {
+  if (p.fallback_proxy) {
     pi.proxyFallback = p.fallback_proxy;
     if (!pi.proxyList.includes(p.fallback_proxy)) {
       pi.proxyList.push(p.fallback_proxy);
@@ -796,7 +817,7 @@ function runDiagnostics(r: AnalysisResult) {
     });
   }
 
-  const goaways = r.http2Events.filter(e => e.type === 212 || e.type === 213);
+  const goaways = r.http2Events.filter(isHttp2Goaway);
   if (goaways.length > 0) {
     r.warnings.push({
       severity: 'warning',

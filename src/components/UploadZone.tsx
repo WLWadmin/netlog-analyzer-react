@@ -10,6 +10,15 @@ import {
 
 const { Dragger } = Upload;
 
+const MB = 1024 * 1024;
+const LARGE_FILE_MB = 20;
+const VERY_LARGE_FILE_MB = 50;
+
+function formatFileSize(size: number): string {
+  if (size >= MB) return `${(size / MB).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(size / 1024))}KB`;
+}
+
 interface UploadZoneProps {
   onFileLoaded: (data: unknown) => void;
 }
@@ -19,6 +28,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
   const [dragOver, setDragOver] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
   const dropRef = useRef<HTMLDivElement>(null);
+  const dragDepthRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // 组件卸载时清理定时器，防止内存泄漏
@@ -105,19 +115,37 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       });
       return false;
     }
+    const fileSizeMb = file.size / MB;
+    if (fileSizeMb >= VERY_LARGE_FILE_MB) {
+      notification.warning({
+        message: '文件较大，解析可能较慢',
+        description: `「${file.name}」大小为 ${formatFileSize(file.size)}，解析期间页面可能短暂无响应，请耐心等待。`,
+        placement: 'top',
+        duration: 6,
+      });
+    } else if (fileSizeMb >= LARGE_FILE_MB) {
+      notification.info({
+        message: '文件较大',
+        description: `「${file.name}」大小为 ${formatFileSize(file.size)}，本地读取和解析可能需要几秒钟。`,
+        placement: 'top',
+        duration: 5,
+      });
+    }
     return true;
   };
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    dragDepthRef.current += 1;
     setDragOver(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dropRef.current && !dropRef.current.contains(e.relatedTarget as Node)) {
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
       setDragOver(false);
     }
   }, []);
@@ -130,6 +158,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    dragDepthRef.current = 0;
     setDragOver(false);
   }, []);
 
@@ -197,10 +226,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-              正在读取并解析文件...
+              正在读取文件...
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-              文件较大时可能需要几秒钟
+              读取完成后将在本地解析数据，文件较大时页面可能短暂繁忙
             </div>
             <Progress
               percent={Math.round(readProgress)}

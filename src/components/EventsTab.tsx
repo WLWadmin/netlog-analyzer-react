@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin } from 'antd';
+import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../parser';
+import { copyText } from '../utils/copyText';
 
 interface EventsTabProps {
   events: ParsedEvent[];
@@ -44,6 +45,12 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
   return result;
 };
 
+interface EventTableRow extends ParsedEvent {
+  searchText: string;
+  paramsJson: string;
+  paramsPreview: string;
+}
+
 const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => {
   const [search, setSearch] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
@@ -77,8 +84,22 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
     return () => clearTimeout(timer);
   }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
 
+  const eventRows = useMemo<EventTableRow[]>(() => {
+    return events.map(e => {
+      const paramsCompact = JSON.stringify(e.params || {});
+      const paramsJson = JSON.stringify(e.params || {}, null, 2);
+      return {
+        ...e,
+        paramsJson,
+        paramsPreview: paramsCompact.substring(0, 50),
+        searchText: `${e.typeName} ${e.source.typeName} ${paramsCompact}`.toLowerCase(),
+      };
+    });
+  }, [events]);
+
   const filtered = useMemo(() => {
-    return events.filter(e => {
+    const normalizedSearch = debouncedSearch.toLowerCase();
+    return eventRows.filter(e => {
       // Source ID exact match takes priority
       if (sourceIdFilter) {
         return e.source.id.toString() === sourceIdFilter;
@@ -95,18 +116,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
       }
 
       // When searching for "net_error", use special error-only filter
-      if (debouncedSearch === 'net_error') {
+      if (normalizedSearch === 'net_error') {
         return e.params?.net_error !== undefined && e.params?.net_error !== 0;
       }
 
-      const matchSearch = !debouncedSearch ||
-        e.typeName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        e.source.typeName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        JSON.stringify(e.params).toLowerCase().includes(debouncedSearch.toLowerCase());
-
-      return matchSearch;
+      return !normalizedSearch || e.searchText.includes(normalizedSearch);
     });
-  }, [events, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
+  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
 
   const phases = [...new Set(events.map(e => e.phaseName))];
   const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
@@ -130,6 +146,15 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
   const filterByError = () => {
     setSearch('net_error');
     setDebouncedSearch('net_error');
+  };
+
+  const handleCopyModalContent = async () => {
+    try {
+      await copyText(modalContent);
+      message.success('JSON 已复制');
+    } catch {
+      message.error('复制失败，请手动选择内容复制');
+    }
   };
 
   const columns = [
@@ -169,15 +194,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         </div>
       );
     }},
-    { title: '参数', dataIndex: 'params', key: 'params', width: 200, render: (p: any) => {
-      const jsonStr = JSON.stringify(p, null, 2);
-      const preview = JSON.stringify(p).substring(0, 50);
-      const hasMore = jsonStr.length > 50;
+    { title: '参数', key: 'params', width: 200, render: (_: unknown, row: EventTableRow) => {
+      const hasMore = row.paramsJson.length > 50;
       return (
         <Tooltip
           title={
             <div style={{ maxHeight: 300, overflow: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{jsonStr}</pre>
+              <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{row.paramsJson}</pre>
             </div>
           }
           placement="left"
@@ -196,11 +219,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
               whiteSpace: 'nowrap',
             }}
             onClick={() => {
-              setModalContent(jsonStr);
+              setModalContent(row.paramsJson);
               setModalOpen(true);
             }}
           >
-            {hasMore ? `${preview}...` : preview || '-'}
+            {hasMore ? `${row.paramsPreview}...` : row.paramsPreview || '-'}
           </span>
         </Tooltip>
       );
@@ -331,7 +354,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         onCancel={() => setModalOpen(false)}
         footer={[
           <Button key="close" onClick={() => setModalOpen(false)}>关闭</Button>,
-          <Button key="copy" type="primary" onClick={() => navigator.clipboard.writeText(modalContent)}>复制 JSON</Button>,
+          <Button key="copy" type="primary" onClick={handleCopyModalContent}>复制 JSON</Button>,
         ]}
         width={700}
         styles={{ body: { maxHeight: 500, overflow: 'auto' } }}

@@ -117,9 +117,15 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
     .map(r => r.timeline.ssl!.duration);
 
   if (sslTimings.length > 0) {
-    const avgSsl = sslTimings.reduce((a, b) => a + b, 0) / sslTimings.length;
-    const maxSsl = Math.max(...sslTimings);
-    const verySlowSslCount = sslTimings.filter(t => t > 1000).length;
+    let totalSslDuration = 0;
+    let maxSsl = 0;
+    let verySlowSslCount = 0;
+    for (const timing of sslTimings) {
+      totalSslDuration += timing;
+      if (timing > maxSsl) maxSsl = timing;
+      if (timing > 1000) verySlowSslCount++;
+    }
+    const avgSsl = totalSslDuration / sslTimings.length;
 
     if (avgSsl < 100) {
       findings.push({ icon: '✅', text: `SSL 握手平均耗时 ${avgSsl.toFixed(0)}ms，表现优秀`, severity: 'info' });
