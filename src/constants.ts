@@ -410,6 +410,23 @@ export const SOURCE_TYPES: Record<number, string> = {
 
 export const PHASE: Record<number, string> = { 0: 'BEGIN', 1: 'END', 2: 'NONE' };
 
+interface NetLogEventLike {
+  type?: number;
+  typeName?: string;
+}
+
+export function isHttp2GoawayRecv(event: NetLogEventLike): boolean {
+  return event.typeName === 'HTTP2_SESSION_RECV_GOAWAY' || event.type === 212;
+}
+
+export function isHttp2GoawaySend(event: NetLogEventLike): boolean {
+  return event.typeName === 'HTTP2_SESSION_SEND_GOAWAY' || event.type === 213;
+}
+
+export function isHttp2Goaway(event: NetLogEventLike): boolean {
+  return isHttp2GoawayRecv(event) || isHttp2GoawaySend(event);
+}
+
 // Chromium net_error_list.h - Official error code mapping
 // Source: https://chromium.googlesource.com/chromium/src/+/main/net/base/net_error_list.h
 export const NET_ERRORS: Record<string, string> = {

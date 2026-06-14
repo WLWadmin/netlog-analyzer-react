@@ -48,8 +48,13 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   // 瀑布图时间范围
   const timeRange = useMemo(() => {
     if (filteredRequests.length === 0) return { min: 0, max: 1 };
-    const min = Math.min(...filteredRequests.map(r => r.startTime));
-    const max = Math.max(...filteredRequests.map(r => r.endTime || r.startTime + (r.duration || 0)));
+    let min = Infinity;
+    let max = 0;
+    for (const req of filteredRequests) {
+      if (req.startTime < min) min = req.startTime;
+      const end = req.endTime || req.startTime + (req.duration || 0);
+      if (end > max) max = end;
+    }
     return { min, max: Math.max(max, min + 1) };
   }, [filteredRequests]);
 

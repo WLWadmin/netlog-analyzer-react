@@ -34,13 +34,21 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   }
 
   const durations = completedReqs.map(q => q.duration!);
+  let minDuration = Infinity;
+  let maxDuration = 0;
+  let totalDurationSum = 0;
+  for (const duration of durations) {
+    if (duration < minDuration) minDuration = duration;
+    if (duration > maxDuration) maxDuration = duration;
+    totalDurationSum += duration;
+  }
   const stats = {
-    min: Math.min(...durations),
-    avg: durations.reduce((a, b) => a + b, 0) / durations.length,
+    min: minDuration,
+    avg: totalDurationSum / durations.length,
     p50: percentile(durations, 0.5),
     p90: percentile(durations, 0.9),
     p99: percentile(durations, 0.99),
-    max: Math.max(...durations),
+    max: maxDuration,
   };
 
   const phaseStats: Record<string, number[]> = { dns: [], connect: [], ssl: [], send: [], wait: [], download: [] };
@@ -54,8 +62,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const waterfallReqs = [...completedReqs]
     .sort((a, b) => (b.duration || 0) - (a.duration || 0))
     .slice(0, 30);
-  const wfMinStart = Math.min(...waterfallReqs.map(r => r.startTime));
-  const wfMaxEnd = Math.max(...waterfallReqs.map(r => r.endTime || r.startTime));
+  let wfMinStart = Infinity;
+  let wfMaxEnd = 0;
+  for (const req of waterfallReqs) {
+    if (req.startTime < wfMinStart) wfMinStart = req.startTime;
+    const end = req.endTime || req.startTime;
+    if (end > wfMaxEnd) wfMaxEnd = end;
+  }
   const wfRange = wfMaxEnd - wfMinStart || 1;
 
   const slowColumns = [

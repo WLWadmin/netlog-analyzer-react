@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag, Empty } from 'antd';
 import { AnalysisResult } from '../parser';
+import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../constants';
 import { HealthAssessmentCard, HealthAssessment } from './shared/HealthAssessmentCard';
 
 interface ProtocolTabProps {
@@ -34,8 +35,8 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
     const h2Push = result.http2Events.filter(e => e.typeName.includes('PUSH') || e.typeName.includes('PUSHED'));
 
     // GOAWAY analysis
-    const goawaySent = result.http2Events.filter(e => e.type === 1202);
-    const goawayRecv = result.http2Events.filter(e => e.type === 1203);
+    const goawaySent = result.http2Events.filter(isHttp2GoawaySend);
+    const goawayRecv = result.http2Events.filter(isHttp2GoawayRecv);
 
     if (h2Sessions.size > 0) {
       findings.push({ icon: '✅', text: `HTTP/2: ${h2Sessions.size} 个会话，${h2Streams.size} 个流`, severity: 'info' });
@@ -233,7 +234,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
 
   const h2Sessions = new Set(result.http2Events.filter(e => e.source.typeName === 'HTTP2_SESSION').map(e => e.source.id));
   const h2Streams = new Set(result.http2Events.filter(e => e.source.typeName === 'HTTP2_STREAM').map(e => e.source.id));
-  const h2Errors = result.http2Events.filter(e => e.type === 1202 || e.type === 1203);
+  const h2Errors = result.http2Events.filter(isHttp2Goaway);
 
   const quicSessions = new Set(result.quicEvents.map(e => e.source.id));
   const quicErrors = result.quicEvents.filter(e => e.params.error_code || e.params.net_error);
@@ -262,7 +263,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
   ).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 
   // GOAWAY detail data
-  const goawayEvents = result.http2Events.filter(e => e.type === 1202 || e.type === 1203);
+  const goawayEvents = result.http2Events.filter(isHttp2Goaway);
   const goawayColumns = [
     { title: '方向', dataIndex: 'direction', key: 'direction', width: 80, render: (d: string) => <Tag color={d === '发送' ? 'orange' : 'red'}>{d}</Tag> },
     { title: '错误码', dataIndex: 'errorCode', key: 'errorCode', width: 100, render: (c: string) => <code>{c}</code> },
@@ -270,7 +271,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
   ];
   const goawayData = goawayEvents.map(e => ({
-    direction: e.type === 1202 ? '发送' : '接收',
+    direction: isHttp2GoawaySend(e) ? '发送' : '接收',
     errorCode: String(e.params.error_code || e.params.status || '-'),
     lastStreamId: String(e.params.last_stream_id || '-'),
     time: e.time.toFixed(2) + 'ms',
