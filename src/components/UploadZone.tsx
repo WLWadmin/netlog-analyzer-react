@@ -11,7 +11,7 @@ import {
 const { Dragger } = Upload;
 
 interface UploadZoneProps {
-  onFileLoaded: (data: unknown) => void;
+  onFileLoaded: (data: unknown, isTextLog?: boolean) => void;
 }
 
 const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
@@ -63,17 +63,31 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       }
       setReadProgress(100);
       try {
-        const json = JSON.parse(e.target?.result as string);
-        setTimeout(() => {
-          onFileLoaded(json);
-          onSuccess?.('ok');
-          setReading(false);
-          setReadProgress(0);
-        }, 300);
+        const content = e.target?.result as string;
+        const fileName = (file as File).name.toLowerCase();
+        const isTextLog = fileName.endsWith('.log');
+
+        if (isTextLog) {
+          // .log 文件直接传递文本内容
+          setTimeout(() => {
+            onFileLoaded(content, true);
+            onSuccess?.('ok');
+            setReading(false);
+            setReadProgress(0);
+          }, 300);
+        } else {
+          const json = JSON.parse(content);
+          setTimeout(() => {
+            onFileLoaded(json);
+            onSuccess?.('ok');
+            setReading(false);
+            setReadProgress(0);
+          }, 300);
+        }
       } catch (err) {
         setReading(false);
         setReadProgress(0);
-        message.error('JSON 解析失败: ' + (err as Error).message);
+        message.error('解析失败: ' + (err as Error).message);
       }
     };
     reader.onerror = () => {
@@ -90,10 +104,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
 
   const beforeUpload = (file: File) => {
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.json') && !lower.endsWith('.har')) {
+    if (!lower.endsWith('.json') && !lower.endsWith('.har') && !lower.endsWith('.log')) {
       notification.error({
         message: '文件格式不支持',
-        description: `「${file.name}」无法解析。请上传 .json (NetLog) 或 .har 文件。`,
+        description: `「${file.name}」无法解析。请上传 .json (NetLog)、.har 或 .log 文件。`,
         placement: 'top',
         duration: 4,
         style: {
@@ -220,7 +234,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       <Dragger
         customRequest={customRequest}
         beforeUpload={beforeUpload}
-        accept=".json,.har"
+        accept=".json,.har,.log"
         showUploadList={false}
         disabled={reading}
         style={{
@@ -267,14 +281,16 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
 
           {/* Title */}
           <p style={{ fontSize: 20, color: 'var(--text-primary)', marginBottom: 10, fontWeight: 600 }}>
-            {dragOver ? '松开鼠标上传文件' : '拖拽或点击上传 NetLog / HAR 文件'}
+            {dragOver ? '松开鼠标上传文件' : '拖拽或点击上传日志文件'}
           </p>
 
           {/* Description */}
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
             支持 chrome://net-export/ 或 edge://net-export/ 导出的 .json 文件
             <br />
-            支持浏览器 DevTools → Network → 导出的 .har 文件（上传后自动识别类型）
+            支持浏览器 DevTools → Network → 导出的 .har 文件
+            <br />
+            支持 Go 服务日志 .log 文件（上传后自动识别类型）
           </p>
 
           {/* Feature badges */}
