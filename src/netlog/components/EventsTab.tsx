@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../parser';
-import { copyText } from '../utils/copyText';
+import { copyText } from '../../utils/copyText';
 
 interface EventsTabProps {
   events: ParsedEvent[];

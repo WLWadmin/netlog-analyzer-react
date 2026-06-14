@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Card, Table, Tag, Empty, Alert } from 'antd';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AnalysisResult } from '../parser';
-import { HealthAssessmentCard, HealthAssessment } from './shared/HealthAssessmentCard';
+import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 
 // 版本颜色
 const VERSION_COLORS: Record<string, string> = {

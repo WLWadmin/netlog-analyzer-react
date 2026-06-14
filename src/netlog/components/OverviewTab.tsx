@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List } from 'antd';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../parser';
-import { IssueSummaryList } from './shared/IssueDisplay';
+import { IssueSummaryList } from '../../components/shared/IssueDisplay';
 
 // 协议颜色映射
 const PROTOCOL_COLORS = ['#4a9eff', '#22d3ee', '#34d399', '#a78bfa', '#fb923c', '#f87171', '#fbbf24'];

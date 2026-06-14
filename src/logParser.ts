@@ -73,6 +73,61 @@ export interface LogParserStrategy {
 
 // ============ 配置化解析器 ============
 
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'];
+const HTTP_METHOD_PATTERN = HTTP_METHODS.join('|');
+
+function parseDuration(numText: string, unit: string): number {
+  const num = parseInt(numText, 10);
+  if (!Number.isFinite(num)) return 0;
+  return unit === 's' ? num * 1000 : num;
+}
+
+function parseTimestampMs(timestamp: string): number {
+  const trimmed = timestamp.trim();
+  const native = new Date(trimmed).getTime();
+  if (!Number.isNaN(native)) return native;
+
+  const slashMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?/);
+  if (slashMatch) {
+    const [, y, m, d, hh, mm, ss, ms = '0'] = slashMatch;
+    return new Date(+y, +m - 1, +d, +hh, +mm, +ss, +ms.padEnd(3, '0')).getTime();
+  }
+
+  const dashMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?/);
+  if (dashMatch) {
+    const [, y, m, d, hh, mm, ss, ms = '0'] = dashMatch;
+    return new Date(+y, +m - 1, +d, +hh, +mm, +ss, +ms.padEnd(3, '0')).getTime();
+  }
+
+  return 0;
+}
+
+function extractStatusCodeFromBody(body: any): number | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const candidates = [body.statusCode, body.status_code, body.code, body.err_code, body.error_code];
+  for (const candidate of candidates) {
+    const code = typeof candidate === 'number' ? candidate : parseInt(String(candidate), 10);
+    if (Number.isFinite(code) && code >= 100 && code < 600) return code;
+  }
+  return undefined;
+}
+
+interface MethodUrlResult {
+  method: string;
+  url: string;
+  nextPos: number;
+}
+
+function parseMethodUrl(line: string, pos: number): MethodUrlResult | null {
+  const match = line.slice(pos).match(new RegExp(`^\\s*(${HTTP_METHOD_PATTERN}):([^\\s|]+)`, 'i'));
+  if (!match) return null;
+  return {
+    method: match[1].toUpperCase(),
+    url: match[2],
+    nextPos: pos + match[0].length,
+  };
+}
+
 /**
  * 解析上下文 - 维护当前解析位置和原始行
  */
@@ -298,11 +353,10 @@ class GoServiceLogParser implements LogParserStrategy {
     }
 
     // 读取 Method:URL
-    const methodUrlMatch = line.slice(currentPos).match(/^(GET|POST|PUT|DELETE|PATCH):([^\s|]+)/);
-    if (!methodUrlMatch) return null;
-    const method = methodUrlMatch[1];
-    const url = methodUrlMatch[2];
-    currentPos += methodUrlMatch[0].length;
+    const methodUrl = parseMethodUrl(line, currentPos);
+    if (!methodUrl) return null;
+    const { method, url, nextPos } = methodUrl;
+    currentPos = nextPos;
 
     // 解析 header、body、duration
     const { headers, body, bodyRaw, duration, durationText } = this.parseTail(line, currentPos);
@@ -327,11 +381,10 @@ class GoServiceLogParser implements LogParserStrategy {
     }
 
     // 读取 Method:URL
-    const methodUrlMatch = line.slice(currentPos).match(/^(GET|POST|PUT|DELETE|PATCH):([^\s|]+)/);
-    if (!methodUrlMatch) return null;
-    const method = methodUrlMatch[1];
-    const url = methodUrlMatch[2];
-    currentPos += methodUrlMatch[0].length;
+    const methodUrl = parseMethodUrl(line, currentPos);
+    if (!methodUrl) return null;
+    const { method, url, nextPos } = methodUrl;
+    currentPos = nextPos;
 
     // 解析 header、body、duration
     const { headers, body, bodyRaw, duration, durationText } = this.parseTail(line, currentPos);
@@ -347,16 +400,16 @@ class GoServiceLogParser implements LogParserStrategy {
     const { line, pos } = ctx;
 
     // 格式: Retrying [N] METHOD:URL +duration
-    const retryMatch = line.slice(pos).match(/^\s*\[(\d+)\]\s*(GET|POST|PUT|DELETE|PATCH):(.+?)\s*\+\s*(\d+)(ms|s)\s*$/);
+    const retryMatch = line.slice(pos).match(new RegExp(`^\\s*\\[(\\d+)\\]\\s*(${HTTP_METHOD_PATTERN}):(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i'));
     if (!retryMatch) return null;
 
     const [, retryCount, method, url, durNum, durUnit] = retryMatch;
-    const duration = durUnit === 's' ? parseInt(durNum, 10) * 1000 : parseInt(durNum, 10);
+    const duration = parseDuration(durNum, durUnit);
 
     return this.buildEntry({
       worker, level, timestamp, status: 'Error',
       statusCode: undefined, statusText: `Retrying [${retryCount}]`,
-      method, url: url.trim(), headers: {}, body: undefined, bodyRaw: undefined,
+      method: method.toUpperCase(), url: url.trim(), headers: {}, body: undefined, bodyRaw: undefined,
       duration, durationText: `+${durNum}${durUnit}`, rawLine: line,
     });
   }
@@ -366,16 +419,16 @@ class GoServiceLogParser implements LogParserStrategy {
     const { line, pos } = ctx;
 
     // 格式: Network Error METHOD:URL -> ErrorMsg +duration
-    const netMatch = line.slice(pos).match(/^\s*Error\s+(GET|POST|PUT|DELETE|PATCH):(.+?)\s*->\s*(.+?)\s*\+\s*(\d+)(ms|s)\s*$/);
+    const netMatch = line.slice(pos).match(new RegExp(`^\\s*(?:Error\\s+)?(${HTTP_METHOD_PATTERN}):(.+?)\\s*->\\s*(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i'));
     if (!netMatch) return null;
 
     const [, method, url, errorMsg, durNum, durUnit] = netMatch;
-    const duration = durUnit === 's' ? parseInt(durNum, 10) * 1000 : parseInt(durNum, 10);
+    const duration = parseDuration(durNum, durUnit);
 
     return this.buildEntry({
       worker, level, timestamp, status: 'Error',
       statusCode: undefined, statusText: `Network Error: ${errorMsg.trim()}`,
-      method, url: url.trim(), headers: {}, body: undefined, bodyRaw: undefined,
+      method: method.toUpperCase(), url: url.trim(), headers: {}, body: undefined, bodyRaw: undefined,
       duration, durationText: `+${durNum}${durUnit}`, rawLine: line,
     });
   }
@@ -418,11 +471,10 @@ class GoServiceLogParser implements LogParserStrategy {
         }
       } else {
         // 检查是否是 duration
-        const durMatch = part.match(/^(\+\d+(ms|s))\s*$/);
+        const durMatch = part.match(/^\+(\d+)(ms|s)\s*$/);
         if (durMatch) {
-          durationText = durMatch[1];
-          const num = parseInt(durationMatch(durationText), 10);
-          duration = durationText.endsWith('s') ? num * 1000 : num;
+          durationText = `+${durMatch[1]}${durMatch[2]}`;
+          duration = parseDuration(durMatch[1], durMatch[2]);
         }
       }
     }
@@ -432,7 +484,7 @@ class GoServiceLogParser implements LogParserStrategy {
       const endMatch = line.match(/\+(\d+)(ms|s)\s*$/);
       if (endMatch) {
         durationText = `+${endMatch[1]}${endMatch[2]}`;
-        duration = endMatch[2] === 's' ? parseInt(endMatch[1], 10) * 1000 : parseInt(endMatch[1], 10);
+        duration = parseDuration(endMatch[1], endMatch[2]);
       }
     }
 
@@ -457,6 +509,7 @@ class GoServiceLogParser implements LogParserStrategy {
     rawLine: string;
   }): LogEntry {
     const { worker, level, timestamp, status, statusCode, statusText, method, url, headers, body, bodyRaw, duration, durationText, rawLine } = params;
+    let finalStatusCode = statusCode;
 
     // 解析 URL
     let domain = '';
@@ -471,27 +524,18 @@ class GoServiceLogParser implements LogParserStrategy {
     }
 
     // 解析时间戳
-    let timestampMs = 0;
-    try {
-      timestampMs = new Date(timestamp.replace(/\//g, '-')).getTime();
-      if (isNaN(timestampMs)) {
-        const p = timestamp.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+):(\d+)/);
-        if (p) {
-          timestampMs = new Date(+p[1], +p[2] - 1, +p[3], +p[4], +p[5], +p[6]).getTime();
-        }
-      }
-    } catch { timestampMs = 0; }
+    let timestampMs = parseTimestampMs(timestamp);
 
     // 确定状态文本
     let finalStatusText = statusText;
-    if (!finalStatusText && statusCode) {
+    if (!finalStatusText && finalStatusCode !== undefined) {
       const statusTexts: Record<number, string> = {
         400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden',
         404: 'Not Found', 429: 'Too Many Requests',
         500: 'Internal Server Error', 502: 'Bad Gateway',
         503: 'Service Unavailable', 504: 'Gateway Timeout',
       };
-      finalStatusText = statusTexts[statusCode];
+      finalStatusText = statusTexts[finalStatusCode];
     }
 
     // 从 body 中提取错误信息
@@ -501,11 +545,9 @@ class GoServiceLogParser implements LogParserStrategy {
       } else if (body.message && !finalStatusText) {
         finalStatusText = body.message;
       }
-      if (!statusCode && body.code !== undefined) {
-        const code = typeof body.code === 'number' ? body.code : parseInt(body.code, 10);
-        if (code >= 400) {
-          // 不覆盖已有的 statusCode
-        }
+      if (finalStatusCode === undefined) {
+        const code = extractStatusCodeFromBody(body);
+        if (code !== undefined) finalStatusCode = code;
       }
     }
 
@@ -520,7 +562,7 @@ class GoServiceLogParser implements LogParserStrategy {
       domain,
       path,
       status,
-      statusCode,
+      statusCode: finalStatusCode,
       statusText: finalStatusText,
       headers,
       body,
@@ -561,7 +603,7 @@ class GoServiceLogParser implements LogParserStrategy {
     const uniqueNames = [...new Set(names)];
 
     return {
-      id: `group-${Math.random().toString(36).substr(2, 9)}`,
+      id: `group-${entries[0]?.id || 'empty'}-${entries.length}`,
       startTime: entries[0]?.timestamp || '',
       endTime: entries[entries.length - 1]?.timestamp || '',
       entries,
@@ -574,50 +616,48 @@ class GoServiceLogParser implements LogParserStrategy {
 
   private calculateStats(entries: LogEntry[]): LogStats {
     const total = entries.length;
-    const success = entries.filter(e => e.status === 'Success').length;
-    const error = entries.filter(e => e.status === 'Error').length;
-    const successRate = total > 0 ? Math.round((success / total) * 100) : 0;
-
-    // 错误类型分布
+    let success = 0;
+    let error = 0;
     const errorMap = new Map<string, number>();
+    const domainMap = new Map<string, { count: number; success: number; error: number }>();
+    const levelMap = new Map<string, number>();
+    const durationBuckets = DURATION_RANGES.map(range => ({ range: range.label, count: 0 }));
+
     for (const entry of entries) {
+      if (entry.status === 'Success') success++;
+      else error++;
+
       if (entry.status === 'Error') {
-        const code = entry.statusCode
+        const code = entry.statusCode !== undefined
           ? `${entry.statusCode}`
           : entry.statusText
             ? entry.statusText
             : 'Unknown';
         errorMap.set(code, (errorMap.get(code) || 0) + 1);
       }
-    }
-    const errorTypes = Array.from(errorMap.entries())
-      .map(([code, count]) => ({ code, count, percentage: error > 0 ? Math.round((count / error) * 100) : 0 }))
-      .sort((a, b) => b.count - a.count);
 
-    // 域名分布
-    const domainMap = new Map<string, { count: number; success: number; error: number }>();
-    for (const entry of entries) {
       const current = domainMap.get(entry.domain) || { count: 0, success: 0, error: 0 };
       current.count++;
       if (entry.status === 'Success') current.success++;
       else current.error++;
       domainMap.set(entry.domain, current);
+
+      levelMap.set(entry.level, (levelMap.get(entry.level) || 0) + 1);
+
+      const bucket = DURATION_RANGES.findIndex(range => entry.duration >= range.min && entry.duration < range.max);
+      if (bucket >= 0) durationBuckets[bucket].count++;
     }
+
+    const successRate = total > 0 ? Math.round((success / total) * 100) : 0;
+
+    const errorTypes = Array.from(errorMap.entries())
+      .map(([code, count]) => ({ code, count, percentage: error > 0 ? Math.round((count / error) * 100) : 0 }))
+      .sort((a, b) => b.count - a.count);
+
     const domainDistribution = Array.from(domainMap.entries())
       .map(([domain, data]) => ({ domain, ...data }))
       .sort((a, b) => b.count - a.count);
 
-    // 耗时分布
-    const durationDistribution = DURATION_RANGES.map(range => ({
-      range: range.label,
-      count: entries.filter(e => e.duration >= range.min && e.duration < range.max).length,
-    }));
-
-    // 日志级别分布（新增）
-    const levelMap = new Map<string, number>();
-    for (const entry of entries) {
-      levelMap.set(entry.level, (levelMap.get(entry.level) || 0) + 1);
-    }
     const levelColors: Record<string, string> = {
       Info: '#1890ff',
       Warn: '#fa8c16',
@@ -635,7 +675,7 @@ class GoServiceLogParser implements LogParserStrategy {
 
     return {
       total, success, error, successRate,
-      errorTypes, domainDistribution, durationDistribution, levelDistribution,
+      errorTypes, domainDistribution, durationDistribution: durationBuckets, levelDistribution,
     };
   }
 
@@ -650,7 +690,7 @@ class GoServiceLogParser implements LogParserStrategy {
 
     const errorEntries = entries.filter(e => e.status === 'Error');
     const firstError = errorEntries[0];
-    const errorCodes = [...new Set(errorEntries.map(e => e.statusCode).filter(Boolean))];
+    const errorCodes = [...new Set(errorEntries.map(e => e.statusCode).filter(code => code !== undefined))];
 
     if (errorCodes.length === 1 && errorCodes[0]) {
       const code = errorCodes[0];
@@ -786,9 +826,3 @@ export function parseLogFile(content: string): LogAnalysisResult {
 
 // GoServiceLogParser 导出，方便未来扩展
 export { GoServiceLogParser };
-
-// 辅助函数
-function durationMatch(text: string): string {
-  const m = text.match(/\d+/);
-  return m ? m[0] : '0';
-}

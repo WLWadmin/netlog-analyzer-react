@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { formatDuration } from '../parser';
-import { SummaryCard } from './shared/SummaryCard';
+import { SummaryCard } from '../../components/shared/SummaryCard';
 
 interface SummaryCardsProps {
   result: AnalysisResult;

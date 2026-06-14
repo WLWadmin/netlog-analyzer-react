@@ -19,20 +19,20 @@ import {
   FileTextOutlined,
   CloudUploadOutlined,
 } from '@ant-design/icons';
-import { parseLog, ParsedEvent, AnalysisResult } from './parser';
+import { parseLog, ParsedEvent, AnalysisResult } from './netlog/parser';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
 import { parseLogFile, LogAnalysisResult } from './logParser';
-import { exportReport } from './diagnosis';
+import { exportReport } from './netlog/diagnosis';
 import { useTheme } from './theme';
-import UploadZone from './components/UploadZone';
-import SummaryCards from './components/SummaryCards';
-import OverviewTab from './components/OverviewTab';
-import PerformanceTab from './components/PerformanceTab';
-import SSLTab from './components/SSLTab';
-import ProtocolTab from './components/ProtocolTab';
-import DiagnosisTab from './components/DiagnosisTab';
-import EventsTab from './components/EventsTab';
-import NetLogRequestList from './components/NetLogRequestList';
+import UploadZone from './netlog/components/UploadZone';
+import SummaryCards from './netlog/components/SummaryCards';
+import OverviewTab from './netlog/components/OverviewTab';
+import PerformanceTab from './netlog/components/PerformanceTab';
+import SSLTab from './netlog/components/SSLTab';
+import ProtocolTab from './netlog/components/ProtocolTab';
+import DiagnosisTab from './netlog/components/DiagnosisTab';
+import EventsTab from './netlog/components/EventsTab';
+import NetLogRequestList from './netlog/components/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
 import LogResultPage from './components/log/LogResultPage';
 

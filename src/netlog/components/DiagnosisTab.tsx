@@ -3,7 +3,7 @@ import { Card, Alert, Tag, Collapse, Button } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { generateSuggestions, generateNextStepInfo } from '../diagnosis';
-import { groupIssues, groupByCategory, IssueAlert } from './shared/IssueDisplay';
+import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
 
 const { Panel } = Collapse;
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, Input, Select, Tag } from 'antd';
 import {
   SearchOutlined,
@@ -14,9 +14,22 @@ interface LogRawListProps {
 
 const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchText(searchText), 250);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const indexedEntries = useMemo(() => {
+    return entries.map(entry => ({
+      entry,
+      searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain}`.toLowerCase(),
+    }));
+  }, [entries]);
 
   // 获取所有域名选项
   const domains = useMemo(() => {
@@ -26,7 +39,8 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
 
   // 筛选条目
   const filteredEntries = useMemo(() => {
-    return entries.filter(entry => {
+    const lowerSearch = debouncedSearchText.trim().toLowerCase();
+    return indexedEntries.filter(({ entry, searchText: indexedSearch }) => {
       // 状态筛选
       if (statusFilter !== 'all') {
         if (statusFilter === 'success' && entry.status !== 'Success') return false;
@@ -37,18 +51,11 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       if (domainFilter !== 'all' && entry.domain !== domainFilter) return false;
 
       // 搜索筛选
-      if (searchText) {
-        const lowerSearch = searchText.toLowerCase();
-        const matchUrl = entry.url.toLowerCase().includes(lowerSearch);
-        const matchMethod = entry.method.toLowerCase().includes(lowerSearch);
-        const matchStatus = entry.statusCode?.toString().includes(lowerSearch);
-        const matchName = entry.friendlyName.toLowerCase().includes(lowerSearch);
-        if (!matchUrl && !matchMethod && !matchStatus && !matchName) return false;
-      }
+      if (lowerSearch && !indexedSearch.includes(lowerSearch)) return false;
 
       return true;
-    });
-  }, [entries, searchText, statusFilter, domainFilter]);
+    }).map(({ entry }) => entry);
+  }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter]);
 
   const formatDuration = (ms: number) => {
     if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
@@ -160,7 +167,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                 >
                   {entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
                 </span>
-                {entry.statusCode && (
+                {entry.statusCode !== undefined && (
                   <Tag
                    
                     color="error"

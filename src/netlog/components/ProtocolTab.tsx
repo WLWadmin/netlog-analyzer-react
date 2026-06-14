@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Card, Table, Tag, Empty } from 'antd';
 import { AnalysisResult } from '../parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../constants';
-import { HealthAssessmentCard, HealthAssessment } from './shared/HealthAssessmentCard';
+import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 
 interface ProtocolTabProps {
   result: AnalysisResult;

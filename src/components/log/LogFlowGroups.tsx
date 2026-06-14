@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Tag, Descriptions } from 'antd';
+import { Tag, Descriptions } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -81,7 +81,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
               <Descriptions.Item label="时间">{entry.timestamp}</Descriptions.Item>
               <Descriptions.Item label="Worker">{entry.worker}</Descriptions.Item>
               <Descriptions.Item label="耗时">{entry.durationText}</Descriptions.Item>
-              {entry.statusCode && (
+              {entry.statusCode !== undefined && (
                 <Descriptions.Item label="状态码">
                   {entry.statusCode} {entry.statusText || ''}
                 </Descriptions.Item>
