@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import { parseLog, ParsedEvent, AnalysisResult } from './parser';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
+import { parseLogFile, LogAnalysisResult } from './logParser';
 import { exportReport } from './diagnosis';
 import { useTheme } from './theme';
 import UploadZone from './components/UploadZone';
@@ -33,6 +34,7 @@ import DiagnosisTab from './components/DiagnosisTab';
 import EventsTab from './components/EventsTab';
 import NetLogRequestList from './components/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
+import LogResultPage from './components/log/LogResultPage';
 
 const { Header, Content } = Layout;
 
@@ -41,7 +43,8 @@ const App: React.FC = () => {
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
-  const [fileType, setFileType] = useState<'netlog' | 'har'>('netlog');
+  const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
+  const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [showBackTop, setShowBackTop] = useState(false);
@@ -57,12 +60,23 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleFileLoaded = (data: unknown) => {
+  const handleFileLoaded = (data: unknown, isTextLog = false) => {
     setLoading(true);
     setLoadingText('正在识别文件类型...');
     setTimeout(() => {
       try {
-        // 自动识别文件类型：HAR 走独立解析逻辑，NetLog 走原有逻辑
+        // 自动识别文件类型
+        if (isTextLog && typeof data === 'string') {
+          // .log 文本日志文件
+          const logAnalysis = parseLogFile(data);
+          setLogResult(logAnalysis);
+          setFileType('log');
+          setHasData(true);
+          setLoading(false);
+          message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
+          return;
+        }
+
         if (isHarFile(data)) {
           setLoadingText('正在分析 HAR 请求...');
           const harAnalysis = parseHar(data);
@@ -93,6 +107,7 @@ const App: React.FC = () => {
     setEvents([]);
     setResult(null);
     setHarResult(null);
+    setLogResult(null);
     setFileType('netlog');
   };
 
@@ -228,7 +243,7 @@ const App: React.FC = () => {
       </Header>
 
       {/* ====== Main Content ====== */}
-      <Content style={{ maxWidth: 1920, margin: '0 auto', padding: '24px clamp(20px, 3vw, 48px)', width: '100%', boxSizing: 'border-box' }}>
+      <Content style={{ width: '100%', boxSizing: 'border-box' }}>
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
             <div
@@ -373,9 +388,15 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : fileType === 'har' && harResult ? (
-          <HarResultPage result={harResult} />
+          <div style={{ padding: '24px 28px' }}>
+            <HarResultPage result={harResult} />
+          </div>
+        ) : fileType === 'log' && logResult ? (
+          <div style={{ padding: '24px 28px' }}>
+            <LogResultPage result={logResult} />
+          </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
             {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) setEventsSearch(search); }} />}
             <Alert
               message={
