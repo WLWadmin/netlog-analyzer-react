@@ -271,6 +271,8 @@ function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
       p.proxy_list ||
       p.fallback_proxy ||
       p.proxy_server ||
+      p.proxy_info ||
+      p.proxy_chain ||
       p.pac_string ||
       p.tunnel_host
     );
@@ -538,6 +540,48 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
       pi.hasProxy = true;
       const addr = `${server.host}:${server.port}`;
       if (!pi.proxyList.includes(addr)) pi.proxyList.push(addr);
+    }
+  }
+
+  // Handle proxy_info param (e.g. from type=35 PROXY_DECIDED events)
+  // Format: "PROXY 127.0.0.1:2334" or "DIRECT"
+  if (p.proxy_info) {
+    const info = String(p.proxy_info);
+    if (info !== 'DIRECT') {
+      pi.hasProxy = true;
+      const match = info.match(/^(?:PROXY|SOCKS|SOCKS5|HTTPS)\s+(.+)$/i);
+      const proxyAddr = match ? match[1] : info;
+      if (!pi.proxyList.includes(proxyAddr)) {
+        pi.proxyList.push(proxyAddr);
+      }
+      if (!pi.proxyType) pi.proxyType = 'fixed_servers (固定代理服务器)';
+    }
+  }
+
+  // Handle proxy_chain param (e.g. from type=195 PROXY_CHAIN events)
+  // Format: "[127.0.0.1:2334]" or "[direct://]"
+  if (p.proxy_chain) {
+    const chain = String(p.proxy_chain);
+    // Extract proxy addresses from bracket notation: [addr1, addr2]
+    const bracketMatch = chain.match(/\[([^\]]+)\]/);
+    if (bracketMatch) {
+      const inner = bracketMatch[1];
+      if (inner !== 'direct://' && inner !== 'DIRECT') {
+        pi.hasProxy = true;
+        // Split by comma if multiple proxies in chain
+        const proxies = inner.split(',').map(s => s.trim()).filter(Boolean);
+        for (const proxy of proxies) {
+          if (!pi.proxyList.includes(proxy)) {
+            pi.proxyList.push(proxy);
+          }
+        }
+        if (!pi.proxyType) pi.proxyType = 'fixed_servers (固定代理服务器)';
+      }
+    } else if (chain !== 'DIRECT' && chain !== 'direct://') {
+      pi.hasProxy = true;
+      if (!pi.proxyList.includes(chain)) {
+        pi.proxyList.push(chain);
+      }
     }
   }
 
