@@ -29,18 +29,23 @@ const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-      <span
-        style={{
-          fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
-          fontSize: 13,
-          color: hasValue ? 'var(--text-primary)' : 'var(--text-muted)',
-          wordBreak: 'break-all',
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {hasValue ? text : emptyText}
-      </span>
+      <Tooltip title={hasValue && text.length > 60 ? text : undefined} placement="topLeft">
+        <span
+          style={{
+            fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+            fontSize: 13,
+            color: hasValue ? 'var(--text-primary)' : 'var(--text-muted)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+            cursor: hasValue && text.length > 60 ? 'help' : 'default',
+          }}
+        >
+          {hasValue ? text : emptyText}
+        </span>
+      </Tooltip>
       {hasValue && (
         <Tooltip title={copied ? '已复制' : '复制'}>
           <span

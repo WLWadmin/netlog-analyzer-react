@@ -320,11 +320,13 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           <div
             style={{
               flex: '1 1 67%',
+              minWidth: 0,
               background: 'var(--bg-elevated)',
               display: 'flex',
               flexDirection: 'column',
               boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.2)',
               animation: 'harDetailSlideIn 0.2s ease',
+              overflow: 'hidden',
             }}
           >
             {/* 详情面板 Header */}

@@ -1,5 +1,5 @@
 import { useMemo, Fragment } from 'react';
-import { Tabs, Empty, Tag } from 'antd';
+import { Tabs, Empty, Tag, Tooltip } from 'antd';
 import {
   HarRequestEntry,
   decodeResponseBody,
@@ -34,28 +34,38 @@ const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ 
     <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', fontSize: 13 }}>
       {headers.map((h, i) => (
         <Fragment key={i}>
-          <span
-            style={{
-              color: 'var(--text-muted)',
-              fontFamily: 'var(--font-mono)',
-              wordBreak: 'break-all',
-              padding: '6px 16px 6px 0',
-              borderBottom: '1px solid var(--border-color)',
-            }}
-          >
-            {h.name}
-          </span>
-          <span
-            style={{
-              color: 'var(--text-primary)',
-              fontFamily: 'var(--font-mono)',
-              wordBreak: 'break-all',
-              padding: '6px 0',
-              borderBottom: '1px solid var(--border-color)',
-            }}
-          >
-            {h.value}
-          </span>
+          <Tooltip title={h.name.length > 30 ? h.name : undefined} placement="topLeft">
+            <span
+              style={{
+                color: 'var(--text-muted)',
+                fontFamily: 'var(--font-mono)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                padding: '6px 16px 6px 0',
+                borderBottom: '1px solid var(--border-color)',
+                cursor: h.name.length > 30 ? 'help' : 'default',
+              }}
+            >
+              {h.name}
+            </span>
+          </Tooltip>
+          <Tooltip title={h.value.length > 60 ? h.value : undefined} placement="topLeft">
+            <span
+              style={{
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                padding: '6px 0',
+                borderBottom: '1px solid var(--border-color)',
+                cursor: h.value.length > 60 ? 'help' : 'default',
+              }}
+            >
+              {h.value}
+            </span>
+          </Tooltip>
         </Fragment>
       ))}
     </div>
@@ -180,9 +190,11 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
                   {canCopy ? (
                     <CopyText text={h.value} label={h.name} />
                   ) : (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                      {h.value}
-                    </span>
+                    <Tooltip title={h.value.length > 60 ? h.value : undefined} placement="topLeft">
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', cursor: h.value.length > 60 ? 'help' : 'default' }}>
+                        {h.value}
+                      </span>
+                    </Tooltip>
                   )}
                 </div>
               );
@@ -277,8 +289,12 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
               {entry.queryString.map((q, i) => (
                 <Fragment key={i}>
-                  <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{q.name}</span>
-                  <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{q.value}</span>
+                  <Tooltip title={q.name.length > 30 ? q.name : undefined} placement="topLeft">
+                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: q.name.length > 30 ? 'help' : 'default' }}>{q.name}</span>
+                  </Tooltip>
+                  <Tooltip title={q.value.length > 60 ? q.value : undefined} placement="topLeft">
+                    <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: q.value.length > 60 ? 'help' : 'default' }}>{q.value}</span>
+                  </Tooltip>
                 </Fragment>
               ))}
             </div>
@@ -296,8 +312,12 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
                 {entry.postData.params.map((p, i) => (
                   <Fragment key={i}>
-                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.name}</span>
-                    <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{p.value}</span>
+                    <Tooltip title={p.name.length > 30 ? p.name : undefined} placement="topLeft">
+                      <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: p.name.length > 30 ? 'help' : 'default' }}>{p.name}</span>
+                    </Tooltip>
+                    <Tooltip title={p.value.length > 60 ? p.value : undefined} placement="topLeft">
+                      <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: p.value.length > 60 ? 'help' : 'default' }}>{p.value}</span>
+                    </Tooltip>
                   </Fragment>
                 ))}
               </div>
