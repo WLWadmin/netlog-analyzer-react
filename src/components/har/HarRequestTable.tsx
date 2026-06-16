@@ -303,7 +303,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
             left: 0,
             right: 0,
             bottom: 0,
-            zIndex: 99,
+            zIndex: 101,
             display: 'flex',
           }}
         >
