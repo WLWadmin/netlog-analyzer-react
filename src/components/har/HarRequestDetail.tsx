@@ -28,7 +28,7 @@ const sectionTitle = (text: string) => (
   </div>
 );
 
-const tooltipOverlayStyle = { maxWidth: 520 };
+const tooltipOverlayStyle = { maxWidth: 1000 };
 const tooltipInnerStyle = {
   fontFamily: 'var(--font-mono)',
   fontSize: 12,
@@ -42,7 +42,7 @@ const tooltipInnerStyle = {
   lineHeight: 1.5,
 };
 
-const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.CSSProperties }> = ({ text, threshold = 60, style }) => {
+const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.CSSProperties }> = ({ text, threshold = 100, style }) => {
   const shouldTooltip = text.length > threshold;
   const span = (
     <span
@@ -74,14 +74,14 @@ const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ 
           <div style={{ padding: '6px 16px 6px 0', borderBottom: '1px solid var(--border-color)' }}>
             <TruncatedText
               text={h.name}
-              threshold={30}
+              threshold={50}
               style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
             />
           </div>
           <div style={{ padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
             <TruncatedText
               text={h.value}
-              threshold={60}
+              threshold={80}
               style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}
             />
           </div>
@@ -211,7 +211,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
                   ) : (
                     <TruncatedText
                       text={h.value}
-                      threshold={60}
+                      threshold={80}
                       style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}
                     />
                   )}
@@ -308,8 +308,8 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
               {entry.queryString.map((q, i) => (
                 <Fragment key={i}>
-                  <TruncatedText text={q.name} threshold={30} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
-                  <TruncatedText text={q.value} threshold={60} style={{ color: 'var(--text-primary)' }} />
+                  <TruncatedText text={q.name} threshold={50} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
+                  <TruncatedText text={q.value} threshold={80} style={{ color: 'var(--text-primary)' }} />
                 </Fragment>
               ))}
             </div>
@@ -327,8 +327,8 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
                 {entry.postData.params.map((p, i) => (
                   <Fragment key={i}>
-                    <TruncatedText text={p.name} threshold={30} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
-                    <TruncatedText text={p.value} threshold={60} style={{ color: 'var(--text-primary)' }} />
+                    <TruncatedText text={p.name} threshold={50} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
+                    <TruncatedText text={p.value} threshold={80} style={{ color: 'var(--text-primary)' }} />
                   </Fragment>
                 ))}
               </div>

@@ -1,6 +1,6 @@
-# NetLog / HAR 网络日志定因分析工具
+# NetLog / HAR / Go 服务日志 网络定因分析工具
 
-> 一个面向 Chrome / Edge `NetLog` 与 `HAR` 文件的本地可视化分析工具，用于快速梳理网络请求、错误码、协议、证书、代理、DNS 与性能瓶颈，辅助定位浏览器侧网络访问问题。上传文件后会**自动识别类型**（NetLog JSON / HAR），分别进入对应的解析结果页面。
+> 一个面向 Chrome / Edge `NetLog`、`HAR` 与 Go 服务 `.log` 文件的本地可视化分析工具，用于快速梳理网络请求、错误码、协议、证书、代理、DNS 与性能瓶颈，辅助定位浏览器侧及服务端网络访问问题。上传文件后会**自动识别类型**（NetLog JSON / HAR / Go Log），分别进入对应的解析结果页面。
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
@@ -8,7 +8,10 @@
 
 本项目用于解析 `chrome://net-export/` 或 `edge://net-export/` 导出的 `.json` 网络日志文件，并在浏览器本地完成分析与展示。工具不会把日志上传到服务器，适合用于包含访问链路、网络错误、代理配置、TLS 握手、HTTP/2、QUIC、DNS 解析、请求耗时等信息的排查场景。
 
-除 NetLog 外，工具也支持解析浏览器 DevTools → Network 面板导出的 `.har` 文件。上传后会自动识别文件类型：NetLog 走原有的 6 个分析 Tab，HAR 则进入独立的「请求列表 + 汇总诊断」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键诊断字段。
+除 NetLog 外，工具还支持：
+
+- **HAR 文件**：浏览器 DevTools → Network 面板导出的 `.har` 文件，进入独立的「请求列表 + 汇总诊断」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键诊断字段。
+- **Go 服务日志**：Go 后端服务输出的 `.log` 文件（如 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式），支持解析 Success / Error / Retrying / Network Error 等多种日志格式，展示核心发现、统计图表、操作流程分组和原始日志列表。
 
 典型使用场景包括：
 
@@ -20,12 +23,14 @@
 ## 核心特性
 
 - **纯前端本地解析**：通过 `FileReader` 在浏览器内读取文件，不上传服务器。
-- **NetLog / HAR 双格式自动识别**：上传后根据文件结构自动判断 NetLog JSON 或 HAR，并进入对应的解析结果页面。
+- **三种格式自动识别**：上传后根据文件结构自动判断 NetLog JSON、HAR 或 Go 服务日志，并进入对应的解析结果页面。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **一键复制能力**：请求列表的 Domain / Remote Address 列、详情页的关键诊断字段均支持一键复制。
-- **使用说明引导**：首页提供 HAR 和 NetLog 文件获取教程链接，帮助新用户快速上手。
+- **详情面板文本截断与 Hover 提示**：超长 URL、header value、query string、params 等自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip。
+- **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
+- **使用说明引导**：首页提供 HAR、NetLog 和 Go 日志文件获取教程链接，帮助新用户快速上手。
 - **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown 格式的分析报告。
@@ -59,6 +64,14 @@
 4. **SSL/TLS、协议分析、性能分析**：针对证书、HTTP/2、QUIC、耗时分布等方向深入定位。
 
 **HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求列表」与「汇总诊断」两个 Tab，详见下文「HAR 解析模块说明」。
+
+**Go 服务日志**解析完成后，页面会展示：
+
+1. **核心发现 Banner**：自动识别错误模式（如"上传临时文件持续被拒"）并给出诊断建议。
+2. **摘要卡片**：总请求数、成功/失败数、成功率、错误类型分布、域名分布、耗时分布。
+3. **日志级别分布**：Info / Warn / Error / Debug 的占比统计。
+4. **操作流程分组**：按时间顺序聚合请求流程，错误流程红色高亮，支持展开查看详情。
+5. **原始日志列表**：支持按关键词搜索、按级别筛选，展示完整日志行。
 
 ### 4. 导出报告
 
@@ -179,6 +192,61 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 适合排查页面加载慢、接口响应慢、DNS 慢、TLS 握手慢、下载慢等性能问题。
 
+## Go 服务日志解析模块说明
+
+当上传文件被识别为 Go 服务日志（`.log`）时，主应用会渲染独立的日志分析结果页面，相关组件位于 `src/components/log/` 目录，解析引擎位于 `src/logParser.ts`。
+
+### 结果页容器：`LogResultPage`
+
+对应文件：`src/components/log/LogResultPage.tsx`
+
+- 组合核心发现 Banner、摘要卡片、统计图表、操作流程分组和原始日志列表三个 Tab。
+- 支持"仅显示失败"筛选，自动跳转到操作流程 Tab。
+
+### 核心发现 Banner：`LogInsightBanner`
+
+对应文件：`src/components/log/LogInsightBanner.tsx`
+
+- 根据错误模式自动生成诊断摘要（如"上传临时文件持续被拒 (403 Forbidden)，共 2 次失败"）。
+- 显示严重级别（success / warning / error）和排查建议。
+
+### 摘要卡片：`LogSummaryCards`
+
+对应文件：`src/components/log/LogSummaryCards.tsx`
+
+- 展示总请求数、成功数、失败数、成功率。
+- 错误类型分布、域名分布（含成功/失败计数）、耗时分布。
+- 失败卡片可点击，自动筛选并跳转到操作流程 Tab。
+
+### 统计图表：`LogStatsCharts`
+
+对应文件：`src/components/log/LogStatsCharts.tsx`
+
+- 错误类型分布饼图、域名分布柱状图、耗时分布条形图、日志级别分布（Info/Warn/Error/Debug）。
+
+### 操作流程分组：`LogFlowGroups`
+
+对应文件：`src/components/log/LogFlowGroups.tsx`
+
+- 按时间顺序聚合请求流程，每个分组显示起始时间、请求数量、成功/失败计数。
+- 错误分组红色边框高亮，支持展开/折叠查看详情。
+- 详情页展示每条请求的 worker、级别、方法、URL、状态码、耗时和原始日志行。
+
+### 原始日志列表：`LogRawList`
+
+对应文件：`src/components/log/LogRawList.tsx`
+
+- 支持按关键词搜索（防抖 250ms，预索引优化）。
+- 支持按日志级别筛选（全部 / Info / Warn / Error / Debug）。
+- 展示完整原始日志行，高亮匹配关键词。
+
+### 解析引擎：`src/logParser.ts`
+
+- 配置化解析引擎（方案 C），支持通过配置对象描述日志结构，新增格式无需修改引擎代码。
+- 提取器注册表：bracket、word、number、until、keyValue、json、suffix 等纯函数。
+- 支持变体解析：根据 Got 后的结果类型（Success / Error / Retrying / Network）选择不同解析路径。
+- 统一换行符处理（支持 Windows \r\n 和旧 Mac \r）。
+
 ## HAR 解析模块说明
 
 当上传文件被识别为 HAR 时，主应用会渲染一套独立于 NetLog 的结果页面，相关组件位于 `src/components/har/` 目录。
@@ -215,11 +283,12 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - **Headers**：
   - General（URL / Method / Status / Remote Address / Protocol），URL 和 Remote Address 支持一键复制。
   - **关键响应头**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 以卡片形式置顶展示，其中 `x-response-cinfo`、`x-response-sinfo`、`x-tt-logid` 支持一键复制。
-  - 其余响应头和请求头以网格对齐排版展示。
+  - 其余响应头和请求头以网格对齐排版展示，超长内容自动截断，hover 以浅色 Tooltip 显示完整内容。
 - **Preview**：响应体 JSON 格式化预览（自动处理 base64 编码）、图片预览、媒体预览。
-- **Payload**：Query String Parameters 和 Request Payload 展示，JSON 自动格式化。
+- **Payload**：Query String Parameters 和 Request Payload 展示，JSON 自动格式化，超长参数值自动截断，hover 显示完整内容。
 - **Timing**：DNS / Connect / SSL / Send / Wait / Receive 各阶段耗时瀑布图（`HarTimingChart`）。
 - **诊断**：提取 `Server-Timing`、`x-tt-logid`、`x-tt-cip`、`x-lsc-source-ip`、Remote Address 等关键字段，支持一键复制。
+- **文本截断与 Hover 提示**：详情面板内所有文本字段（URL、header value、query string、params 等）超长时自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip，避免视觉干扰。
 
 ### 汇总诊断：`HarSummaryDiagnosis`
 
@@ -227,10 +296,11 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 - 当前为占位模块，后续将补充汇总诊断功能。
 
-### 辅助组件：`HarTimingChart` / `CopyText`
+### 辅助组件：`HarTimingChart` / `CopyText` / `TruncatedText`
 
 - `HarTimingChart`：各网络阶段的分段耗时条与占比明细。
-- `CopyText`：通用「文本 + 一键复制」字段组件，支持 clipboard API 不可用时的兜底处理。供请求列表、详情页与诊断 Tab 复用。
+- `CopyText`：通用「文本 + 一键复制」字段组件，支持 clipboard API 不可用时的兜底处理，超长文本自动截断并显示 Tooltip。供请求列表、详情页与诊断 Tab 复用。
+- `TruncatedText`：通用文本截断组件，内容超过阈值时显示省略号并在 hover 时以浅色主题 Tooltip 展示完整内容，未超过阈值时直接显示文本无 Tooltip。用于 HeaderList、Payload Tab 等需要截断展示的场景。
 
 ## 核心代码模块说明
 
@@ -256,9 +326,9 @@ NetLog / HAR 文件
        → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
 ```
 
-### 解析引擎：`src/parser.ts`
+### 解析引擎：`src/netlog/parser.ts`
 
-`parser.ts` 是项目的核心解析模块，主要能力包括：
+`src/netlog/parser.ts` 是 NetLog 的核心解析模块（原 `src/parser.ts` 已移至 `src/netlog/` 目录），主要能力包括：
 
 - 兼容不同 NetLog JSON 结构，识别 `events`、`logEvents` 或数组形式的事件数据。
 - 将原始事件转换为统一的 `ParsedEvent`。
@@ -288,9 +358,9 @@ NetLog / HAR 文件
 - `decodeResponseBody()`：解码响应体（含 base64）并尝试 JSON 格式化。
 - 提供分类标签 / 状态标签的淡色配色（`categoryStyle` / `statusStyle`）与格式化工具（`formatBytes` / `formatHarTime`）。
 
-### 诊断与报告：`src/diagnosis.ts`
+### 诊断与报告：`src/netlog/diagnosis.ts`
 
-`diagnosis.ts` 负责把结构化分析结果转换为可读的排查建议和报告，主要包含：
+`src/netlog/diagnosis.ts` 负责把结构化分析结果转换为可读的排查建议和报告（原 `src/diagnosis.ts` 已移至 `src/netlog/` 目录），主要包含：
 
 - `generateSuggestions()`：根据错误码、失败请求、代理、DNS、证书、协议等信息生成建议。
 - `generateNextStepInfo()`：生成下一步排查动作，例如检查 DNS、代理 / VPN、防火墙、证书、协议配置等。
@@ -299,9 +369,9 @@ NetLog / HAR 文件
 
 其中内置了常见 Chromium `net_error` 错误码的解释和处理建议，并结合错误码区间做兜底判断。
 
-### 常量与错误码：`src/constants.ts`
+### 常量与错误码：`src/netlog/constants.ts`
 
-`constants.ts` 主要维护 NetLog 分析所需的静态映射：
+`src/netlog/constants.ts` 主要维护 NetLog 分析所需的静态映射（原 `src/constants.ts` 已移至 `src/netlog/` 目录）：
 
 - `EVENT_TYPES`：事件类型编号到事件名的映射。
 - `SOURCE_TYPES`：Source 类型编号到 Source 名称的映射。
@@ -329,7 +399,59 @@ NetLog / HAR 文件
 - 上传区、卡片、Tab、瀑布流、滚动条等自定义样式。
 - 动画效果，例如拖拽高亮、加载脉冲等。
 
+## 项目目录结构
+
+```
+src/
+├── App.tsx                    # 主应用入口，自动识别文件类型并路由
+├── index.tsx                  # React 渲染入口
+├── index.css                  # 全局样式与主题变量
+├── theme.tsx                  # 主题上下文（浅色/深色切换）
+├── harParser.ts               # HAR 文件解析引擎
+├── logParser.ts               # Go 服务日志解析引擎（配置化）
+├── logConstants.ts            # Go 日志解析常量与工具函数
+├── react-app-env.d.ts         # React 类型声明
+├── utils/
+│   └── copyText.ts            # 通用复制工具（clipboard + 降级方案）
+├── components/
+│   ├── har/                   # HAR 结果页面组件
+│   │   ├── HarResultPage.tsx
+│   │   ├── HarRequestTable.tsx
+│   │   ├── HarRequestDetail.tsx
+│   │   ├── HarSummaryCards.tsx
+│   │   ├── HarSummaryDiagnosis.tsx
+│   │   ├── HarTimingChart.tsx
+│   │   └── CopyText.tsx
+│   ├── log/                   # Go 服务日志结果页面组件
+│   │   ├── LogResultPage.tsx
+│   │   ├── LogInsightBanner.tsx
+│   │   ├── LogSummaryCards.tsx
+│   │   ├── LogStatsCharts.tsx
+│   │   ├── LogFlowGroups.tsx
+│   │   └── LogRawList.tsx
+│   └── shared/                # 共享组件
+│       ├── HealthAssessmentCard.tsx
+│       ├── IssueDisplay.tsx
+│       └── SummaryCard.tsx
+└── netlog/                    # NetLog 解析与展示模块
+    ├── parser.ts              # NetLog JSON 解析引擎
+    ├── diagnosis.ts           # 诊断建议与报告生成
+    ├── constants.ts           # 事件类型/错误码常量映射
+    └── components/            # NetLog 结果页面组件
+        ├── UploadZone.tsx
+        ├── SummaryCards.tsx
+        ├── OverviewTab.tsx
+        ├── DiagnosisTab.tsx
+        ├── EventsTab.tsx
+        ├── SSLTab.tsx
+        ├── ProtocolTab.tsx
+        ├── PerformanceTab.tsx
+        └── NetLogRequestList.tsx
+```
+
 ## 数据结构概览
+
+### NetLog：`AnalysisResult`
 
 `parseLog()` 最终返回的核心结构是 `AnalysisResult`，主要字段如下：
 
@@ -356,6 +478,8 @@ NetLog / HAR 文件
 | `failedDomains` | 失败域名聚合信息 |
 | `systemInfo` | 系统、浏览器、NetLog 版本等信息 |
 
+### HAR：`HarAnalysisResult`
+
 HAR 模式下，`parseHar()` 返回的核心结构是 `HarAnalysisResult`，主要字段如下：
 
 | 字段 | 含义 |
@@ -370,6 +494,19 @@ HAR 模式下，`parseHar()` 返回的核心结构是 `HarAnalysisResult`，主�
 | `creator` | HAR 来源（导出工具及版本） |
 
 每条 `HarRequestEntry` 含 URL、方法、状态、协议、域名、Remote Address、类型、大小、耗时、各阶段 timings、请求 / 响应头、响应体，以及 `serverTiming`、`xTtLogid`、`xTtCip`、`xLscSourceIp` 等诊断字段。
+
+### Go 服务日志：`LogAnalysisResult`
+
+Go 服务日志模式下，`parseLogFile()` 返回的核心结构是 `LogAnalysisResult`，主要字段如下：
+
+| 字段 | 说明 |
+| --- | --- |
+| `entries` | 解析出的日志条目列表（`LogEntry[]`） |
+| `groups` | 操作流程分组（`LogFlowGroup[]`） |
+| `stats` | 统计信息（总数、成功/失败、分布等） |
+| `insight` | 核心发现与诊断建议 |
+
+每条 `LogEntry` 含 worker 名、日志级别（Info/Error/Warn/Debug）、时间戳、HTTP 方法、URL、域名、路径、状态（Success/Error）、状态码、状态文本、请求头、响应体、耗时、友好名称和原始日志行。
 
 ## 技术栈
 
@@ -440,3 +577,5 @@ npm test
 6. 最后在 **事件列表页** 中按错误码、Source ID 或关键词回溯原始事件。
 
 > 若上传的是 HAR 文件，则先看 **汇总卡片** 与 **汇总诊断 Tab** 锁定失败 / 慢请求，再在 **请求列表** 中按类型或状态筛选，点击具体请求查看 Headers、响应体、耗时瀑布与关键诊断字段。
+>
+> 若上传的是 Go 服务日志，则先看 **核心发现 Banner** 了解错误模式，再查看 **摘要卡片** 确认失败规模和分布，然后在 **操作流程** Tab 中查看错误流程详情，最后在 **原始日志** Tab 中核对具体日志行。

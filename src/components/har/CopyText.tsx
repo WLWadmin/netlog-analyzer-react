@@ -14,7 +14,7 @@ interface CopyTextProps {
 const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText = '-' }) => {
   const [copied, setCopied] = useState(false);
   const hasValue = text !== undefined && text !== null && text !== '' && text !== '-';
-  const shouldTooltip = hasValue && text.length > 60;
+  const shouldTooltip = hasValue && text.length > 100;
 
   const handleCopy = async () => {
     if (!hasValue) return;
@@ -51,7 +51,7 @@ const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText
         <Tooltip
           title={text}
           placement="topLeft"
-          overlayStyle={{ maxWidth: 520 }}
+          overlayStyle={{ maxWidth: 1000 }}
           overlayInnerStyle={{
             fontFamily: 'var(--font-mono)',
             fontSize: 12,
