@@ -298,13 +298,15 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       {selected && (
         <div
           style={{
-            position: 'fixed',
-            top: 60,
+            position: 'absolute',
+            top: 0,
             left: 0,
             right: 0,
             bottom: 0,
             zIndex: 99,
             display: 'flex',
+            borderRadius: 14,
+            overflow: 'hidden',
           }}
         >
           {/* 左侧空白区域：点击关闭 */}

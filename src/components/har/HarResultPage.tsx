@@ -85,6 +85,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
           overflow: 'hidden',
           boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
           padding: '0 4px',
+          position: 'relative',
         }}
       >
         <Tabs
