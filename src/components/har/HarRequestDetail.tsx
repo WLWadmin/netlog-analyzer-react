@@ -28,44 +28,63 @@ const sectionTitle = (text: string) => (
   </div>
 );
 
+const tooltipOverlayStyle = { maxWidth: 520 };
+const tooltipInnerStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  padding: '10px 14px',
+  borderRadius: 8,
+  background: 'var(--bg-elevated)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--border-color)',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+  wordBreak: 'break-all' as const,
+  lineHeight: 1.5,
+};
+
+const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.CSSProperties }> = ({ text, threshold = 60, style }) => {
+  const shouldTooltip = text.length > threshold;
+  const span = (
+    <span
+      style={{
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        display: 'block',
+        ...style,
+      }}
+    >
+      {text}
+    </span>
+  );
+  if (!shouldTooltip) return span;
+  return (
+    <Tooltip title={text} placement="topLeft" overlayStyle={tooltipOverlayStyle} overlayInnerStyle={tooltipInnerStyle}>
+      {span}
+    </Tooltip>
+  );
+};
+
 const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ headers }) => {
   if (!headers.length) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>无</div>;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', fontSize: 13 }}>
       {headers.map((h, i) => (
         <Fragment key={i}>
-          <Tooltip title={h.name.length > 30 ? h.name : undefined} placement="topLeft">
-            <span
-              style={{
-                color: 'var(--text-muted)',
-                fontFamily: 'var(--font-mono)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                padding: '6px 16px 6px 0',
-                borderBottom: '1px solid var(--border-color)',
-                cursor: h.name.length > 30 ? 'help' : 'default',
-              }}
-            >
-              {h.name}
-            </span>
-          </Tooltip>
-          <Tooltip title={h.value.length > 60 ? h.value : undefined} placement="topLeft">
-            <span
-              style={{
-                color: 'var(--text-primary)',
-                fontFamily: 'var(--font-mono)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                padding: '6px 0',
-                borderBottom: '1px solid var(--border-color)',
-                cursor: h.value.length > 60 ? 'help' : 'default',
-              }}
-            >
-              {h.value}
-            </span>
-          </Tooltip>
+          <div style={{ padding: '6px 16px 6px 0', borderBottom: '1px solid var(--border-color)' }}>
+            <TruncatedText
+              text={h.name}
+              threshold={30}
+              style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
+            />
+          </div>
+          <div style={{ padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
+            <TruncatedText
+              text={h.value}
+              threshold={60}
+              style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}
+            />
+          </div>
         </Fragment>
       ))}
     </div>
@@ -190,11 +209,11 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
                   {canCopy ? (
                     <CopyText text={h.value} label={h.name} />
                   ) : (
-                    <Tooltip title={h.value.length > 60 ? h.value : undefined} placement="topLeft">
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', cursor: h.value.length > 60 ? 'help' : 'default' }}>
-                        {h.value}
-                      </span>
-                    </Tooltip>
+                    <TruncatedText
+                      text={h.value}
+                      threshold={60}
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}
+                    />
                   )}
                 </div>
               );
@@ -289,12 +308,8 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
               {entry.queryString.map((q, i) => (
                 <Fragment key={i}>
-                  <Tooltip title={q.name.length > 30 ? q.name : undefined} placement="topLeft">
-                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: q.name.length > 30 ? 'help' : 'default' }}>{q.name}</span>
-                  </Tooltip>
-                  <Tooltip title={q.value.length > 60 ? q.value : undefined} placement="topLeft">
-                    <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: q.value.length > 60 ? 'help' : 'default' }}>{q.value}</span>
-                  </Tooltip>
+                  <TruncatedText text={q.name} threshold={30} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
+                  <TruncatedText text={q.value} threshold={60} style={{ color: 'var(--text-primary)' }} />
                 </Fragment>
               ))}
             </div>
@@ -312,12 +327,8 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px 16px' }}>
                 {entry.postData.params.map((p, i) => (
                   <Fragment key={i}>
-                    <Tooltip title={p.name.length > 30 ? p.name : undefined} placement="topLeft">
-                      <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: p.name.length > 30 ? 'help' : 'default' }}>{p.name}</span>
-                    </Tooltip>
-                    <Tooltip title={p.value.length > 60 ? p.value : undefined} placement="topLeft">
-                      <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: p.value.length > 60 ? 'help' : 'default' }}>{p.value}</span>
-                    </Tooltip>
+                    <TruncatedText text={p.name} threshold={30} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
+                    <TruncatedText text={p.value} threshold={60} style={{ color: 'var(--text-primary)' }} />
                   </Fragment>
                 ))}
               </div>
