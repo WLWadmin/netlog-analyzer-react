@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { Card, Alert, Tag, Collapse, Button } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
@@ -133,75 +133,80 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
             style={{ background: 'var(--bg-surface)', borderColor: '#34d399' }}
           />
         ) : (
-          suggestions.map((s, i) => (
-            <Alert
-              key={i}
-              message={
-                <strong style={{ color: 'var(--text-primary)', fontSize: 14 }}>
-                  {s.icon} {s.title}
-                </strong>
-              }
-              description={
-                <div style={{ marginTop: 10 }}>
-                  {/* Problem description */}
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
-                    {s.detail}
-                  </div>
-                  {/* Conclusion */}
-                  <div style={{ padding: '10px 14px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 8, border: '1px solid rgba(251, 191, 36, 0.2)', marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fbbf24', marginBottom: 4 }}>
-                      📌 处理结论
+          <Fragment>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, fontStyle: 'italic' }}>
+              以下建议已按错误类别合并同类项，去重后展示
+            </div>
+            {suggestions.map((s, i) => (
+              <Alert
+                key={i}
+                message={
+                  <strong style={{ color: 'var(--text-primary)', fontSize: 14 }}>
+                    {s.icon} {s.title}
+                  </strong>
+                }
+                description={
+                  <div style={{ marginTop: 10 }}>
+                    {/* Problem description */}
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
+                      {s.detail}
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                      {s.conclusion}
-                    </div>
-                  </div>
-                  {/* Action steps */}
-                  {s.actions && s.actions.length > 0 && (
-                    <div style={{ padding: '10px 14px', background: 'var(--bg-base)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                        🔧 自主解决步骤：
+                    {/* Conclusion */}
+                    <div style={{ padding: '10px 14px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 8, border: '1px solid rgba(251, 191, 36, 0.2)', marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fbbf24', marginBottom: 4 }}>
+                        📌 处理结论
                       </div>
-                      {s.actions.map((action, j) => (
-                        <div
-                          key={j}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 8,
-                            marginBottom: j < s.actions!.length - 1 ? 8 : 0,
-                            fontSize: 13,
-                          }}
-                        >
-                          <span
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        {s.conclusion}
+                      </div>
+                    </div>
+                    {/* Action steps */}
+                    {s.actions && s.actions.length > 0 && (
+                      <div style={{ padding: '10px 14px', background: 'var(--bg-base)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+                          🔧 自主解决步骤：
+                        </div>
+                        {s.actions.map((action, j) => (
+                          <div
+                            key={j}
                             style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              width: 20,
-                              height: 20,
-                              borderRadius: '50%',
-                              background: 'rgba(74, 158, 255, 0.15)',
-                              color: '#4a9eff',
-                              fontSize: 11,
-                              fontWeight: 700,
-                              flexShrink: 0,
-                              marginTop: 1,
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              marginBottom: j < s.actions!.length - 1 ? 8 : 0,
+                              fontSize: 13,
                             }}
                           >
-                            {j + 1}
-                          </span>
-                          <span style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>{action}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              }
-              type={i === 0 && result.errors.length > 0 ? 'error' : 'info'}
-              style={{ marginBottom: 12, background: 'var(--bg-surface)', border: `1px solid ${i === 0 && result.errors.length > 0 ? 'rgba(248, 113, 113, 0.2)' : 'rgba(91, 163, 245, 0.2)'}` }}
-            />
-          ))
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                background: 'rgba(74, 158, 255, 0.15)',
+                                color: '#4a9eff',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                                marginTop: 1,
+                              }}
+                            >
+                              {j + 1}
+                            </span>
+                            <span style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>{action}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                }
+                type={i === 0 && result.errors.length > 0 ? 'error' : 'info'}
+                style={{ marginBottom: 12, background: 'var(--bg-surface)', border: `1px solid ${i === 0 && result.errors.length > 0 ? 'rgba(248, 113, 113, 0.2)' : 'rgba(91, 163, 245, 0.2)'}` }}
+              />
+            ))}
+          </Fragment>
         )}
       </Card>
 

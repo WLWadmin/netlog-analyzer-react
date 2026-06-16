@@ -311,180 +311,167 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
 };
 
 // ============================================================
+// Error category classification
+// ============================================================
+
+interface CategoryGroup {
+  catName: string;
+  icon: string;
+  sortWeight: number;
+  codes: (string | number)[];
+  requests: { url: string; error: number | string; time: number }[];
+  domains: Set<string>;
+  actions: string[];
+  detailParts: string[];
+  conclusionParts: Set<string>;
+}
+
+function _getErrorCategory(code: string | number | null): { catName: string; icon: string; sortWeight: number } {
+  if (code === null) return { catName: '其他', icon: '❓', sortWeight: 99 };
+
+  const num = typeof code === 'number' ? code : Number(code);
+  if (!isNaN(num)) {
+    if (num === -111 || num === -130) return { catName: '代理', icon: '⚠️', sortWeight: 3 };
+    if (num === -21) return { catName: '网络变更', icon: '🔄', sortWeight: 4 };
+    if (num === -20 || num === -22) return { catName: '阻止', icon: '🚫', sortWeight: 5 };
+    if ((num >= -820 && num <= -800) || num === -105 || num === -106 || num === -137) return { catName: 'DNS', icon: '🌐', sortWeight: 1 };
+    if (num >= -299 && num <= -200) return { catName: '证书', icon: '🔒', sortWeight: 2 };
+    if ((num >= -399 && num <= -300) || num === -352 || num === -356) return { catName: '协议', icon: '📡', sortWeight: 6 };
+    if ((num >= -199 && num <= -100) || num === -7 || num === -109) return { catName: '连接', icon: '🔗', sortWeight: 7 };
+    if (num >= -99 && num <= -1) return { catName: '应用层', icon: '⚙️', sortWeight: 8 };
+    if (num >= -413 && num <= -400) return { catName: '缓存', icon: '📦', sortWeight: 9 };
+  }
+
+  const desc = getNetErrorDescription(code);
+  if (desc.includes('DNS') || desc.includes('NAME_NOT_RESOLVED')) return { catName: 'DNS', icon: '🌐', sortWeight: 1 };
+  if (desc.includes('SSL') || desc.includes('CERT') || desc.includes('证书')) return { catName: '证书', icon: '🔒', sortWeight: 2 };
+  if (desc.includes('QUIC')) return { catName: '协议', icon: '📡', sortWeight: 6 };
+  if (desc.includes('TIMED_OUT') || desc.includes('超时')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
+  if (desc.includes('REFUSED') || desc.includes('拒绝')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
+  if (desc.includes('RESET') || desc.includes('重置')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
+  return { catName: '其他', icon: '❓', sortWeight: 99 };
+}
+
+function _dedupActions(actions: string[]): string[] {
+  const seen = new Set<string>();
+  return actions.filter(a => {
+    const key = a.trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ============================================================
 // Generate suggestions based on knowledge base
 // ============================================================
 
 export function generateSuggestions(r: AnalysisResult): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
-  // ---- Connection failures: use knowledge base mapping ----
+  // ---- Connection failures: group by category and merge ----
   if (r.connectionFailures.length > 0) {
-    const errCodes = [...new Set(r.connectionFailures.map(f => f.error))];
+    const errCodes = [...new Set(r.connectionFailures.map(f => f.error).filter(Boolean))];
+    const categoryGroups = new Map<string, CategoryGroup>();
+
     for (const code of errCodes) {
-      const numCode = typeof code === 'number' ? code : Number(code);
-      // Check knowledge base first
-      if (ERROR_SOLUTIONS[numCode]) {
-        const sol = ERROR_SOLUTIONS[numCode];
-        suggestions.push({
-          icon: '🔍',
-          title: sol.title,
-          detail: sol.detail,
-          conclusion: sol.conclusion,
-          actions: sol.actions,
+      const { catName, icon, sortWeight } = _getErrorCategory(code);
+      const key = `${sortWeight.toString().padStart(2, '0')}_${catName}`;
+
+      if (!categoryGroups.has(key)) {
+        categoryGroups.set(key, {
+          catName,
+          icon,
+          sortWeight,
+          codes: [],
+          requests: [],
+          domains: new Set(),
+          actions: [],
+          detailParts: [],
+          conclusionParts: new Set(),
         });
+      }
+
+      const group = categoryGroups.get(key)!;
+      group.codes.push(code);
+
+      const affected = r.connectionFailures.filter(f => f.error === code);
+      group.requests.push(...affected);
+      for (const f of affected) {
+        try {
+          const url = new URL(f.url);
+          if (url.hostname) group.domains.add(url.hostname);
+        } catch { /* ignore */ }
+      }
+
+      const numCode = typeof code === 'number' ? code : Number(code);
+      if (!isNaN(numCode) && ERROR_SOLUTIONS[numCode]) {
+        const sol = ERROR_SOLUTIONS[numCode];
+        group.actions.push(...sol.actions);
+        group.detailParts.push(`${code}: ${sol.title}`);
+        group.conclusionParts.add(sol.conclusion);
       } else {
         const desc = getNetErrorDescription(code);
-        // Fallback: pattern matching based on error code ranges
-        const codeNum = typeof code === 'number' ? code : parseInt(String(code), 10);
-        
-        if (!isNaN(codeNum) && codeNum >= -99 && codeNum <= -1) {
-          // (-1)~(-99): Business logic / application layer errors
-          suggestions.push({
-            icon: '⚙️',
-            title: `应用层错误 (${desc})`,
-            detail: `检测到错误码 ${code}，属于应用层/业务逻辑错误。这类错误通常与客户端内部逻辑、请求取消或超时配置有关，需要结合具体业务场景分析。`,
-            conclusion: '应用层错误需要结合具体请求场景分析，建议查看请求详情和客户端日志。',
-            actions: [
-              '检查请求是否在发送过程中被取消',
-              '查看客户端日志获取更详细的错误上下文',
-              '检查是否有业务逻辑拦截了请求',
-              '如果是超时类错误，检查超时配置是否合理',
-            ],
-          });
-        } else if (!isNaN(codeNum) && codeNum >= -199 && codeNum <= -100) {
-          // (-100)~(-199): Network link errors
-          suggestions.push({
-            icon: '🔗',
-            title: `网络链路错误 (${desc})`,
-            detail: `检测到错误码 ${code}，属于网络链路层错误。根据 oncall 经验，此类错误通常与防火墙、代理、安全软件或网络链路质量有关。`,
-            conclusion: '网络链路错误需要排查防火墙、代理、安全软件和网络链路质量。',
-            actions: [
-              '【关键】联系 IT 排查防火墙策略',
-              '检查是否使用了代理/VPN，尝试关闭后测试',
-              '临时禁用安全软件后测试',
-              '使用 ping/tracert 检查网络链路质量',
-              '尝试切换网络环境（手机热点）对比测试',
-            ],
-          });
-        } else if (!isNaN(codeNum) && codeNum >= -299 && codeNum <= -200) {
-          // (-200)~(-299): Certificate errors
-          suggestions.push({
-            icon: '🔒',
-            title: `证书错误 (${desc})`,
-            detail: `检测到错误码 ${code}，属于 SSL/TLS 证书错误。根据 oncall 经验，企业环境中 90% 以上的证书错误由防火墙/安全软件的 HTTPS 解密（MITM）导致。`,
-            conclusion: '证书错误极大概率是安全设备替换证书导致，需要排查防火墙和审计系统。',
-            actions: [
-              '【关键】联系 IT 排查防火墙/审计系统是否进行了 HTTPS 解密',
-              '点击浏览器域名前"小锁"查看证书详情',
-              '检查是否连接了需要认证的 Wi-Fi',
-              '检查系统时间是否正确',
-              '尝试使用飞书医生等工具检测证书劫持',
-            ],
-          });
-        } else if (!isNaN(codeNum) && codeNum >= -399 && codeNum <= -300) {
-          // (-300)~(-399): Protocol errors (HTTP/2, QUIC)
-          suggestions.push({
-            icon: '📡',
-            title: `协议错误 (${desc})`,
-            detail: `检测到错误码 ${code}，属于应用层协议错误（HTTP/2 或 QUIC）。根据 oncall 经验，此类错误通常与代理不支持新协议、网络中间设备干扰或弱网环境有关。`,
-            conclusion: '协议错误建议先禁用相关协议进行对比测试，排查代理和中间设备兼容性。',
-            actions: [
-              '在 chrome://flags 中禁用 HTTP/2 或 QUIC 进行对比测试',
-              '检查代理服务器是否支持 HTTP/2 / QUIC',
-              '检查防火墙是否阻止了 UDP 443（QUIC）',
-              '检查网络质量（弱网环境容易导致 QUIC 错误）',
-            ],
-          });
-        } else if (desc.includes('DNS') || desc.includes('NAME_NOT_RESOLVED')) {
-          suggestions.push({
-            icon: '🌐',
-            title: `DNS 解析问题 (${desc})`,
-            detail: 'DNS 解析失败可能导致所有请求无法发起。',
-            conclusion: 'DNS 问题是网络故障的常见根因，建议优先排查 DNS 配置。',
-            actions: [
-              '【首选】国内用户修改 DNS 为 223.5.5.5（阿里云）或 119.29.29.29（腾讯云）；海外用户修改 DNS 为 8.8.8.8（Google）或 1.1.1.1（Cloudflare）',
-              '【重要】避免使用 114.114.114.114（已停止维护，不稳定）',
-              '清除 DNS 缓存后重试',
-              '使用 nslookup 检查域名解析结果',
-            ],
-          });
-        } else if (desc.includes('TIMED_OUT') || desc.includes('超时')) {
-          suggestions.push({
-            icon: '⏱',
-            title: `连接超时 (${desc})`,
-            detail: '连接超时，可能是网络质量差、防火墙拦截或 DNS 配置错误。',
-            conclusion: '连接超时涉及多个环节，建议从 DNS 到网络链路逐步排查。',
-            actions: [
-              '检查 DNS 是否为 8.8.8.8（国内使用会导致路由绕远，海外使用正常）',
-              '访问 cip.cc 查看出口 IP，确认接入节点',
-              '使用 ping/tracert 检查网络连通性和路由',
-              '尝试切换网络环境（手机热点）对比',
-            ],
-          });
-        } else if (desc.includes('REFUSED') || desc.includes('拒绝')) {
-          suggestions.push({
-            icon: '🚫',
-            title: `连接被拒绝 (${desc})`,
-            detail: '服务器主动拒绝连接，可能是域名劫持或防火墙限制。',
-            conclusion: '连接被拒绝需优先排查 DNS 劫持和防火墙策略。',
-            actions: [
-              '使用 nslookup 检查是否被劫持到 127.0.0.1 或 0.0.0.0',
-              '将 DNS 更改为国内 223.5.5.5/119.29.29.29 或海外 8.8.8.8/1.1.1.1',
-              '联系 IT 排查防火墙策略',
-            ],
-          });
-        } else if (desc.includes('RESET') || desc.includes('重置')) {
-          suggestions.push({
-            icon: '🔄',
-            title: `连接被重置 (${desc})`,
-            detail: '连接被重置，可能是防火墙 TLS SNI 拦截。',
-            conclusion: '连接被重置极大概率是防火墙 TLS SNI 拦截导致，需要联系 IT 排查。',
-            actions: [
-              '【关键】联系 IT 排查防火墙 TLS SNI 拦截规则',
-              '将域名加入防火墙白名单（泛域名形式）',
-              '检查是否有审计准入系统干扰',
-            ],
-          });
-        } else if (desc.includes('SSL') || desc.includes('CERT') || desc.includes('证书')) {
-          suggestions.push({
-            icon: '🔒',
-            title: `SSL/TLS 证书问题 (${desc})`,
-            detail: 'SSL 握手失败，可能是防火墙/审计系统或中间人攻击。',
-            conclusion: '证书异常通常是安全软件或中间人攻击导致，需要立即排查。',
-            actions: [
-              '【关键】联系 IT 排查防火墙和审计准入系统',
-              '检查证书链是否完整',
-              '点击浏览器域名前"小锁"查看证书详情',
-              '可能需要杀毒处理',
-            ],
-          });
-        } else if (desc.includes('QUIC')) {
-          suggestions.push({
-            icon: '📡',
-            title: `QUIC 协议问题 (${desc})`,
-            detail: 'QUIC 连接失败，可能是 UDP 443 端口被阻止。',
-            conclusion: 'QUIC 协议问题通常由防火墙阻止 UDP 443 或弱网环境导致。',
-            actions: [
-              '检查防火墙是否阻止了 UDP 端口 443',
-              '在 chrome://flags 中禁用 QUIC 进行对比测试',
-              '检查网络中间设备是否支持 QUIC',
-            ],
-          });
-        } else {
-          suggestions.push({
-            icon: '❓',
-            title: `网络错误 (${desc})`,
-            detail: `检测到错误码 ${code}。`,
-            conclusion: '未知错误建议按照通用排查流程处理。',
-            actions: [
-              '检查网络连接是否正常',
-              '尝试清除浏览器缓存和 Cookie',
-              '禁用浏览器扩展后重试',
-              '尝试使用其他网络环境',
-            ],
-          });
+        group.detailParts.push(`${code}: ${desc}`);
+        const defaultConclusions: Record<string, string> = {
+          '应用层': '应用层错误需要结合具体请求场景分析。',
+          '连接': '网络链路错误需要排查防火墙、代理、安全软件和网络链路质量。',
+          '证书': '证书错误极大概率是安全设备替换证书导致。',
+          '协议': '协议错误建议先禁用相关协议进行对比测试。',
+          'DNS': 'DNS 问题是网络故障的常见根因。',
+        };
+        group.conclusionParts.add(defaultConclusions[catName] || '未知错误建议按照通用排查流程处理。');
+
+        const defaultActions: Record<string, string[]> = {
+          '应用层': [
+            '检查请求是否在发送过程中被取消',
+            '查看客户端日志获取更详细的错误上下文',
+            '检查是否有业务逻辑拦截了请求',
+          ],
+          '连接': [
+            '【关键】联系 IT 排查防火墙策略',
+            '检查是否使用了代理/VPN，尝试关闭后测试',
+            '临时禁用安全软件后测试',
+            '使用 ping/tracert 检查网络链路质量',
+            '尝试切换网络环境（手机热点）对比测试',
+          ],
+          '证书': [
+            '【关键】联系 IT 排查防火墙/审计系统是否进行了 HTTPS 解密',
+            '点击浏览器域名前"小锁"查看证书详情',
+            '检查系统时间是否正确',
+          ],
+          '协议': [
+            '在 chrome://flags 中禁用 HTTP/2 或 QUIC 进行对比测试',
+            '检查代理服务器是否支持 HTTP/2 / QUIC',
+            '检查防火墙是否阻止了 UDP 443（QUIC）',
+          ],
+          'DNS': [
+            '【首选】国内用户修改 DNS 为 223.5.5.5 或 119.29.29.29；海外用户修改 DNS 为 8.8.8.8 或 1.1.1.1',
+            '清除 DNS 缓存后重试',
+            '使用 nslookup 检查域名解析结果',
+          ],
+        };
+        if (defaultActions[catName]) {
+          group.actions.push(...defaultActions[catName]);
         }
       }
+    }
+
+    // Sort by weight and build suggestions
+    const sortedGroups = Array.from(categoryGroups.values()).sort((a, b) => a.sortWeight - b.sortWeight);
+    for (const g of sortedGroups) {
+      const codeList = g.codes.slice(0, 5).join(', ') + (g.codes.length > 5 ? ` 等${g.codes.length}个` : '');
+      const detail = `检测到以下错误：\n${g.detailParts.map(p => `  - ${p}`).join('\n')}\n\n影响范围: ${g.requests.length}个请求, ${g.domains.size}个域名`;
+      const conclusion = Array.from(g.conclusionParts).join('；');
+      const actions = _dedupActions(g.actions);
+
+      suggestions.push({
+        icon: g.icon,
+        title: `${g.catName}问题 -- 涉及错误码: ${codeList}`,
+        detail,
+        conclusion,
+        actions,
+      });
     }
   }
 

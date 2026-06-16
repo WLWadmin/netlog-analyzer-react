@@ -38,3 +38,7 @@ public/test.log
 test-sample.har
 .superpowers
 docs
+edge-net-export-log1.json
+netlog_analyzer.py
+__pycache__
+public/test.har
