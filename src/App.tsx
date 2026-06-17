@@ -388,7 +388,7 @@ const App: React.FC = () => {
 
                 {/* Go 服务日志文件 */}
                 <a
-                  href="https://bytedance.larkoffice.com/docx/LogGuidePlaceholder"
+                  href="https://bytedance.larkoffice.com/wiki/O6UJwfl0UivPlBk7pCHcrzxfnJd"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
