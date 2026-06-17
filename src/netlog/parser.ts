@@ -1,4 +1,5 @@
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
+import { formatTime, truncateUrl } from '../utils/format';
 
 export interface ParsedEvent {
   time: number;
@@ -114,10 +115,7 @@ export interface AnalysisResult {
   };
 }
 
-// Helper: check if event type falls in a range
-function inRange(t: number, lo: number, hi: number): boolean {
-  return t >= lo && t <= hi;
-}
+
 
 export function parseLog(logData: any): { events: ParsedEvent[]; result: AnalysisResult } {
   const result: AnalysisResult = {
@@ -334,8 +332,6 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
 }
 
 function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>) {
-  const t = evt.type;
-  const st = evt.source.type;
   const p = evt.params;
   const tn = evt.typeName;
   const stn = evt.source.typeName;
@@ -1011,7 +1007,7 @@ function runDiagnostics(r: AnalysisResult) {
   }
 }
 
-// Re-export format utilities from shared utils
+// Re-export format utilities from shared utils for backward compatibility
 export { formatDuration, formatTime, truncateUrl } from '../utils/format';
 
 export function percentile(arr: number[], p: number): number {
