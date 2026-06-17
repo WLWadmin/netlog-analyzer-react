@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Card, Table, Empty, Tag, Modal, Descriptions } from 'antd';
+import { Card, Table, Tag, Modal, Descriptions } from 'antd';
+import { ThunderboltOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../parser';
 
@@ -30,7 +31,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const completedReqs = result.urlRequests.filter(q => q.duration);
 
   if (completedReqs.length === 0) {
-    return <Empty description="没有可分析的性能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <ThunderboltOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>没有可分析的性能数据</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>上传包含已完成请求的NetLog文件后即可查看性能分析</div>
+      </div>
+    );
   }
 
   // Single-pass: collect durations, phase stats, and waterfall range
@@ -164,9 +171,9 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             { label: 'P99', value: formatDuration(stats.p99) },
             { label: '最大值', value: formatDuration(stats.max) },
           ].map(s => (
-            <div key={s.label} style={{ textAlign: 'center', padding: 12, background: 'var(--bg-surface)', borderRadius: 8 }}>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#4a9eff' }}>{s.value}</div>
+            <div key={s.label} style={{ textAlign: 'center', padding: 14, background: 'var(--bg-surface)', borderRadius: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: s.label === '最大值' ? '#f87171' : s.label === '平均值' ? '#fb923c' : '#4a9eff', fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{s.value}</div>
             </div>
           ))}
         </div>
@@ -187,6 +194,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                 <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
                 <Tooltip
                   contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                  labelStyle={{ color: 'var(--text-secondary)' }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any) => [formatDuration(Number(value) || 0), '平均耗时']}
                 />
@@ -227,15 +235,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                     width: 200,
                     fontSize: 12,
                     color: 'var(--text-secondary)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                     paddingRight: 8,
                     flexShrink: 0,
                   }}
                   title={req.url}
                 >
-                  {truncateUrl(req.url, 35)}
+                  {truncateUrl(req.url, 28)}
                 </div>
                 <div style={{ flex: 1, position: 'relative', height: 20, background: 'var(--bg-base)', borderRadius: 4 }}>
                   {/* Total duration bar */}

@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
-import { Card, Table, Tag, Empty, Input, Tooltip as AntTooltip, Modal, Descriptions } from 'antd';
+import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { SearchOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { SearchOutlined, ClockCircleOutlined, SwapOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../parser';
 
 interface NetLogRequestListProps {
@@ -176,7 +176,13 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   }, [timeRange, totalDuration]);
 
   if (sortedRequests.length === 0) {
-    return <Empty description="暂无 URL 请求数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <SwapOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>暂无URL请求数据</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>上传包含URL请求的NetLog文件后即可查看请求详情</div>
+      </div>
+    );
   }
 
   return (

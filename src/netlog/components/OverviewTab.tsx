@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List } from 'antd';
+import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List, Tooltip as AntTooltip } from 'antd';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../parser';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
@@ -129,12 +129,16 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     .sort((a, b) => (b.duration || 0) - (a.duration || 0))
     .slice(0, 20);
 
-  const requestColumns = [
-    { title: 'URL', dataIndex: 'url', key: 'url', render: (url: string) => <span title={url}>{truncateUrl(url, 50)}</span> },
-    { title: '方法', dataIndex: 'method', key: 'method', render: (m: string) => <Tag color="blue">{m}</Tag> },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string, r: any) => getStatusTag(s, r.statusCode) },
-    { title: '耗时', dataIndex: 'duration', key: 'duration', render: (d: number) => (
-      <span style={{ fontWeight: 600, color: d > 3000 ? '#f87171' : d > 1000 ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
+  const requestColumns: any[] = [
+    { title: 'URL', dataIndex: 'url', key: 'url', render: (url: string) => (
+      <AntTooltip title={url} placement="topLeft">
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{truncateUrl(url, 50)}</span>
+      </AntTooltip>
+    )},
+    { title: '方法', dataIndex: 'method', key: 'method', width: 80, render: (m: string) => <Tag color="blue" style={{ fontSize: 11, border: 'none' }}>{m}</Tag> },
+    { title: '状态', dataIndex: 'status', key: 'status', width: 90, align: 'center', render: (s: string, r: any) => getStatusTag(s, r.statusCode) },
+    { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (d: number) => (
+      <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > 3000 ? '#f87171' : d > 1000 ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
     )},
   ];
 
@@ -164,11 +168,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
           <>
             <div style={{ marginBottom: 12 }}>
               {pi.isVPN ? (
-                <Tag color="red">🚨 检测到 VPN</Tag>
+                <Tag color="error" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>🚨 检测到 VPN</Tag>
               ) : pi.hasProxy ? (
-                <Tag color="orange">⚠️ 使用了代理</Tag>
+                <Tag color="warning" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>⚠️ 使用了代理</Tag>
               ) : (
-                <Tag color="blue">ℹ️ 代理事件</Tag>
+                <Tag color="blue" style={{ fontSize: 12, border: 'none' }}>ℹ️ 代理事件</Tag>
               )}
               <span style={{ color: 'var(--text-secondary)', marginLeft: 12 }}>代理模式: <strong style={{ color: 'var(--text-primary)' }}>{pi.proxyType || '未知'}</strong></span>
             </div>
@@ -176,7 +180,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               <>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>代理服务器列表</div>
                 <div style={{ marginBottom: 12 }}>
-                  {pi.proxyList.map(p => <Tag color="cyan" key={p}>{p}</Tag>)}
+                  {pi.proxyList.map(p => <Tag color="cyan" key={p} style={{ fontSize: 11, border: 'none' }}>{p}</Tag>)}
                 </div>
               </>
             )}
@@ -194,7 +198,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
                     key={i}
                     message={<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{h}</span>}
                     type="error"
-                    style={{ marginBottom: 8, background: 'var(--bg-surface)', borderColor: '#f87171' }}
+                    style={{ marginBottom: 8, background: 'var(--bg-surface)', borderRadius: 12 }}
                   />
                 ))}
               </>
@@ -205,7 +209,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
             message={<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>未检测到代理或 VPN</span>}
             description={<span style={{ color: 'var(--text-secondary)' }}>当前网络环境为直连模式，未配置代理服务器。</span>}
             type="success"
-            style={{ background: 'var(--bg-surface)', borderColor: '#34d399' }}
+            style={{ background: 'var(--bg-surface)', borderRadius: 12 }}
           />
         )}
       </Card>
@@ -241,7 +245,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
-                labelStyle={{ color: 'var(--text-primary)' }}
+                labelStyle={{ color: 'var(--text-secondary)' }}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(value: any) => [`${value}`, '请求数']}
               />

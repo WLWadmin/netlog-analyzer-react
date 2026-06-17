@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Card, Table, Tag, Empty } from 'antd';
+import { Card, Table, Tag } from 'antd';
+import { ApiOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
@@ -229,7 +230,13 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
   const health = useMemo(() => assessProtocolHealth(result), [result]);
 
   if (!hasHttp2 && !hasQuic) {
-    return <Empty description="未检测到 HTTP/2 或 QUIC 协议事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <ApiOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到HTTP/2或QUIC协议事件</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>当前日志中所有请求使用HTTP/1.1协议</div>
+      </div>
+    );
   }
 
   const h2Sessions = new Set(result.http2Events.filter(e => e.source.typeName === 'HTTP2_SESSION').map(e => e.source.id));
@@ -299,14 +306,14 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
         <Card title="📡 HTTP/2 分析" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             {[
-              { label: '会话数', value: h2Sessions.size, color: '#4a9eff' },
-              { label: '流数量', value: h2Streams.size, color: '#22d3ee' },
-              { label: '事件总数', value: result.http2Events.length, color: '#a78bfa' },
+              { label: '会话数', value: h2Sessions.size, color: 'var(--text-primary)' },
+              { label: '流数量', value: h2Streams.size, color: 'var(--text-primary)' },
+              { label: '事件总数', value: result.http2Events.length, color: 'var(--text-primary)' },
               { label: 'GOAWAY', value: h2Errors.length, color: h2Errors.length > 0 ? '#f87171' : '#34d399' },
             ].map(s => (
-              <div key={s.label} style={{ padding: 12, background: 'var(--bg-surface)', borderRadius: 8, textAlign: 'center' }}>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{s.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div key={s.label} style={{ padding: 14, background: 'var(--bg-surface)', borderRadius: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{s.value}</div>
               </div>
             ))}
           </div>
@@ -329,13 +336,13 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
         <Card title="📡 QUIC 分析" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             {[
-              { label: '会话数', value: quicSessions.size, color: '#4a9eff' },
-              { label: '事件总数', value: result.quicEvents.length, color: '#22d3ee' },
+              { label: '会话数', value: quicSessions.size, color: 'var(--text-primary)' },
+              { label: '事件总数', value: result.quicEvents.length, color: 'var(--text-primary)' },
               { label: '错误', value: quicErrors.length, color: quicErrors.length > 0 ? '#f87171' : '#34d399' },
             ].map(s => (
-              <div key={s.label} style={{ padding: 12, background: 'var(--bg-surface)', borderRadius: 8, textAlign: 'center' }}>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{s.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div key={s.label} style={{ padding: 14, background: 'var(--bg-surface)', borderRadius: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{s.value}</div>
               </div>
             ))}
           </div>
