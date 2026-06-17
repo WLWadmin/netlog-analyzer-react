@@ -36,6 +36,8 @@ import EventsTab from './netlog/components/EventsTab';
 import NetLogRequestList from './netlog/components/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
 import LogResultPage from './components/log/LogResultPage';
+import { ErrorBoundary } from './components/shared/ErrorBoundary';
+import { LoadingOverlay } from './components/shared/LoadingOverlay';
 
 const { Header, Content } = Layout;
 
@@ -140,7 +142,9 @@ const App: React.FC = () => {
   ];
 
   return (
-    <Layout style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <ErrorBoundary onReset={handleReset}>
+      <LoadingOverlay visible={loading} phase="正在解析..." message="请稍候..." />
+      <Layout style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
       {/* ====== Modern Header ====== */}
       <Header className="app-header">
         <div className="app-header-title">
@@ -336,7 +340,7 @@ const App: React.FC = () => {
 
                 {/* NetLog 文件 */}
                 <a
-                  href="https://bytedance.larkoffice.com/docx/NfwtdMpCLoh04yx0xnec1PXCnnf"
+                  href="https://bytedance.larkoffice.com/docx/GoLogGuide"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -509,6 +513,7 @@ const App: React.FC = () => {
         />
       )}
     </Layout>
+    </ErrorBoundary>
   );
 };
 

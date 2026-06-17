@@ -4,6 +4,7 @@ import { ApiOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
+import { getChartColor } from '../../constants/chartColors';
 
 interface ProtocolTabProps {
   result: AnalysisResult;
@@ -309,7 +310,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
               { label: '会话数', value: h2Sessions.size, color: 'var(--text-primary)' },
               { label: '流数量', value: h2Streams.size, color: 'var(--text-primary)' },
               { label: '事件总数', value: result.http2Events.length, color: 'var(--text-primary)' },
-              { label: 'GOAWAY', value: h2Errors.length, color: h2Errors.length > 0 ? '#f87171' : '#34d399' },
+              { label: 'GOAWAY', value: h2Errors.length, color: h2Errors.length > 0 ? getChartColor(5) : getChartColor(2) },
             ].map(s => (
               <div key={s.label} style={{ padding: 14, background: 'var(--bg-surface)', borderRadius: 12, textAlign: 'center' }}>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>
@@ -338,7 +339,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
             {[
               { label: '会话数', value: quicSessions.size, color: 'var(--text-primary)' },
               { label: '事件总数', value: result.quicEvents.length, color: 'var(--text-primary)' },
-              { label: '错误', value: quicErrors.length, color: quicErrors.length > 0 ? '#f87171' : '#34d399' },
+              { label: '错误', value: quicErrors.length, color: quicErrors.length > 0 ? getChartColor(5) : getChartColor(2) },
             ].map(s => (
               <div key={s.label} style={{ padding: 14, background: 'var(--bg-surface)', borderRadius: 12, textAlign: 'center' }}>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>

@@ -1,5 +1,7 @@
 import React from 'react';
 import { Card, Tag } from 'antd';
+import { ToolFilled } from '@ant-design/icons';
+import { FINDING_ICONS, FINDING_COLORS } from '../../constants/iconMapping';
 
 // ============================================================
 // 类型定义
@@ -147,9 +149,19 @@ export const HealthAssessmentCard: React.FC<HealthAssessmentCardProps> = ({
               fontSize: 13,
               lineHeight: 1.5,
               color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8,
             }}
           >
-            {f.text}
+            {(() => {
+              const IconComponent = FINDING_ICONS[f.icon as keyof typeof FINDING_ICONS];
+              const iconColor = FINDING_COLORS[f.icon as keyof typeof FINDING_COLORS];
+              return IconComponent ? (
+                <IconComponent style={{ color: iconColor, fontSize: 14, marginTop: 2, flexShrink: 0 }} />
+              ) : null;
+            })()}
+            <span>{f.text}</span>
           </div>
         ))}
       </div>
@@ -162,8 +174,9 @@ export const HealthAssessmentCard: React.FC<HealthAssessmentCardProps> = ({
           borderRadius: 8,
           border: '1px solid rgba(74, 158, 255, 0.15)',
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', marginBottom: 8 }}>
-            🔧 定因排查建议
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#4a9eff', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ToolFilled style={{ color: '#4a9eff', fontSize: 14 }} />
+            定因排查建议
           </div>
           {suggestions.map((s, i) => (
             <div

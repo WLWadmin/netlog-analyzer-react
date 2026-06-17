@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card } from 'antd';
+import { AnimatedNumber } from './AnimatedNumber';
 
 // ============================================================
 // 类型定义
@@ -122,7 +123,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             letterSpacing: -0.5,
           }}
         >
-          {value}
+          {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
         </div>
         {/* 辅助说明 */}
         {suffix && (

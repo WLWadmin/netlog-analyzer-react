@@ -43,7 +43,7 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
       value: result.slowCount,
       suffix: result.slowCount > 0 ? `≥${HAR_SLOW_THRESHOLD_MS}ms · 点击筛选 ›` : `耗时 ≥${HAR_SLOW_THRESHOLD_MS}ms`,
       color: result.slowCount > 0 ? '#fb923c' : '#34d399',
-      valueColor: result.slowCount > 0 ? '#fb923c' : undefined,
+      valueColor: result.slowCount > 0 ? '#fb923c' : '#34d399',
       icon: <ClockCircleOutlined />,
       bg: 'linear-gradient(135deg, rgba(251, 146, 60, 0.12), rgba(248, 113, 113, 0.08))',
       onClick: result.slowCount > 0 ? onFilterSlow : undefined,

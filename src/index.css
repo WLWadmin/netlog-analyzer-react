@@ -470,23 +470,35 @@ code, pre, .mono {
   border: 1px solid var(--border-color);
 }
 
-/* Scrollbar */
+/* ============================================================
+   Custom Scrollbar Styles
+   ============================================================ */
+
+/* Webkit (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--bg-base);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 4px;
+  border: 2px solid var(--bg-base);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-disabled);
+  background: var(--text-muted);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--bg-base);
 }
 
 /* ============================================================
@@ -618,6 +630,10 @@ code, pre, .mono {
 
 /* 响应式适配 */
 @media (max-width: 768px) {
+  .app-header { flex-direction: column; height: auto !important; padding: 12px 16px !important; gap: 12px; }
+  .ant-layout-content { padding: 16px !important; }
+  .summary-cards-grid { grid-template-columns: 1fr !important; }
+  .ant-table-wrapper { overflow-x: auto; }
   .ant-card-head-title {
     font-size: 14px !important;
   }
@@ -628,6 +644,10 @@ code, pre, .mono {
     overflow-x: auto;
     white-space: nowrap;
   }
+}
+
+@media (min-width: 769px) and (max-width: 1200px) {
+  .summary-cards-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
 @media (max-width: 480px) {
@@ -692,6 +712,16 @@ code, pre, .mono {
   border: 1px solid var(--border-color) !important;
   border-radius: 8px !important;
   color: var(--text-primary) !important;
+  max-height: 250px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.recharts-default-tooltip::-webkit-scrollbar {
+  width: 4px;
+}
+.recharts-default-tooltip::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
 }
 .recharts-tooltip-label {
   color: var(--text-secondary) !important;
@@ -729,5 +759,217 @@ code, pre, .mono {
   .ant-btn, .ant-collapse, .ant-descriptions,
   .ant-drawer-content, .ant-pagination {
     transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+}
+
+/* ============================================================
+   Print Styles
+   ============================================================ */
+@media print {
+  /* 基础重置 */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 页面设置 */
+  @page {
+    size: A4;
+    margin: 15mm 10mm;
+  }
+
+  /* 背景变白、文字变黑 */
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* 隐藏不需要打印的元素 */
+  .app-header,
+  .float-btn,
+  .tabs-nav,
+  .upload-zone,
+  .ant-pagination,
+  .ant-btn,
+  .ant-input,
+  .ant-select,
+  .ant-upload-drag,
+  .ant-alert-action,
+  .ant-alert-close-icon {
+    display: none !important;
+  }
+
+  /* Card 白底灰边、无阴影、避免分页截断 */
+  .ant-card {
+    background: #ffffff !important;
+    border: 1px solid #d9d9d9 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    color: #000000 !important;
+  }
+
+  .ant-card-head {
+    background: #ffffff !important;
+    border-bottom: 1px solid #d9d9d9 !important;
+    color: #000000 !important;
+  }
+
+  .ant-card-body {
+    color: #000000 !important;
+  }
+
+  /* 表格字体 11pt、表头浅灰底 */
+  .ant-table {
+    font-size: 11pt !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .ant-table-thead > tr > th {
+    background: #f5f5f5 !important;
+    color: #000000 !important;
+    border-bottom: 1px solid #d9d9d9 !important;
+    font-size: 11pt !important;
+  }
+
+  .ant-table-tbody > tr > td {
+    color: #000000 !important;
+    border-bottom: 1px solid #d9d9d9 !important;
+    font-size: 11pt !important;
+  }
+
+  .ant-table-tbody > tr:hover > td {
+    background: transparent !important;
+  }
+
+  /* 显示所有表格行（覆盖分页） */
+  .ant-table-tbody > tr {
+    display: table-row !important;
+  }
+
+  /* Tag 白底灰边黑字 */
+  .ant-tag {
+    background: #ffffff !important;
+    border: 1px solid #d9d9d9 !important;
+    color: #000000 !important;
+  }
+
+  /* Tabs 打印样式 */
+  .ant-tabs-tab {
+    color: #000000 !important;
+  }
+
+  .ant-tabs-tab-active .ant-tabs-tab-btn {
+    color: #000000 !important;
+    font-weight: 600 !important;
+  }
+
+  .ant-tabs-ink-bar {
+    background: #000000 !important;
+  }
+
+  /* 展开所有折叠内容 */
+  .ant-collapse-content {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .ant-collapse-content-hidden {
+    display: block !important;
+  }
+
+  .ant-collapse-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 隐藏分页 */
+  .ant-pagination {
+    display: none !important;
+  }
+
+  /* 打印标题 */
+  .print-title {
+    display: block !important;
+    text-align: center;
+    font-size: 20pt;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #000000 !important;
+  }
+
+  /* 打印页脚时间戳 */
+  .print-footer {
+    display: block !important;
+    text-align: center;
+    font-size: 9pt;
+    color: #666666 !important;
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid #d9d9d9;
+  }
+
+  /* 通用文本颜色重置 */
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content,
+  .ant-tooltip-inner,
+  .ant-badge-status-text,
+  .ant-spin-text,
+  .recharts-legend-item-text,
+  .recharts-cartesian-axis-tick-value {
+    color: #000000 !important;
+  }
+
+  /* 描述列表边框 */
+  .ant-descriptions-bordered .ant-descriptions-item-label,
+  .ant-descriptions-bordered .ant-descriptions-item-content {
+    border: 1px solid #d9d9d9 !important;
+  }
+
+  /* 分割线 */
+  .ant-divider {
+    border-color: #d9d9d9 !important;
+  }
+
+  /* 瀑布图行 */
+  .waterfall-row {
+    color: #000000 !important;
+  }
+
+  /* 进度条 */
+  .ant-progress-text {
+    color: #000000 !important;
+  }
+
+  /* 移除 hover 效果 */
+  .ant-card:hover,
+  .ant-btn:hover,
+  .ant-table-tbody > tr:hover > td {
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  /* 打印前显示标题和页脚 */
+  body::before {
+    content: "NetLog 分析报告";
+    display: block;
+    text-align: center;
+    font-size: 20pt;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #000000;
+  }
+
+  body::after {
+    content: attr(data-print-time);
+    display: block;
+    text-align: center;
+    font-size: 9pt;
+    color: #666666;
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid #d9d9d9;
   }
 }

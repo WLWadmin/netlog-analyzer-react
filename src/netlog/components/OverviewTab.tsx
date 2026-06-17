@@ -3,9 +3,7 @@ import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List, Tooltip as 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../parser';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
-
-// 协议颜色映射
-const PROTOCOL_COLORS = ['#4a9eff', '#22d3ee', '#34d399', '#a78bfa', '#fb923c', '#f87171', '#fbbf24'];
+import { getChartColor } from '../../constants/chartColors';
 
 interface OverviewTabProps {
   result: AnalysisResult;
@@ -251,7 +249,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               />
               <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={24}>
                 {protocolData.map((_, index) => (
-                  <Cell key={index} fill={PROTOCOL_COLORS[index % PROTOCOL_COLORS.length]} />
+                  <Cell key={index} fill={getChartColor(index)} />
                 ))}
               </Bar>
             </BarChart>

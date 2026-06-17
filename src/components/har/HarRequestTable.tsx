@@ -6,13 +6,14 @@ import {
   HarRequestEntry,
   HarAnalysisResult,
   CATEGORY_LABELS,
-  statusStyle,
   categoryStyle,
   categoryColor,
   filterTagStyle,
   formatBytes,
   formatHarTime,
+  statusStyle,
 } from '../../harParser';
+import { StatusTag } from '../../components/shared/StatusTag';
 import HarRequestDetail from './HarRequestDetail';
 import CopyText from './CopyText';
 
@@ -111,14 +112,13 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'status',
       width: 80,
       sorter: (a, b) => a.status - b.status,
-      render: (s: number) => {
-        const st = statusStyle(s);
-        return (
-          <Tag style={{ color: st.color, background: st.bg, border: 'none', fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+      render: (s: number) => (
+        <StatusTag statusCode={s}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
             {s === 0 ? '失败' : s}
-          </Tag>
-        );
-      },
+          </span>
+        </StatusTag>
+      ),
     },
     {
       title: 'Protocol',

@@ -3,6 +3,7 @@ import { Card, Table, Tag, Modal, Descriptions } from 'antd';
 import { ThunderboltOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../parser';
+import { CHART_COLORS } from '../../constants/chartColors';
 
 interface PerformanceTabProps {
   result: AnalysisResult;
@@ -17,14 +18,7 @@ const PHASE_NAMES: Record<string, string> = {
   download: '下载内容',
 };
 
-const PHASE_COLORS: Record<string, string> = {
-  dns: '#a78bfa',
-  connect: '#22d3ee',
-  ssl: '#34d399',
-  send: '#fbbf24',
-  wait: '#4a9eff',
-  download: '#fb923c',
-};
+const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
 const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const [selectedReq, setSelectedReq] = useState<any>(null);

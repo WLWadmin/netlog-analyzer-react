@@ -3,6 +3,7 @@ import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions } f
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../parser';
+import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 
 interface NetLogRequestListProps {
   result: AnalysisResult;
@@ -44,6 +45,15 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     const kw = searchKeyword.trim().toLowerCase();
     return sortedRequests.filter(r => (r.url || '').toLowerCase().includes(kw));
   }, [sortedRequests, searchKeyword]);
+
+  // 键盘导航
+  useKeyboardNavigation<URLRequest>({
+    items: filteredRequests,
+    onSelect: (_item, index) => setSelectedIndex(index),
+    onOpen: (_item, index) => { setSelectedIndex(index); setDetailReq(filteredRequests[index]); },
+    onClose: () => setDetailReq(null),
+    enabled: !detailReq,
+  });
 
   // 瀑布图时间范围
   const timeRange = useMemo(() => {
