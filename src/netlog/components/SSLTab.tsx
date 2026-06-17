@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Card, Table, Tag, Empty, Alert } from 'antd';
+import { Card, Table, Tag, Alert } from 'antd';
+import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AnalysisResult } from '../parser';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
@@ -208,7 +209,13 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
   const health = useMemo(() => assessSSLHealth(result), [result]);
 
   if (result.sslEvents.length === 0) {
-    return <Empty description="未检测到 SSL/TLS 事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <SafetyCertificateOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到SSL/TLS事件</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>NetLog中未包含SSL/TLS握手记录</div>
+      </div>
+    );
   }
 
   // Version distribution
@@ -280,7 +287,10 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                   outerRadius={100}
                   paddingAngle={2}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => {
+                    const color = (name ? VERSION_COLORS[name] : undefined) || '#4a9eff';
+                    return <span style={{ color }}>{name || 'Unknown'} {((percent ?? 0) * 100).toFixed(0)}%</span>;
+                  }}
                   labelLine={{ stroke: 'var(--text-muted)' }}
                 >
                   {versionChartData.map((entry) => (
@@ -289,6 +299,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                 </Pie>
                 <Tooltip
                   contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                  labelStyle={{ color: 'var(--text-secondary)' }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any) => [`${value} 次`, '连接数']}
                 />
@@ -357,7 +368,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                   </div>
                 }
                 type="error"
-                style={{ marginBottom: 8, background: 'var(--bg-surface)' }}
+                style={{ marginBottom: 8, background: 'var(--bg-surface)', borderRadius: 12 }}
               />
             );
           })}

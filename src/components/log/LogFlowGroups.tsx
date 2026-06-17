@@ -17,11 +17,17 @@ interface LogFlowGroupsProps {
   filterErrorOnly?: boolean;
 }
 
+const INITIAL_DISPLAY_COUNT = 300;
+const LOAD_MORE_COUNT = 300;
+
 const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showDetailEntry, setShowDetailEntry] = useState<string | null>(null);
+  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
 
   const displayedGroups = filterErrorOnly ? groups.filter(g => g.hasError) : groups;
+  const visibleGroups = displayedGroups.slice(0, displayCount);
+  const hasMore = displayCount < displayedGroups.length;
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => {
@@ -115,7 +121,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
 
   return (
     <div className="log-flow-groups">
-      {displayedGroups.map((group) => {
+      {visibleGroups.map((group) => {
         const isExpanded = expandedGroups.has(group.id);
 
         return (
@@ -164,6 +170,25 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
         );
       })}
 
+      {hasMore && (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <button
+            onClick={() => setDisplayCount(prev => prev + LOAD_MORE_COUNT)}
+            style={{
+              padding: '8px 24px',
+              borderRadius: 6,
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            加载更多 ({displayedGroups.length - displayCount} 条剩余)
+          </button>
+        </div>
+      )}
+
       <style>{`
         .log-flow-groups {
           display: flex;
@@ -173,7 +198,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
         .log-flow-group {
           background: var(--bg-surface);
           border: 1px solid var(--border-color);
-          border-radius: 12px;
+          border-radius: 14px;
           overflow: hidden;
           transition: box-shadow 0.2s ease, border-color 0.2s ease;
         }
@@ -317,7 +342,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           align-items: center;
           gap: 4px;
           font-size: 12px;
-          color: #1890ff;
+          color: #0ea5e9;
           background: none;
           border: none;
           cursor: pointer;
@@ -327,13 +352,13 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           font-family: inherit;
         }
         .log-flow-step-detail-btn:hover {
-          background: rgba(24, 144, 255, 0.06);
+          background: rgba(14, 165, 233, 0.06);
         }
         .log-flow-step-detail {
           margin-top: 10px;
           padding: 14px;
           background: var(--bg-elevated);
-          border-radius: 8px;
+          border-radius: 12px;
           border: 1px solid var(--border-color);
         }
         .log-flow-detail-desc {

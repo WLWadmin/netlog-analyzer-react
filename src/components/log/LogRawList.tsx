@@ -13,17 +13,26 @@ interface LogRawListProps {
   entries: LogEntry[];
 }
 
+const INITIAL_DISPLAY_COUNT = 600;
+const LOAD_MORE_COUNT = 300;
+
 const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
+  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchText(searchText), 250);
     return () => clearTimeout(timer);
   }, [searchText]);
+
+  // Reset display count when filters change
+  useEffect(() => {
+    setDisplayCount(INITIAL_DISPLAY_COUNT);
+  }, [debouncedSearchText, statusFilter, domainFilter]);
 
   const indexedEntries = useMemo(() => {
     return entries.map(entry => ({
@@ -58,7 +67,8 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
     }).map(({ entry }) => entry);
   }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter]);
 
-
+  const visibleEntries = filteredEntries.slice(0, displayCount);
+  const hasMore = displayCount < filteredEntries.length;
 
   return (
     <Card
@@ -109,7 +119,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
 
       {/* 日志列表 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {filteredEntries.map(entry => {
+        {visibleEntries.map(entry => {
           const isExpanded = expandedEntry === entry.id;
           const isError = entry.status === 'Error';
 
@@ -260,6 +270,25 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
           );
         })}
       </div>
+
+      {hasMore && (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <button
+            onClick={() => setDisplayCount(prev => prev + LOAD_MORE_COUNT)}
+            style={{
+              padding: '8px 24px',
+              borderRadius: 6,
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            加载更多 ({filteredEntries.length - displayCount} 条剩余)
+          </button>
+        </div>
+      )}
     </Card>
   );
 };
