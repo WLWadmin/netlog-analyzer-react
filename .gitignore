@@ -28,6 +28,7 @@ yarn-error.log*
 *.swp
 *.swo
 .trae/
+.claude/
 
 # OS
 Thumbs.db
