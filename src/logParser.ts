@@ -76,6 +76,13 @@ export interface LogParserStrategy {
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'TRACE', 'CONNECT'];
 const HTTP_METHOD_PATTERN = HTTP_METHODS.join('|');
 
+// Module-level compiled regexes (avoid re-compilation in loops)
+const METHOD_URL_REGEX = new RegExp(`^\\s*(${HTTP_METHOD_PATTERN}):([^\\s|]+)`, 'i');
+const STATUS_CODE_REGEX = /^\s*statusCode:(\d+)\s*/;
+const RETRYING_REGEX = new RegExp(`^\\s*\\[(\\d+)\\]\\s*(${HTTP_METHOD_PATTERN}):(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i');
+const NETWORK_ERROR_REGEX = new RegExp(`^\\s*(?:Error\\s+)?(${HTTP_METHOD_PATTERN}):(.+?)\\s*->\\s*(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i');
+const SUFFIX_DURATION_REGEX = (prefix: string) => new RegExp(`\\${prefix}(\\d+)(ms|s)\\s*$`);
+
 function parseDuration(numText: string, unit: string): number {
   const num = parseInt(numText, 10);
   if (!Number.isFinite(num)) return 0;
@@ -119,7 +126,7 @@ interface MethodUrlResult {
 }
 
 function parseMethodUrl(line: string, pos: number): MethodUrlResult | null {
-  const match = line.slice(pos).match(new RegExp(`^\\s*(${HTTP_METHOD_PATTERN}):([^\\s|]+)`, 'i'));
+  const match = line.slice(pos).match(METHOD_URL_REGEX);
   if (!match) return null;
   return {
     method: match[1].toUpperCase(),
@@ -239,7 +246,7 @@ const extractors: Record<string, Extractor> = {
   /** 读取行尾 +duration */
   suffix: (ctx, prefix?: string) => {
     const actualPrefix = prefix || '+';
-    const regex = new RegExp(`\\${actualPrefix}(\\d+)(ms|s)\\s*$`);
+    const regex = SUFFIX_DURATION_REGEX(actualPrefix);
     const match = ctx.line.slice(ctx.pos).match(regex);
     if (!match) return null;
     const duration = match[2] === 's' ? parseInt(match[1], 10) * 1000 : parseInt(match[1], 10);
@@ -374,7 +381,7 @@ class GoServiceLogParser implements LogParserStrategy {
 
     // 可选：statusCode:XXX
     let statusCode: number | undefined;
-    const scMatch = line.slice(currentPos).match(/^\s*statusCode:(\d+)\s*/);
+    const scMatch = line.slice(currentPos).match(STATUS_CODE_REGEX);
     if (scMatch) {
       statusCode = parseInt(scMatch[1], 10);
       currentPos += scMatch[0].length;
@@ -400,7 +407,7 @@ class GoServiceLogParser implements LogParserStrategy {
     const { line, pos } = ctx;
 
     // 格式: Retrying [N] METHOD:URL +duration
-    const retryMatch = line.slice(pos).match(new RegExp(`^\\s*\\[(\\d+)\\]\\s*(${HTTP_METHOD_PATTERN}):(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i'));
+    const retryMatch = line.slice(pos).match(RETRYING_REGEX);
     if (!retryMatch) return null;
 
     const [, retryCount, method, url, durNum, durUnit] = retryMatch;
@@ -419,7 +426,7 @@ class GoServiceLogParser implements LogParserStrategy {
     const { line, pos } = ctx;
 
     // 格式: Network Error METHOD:URL -> ErrorMsg +duration
-    const netMatch = line.slice(pos).match(new RegExp(`^\\s*(?:Error\\s+)?(${HTTP_METHOD_PATTERN}):(.+?)\\s*->\\s*(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i'));
+    const netMatch = line.slice(pos).match(NETWORK_ERROR_REGEX);
     if (!netMatch) return null;
 
     const [, method, url, errorMsg, durNum, durUnit] = netMatch;
