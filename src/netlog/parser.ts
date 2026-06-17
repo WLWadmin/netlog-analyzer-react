@@ -23,7 +23,7 @@ export interface URLRequest {
   duration?: number;
   status?: string;
   statusCode?: number;
-  error?: number | string;
+  error?: number;
   errorDesc?: string;       // ERR_FAILED format description
   resolvedIp?: string | null;  // x-response-cinfo / x-tt-cip / x-lsc-source-ip
   remoteIp?: string | null;    // x-response-sinfo
@@ -62,8 +62,8 @@ export interface ProxyInfo {
 export interface FailedDomain {
   domain: string;
   urls: string[];
-  errors: { code: number | string; desc: string; time: number }[];
-  errorCodes: (number | string)[];
+  errors: { code: number; desc: string; time: number }[];
+  errorCodes: number[];
   ips: string[];
   resolvedIp: string | null;      // x-response-cinfo / x-tt-cip / x-lsc-source-ip
   remoteIp: string | null;        // x-response-sinfo
@@ -98,8 +98,8 @@ export interface AnalysisResult {
   protocols: Record<string, number>;
   hosts: Record<string, string>;
   errorSources: Record<string, number>;
-  certIssues: { event: ParsedEvent; error: number | string; host: string }[];
-  connectionFailures: { url: string; error: number | string; time: number }[];
+  certIssues: { event: ParsedEvent; error: number; host: string }[];
+  connectionFailures: { url: string; error: number; time: number }[];
   stalledRequests: URLRequest[];
   slowRequests: URLRequest[];
   cacheEvents: ParsedEvent[];
@@ -177,8 +177,23 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   if (!events.length) throw new Error('未找到有效的网络事件数据');
 
   const constants = logData.constants || {};
-  const eventNames = constants.logEventTypes || constants.eventTypes || {};
-  const sourceNames = constants.logSourceType || constants.sourceTypes || {};
+
+  // Build NUMBER→STRING reverse maps from file's constants (STRING→NUMBER in the file)
+  const eventNamesRaw = constants.logEventTypes || constants.eventTypes || {};
+  const eventNames: Record<number, string> = {};
+  for (const [name, id] of Object.entries(eventNamesRaw)) {
+    if (typeof id === 'number') {
+      eventNames[id] = name;
+    }
+  }
+
+  const sourceNamesRaw = constants.logSourceType || constants.sourceTypes || {};
+  const sourceNames: Record<number, string> = {};
+  for (const [name, id] of Object.entries(sourceNamesRaw)) {
+    if (typeof id === 'number') {
+      sourceNames[id] = name;
+    }
+  }
 
   // System info
   if (logData.systemInfo) {
@@ -195,7 +210,14 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     result.systemInfo.netLogVersion = logData.netLogInfo.version;
   }
 
+  // Parse polledData for proxy/DNS/network info
+  if (logData.polledData) {
+    parsePolledData(logData.polledData, result);
+  }
+
   const parsedEvents: ParsedEvent[] = [];
+  // O(1) URL request lookup map
+  const requestIndex = new Map<number, URLRequest>();
 
   for (const evt of events) {
     const sourceType = evt.source?.type || evt.source_type || 0;
@@ -221,7 +243,7 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     if (parsed.time < result.timeRange.start) result.timeRange.start = parsed.time;
     if (parsed.time > result.timeRange.end) result.timeRange.end = parsed.time;
 
-    categorizeEvent(parsed, result);
+    categorizeEvent(parsed, result, requestIndex);
   }
 
   // Calculate unique sources and peak concurrency
@@ -234,6 +256,55 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   runDiagnostics(result);
 
   return { events: parsedEvents, result };
+}
+
+function parsePolledData(polledData: any, r: AnalysisResult) {
+  if (!polledData) return;
+  const pi = r.proxyInfo;
+
+  // Proxy config from polledData
+  if (polledData.proxy_settings) {
+    pi.hasProxy = true;
+    pi.proxySettings = polledData.proxy_settings;
+    const cfg = polledData.proxy_settings;
+    if (cfg.mode) {
+      pi.proxyType = cfg.mode;
+    }
+    if (cfg.proxy_rules) {
+      const rules = cfg.proxy_rules;
+      if (rules.single_proxy && !pi.proxyList.includes(rules.single_proxy)) pi.proxyList.push(rules.single_proxy);
+      if (rules.http && !pi.proxyList.includes(rules.http)) pi.proxyList.push(rules.http);
+      if (rules.https && !pi.proxyList.includes(rules.https)) pi.proxyList.push(rules.https);
+      if (rules.ftp && !pi.proxyList.includes(rules.ftp)) pi.proxyList.push(rules.ftp);
+      if (rules.fallback_proxy && !pi.proxyList.includes(rules.fallback_proxy)) {
+        pi.proxyList.push(rules.fallback_proxy);
+        pi.proxyFallback = rules.fallback_proxy;
+      }
+    }
+  }
+
+  // DNS cache info
+  if (polledData.dns_cache) {
+    for (const entry of polledData.dns_cache) {
+      if (entry.hostname && entry.address) {
+        r.hosts[entry.hostname] = entry.address;
+      }
+    }
+  }
+
+  // Network info
+  if (polledData.network_info) {
+    const ni = polledData.network_info;
+    if (ni.network_change_count) {
+      r.warnings.push({
+        severity: 'warning',
+        category: '网络变更',
+        message: `会话期间检测到 ${ni.network_change_count} 次网络变更`,
+        detail: '网络环境发生变化可能导致连接中断或请求重试。',
+        time: 0,
+      });
+    }
+  }
 }
 
 function calculatePeakConcurrency(events: ParsedEvent[]): number {
@@ -262,10 +333,164 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
   return peak;
 }
 
+function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>) {
+  const t = evt.type;
+  const st = evt.source.type;
+  const p = evt.params;
+  const tn = evt.typeName;
+  const stn = evt.source.typeName;
+
+  // ---- SSL/TLS events ----
+  if (stn === 'SSL_CONNECT_JOB' || stn === 'SSL_CONNECT' || tn.includes('SSL_') || tn.includes('TLS_')) {
+    r.sslEvents.push(evt);
+    if (p.error_code || p.net_error) {
+      r.certIssues.push({
+        event: evt,
+        error: p.error_code || p.net_error,
+        host: p.host || p.server_info || 'unknown',
+      });
+    }
+    if (p.encrypted_protocol || p.version) {
+      const key = 'TLS_' + (p.encrypted_protocol || p.version);
+      r.protocols[key] = (r.protocols[key] || 0) + 1;
+    }
+  }
+
+  // ---- QUIC events ----
+  if (tn.includes('QUIC_')) {
+    r.quicEvents.push(evt);
+    r.protocols['QUIC'] = (r.protocols['QUIC'] || 0) + 1;
+    if (p.error_code || p.net_error) {
+      r.errors.push({
+        severity: 'error',
+        category: 'QUIC',
+        message: `QUIC 连接错误: ${p.error_code || p.net_error}`,
+        detail: JSON.stringify(p, null, 2),
+        time: evt.time,
+      });
+    }
+  }
+
+  // ---- HTTP/2 events ----
+  if (stn === 'HTTP2_SESSION' || tn.includes('HTTP2_') || tn.includes('HTTP/2_')) {
+    r.http2Events.push(evt);
+    r.protocols['HTTP/2'] = (r.protocols['HTTP/2'] || 0) + 1;
+    if (isHttp2Goaway(evt)) {
+      r.errors.push({
+        severity: 'warning',
+        category: 'HTTP/2',
+        message: `HTTP/2 ${isHttp2GoawayRecv(evt) ? '接收' : '发送'} GOAWAY 帧`,
+        detail: `Last Stream ID: ${p.last_stream_id}, Error: ${p.error_code || p.status}`,
+        time: evt.time,
+      });
+    }
+  }
+
+  // ---- DNS events ----
+  if (stn === 'HOST_RESOLVER_IMPL_JOB' || stn === 'HOST_RESOLVER_MANAGER_JOB' || tn.includes('DNS_')) {
+    r.dnsEvents.push(evt);
+    if (p.address) {
+      r.hosts[p.host || p.hostname || 'unknown'] = p.address;
+    }
+  }
+
+  // ---- URL_REQUEST events ----
+  if (stn === 'URL_REQUEST') {
+    // Create new URLRequest when we see a URL
+    if (p.url) {
+      if (!requestIndex.has(evt.source.id)) {
+        const newReq: URLRequest = {
+          id: evt.source.id,
+          url: p.url,
+          method: p.method || 'GET',
+          startTime: evt.time,
+          events: [evt],
+          status: 'pending',
+          timeline: {},
+          resolvedIp: null,
+          remoteIp: null,
+          errorDesc: undefined,
+        };
+        r.urlRequests.push(newReq);
+        requestIndex.set(evt.source.id, newReq);
+      }
+    }
+    // Associate event with existing request by source.id (O(1) lookup)
+    const req = requestIndex.get(evt.source.id);
+    if (req) {
+      // Avoid duplicate events (same type+phase+time)
+      const isDuplicate = req.events.some(
+        e => e.type === evt.type && e.phase === evt.phase && e.time === evt.time
+      );
+      if (!isDuplicate) {
+        req.events.push(evt);
+      }
+      // Detect response received
+      if (tn === 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS') {
+        req.status = p.status_code ? `${p.status_code}` : 'completed';
+        req.statusCode = p.status_code;
+      }
+      // Extract IP info from response headers
+      if ((tn === 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS' || tn === 'HTTP_TRANSACTION_READ_HEADERS') && p.headers) {
+        const headers = parseHeaders(p.headers);
+        if (!req.resolvedIp) {
+          req.resolvedIp = headers['x-response-cinfo'] || headers['x-tt-cip'] || headers['x-lsc-source-ip'] || null;
+        }
+        if (!req.remoteIp) {
+          req.remoteIp = headers['x-response-sinfo'] || null;
+        }
+      }
+      // Detect request end
+      if (evt.phaseName === 'END') {
+        if (!req.endTime || evt.time > req.endTime) {
+          req.endTime = evt.time;
+        }
+        req.duration = (req.endTime || evt.time) - req.startTime;
+      }
+      // Detect errors
+      if (p.net_error || p.error_code) {
+        const errCode = p.net_error || p.error_code;
+        req.error = errCode;
+        req.errorDesc = getNetErrorDescription(errCode);
+        req.status = 'error';
+        r.connectionFailures.push({
+          url: req.url,
+          error: errCode,
+          time: evt.time,
+        });
+      }
+    }
+  }
+
+  // ---- Connection events ----
+  if (tn.includes('TCP_') || tn.includes('SOCKET_') || tn.includes('TRANSPORT_CONNECT_')) {
+    r.connectEvents.push(evt);
+  }
+
+  // ---- Proxy events ----
+  if (shouldAnalyzeProxyEvent(evt)) {
+    addProxyEvent(evt, r);
+  }
+
+  // ---- Cache events ----
+  if (tn.includes('HTTP_CACHE_') || tn.includes('DISK_CACHE_') || tn.includes('SIMPLE_CACHE_') || tn.includes('ENTRY_')) {
+    r.cacheEvents.push(evt);
+  }
+
+  // ---- Network change events ----
+  if (tn.includes('NETWORK_CHANGE_')) {
+    r.networkChanges.push(evt);
+  }
+
+  // ---- Collect error sources ----
+  if (p.net_error && p.net_error !== 0) {
+    r.errorSources[p.net_error] = (r.errorSources[p.net_error] || 0) + 1;
+  }
+}
+
 function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
   const p = evt.params;
-  return inRange(evt.type, 26, 28) ||
-    evt.typeName.includes('PROXY') ||
+  return evt.typeName.includes('PROXY') ||
     Boolean(
       p.proxy_config ||
       p.proxy_list ||
@@ -289,172 +514,6 @@ function addProxyEvent(evt: ParsedEvent, r: AnalysisResult) {
     r.proxyEvents.push(evt);
   }
   analyzeProxyEvent(evt, r.proxyInfo);
-}
-
-function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
-  const t = evt.type;
-  const st = evt.source.type;
-  const p = evt.params;
-
-  // ---- SSL/TLS events (source.type=5 SSL_CONNECT_JOB or type=56 SSL_CONNECT) ----
-  if (t === 56 || t === 66 || inRange(t, 69, 70) || inRange(t, 73, 75)) {
-    r.sslEvents.push(evt);
-    if (p.error_code || p.net_error) {
-      r.certIssues.push({
-        event: evt,
-        error: p.error_code || p.net_error,
-        host: p.host || p.server_info || 'unknown',
-      });
-    }
-    if (p.encrypted_protocol || p.version) {
-      const key = 'TLS_' + (p.encrypted_protocol || p.version);
-      r.protocols[key] = (r.protocols[key] || 0) + 1;
-    }
-  }
-
-  // ---- QUIC events (type 251-362) ----
-  if (inRange(t, 251, 362)) {
-    r.quicEvents.push(evt);
-    r.protocols['QUIC'] = (r.protocols['QUIC'] || 0) + 1;
-    if (p.error_code || p.net_error) {
-      r.errors.push({
-        severity: 'error',
-        category: 'QUIC',
-        message: `QUIC 连接错误: ${p.error_code || p.net_error}`,
-        detail: JSON.stringify(p, null, 2),
-        time: evt.time,
-      });
-    }
-  }
-
-  // ---- HTTP/2 events (type 199-238) ----
-  if (inRange(t, 199, 238)) {
-    r.http2Events.push(evt);
-    r.protocols['HTTP/2'] = (r.protocols['HTTP/2'] || 0) + 1;
-    if (isHttp2Goaway(evt)) {
-      r.errors.push({
-        severity: 'warning',
-        category: 'HTTP/2',
-        message: `HTTP/2 ${isHttp2GoawayRecv(evt) ? '接收' : '发送'} GOAWAY 帧`,
-        detail: `Last Stream ID: ${p.last_stream_id}, Error: ${p.error_code || p.status}`,
-        time: evt.time,
-      });
-    }
-  }
-
-  // ---- DNS events (type 393-399, and source.type=11 HOST_RESOLVER_IMPL_JOB) ----
-  if (inRange(t, 393, 399) || st === 11) {
-    r.dnsEvents.push(evt);
-    if (p.address) {
-      r.hosts[p.host || p.hostname || 'unknown'] = p.address;
-    }
-  }
-
-  // ---- URL_REQUEST events: identified by source.type=1 (URL_REQUEST) ----
-  // This is the correct way to identify URL request events per Chromium source.
-  // Events with source.type=1 include URL_REQUEST_START_JOB (111),
-  // NETWORK_DELEGATE_BEFORE_URL_REQUEST (113), HTTP_TRANSACTION_* (171-186),
-  // CORS_REQUEST (513), etc.
-  if (st === 1) {
-    // Create new URLRequest when we see a URL (may be BEGIN or END phase)
-    if (p.url) {
-      let matched = false;
-      for (const req of r.urlRequests) {
-        if (req.id === evt.source.id) {
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        r.urlRequests.push({
-          id: evt.source.id,
-          url: p.url,
-          method: p.method || 'GET',
-          startTime: evt.time,
-          events: [evt],
-          status: 'pending',
-          timeline: {},
-          resolvedIp: null,
-          remoteIp: null,
-          errorDesc: undefined,
-        });
-      }
-    }
-    // Associate event with existing request by source.id
-    for (const req of r.urlRequests) {
-      if (req.id === evt.source.id) {
-        // Avoid duplicate events (same type+phase+time)
-        const isDuplicate = req.events.some(
-          e => e.type === evt.type && e.phase === evt.phase && e.time === evt.time
-        );
-        if (!isDuplicate) {
-          req.events.push(evt);
-        }
-        // Detect response received (HTTP_TRANSACTION_READ_RESPONSE_HEADERS)
-        if (t === 181) {
-          req.status = p.status_code ? `${p.status_code}` : 'completed';
-          req.statusCode = p.status_code;
-        }
-        // Extract IP info from response headers (type 202 RECV_HEADERS or 181 READ_RESPONSE_HEADERS)
-        if ((t === 181 || t === 202) && p.headers) {
-          const headers = parseHeaders(p.headers);
-          // Resolved IP: priority x-response-cinfo > x-tt-cip > x-lsc-source-ip
-          if (!req.resolvedIp) {
-            req.resolvedIp = headers['x-response-cinfo'] || headers['x-tt-cip'] || headers['x-lsc-source-ip'] || null;
-          }
-          // Remote IP: x-response-sinfo
-          if (!req.remoteIp) {
-            req.remoteIp = headers['x-response-sinfo'] || null;
-          }
-        }
-        // Detect request end
-        if (evt.phaseName === 'END') {
-          if (!req.endTime || evt.time > req.endTime) {
-            req.endTime = evt.time;
-          }
-          req.duration = (req.endTime || evt.time) - req.startTime;
-        }
-        // Detect errors - use net_error with ERR_ format description
-        if (p.net_error || p.error_code) {
-          const errCode = p.net_error || p.error_code;
-          req.error = errCode;
-          req.errorDesc = getNetErrorDescription(errCode);
-          req.status = 'error';
-          r.connectionFailures.push({
-            url: req.url,
-            error: errCode,
-            time: evt.time,
-          });
-        }
-        break; // Found the matching request, no need to check further
-      }
-    }
-  }
-
-  // ---- Connection events (TCP_CONNECT, SOCKET_CONNECT, TRANSPORT_CONNECT) ----
-  if (t === 43 || t === 44 || t === 39 || t === 99 || inRange(t, 381, 387)) {
-    r.connectEvents.push(evt);
-  }
-
-  // ---- Proxy events ----
-  if (shouldAnalyzeProxyEvent(evt)) {
-    addProxyEvent(evt, r);
-  }
-
-  // ---- Cache events (type 128-140 HTTP_CACHE, 141-152 DISK_CACHE, 416-448 SIMPLE_CACHE) ----
-  if (inRange(t, 128, 152) || inRange(t, 416, 448)) {
-    r.cacheEvents.push(evt);
-  }
-
-  // ---- Network change events (type 381-387) ----
-  if (inRange(t, 381, 387)) {
-    r.networkChanges.push(evt);
-  }
-
-  // ---- Collect error sources ----
-  if (p.net_error && p.net_error !== 0) {
-    r.errorSources[p.net_error] = (r.errorSources[p.net_error] || 0) + 1;
-  }
 }
 
 function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
@@ -520,14 +579,13 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  // Handle proxy_server param (e.g. from type=169 PROXY_SERVER_DECIDED events)
+  // Handle proxy_server param
   if (p.proxy_server) {
     const server = p.proxy_server;
     if (typeof server === 'string') {
       if (server === 'DIRECT') {
         // direct connection, ignore
       } else {
-        // PAC format: "PROXY host:port" or "SOCKS host:port"
         pi.hasProxy = true;
         const match = server.match(/^(?:PROXY|SOCKS|SOCKS5|HTTPS)\s+(.+)$/i);
         const proxyAddr = match ? match[1] : server;
@@ -543,8 +601,7 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  // Handle proxy_info param (e.g. from type=35 PROXY_DECIDED events)
-  // Format: "PROXY 127.0.0.1:2334" or "DIRECT"
+  // Handle proxy_info param
   if (p.proxy_info) {
     const info = String(p.proxy_info);
     if (info !== 'DIRECT') {
@@ -558,17 +615,14 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  // Handle proxy_chain param (e.g. from type=195 PROXY_CHAIN events)
-  // Format: "[127.0.0.1:2334]" or "[direct://]"
+  // Handle proxy_chain param
   if (p.proxy_chain) {
     const chain = String(p.proxy_chain);
-    // Extract proxy addresses from bracket notation: [addr1, addr2]
     const bracketMatch = chain.match(/\[([^\]]+)\]/);
     if (bracketMatch) {
       const inner = bracketMatch[1];
       if (inner !== 'direct://' && inner !== 'DIRECT') {
         pi.hasProxy = true;
-        // Split by comma if multiple proxies in chain
         const proxies = inner.split(',').map(s => s.trim()).filter(Boolean);
         for (const proxy of proxies) {
           if (!pi.proxyList.includes(proxy)) {
@@ -585,7 +639,7 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  // Handle pac_string param (e.g. from type=28 PAC_JAVASCRIPT_ALERT events)
+  // Handle pac_string param
   if (p.pac_string) {
     const pacStr = String(p.pac_string);
     if (pacStr !== 'DIRECT') {
@@ -612,7 +666,7 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
     }
   }
 
-  if (evt.type === 110 && p.tunnel_host) {
+  if (evt.typeName === 'PROXY_DECIDED' && p.tunnel_host) {
     pi.isVPN = true;
     pi.vpnHints.push(`检测到隧道连接: ${p.tunnel_host}`);
   }
@@ -628,36 +682,37 @@ function buildTimelines(r: AnalysisResult) {
     let bodyEnd: number | null = null;
 
     for (const evt of req.events) {
-      const t = evt.type;
+      const tn = evt.typeName;
       const ph = evt.phaseName;
+      const stn = evt.source.typeName;
 
-      // DNS: DNS_TRANSACTION (393-399) or HOST_RESOLVER (source.type=11)
-      if (inRange(t, 393, 399) || evt.source.type === 11) {
+      // DNS
+      if (stn === 'HOST_RESOLVER_IMPL_JOB' || stn === 'HOST_RESOLVER_MANAGER_JOB' || tn.includes('DNS_')) {
         if (ph === 'BEGIN') dnsStart = evt.time;
         if (ph === 'END') dnsEnd = evt.time;
       }
-      // Connect: TCP_CONNECT (43,44), SOCKET_CONNECT (39), TRANSPORT_CONNECT_JOB (99)
-      if (t === 43 || t === 44 || t === 39 || t === 99) {
+      // Connect
+      if (tn.includes('TCP_') || tn.includes('SOCKET_') || tn.includes('TRANSPORT_CONNECT_')) {
         if (ph === 'BEGIN') connectStart = evt.time;
         if (ph === 'END') connectEnd = evt.time;
       }
-      // SSL: SSL_CONNECT (56), SSL_HANDSHAKE_MESSAGE (69,70)
-      if (t === 56 || t === 69 || t === 70) {
+      // SSL
+      if (tn.includes('SSL_') || tn.includes('TLS_')) {
         if (ph === 'BEGIN') sslStart = evt.time;
         if (ph === 'END') sslEnd = evt.time;
       }
-      // Send: HTTP_TRANSACTION_SEND_REQUEST (175), SEND_REQUEST_HEADERS (176), SEND_REQUEST_BODY (177)
-      if (t === 175 || t === 176 || t === 177) {
+      // Send
+      if (tn.includes('SEND_REQUEST_') || tn.includes('HTTP_TRANSACTION_SEND_')) {
         if (ph === 'BEGIN') sendStart = evt.time;
         if (ph === 'END') sendEnd = evt.time;
       }
-      // Headers: HTTP_TRANSACTION_READ_HEADERS (180), READ_RESPONSE_HEADERS (181)
-      if (t === 180 || t === 181) {
+      // Headers
+      if (tn.includes('READ_RESPONSE_HEADERS') || tn.includes('READ_HEADERS')) {
         if (ph === 'BEGIN') headersStart = evt.time;
         if (ph === 'END') headersEnd = evt.time;
       }
-      // Body: HTTP_TRANSACTION_READ_BODY (183)
-      if (t === 183) {
+      // Body
+      if (tn.includes('READ_BODY') || tn.includes('READ_DATA')) {
         if (ph === 'END') bodyEnd = evt.time;
       }
     }
@@ -792,7 +847,7 @@ function extractFailedDomains(r: AnalysisResult) {
   for (const req of r.urlRequests) {
     if (req.status === 'error') {
       for (const evt of req.events) {
-        if ((evt.type === 43 || evt.type === 39) && evt.params.address) {
+        if ((evt.typeName.includes('TCP_') || evt.typeName.includes('SOCKET_')) && evt.params.address) {
           try {
             const domain = new URL(req.url).hostname;
             if (domainMap.has(domain)) {
@@ -932,8 +987,9 @@ function runDiagnostics(r: AnalysisResult) {
   }
 
   for (const [errCode, count] of Object.entries(r.errorSources)) {
-    const desc = getNetErrorDescription(parseInt(errCode));
-    if (parseInt(errCode) !== 0) {
+    const code = parseInt(errCode);
+    const desc = getNetErrorDescription(code);
+    if (code !== 0) {
       r.errors.push({
         severity: 'error',
         category: '网络错误',
@@ -955,32 +1011,8 @@ function runDiagnostics(r: AnalysisResult) {
   }
 }
 
-export function formatTime(ms: number): string {
-  if (ms === Infinity || ms === 0) return '-';
-  return ms.toFixed(0) + 'ms';
-}
-
-export function formatDuration(ms: number): string {
-  if (!ms || ms === 0) return '-';
-  if (ms < 1) return '<1ms';
-  if (ms < 1000) return ms.toFixed(0) + 'ms';
-  return (ms / 1000).toFixed(2) + 's';
-}
-
-export function truncateUrl(url: string, maxLen: number): string {
-  if (!url) return '-';
-  try {
-    const u = new URL(url);
-    const path = u.pathname + u.search;
-    const full = u.host + path;
-    if (full.length <= maxLen) return full;
-    // 省略号用 Unicode 中间点 + 橙色高亮，更醒目
-    return full.substring(0, maxLen - 2) + '\u00B7\u00B7\u00B7';
-  } catch {
-    if (url.length <= maxLen) return url;
-    return url.substring(0, maxLen - 2) + '\u00B7\u00B7\u00B7';
-  }
-}
+// Re-export format utilities from shared utils
+export { formatDuration, formatTime, truncateUrl } from '../utils/format';
 
 export function percentile(arr: number[], p: number): number {
   const sorted = [...arr].sort((a, b) => a - b);

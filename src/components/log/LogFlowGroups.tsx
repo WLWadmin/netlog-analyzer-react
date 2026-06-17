@@ -8,6 +8,7 @@ import {
   ClockCircleOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
+import { formatDuration } from '../../utils/format';
 import type { LogFlowGroup, LogEntry } from '../../logParser';
 import { getErrorDiagnosis } from '../../logConstants';
 
@@ -31,10 +32,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
     });
   };
 
-  const formatDuration = (ms: number) => {
-    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${ms}ms`;
-  };
+
 
   const renderStep = (entry: LogEntry) => {
     const isError = entry.status === 'Error';

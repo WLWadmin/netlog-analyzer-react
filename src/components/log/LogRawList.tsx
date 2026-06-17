@@ -6,6 +6,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from '@ant-design/icons';
+import { formatDuration } from '../../utils/format';
 import type { LogEntry } from '../../logParser';
 
 interface LogRawListProps {
@@ -57,10 +58,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
     }).map(({ entry }) => entry);
   }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter]);
 
-  const formatDuration = (ms: number) => {
-    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${ms}ms`;
-  };
+
 
   return (
     <Card

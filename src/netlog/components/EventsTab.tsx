@@ -86,13 +86,12 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
 
   const eventRows = useMemo<EventTableRow[]>(() => {
     return events.map(e => {
-      const paramsCompact = JSON.stringify(e.params || {});
       const paramsJson = JSON.stringify(e.params || {}, null, 2);
       return {
         ...e,
         paramsJson,
-        paramsPreview: paramsCompact.substring(0, 50),
-        searchText: `${e.typeName} ${e.source.typeName} ${paramsCompact}`.toLowerCase(),
+        paramsPreview: paramsJson.substring(0, 50),
+        searchText: `${e.typeName} ${e.source.typeName} ${paramsJson}`.toLowerCase(),
       };
     });
   }, [events]);

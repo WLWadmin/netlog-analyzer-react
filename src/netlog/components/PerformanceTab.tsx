@@ -33,15 +33,25 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     return <Empty description="没有可分析的性能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
   }
 
-  const durations = completedReqs.map(q => q.duration!);
+  // Single-pass: collect durations, phase stats, and waterfall range
+  const durations: number[] = [];
+  const phaseStats: Record<string, number[]> = { dns: [], connect: [], ssl: [], send: [], wait: [], download: [] };
   let minDuration = Infinity;
   let maxDuration = 0;
   let totalDurationSum = 0;
-  for (const duration of durations) {
-    if (duration < minDuration) minDuration = duration;
-    if (duration > maxDuration) maxDuration = duration;
-    totalDurationSum += duration;
+
+  for (const req of completedReqs) {
+    const d = req.duration!;
+    durations.push(d);
+    if (d < minDuration) minDuration = d;
+    if (d > maxDuration) maxDuration = d;
+    totalDurationSum += d;
+
+    for (const [phase, info] of Object.entries(req.timeline)) {
+      if (info) phaseStats[phase].push(info.duration);
+    }
   }
+
   const stats = {
     min: minDuration,
     avg: totalDurationSum / durations.length,
@@ -50,13 +60,6 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     p99: percentile(durations, 0.99),
     max: maxDuration,
   };
-
-  const phaseStats: Record<string, number[]> = { dns: [], connect: [], ssl: [], send: [], wait: [], download: [] };
-  for (const req of completedReqs) {
-    for (const [phase, info] of Object.entries(req.timeline)) {
-      if (info) phaseStats[phase].push(info.duration);
-    }
-  }
 
   // Waterfall chart data: top 30 requests by duration
   const waterfallReqs = [...completedReqs]
