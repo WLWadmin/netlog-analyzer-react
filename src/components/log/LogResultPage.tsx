@@ -129,7 +129,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
         .log-disclaimer-alert {
           background: rgba(251, 191, 36, 0.06) !important;
           border: 1px solid rgba(251, 191, 36, 0.2) !important;
-          border-radius: 10px !important;
+          border-radius: 12px !important;
         }
         .log-disclaimer-title {
           font-weight: 600;
@@ -176,7 +176,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
           border-bottom-color: var(--bg-surface) !important;
         }
         .log-analysis-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
-          color: #1890ff !important;
+          color: #0ea5e9 !important;
           font-weight: 600;
         }
         .log-analysis-tabs .ant-tabs-content {

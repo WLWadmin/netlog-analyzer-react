@@ -4,11 +4,11 @@
    Global Font & Color System - Dark Theme (Default)
    ============================================================ */
 :root {
-  /* Text colors */
-  --text-primary: #f0f2f5;
-  --text-secondary: #b0b8c8;
-  --text-muted: #8892a4;
-  --text-disabled: #5c6478;
+  /* Text colors - WCAG AA compliant */
+  --text-primary: #e8ecf1;
+  --text-secondary: #a8b3c5;
+  --text-muted: #7c889c;
+  --text-disabled: #525c70;
 
   /* Background layers */
   --bg-base: #0d1017;
@@ -55,11 +55,11 @@
    Light Theme Overrides
    ============================================================ */
 [data-theme="light"] {
-  /* Text colors */
-  --text-primary: #1f2937;
-  --text-secondary: #4b5563;
-  --text-muted: #6b7280;
-  --text-disabled: #9ca3af;
+  /* Text colors - WCAG AA compliant */
+  --text-primary: #1e2a3a;
+  --text-secondary: #3d4f65;
+  --text-muted: #5a6b80;
+  --text-disabled: #94a3b8;
 
   /* Background layers */
   --bg-base: #f8fafc;
@@ -118,8 +118,12 @@ code, pre, .mono {
 .ant-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 12px !important;
+  border-radius: 14px !important;
   color: var(--text-primary) !important;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.ant-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
 }
 
 .ant-card-head {
@@ -237,16 +241,22 @@ code, pre, .mono {
   font-size: var(--font-size-xs) !important;
   font-weight: var(--font-weight-medium) !important;
   padding: 2px 10px !important;
-  border-radius: 4px !important;
+  border-radius: 6px !important;
   line-height: 20px !important;
+  transition: all 0.15s;
 }
 
 /* Alert */
 .ant-alert {
   background: var(--bg-surface) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
+  border-left: 4px solid transparent;
 }
+.ant-alert-success { border-left-color: var(--accent-green) !important; }
+.ant-alert-error { border-left-color: var(--accent-red) !important; }
+.ant-alert-warning { border-left-color: var(--accent-yellow) !important; }
+.ant-alert-info { border-left-color: var(--accent-blue) !important; }
 
 .ant-alert-message {
   color: var(--text-primary) !important;
@@ -321,6 +331,8 @@ code, pre, .mono {
   border-color: var(--border-color) !important;
   color: var(--text-primary) !important;
   font-size: var(--font-size-base) !important;
+  border-radius: 10px !important;
+  transition: all 0.2s;
 }
 
 /* Placeholder: adaptive color for both light and dark themes */
@@ -360,7 +372,8 @@ code, pre, .mono {
 .ant-btn {
   font-size: var(--font-size-base) !important;
   font-weight: var(--font-weight-medium) !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
+  transition: all 0.2s;
 }
 
 .ant-btn-default {
@@ -660,7 +673,7 @@ code, pre, .mono {
   background: rgba(74, 158, 255, 0.12);
   border: 1px solid rgba(74, 158, 255, 0.25);
   color: #4a9eff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 6px 16px;
   font-size: 13px;
   cursor: pointer;
@@ -669,4 +682,52 @@ code, pre, .mono {
 .export-btn:hover {
   background: rgba(74, 158, 255, 0.2);
   border-color: rgba(74, 158, 255, 0.4);
+}
+
+/* ============================================================
+   Recharts Theme Overrides
+   ============================================================ */
+.recharts-default-tooltip {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
+  color: var(--text-primary) !important;
+}
+.recharts-tooltip-label {
+  color: var(--text-secondary) !important;
+}
+.recharts-tooltip-item {
+  color: var(--text-primary) !important;
+}
+.recharts-legend-item-text {
+  color: var(--text-secondary) !important;
+  font-size: 13px;
+}
+.recharts-cartesian-axis-tick-value {
+  fill: var(--text-secondary) !important;
+}
+.recharts-cartesian-grid line {
+  stroke: var(--border-color) !important;
+}
+
+/* ============================================================
+   Progress 全局圆角
+   ============================================================ */
+.ant-progress-bg {
+  border-radius: 6px !important;
+}
+.ant-progress-inner {
+  border-radius: 6px !important;
+}
+
+/* ============================================================
+   主题切换过渡
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference) {
+  body, .ant-card, .ant-table, .ant-tabs, .ant-modal-content,
+  .ant-tag, .ant-alert, .ant-input, .ant-select-selector,
+  .ant-btn, .ant-collapse, .ant-descriptions,
+  .ant-drawer-content, .ant-pagination {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
 }

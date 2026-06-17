@@ -18,6 +18,7 @@ import {
   QuestionCircleOutlined,
   FileTextOutlined,
   CloudUploadOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { parseLog, ParsedEvent, AnalysisResult } from './netlog/parser';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
@@ -149,7 +150,7 @@ const App: React.FC = () => {
               width: 38,
               height: 38,
               background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-              borderRadius: 10,
+              borderRadius: 14,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -280,7 +281,7 @@ const App: React.FC = () => {
                 <QuestionCircleOutlined style={{ fontSize: 16, color: 'var(--accent-blue)' }} />
                 <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>不知道如何获取文件？</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
                 {/* HAR 文件 */}
                 <a
                   href="https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb"
@@ -310,9 +311,9 @@ const App: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                     <div
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 10,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
                         background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.12))',
                         border: '1px solid rgba(14, 165, 233, 0.2)',
                         display: 'flex',
@@ -321,7 +322,7 @@ const App: React.FC = () => {
                         flexShrink: 0,
                       }}
                     >
-                      <FileTextOutlined style={{ fontSize: 18, color: '#0ea5e9' }} />
+                      <FileTextOutlined style={{ fontSize: 20, color: '#0ea5e9' }} />
                     </div>
                     <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>HAR 文件获取指南</span>
                   </div>
@@ -362,9 +363,9 @@ const App: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                     <div
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 10,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
                         background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12))',
                         border: '1px solid rgba(99, 102, 241, 0.2)',
                         display: 'flex',
@@ -373,7 +374,7 @@ const App: React.FC = () => {
                         flexShrink: 0,
                       }}
                     >
-                      <CloudUploadOutlined style={{ fontSize: 18, color: '#6366f1' }} />
+                      <CloudUploadOutlined style={{ fontSize: 20, color: '#6366f1' }} />
                     </div>
                     <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>NetLog 文件获取指南</span>
                   </div>
@@ -381,6 +382,58 @@ const App: React.FC = () => {
                     通过 chrome://net-export/ 或 edge://net-export/ 导出网络日志
                   </p>
                   <span style={{ fontSize: 12, color: '#6366f1', marginTop: 8, display: 'inline-block' }}>
+                    查看详细教程 →
+                  </span>
+                </a>
+
+                {/* Go 服务日志文件 */}
+                <a
+                  href="https://bytedance.larkoffice.com/docx/LogGuidePlaceholder"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'block',
+                    padding: '20px 24px',
+                    background: 'var(--bg-surface)',
+                    borderRadius: 14,
+                    border: '1px solid var(--border-color)',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = '#22d3ee';
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(34, 211, 238, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.12))',
+                        border: '1px solid rgba(34, 211, 238, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CodeOutlined style={{ fontSize: 20, color: '#22d3ee' }} />
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Go 服务日志获取指南</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    从 Go 服务标准输出或日志文件导出结构化日志
+                  </p>
+                  <span style={{ fontSize: 12, color: '#22d3ee', marginTop: 8, display: 'inline-block' }}>
                     查看详细教程 →
                   </span>
                 </a>
@@ -415,7 +468,7 @@ const App: React.FC = () => {
               style={{
                 background: 'rgba(251, 191, 36, 0.06)',
                 border: '1px solid rgba(251, 191, 36, 0.2)',
-                borderRadius: 10,
+                borderRadius: 12,
               }}
             />
             <div

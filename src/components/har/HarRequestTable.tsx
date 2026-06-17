@@ -191,7 +191,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* 第一行：类型筛选 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {CATEGORY_LABELS.map(c => {
           const count = c.key === 'all' ? result.totalRequests : result.typeCounts[c.key as keyof typeof result.typeCounts] || 0;
           const isActive = category === c.key;
@@ -202,20 +202,34 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
               onClick={() => setCat(c.key)}
               style={{
                 cursor: 'pointer',
-                padding: '4px 12px',
-                borderRadius: 6,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 14px',
+                borderRadius: 8,
                 fontSize: 13,
                 fontWeight: isActive ? 700 : 500,
-                color: st.color,
-                background: st.bg,
-                border: `1.5px solid ${isActive ? st.color : 'transparent'}`,
-                boxShadow: isActive ? `0 0 0 2px ${st.bg}` : 'none',
-                opacity: isActive ? 1 : 0.78,
+                color: isActive ? st.color : 'var(--text-secondary)',
+                background: isActive ? st.bg : 'var(--bg-elevated)',
+                border: `1.5px solid ${isActive ? st.color : 'var(--border-color)'}`,
+                transform: isActive ? 'scale(1.02)' : 'scale(1)',
                 transition: 'all 0.2s',
               }}
             >
               {c.label}
-              <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.75 }}>{count}</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  lineHeight: '16px',
+                  padding: '0 6px',
+                  borderRadius: 10,
+                  background: isActive ? st.color : 'var(--border-color)',
+                  color: isActive ? '#fff' : 'var(--text-muted)',
+                }}
+              >
+                {count}
+              </span>
             </span>
           );
         })}
@@ -223,7 +237,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
 
       {/* 第二行：状态筛选 + 计数 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 2 }}>状态：</span>
           {STATUS_FILTERS.map(f => {
             const isActive = status === f.key;
@@ -233,14 +247,16 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
                 onClick={() => setStatus(f.key)}
                 style={{
                   cursor: 'pointer',
-                  padding: '3px 12px',
-                  borderRadius: 6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '6px 14px',
+                  borderRadius: 8,
                   fontSize: 13,
                   fontWeight: isActive ? 700 : 500,
-                  color: f.color,
-                  background: f.bg,
-                  border: `1.5px solid ${isActive ? f.color : 'transparent'}`,
-                  opacity: isActive ? 1 : 0.78,
+                  color: isActive ? f.color : 'var(--text-secondary)',
+                  background: isActive ? f.bg : 'var(--bg-elevated)',
+                  border: `1.5px solid ${isActive ? f.color : 'var(--border-color)'}`,
+                  transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   transition: 'all 0.2s',
                 }}
               >

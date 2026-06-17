@@ -5,6 +5,7 @@ import {
   GlobalOutlined,
   ClockCircleOutlined,
   BarsOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import type { LogStats } from '../../logParser';
 
@@ -29,7 +30,10 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
         className="log-chart-card"
       >
         {stats.errorTypes.length === 0 ? (
-          <div className="log-chart-empty">暂无错误记录</div>
+          <div className="log-chart-empty">
+            <InboxOutlined style={{ fontSize: 32, color: 'var(--text-muted)', marginBottom: 8, display: 'block' }} />
+            暂无错误记录，一切正常
+          </div>
         ) : (
           <div className="log-chart-list">
             {stats.errorTypes.map((type, index) => (
@@ -42,8 +46,8 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 </div>
                 <Progress
                   percent={type.percentage}
-                  strokeColor={errorColors[index % errorColors.length]}
-                  trailColor="rgba(0,0,0,0.04)"
+                  strokeColor={{ '0%': errorColors[index % errorColors.length], '100%': errorColors[index % errorColors.length] + 'cc' }}
+                  trailColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>
@@ -75,8 +79,8 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 <div className="log-chart-item-bar">
                   <Progress
                     percent={percentage}
-                    strokeColor={domainColors[index % domainColors.length]}
-                    trailColor="rgba(0,0,0,0.04)"
+                    strokeColor={{ '0%': domainColors[index % domainColors.length], '100%': domainColors[index % domainColors.length] + 'cc' }}
+                    trailColor="var(--bg-base)"
                     showInfo={false}
                     style={{ flex: 1 }}
                   />
@@ -117,8 +121,8 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 </div>
                 <Progress
                   percent={percentage}
-                  strokeColor="#fa8c16"
-                  trailColor="rgba(0,0,0,0.04)"
+                  strokeColor={{ '0%': '#fa8c16', '100%': '#fa8c16cc' }}
+                  trailColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>
@@ -154,8 +158,8 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 </div>
                 <Progress
                   percent={percentage}
-                  strokeColor={level.color}
-                  trailColor="rgba(0,0,0,0.04)"
+                  strokeColor={{ '0%': level.color, '100%': level.color + 'cc' }}
+                  trailColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>
@@ -173,7 +177,7 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
         .log-chart-card {
           background: var(--bg-surface) !important;
           border: 1px solid var(--border-color) !important;
-          border-radius: 12px !important;
+          border-radius: 14px !important;
           transition: box-shadow 0.2s ease !important;
         }
         .log-chart-card:hover {
@@ -200,6 +204,12 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
           padding: 24px 0;
           color: var(--text-muted);
           font-size: 13px;
+        }
+        .log-chart-list .ant-progress-bg {
+          border-radius: 6px !important;
+        }
+        .log-chart-list .ant-progress-inner {
+          border-radius: 6px !important;
         }
         .log-chart-list {
           display: flex;

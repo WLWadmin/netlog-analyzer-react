@@ -13,6 +13,14 @@ interface LogSummaryCardsProps {
 }
 
 const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError }) => {
+  const getSuccessRateColor = (rate: number) => {
+    if (rate >= 95) return '#52c41a';
+    if (rate >= 80) return '#fa8c16';
+    return '#ff4d4f';
+  };
+
+  const successRateColor = getSuccessRateColor(stats.successRate);
+
   const cards = [
     {
       title: '总请求数',
@@ -46,10 +54,10 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
       title: '成功率',
       value: `${stats.successRate}%`,
       icon: <PercentageOutlined />,
-      color: '#fa8c16',
-      bgColor: 'rgba(250, 140, 22, 0.06)',
-      borderColor: 'rgba(250, 140, 22, 0.15)',
-      hoverBorder: 'rgba(250, 140, 22, 0.35)',
+      color: successRateColor,
+      bgColor: `${successRateColor}0f`,
+      borderColor: `${successRateColor}26`,
+      hoverBorder: `${successRateColor}59`,
     },
   ];
 
@@ -64,6 +72,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
             '--card-bg': card.bgColor,
             '--card-border': card.borderColor,
             '--card-hover-border': card.hoverBorder,
+            '--card-value-color': card.color,
           } as React.CSSProperties}
           onClick={() => {
             if (card.clickable && onFilterError) {
@@ -94,7 +103,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
           padding: 18px 20px;
           background: var(--bg-surface);
           border: 1px solid var(--card-border);
-          border-radius: 12px;
+          border-radius: 14px;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           cursor: default;
         }
@@ -116,7 +125,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
         .log-summary-card-icon {
           width: 46px;
           height: 46px;
-          border-radius: 12px;
+          border-radius: 14px;
           background: var(--card-bg);
           display: flex;
           align-items: center;
@@ -141,7 +150,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
         .log-summary-card-value {
           font-size: 26px;
           font-weight: 700;
-          color: var(--card-color);
+          color: var(--card-value-color);
           line-height: 1.2;
           font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
           letter-spacing: -0.5px;

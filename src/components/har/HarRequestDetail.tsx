@@ -1,5 +1,6 @@
 import { useMemo, Fragment } from 'react';
-import { Tabs, Empty, Tag, Tooltip } from 'antd';
+import { Tabs, Tag, Tooltip } from 'antd';
+import { FileTextOutlined, InboxOutlined } from '@ant-design/icons';
 import {
   HarRequestEntry,
   decodeResponseBody,
@@ -292,7 +293,11 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
       )}
     </div>
   ) : (
-    <Empty description="该请求未捕获响应体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该请求未捕获响应体</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>可能是OPTIONS预检请求或响应被拦截</div>
+    </div>
   );
 
   // Timing Tab
@@ -358,11 +363,18 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
               );
             })()
           ) : (
-            <Empty description="Payload 内容为空" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <InboxOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Payload 内容为空</div>
+            </div>
           )}
         </div>
       ) : (
-        <Empty description="该请求无 Payload" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+          <InboxOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+          <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该请求无 Payload</div>
+          <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>GET请求通常不携带请求体</div>
+        </div>
       )}
     </div>
   );

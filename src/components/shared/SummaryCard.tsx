@@ -12,8 +12,10 @@ export interface SummaryCardProps {
   value: React.ReactNode;
   /** 辅助说明文字 */
   suffix?: string;
-  /** 主题色 */
+  /** 图标容器色（语义色，始终保留） */
   color: string;
+  /** 数值色：undefined=中性(text-primary), 语义色=强调 */
+  valueColor?: string;
   /** 图标 */
   icon: React.ReactNode;
   /** 渐变背景 */
@@ -26,22 +28,12 @@ export interface SummaryCardProps {
 // SummaryCard 组件
 // ============================================================
 
-/**
- * 单张摘要卡片组件
- * - 顶部 3px 彩色条
- * - 渐变背景
- * - 图标 + 标题行
- * - 大号等宽数字
- * - 辅助说明文字
- * - 支持 onClick 和 cursor 样式
- *
- * 用于 SummaryCards 和 HarSummaryCards 中的单张卡片展示
- */
 export const SummaryCard: React.FC<SummaryCardProps> = ({
   title,
   value,
   suffix,
   color,
+  valueColor,
   icon,
   bgGradient,
   onClick,
@@ -52,22 +44,15 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
       style={{
         background: 'var(--bg-elevated)',
         border: onClick ? `1px solid ${color}` : '1px solid var(--border-color)',
-        borderRadius: 12,
+        borderRadius: 14,
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
+        transition: 'all 0.2s ease',
       }}
       styles={{ body: { padding: 0 } }}
       hoverable
     >
-      {/* 顶部彩色条 */}
-      <div
-        style={{
-          height: 3,
-          background: color,
-          opacity: 0.7,
-        }}
-      />
-      <div style={{ padding: '16px 14px', position: 'relative' }}>
+      <div style={{ padding: '18px 16px', position: 'relative' }}>
         {/* 渐变背景 */}
         <div
           style={{
@@ -77,8 +62,9 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             right: 0,
             bottom: 0,
             background: bgGradient,
-            opacity: 0.5,
+            opacity: 0.45,
             pointerEvents: 'none',
+            borderRadius: 14,
           }}
         />
         {/* 图标 + 标题行 */}
@@ -86,18 +72,26 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
-            marginBottom: 10,
+            gap: 10,
+            marginBottom: 14,
             position: 'relative',
             zIndex: 1,
           }}
         >
           <span
             style={{
-              color: color,
-              fontSize: 14,
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: `${color}18`,
+              border: `1px solid ${color}25`,
+              color,
+              fontSize: 16,
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: 'transform 0.2s ease',
             }}
           >
             {icon}
@@ -105,38 +99,41 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           <span
             style={{
               fontSize: 12,
-              color: 'var(--text-muted)',
+              color: 'var(--text-secondary)',
               fontWeight: 500,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
+              lineHeight: 1.3,
             }}
           >
             {title}
           </span>
         </div>
-        {/* 大号等宽数字 */}
+        {/* 数值 — 双色调 */}
         <div
           style={{
-            fontSize: 26,
+            fontSize: 28,
             fontWeight: 700,
-            color: color,
+            color: valueColor || 'var(--text-primary)',
             lineHeight: 1.2,
             position: 'relative',
             zIndex: 1,
             fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
+            letterSpacing: -0.5,
           }}
         >
           {value}
         </div>
-        {/* 辅助说明文字 */}
+        {/* 辅助说明 */}
         {suffix && (
           <div
             style={{
               fontSize: 12,
               color: 'var(--text-muted)',
-              marginTop: 6,
+              marginTop: 8,
               position: 'relative',
               zIndex: 1,
+              lineHeight: 1.4,
             }}
           >
             {suffix}
