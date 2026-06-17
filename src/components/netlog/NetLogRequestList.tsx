@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined } from '@ant-design/icons';
-import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../parser';
+import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 
 interface NetLogRequestListProps {

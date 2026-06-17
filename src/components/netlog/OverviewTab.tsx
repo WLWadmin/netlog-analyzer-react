@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List, Tooltip as AntTooltip } from 'antd';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { AnalysisResult, formatDuration, truncateUrl } from '../parser';
+import { AnalysisResult, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
 import { getChartColor } from '../../constants/chartColors';
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, Table, Tag, Modal, Descriptions } from 'antd';
 import { ThunderboltOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../parser';
+import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
 import { CHART_COLORS } from '../../constants/chartColors';
 
 interface PerformanceTabProps {

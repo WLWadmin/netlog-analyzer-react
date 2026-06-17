@@ -1,8 +1,8 @@
 import { useState, useMemo, Fragment } from 'react';
 import { Card, Alert, Tag, Collapse, Button } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
-import { AnalysisResult } from '../parser';
-import { generateSuggestions, generateNextStepInfo } from '../diagnosis';
+import { AnalysisResult } from '../../parsers/netlog/parser';
+import { generateSuggestions, generateNextStepInfo } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
 
 const { Panel } = Collapse;

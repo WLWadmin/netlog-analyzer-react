@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag } from 'antd';
 import { ApiOutlined } from '@ant-design/icons';
-import { AnalysisResult } from '../parser';
-import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../constants';
+import { AnalysisResult } from '../../parsers/netlog/parser';
+import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../../parsers/netlog/constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { getChartColor } from '../../constants/chartColors';
 

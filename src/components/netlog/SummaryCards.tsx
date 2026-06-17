@@ -8,8 +8,8 @@ import {
   ClockCircleOutlined,
   RiseOutlined,
 } from '@ant-design/icons';
-import { AnalysisResult } from '../parser';
-import { formatDuration } from '../parser';
+import { AnalysisResult } from '../../parsers/netlog/parser';
+import { formatDuration } from '../../parsers/netlog/parser';
 import { SummaryCard } from '../../components/shared/SummaryCard';
 
 interface SummaryCardsProps {

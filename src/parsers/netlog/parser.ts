@@ -1,5 +1,5 @@
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
-import { formatTime, truncateUrl } from '../utils/format';
+import { formatTime, truncateUrl } from '../../utils/format';
 
 export interface ParsedEvent {
   time: number;
@@ -1008,7 +1008,7 @@ function runDiagnostics(r: AnalysisResult) {
 }
 
 // Re-export format utilities from shared utils for backward compatibility
-export { formatDuration, formatTime, truncateUrl } from '../utils/format';
+export { formatDuration, formatTime, truncateUrl } from '../../utils/format';
 
 export function percentile(arr: number[], p: number): number {
   const sorted = [...arr].sort((a, b) => a - b);

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Card, Table, Tag, Alert } from 'antd';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { AnalysisResult } from '../parser';
+import { AnalysisResult } from '../../parsers/netlog/parser';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 
 // 版本颜色
