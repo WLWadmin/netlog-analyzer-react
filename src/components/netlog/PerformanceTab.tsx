@@ -11,7 +11,7 @@ import {
   RiseOutlined,
   FallOutlined,
 } from '@ant-design/icons';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ScatterChart, Scatter, LineChart, Line, ZAxis } from 'recharts';
 import { AnalysisResult, URLRequest, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -205,6 +205,36 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         max: failedDurations[failedDurations.length - 1] || 0,
       },
     };
+  }, [completedReqs]);
+
+  // ===== 请求耗时时间线：散点数据 & 吞吐量数据 =====
+  const { scatterData, throughputData } = useMemo(() => {
+    // 散点数据：成功 / 失败分组
+    const successPts: { startTime: number; duration: number }[] = [];
+    const failedPts: { startTime: number; duration: number }[] = [];
+    for (const req of completedReqs) {
+      const pt = { startTime: req.startTime, duration: req.duration || 0 };
+      if (req.error || req.status === 'error') {
+        failedPts.push(pt);
+      } else {
+        successPts.push(pt);
+      }
+    }
+
+    // 吞吐量：按 1 秒桶聚合
+    const bucketMap = new Map<number, number>();
+    for (const req of completedReqs) {
+      const bucket = Math.floor(req.startTime / 1000);
+      bucketMap.set(bucket, (bucketMap.get(bucket) || 0) + 1);
+    }
+    const throughput = Array.from(bucketMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([sec, count]) => ({
+        time: sec * 1000,
+        rps: count,
+      }));
+
+    return { scatterData: { successPts, failedPts }, throughputData: throughput };
   }, [completedReqs]);
 
   // Waterfall chart data: top 30 requests by duration
@@ -420,6 +450,100 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             </div>
           </Col>
         </Row>
+      </Card>
+
+      {/* ===== 请求耗时时间线 ===== */}
+      <Card
+        title={<span><AreaChartOutlined /> 请求耗时时间线</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        {/* 散点图：每个请求的耗时随时间变化 */}
+        <h4 style={{ marginBottom: 8, fontSize: 14, color: 'var(--text-secondary)' }}>请求耗时分布（按时间）</h4>
+        <ResponsiveContainer width="100%" height={250}>
+          <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+            <XAxis
+              dataKey="startTime"
+              type="number"
+              name="开始时间"
+              tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}s`}
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              label={{ value: '请求开始时间 (ms)', position: 'insideBottom', offset: -2, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+            />
+            <YAxis
+              dataKey="duration"
+              type="number"
+              name="耗时"
+              tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}s`}
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              label={{ value: '耗时 (ms)', angle: -90, position: 'insideLeft', offset: 10, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+            />
+            <ZAxis range={[20, 20]} />
+            <Tooltip
+              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any, name: any) => {
+                if (name === '开始时间') return [`${Number(value).toFixed(0)} ms`, name];
+                return [formatDuration(Number(value) || 0), name];
+              }}
+            />
+            <Scatter name="成功请求" data={scatterData.successPts} fill="#34d399" />
+            <Scatter name="失败请求" data={scatterData.failedPts} fill="#f87171" />
+          </ScatterChart>
+        </ResponsiveContainer>
+
+        {/* 图例 */}
+        <div style={{ display: 'flex', gap: 16, marginTop: 8, marginBottom: 20, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#34d399' }} />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>成功请求</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#f87171' }} />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>失败请求</span>
+          </div>
+        </div>
+
+        {/* 吞吐量折线图：每秒请求数 */}
+        <h4 style={{ marginBottom: 8, fontSize: 14, color: 'var(--text-secondary)' }}>吞吐量（每秒请求数）</h4>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={throughputData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+            <XAxis
+              dataKey="time"
+              type="number"
+              name="时间"
+              tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}s`}
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              label={{ value: '时间 (ms)', position: 'insideBottom', offset: -2, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+            />
+            <YAxis
+              dataKey="rps"
+              type="number"
+              name="RPS"
+              allowDecimals={false}
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              label={{ value: '请求/秒', angle: -90, position: 'insideLeft', offset: 10, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+            />
+            <Tooltip
+              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any, name: any) => {
+                if (name === 'RPS') return [`${value} req/s`, name];
+                return [value, name];
+              }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              labelFormatter={(label: any) => `时间: ${Number(label).toFixed(0)} ms`}
+            />
+            <Line
+              type="monotone"
+              dataKey="rps"
+              name="RPS"
+              stroke={CHART_COLORS.semantic.info}
+              strokeWidth={2}
+              dot={{ r: 3, fill: CHART_COLORS.semantic.info }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </Card>
 
       {/* ===== 新增：瓶颈归因排名 ===== */}

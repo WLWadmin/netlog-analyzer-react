@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag, Alert } from 'antd';
 import { SafetyCertificateOutlined, BarChartOutlined, LockOutlined, GlobalOutlined, WarningOutlined, BulbOutlined } from '@ant-design/icons';
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { AnalysisResult } from '../../parsers/netlog/parser';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -330,6 +330,61 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
           })}
         </Card>
       )}
+
+      {/* SSL Handshake Duration Distribution */}
+      {(() => {
+        const sslTimings = result.urlRequests
+          .filter(r => r.timeline.ssl && r.timeline.ssl.duration > 0)
+          .map(r => ({ duration: r.timeline.ssl!.duration, host: r.url }));
+
+        if (sslTimings.length === 0) return null;
+
+        const buckets = [
+          { label: '<50ms', min: 0, max: 50, color: '#34d399' },
+          { label: '50-100ms', min: 50, max: 100, color: '#a3e635' },
+          { label: '100-300ms', min: 100, max: 300, color: '#fbbf24' },
+          { label: '300-1000ms', min: 300, max: 1000, color: '#fb923c' },
+          { label: '>1000ms', min: 1000, max: Infinity, color: '#f87171' },
+        ];
+
+        const chartData = buckets.map(b => ({
+          name: b.label,
+          count: sslTimings.filter(t => t.duration >= b.min && t.duration < b.max).length,
+          fill: b.color,
+        }));
+
+        const durations = sslTimings.map(t => t.duration).sort((a, b) => a - b);
+        const avgDuration = durations.reduce((s, d) => s + d, 0) / durations.length;
+        const p90Index = Math.ceil(durations.length * 0.9) - 1;
+        const p90Duration = durations[Math.min(p90Index, durations.length - 1)];
+        const maxDuration = durations[durations.length - 1];
+
+        return (
+          <Card title={<span><BarChartOutlined /> SSL 握手耗时分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 70, right: 20, top: 5, bottom: 5 }}>
+                <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} width={65} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any) => [`${value} 个请求`, '数量']}
+                />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  {chartData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', gap: 24, marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+              <span>平均耗时: <strong style={{ color: 'var(--text-primary)' }}>{avgDuration.toFixed(0)}ms</strong></span>
+              <span>P90: <strong style={{ color: 'var(--text-primary)' }}>{p90Duration.toFixed(0)}ms</strong></span>
+              <span>最大耗时: <strong style={{ color: 'var(--text-primary)' }}>{maxDuration.toFixed(0)}ms</strong></span>
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* SSL Connection Details by Host */}
       <Card title={<span><GlobalOutlined /> SSL 连接详情（按主机）</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>

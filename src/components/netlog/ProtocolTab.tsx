@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag } from 'antd';
-import { ApiOutlined } from '@ant-design/icons';
+import { ApiOutlined, SwapOutlined } from '@ant-design/icons';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { AnalysisResult } from '../../parsers/netlog/parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../../parsers/netlog/constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
@@ -369,6 +370,86 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
           <Table dataSource={quicTypeData} columns={eventTypeColumns} rowKey="name" pagination={false} size="small" scroll={{ y: 300 }} />
         </Card>
       )}
+      {/* QUIC vs TCP Performance Comparison */}
+      {(() => {
+        const quicReqs = result.urlRequests.filter(r => r.events.some(e => e.source.typeName.includes('QUIC')) && r.duration);
+        const tcpReqs = result.urlRequests.filter(r => !r.events.some(e => e.source.typeName.includes('QUIC')) && r.duration);
+
+        if (quicReqs.length < 5 || tcpReqs.length < 5) {
+          return (
+            <Card title={<span><SwapOutlined /> QUIC vs TCP 性能对比</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                QUIC 请求 {quicReqs.length} 个 / TCP 请求 {tcpReqs.length} 个，数据不足（至少各需要 5 个请求）无法进行对比
+              </div>
+            </Card>
+          );
+        }
+
+        const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+        const p90 = (arr: number[]) => {
+          const sorted = [...arr].sort((a, b) => a - b);
+          return sorted[Math.floor(sorted.length * 0.9)];
+        };
+
+        const quicDurations = quicReqs.map(r => r.duration!);
+        const tcpDurations = tcpReqs.map(r => r.duration!);
+
+        const quicConnectPhases = quicReqs.map(r => {
+          const connectEvt = r.events.find(e => e.typeName === 'HTTP_TRANSACTION_SEND_REQUEST' || e.typeName.includes('CONNECT'));
+          return connectEvt ? connectEvt.time : 0;
+        }).filter(t => t > 0);
+        const tcpConnectPhases = tcpReqs.map(r => {
+          const connectEvt = r.events.find(e => e.typeName === 'HTTP_TRANSACTION_SEND_REQUEST' || e.typeName.includes('CONNECT'));
+          return connectEvt ? connectEvt.time : 0;
+        }).filter(t => t > 0);
+
+        const quicErrorRate = quicReqs.length > 0
+          ? (quicReqs.filter(r => r.events.some(e => e.params.net_error || e.params.error_code)).length / quicReqs.length) * 100
+          : 0;
+        const tcpErrorRate = tcpReqs.length > 0
+          ? (tcpReqs.filter(r => r.events.some(e => e.params.net_error || e.params.error_code)).length / tcpReqs.length) * 100
+          : 0;
+
+        const chartData = [
+          {
+            name: '平均耗时',
+            QUIC: parseFloat(avg(quicDurations).toFixed(1)),
+            TCP: parseFloat(avg(tcpDurations).toFixed(1)),
+          },
+          {
+            name: 'P90 耗时',
+            QUIC: parseFloat(p90(quicDurations).toFixed(1)),
+            TCP: parseFloat(p90(tcpDurations).toFixed(1)),
+          },
+          {
+            name: '错误率',
+            QUIC: parseFloat(quicErrorRate.toFixed(2)),
+            TCP: parseFloat(tcpErrorRate.toFixed(2)),
+          },
+          {
+            name: '连接建立时间',
+            QUIC: quicConnectPhases.length > 0 ? parseFloat(avg(quicConnectPhases).toFixed(1)) : 0,
+            TCP: tcpConnectPhases.length > 0 ? parseFloat(avg(tcpConnectPhases).toFixed(1)) : 0,
+          },
+        ];
+
+        return (
+          <Card title={<span><SwapOutlined /> QUIC vs TCP 性能对比</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                />
+                <Bar dataKey="QUIC" fill="#22d3ee" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="TCP" fill="#4a9eff" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+        );
+      })()}
     </>
   );
 };
