@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Tabs } from 'antd';
-import { UnorderedListOutlined, MedicineBoxOutlined, WarningOutlined } from '@ant-design/icons';
+import { Tabs, Alert } from 'antd';
+import { UnorderedListOutlined, MedicineBoxOutlined, WarningOutlined, ToolOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
 import HarRequestTable, { StatusFilter } from './HarRequestTable';
@@ -55,6 +55,26 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {result.repairInfo?.repaired && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<ToolOutlined />}
+          message={result.repairInfo.reason}
+          description={
+            <div style={{ lineHeight: 1.6 }}>
+              <div>恢复率：{result.repairInfo.recoveryRate}% · 已恢复 {result.repairInfo.recoveredEntries}/{result.repairInfo.totalEntries} 条请求</div>
+              {result.repairInfo.droppedEntries > 0 && (
+                <div style={{ color: '#f87171' }}>丢弃了 {result.repairInfo.droppedEntries} 条损坏请求</div>
+              )}
+              {result.repairInfo.warnings.map((w, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{w}</div>
+              ))}
+            </div>
+          }
+          style={{ background: 'var(--bg-surface)', borderRadius: 12 }}
+        />
+      )}
       <HarSummaryCards
         result={result}
         onFilterFailed={() => jumpToRequests('failed')}

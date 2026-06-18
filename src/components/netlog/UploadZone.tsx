@@ -1,12 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, message, Progress, notification } from 'antd';
+import { Upload, message, Progress, notification, Modal } from 'antd';
 import {
   CloudUploadOutlined,
   FileTextOutlined,
   LoadingOutlined,
   ThunderboltOutlined,
   SafetyOutlined,
+  ToolOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
+import { parseHarWithRepair, HarRepairResult } from '../../utils/harRepair';
 
 const { Dragger } = Upload;
 
@@ -20,7 +23,7 @@ function formatFileSize(size: number): string {
 }
 
 interface UploadZoneProps {
-  onFileLoaded: (data: unknown, isTextLog?: boolean) => void;
+  onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: HarRepairResult) => void;
 }
 
 const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
@@ -39,6 +42,45 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       }
     };
   }, []);
+
+  const handleLoadParsed = (parsed: unknown, repairInfo: HarRepairResult | null, onSuccess?: any) => {
+    setTimeout(() => {
+      onFileLoaded(parsed, false, repairInfo || undefined);
+      onSuccess?.('ok');
+      setReading(false);
+      setReadProgress(0);
+
+      // 如果经过修复，显示修复成功提示
+      if (repairInfo && repairInfo.repaired) {
+        notification.warning({
+          message: (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ToolOutlined style={{ color: '#fbbf24' }} />
+              HAR 文件已自动修复
+            </span>
+          ),
+          description: (
+            <div style={{ lineHeight: 1.6 }}>
+              <div style={{ marginBottom: 4 }}>{repairInfo.reason}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                恢复率: {repairInfo.recoveryRate}% · 已恢复 {repairInfo.recoveredEntries}/{repairInfo.totalEntries} 条请求
+                {repairInfo.droppedEntries > 0 && (
+                  <span style={{ color: '#f87171' }}> · 丢弃了 {repairInfo.droppedEntries} 条损坏请求</span>
+                )}
+              </div>
+            </div>
+          ),
+          placement: 'top',
+          duration: 6,
+          style: {
+            width: 420,
+            borderRadius: 14,
+            boxShadow: '0 12px 32px -8px rgba(17, 24, 39, 0.14)',
+          },
+        });
+      }
+    }, 300);
+  };
 
   const customRequest = ({ file, onSuccess }: any) => {
     setReading(true);
@@ -66,6 +108,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       }
     };
 
+    const fileName = (file as File).name.toLowerCase();
+
     reader.onload = (e) => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -74,7 +118,6 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
       setReadProgress(100);
       try {
         const content = e.target?.result as string;
-        const fileName = (file as File).name.toLowerCase();
         const isTextLog = fileName.endsWith('.log');
 
         if (isTextLog) {
@@ -85,19 +128,84 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
             setReading(false);
             setReadProgress(0);
           }, 300);
-        } else {
-          const json = JSON.parse(content);
-          setTimeout(() => {
-            onFileLoaded(json);
-            onSuccess?.('ok');
+        } else if (fileName.endsWith('.har')) {
+          // .har 文件：尝试修复
+          let repairInfo: HarRepairResult | null = null;
+
+          try {
+            const result = parseHarWithRepair(content);
+            if (!result.repaired) {
+              // 文件完整，直接加载
+              handleLoadParsed(result.data, null, onSuccess);
+              return;
+            }
+            repairInfo = result;
+          } catch (err) {
+            // 修复失败
             setReading(false);
             setReadProgress(0);
-          }, 300);
+            Modal.error({
+              title: '无法自动修复',
+              icon: <ExclamationCircleOutlined />,
+              content: (
+                <div style={{ lineHeight: 1.6 }}>
+                  <p>很抱歉，该 HAR 文件损坏严重，无法自动修复。</p>
+                  <pre style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8, background: 'var(--bg-base)', padding: 8, borderRadius: 6 }}>
+                    {(err as Error).message}
+                  </pre>
+                </div>
+              ),
+              okText: '知道了',
+            });
+            return;
+          }
+
+          // 修复成功但文件曾损坏，弹 Modal 让用户确认
+          if (repairInfo) {
+            Modal.confirm({
+              title: '检测到 HAR 文件损坏',
+              icon: <ExclamationCircleOutlined />,
+              content: (
+                <div style={{ lineHeight: 1.6 }}>
+                  <p>是否使用修复结果继续解析？</p>
+                  <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+                    <div>恢复率：{repairInfo.recoveryRate}%</div>
+                    <div>已恢复 {repairInfo.recoveredEntries}/{repairInfo.totalEntries} 条请求</div>
+                    {repairInfo.droppedEntries > 0 && (
+                      <div style={{ color: '#f87171' }}>丢弃了 {repairInfo.droppedEntries} 条损坏请求</div>
+                    )}
+                  </div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>
+                    注意：修复后可能存在请求丢失或数据不准确的情况。
+                  </p>
+                </div>
+              ),
+              okText: '使用修复结果',
+              cancelText: '取消',
+              onOk: () => {
+                handleLoadParsed(repairInfo!.data, repairInfo, onSuccess);
+              },
+              onCancel: () => {
+                setReading(false);
+                setReadProgress(0);
+                message.error('已取消修复，文件未解析');
+              },
+            });
+          }
+        } else {
+          // .json 文件（NetLog）：不自动修复，直接解析
+          const json = JSON.parse(content);
+          handleLoadParsed(json, null, onSuccess);
         }
       } catch (err) {
         setReading(false);
         setReadProgress(0);
-        message.error('解析失败: ' + (err as Error).message);
+        const msg = (err as Error).message;
+        if (fileName.endsWith('.json') && msg.includes('不是标准 HAR')) {
+          message.error('解析失败: 该文件不是标准 HAR 格式，请确认是否为 NetLog 或 HAR 文件');
+        } else {
+          message.error('解析失败: ' + msg);
+        }
       }
     };
     reader.onerror = () => {

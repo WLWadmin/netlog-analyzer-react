@@ -62,7 +62,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleFileLoaded = (data: unknown, isTextLog = false) => {
+  const handleFileLoaded = (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
     setLoading(true);
     setLoadingText('正在识别文件类型...');
     setTimeout(() => {
@@ -82,6 +82,9 @@ const App: React.FC = () => {
         if (isHarFile(data)) {
           setLoadingText('正在分析 HAR 请求...');
           const harAnalysis = parseHar(data);
+          if (repairInfo) {
+            harAnalysis.repairInfo = repairInfo;
+          }
           setHarResult(harAnalysis);
           setFileType('har');
           setHasData(true);

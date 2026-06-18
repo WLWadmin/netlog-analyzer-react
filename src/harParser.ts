@@ -81,6 +81,16 @@ export interface HarAnalysisResult {
   totalTime: number;
   creator: string;
   typeCounts: Record<HarCategory, number>;
+  /** HAR 修复信息（如果文件经过自动修复） */
+  repairInfo?: {
+    repaired: boolean;
+    recoveredEntries: number;
+    totalEntries: number;
+    droppedEntries: number;
+    recoveryRate: number;
+    reason: string;
+    warnings: string[];
+  };
 }
 
 // 慢请求阈值（毫秒）
