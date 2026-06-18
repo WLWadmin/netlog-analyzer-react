@@ -383,7 +383,22 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
       {/* Top Slow Requests */}
       {topRequests.length > 0 && (
-        <Card title={<span><ClockCircleOutlined /> 耗时最长的请求 (Top 20)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card
+          title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ClockCircleOutlined /> 耗时最长的请求 (Top {TOP_REQUESTS_COUNT})
+              <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_REQUESTS_COUNT} 预览</Tag>
+            </span>
+          }
+          extra={
+            result.urlRequests.filter(q => q.duration).length > TOP_REQUESTS_COUNT && (
+              <Button size="small" type="link" onClick={() => navigateTo({ tab: 'performance' })}>
+                查看全部 {result.urlRequests.filter(q => q.duration).length} 条
+              </Button>
+            )
+          }
+          style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+        >
           <Table dataSource={topRequests} columns={requestColumns} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content', y: 400 }} sticky={{ offsetHeader: 0 }} />
         </Card>
       )}

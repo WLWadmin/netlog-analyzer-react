@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Tabs, Alert } from 'antd';
+import { Tabs, Alert, Tag, Button } from 'antd';
 import {
   DashboardOutlined,
   FileTextOutlined,
@@ -8,6 +8,7 @@ import {
   MedicineBoxOutlined,
 } from '@ant-design/icons';
 import type { LogAnalysisResult } from '../../logParser';
+import { TOP_PREVIEW_COUNT } from '../../constants/analysisThresholds';
 import LogInsightBanner from './LogInsightBanner';
 import LogSummaryCards from './LogSummaryCards';
 import LogStatsCharts from './LogStatsCharts';
@@ -46,12 +47,17 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
             }}
           />
           <LogStatsCharts stats={stats} />
-          <LogFlowGroups groups={groups.slice(0, 10)} />
-          {groups.length > 10 && (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '8px 0' }}>
-              还有 {groups.length - 10} 个流程分组，请在"操作流程"标签页查看全部
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_PREVIEW_COUNT} 预览</Tag>
+              {groups.length > TOP_PREVIEW_COUNT && (
+                <Button size="small" type="link" onClick={() => setActiveTab('flows')} style={{ padding: 0 }}>
+                  查看全部 {groups.length} 条
+                </Button>
+              )}
             </div>
-          )}
+            <LogFlowGroups groups={groups.slice(0, TOP_PREVIEW_COUNT)} />
+          </div>
         </div>
       ),
     },

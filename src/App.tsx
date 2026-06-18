@@ -42,6 +42,25 @@ import { LoadingOverlay } from './components/shared/LoadingOverlay';
 
 const { Header, Content } = Layout;
 
+/** 各 fileType 合法的 tab key 集合 */
+const VALID_TABS: Record<string, string[]> = {
+  netlog: ['overview', 'requests', 'diagnosis', 'events', 'ssl-protocol', 'performance'],
+  har: ['requests', 'diagnosis'],
+  log: ['overview', 'flows', 'diagnosis', 'performance', 'raw'],
+};
+
+function parseHash(hash: string): { fileType?: string; tab?: string } {
+  const h = hash.replace('#', '');
+  const parts = h.split('/');
+  if (parts.length === 2) return { fileType: parts[0], tab: parts[1] };
+  if (parts.length === 1) return { tab: parts[0] };
+  return {};
+}
+
+function buildHash(fileType: string, tab: string): string {
+  return `#${fileType}/${tab}`;
+}
+
 /** 内部组件：可以使用 useNavigation 监听 tab 切换 */
 const AppContent: React.FC = () => {
   const [hasData, setHasData] = useState(false);
@@ -57,11 +76,18 @@ const AppContent: React.FC = () => {
   const { mode, toggleTheme } = useTheme();
   const { intent, consumeIntent } = useNavigation();
 
-  // 从 URL hash 恢复 tab 状态
+  // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (hash && ['overview', 'requests', 'diagnosis', 'events', 'ssl-protocol', 'performance'].includes(hash)) {
-      setActiveTab(hash);
+    const { fileType: hashFileType, tab: hashTab } = parseHash(window.location.hash);
+    if (hashFileType && hashFileType in VALID_TABS) {
+      setFileType(hashFileType as 'netlog' | 'har' | 'log');
+    }
+    if (hashTab) {
+      const resolvedFileType = hashFileType && hashFileType in VALID_TABS ? hashFileType : 'netlog';
+      const validTabs = VALID_TABS[resolvedFileType] || [];
+      if (validTabs.includes(hashTab)) {
+        setActiveTab(hashTab);
+      }
     }
   }, []);
 
@@ -69,9 +95,9 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!intent) return;
     setActiveTab(intent.tab);
-    window.location.hash = intent.tab;
+    window.location.hash = buildHash(fileType, intent.tab);
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
-  }, [intent]);
+  }, [intent, fileType]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -133,6 +159,8 @@ const AppContent: React.FC = () => {
     setHarResult(null);
     setLogResult(null);
     setFileType('netlog');
+    setActiveTab('overview');
+    window.location.hash = '';
   };
 
   const handleExport = () => {
@@ -574,7 +602,7 @@ const AppContent: React.FC = () => {
                 activeKey={activeTab}
                 onChange={(key) => {
                   setActiveTab(key);
-                  window.location.hash = key;
+                  window.location.hash = buildHash(fileType, key);
                 }}
                 items={tabItems}
                 type="card"

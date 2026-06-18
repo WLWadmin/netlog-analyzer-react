@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Modal, Descriptions, Row, Col } from 'antd';
+import { Card, Table, Tag, Modal, Descriptions, Row, Col, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ThunderboltOutlined,
@@ -16,6 +16,7 @@ import { AnalysisResult, URLRequest, formatDuration, percentile, truncateUrl } f
 import { SLOW_REQUEST_MS, TOP_PREVIEW_COUNT, TOP_WATERFALL_COUNT } from '../../constants/analysisThresholds';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { StatusTag } from '../../components/shared/StatusTag';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface PerformanceTabProps {
   result: AnalysisResult;
@@ -67,6 +68,7 @@ interface BottleneckRank {
 
 const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const [selectedReq, setSelectedReq] = useState<any>(null);
+  const { navigateTo } = useNavigation();
   const completedReqs = result.urlRequests.filter(q => q.duration);
 
   // Single-pass: collect durations, phase stats, and waterfall range
@@ -564,7 +566,19 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {/* ===== 新增：域名性能 Top ===== */}
       <Card
-        title={<span><GlobalOutlined /> 域名性能 Top {Math.min(hostPerf.length, TOP_PREVIEW_COUNT)}</span>}
+        title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <GlobalOutlined /> 域名性能 Top {Math.min(hostPerf.length, TOP_PREVIEW_COUNT)}
+            <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_PREVIEW_COUNT} 预览</Tag>
+          </span>
+        }
+        extra={
+          hostPerf.length > TOP_PREVIEW_COUNT && (
+            <Button size="small" type="link" onClick={() => navigateTo({ tab: 'events' })}>
+              查看全部 {hostPerf.length} 条
+            </Button>
+          )
+        }
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <Table
@@ -579,7 +593,19 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {/* ===== 新增：接口性能 Top ===== */}
       <Card
-        title={<span><ApiOutlined /> 接口性能 Top {Math.min(apiPerf.length, TOP_PREVIEW_COUNT)}</span>}
+        title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApiOutlined /> 接口性能 Top {Math.min(apiPerf.length, TOP_PREVIEW_COUNT)}
+            <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_PREVIEW_COUNT} 预览</Tag>
+          </span>
+        }
+        extra={
+          apiPerf.length > TOP_PREVIEW_COUNT && (
+            <Button size="small" type="link" onClick={() => navigateTo({ tab: 'events' })}>
+              查看全部 {apiPerf.length} 条
+            </Button>
+          )
+        }
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <Table
@@ -593,7 +619,22 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       </Card>
 
       {/* Waterfall Chart */}
-      <Card title={<span><AreaChartOutlined /> 请求耗时瀑布图 (Top 30)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card
+        title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AreaChartOutlined /> 请求耗时瀑布图 (Top {TOP_WATERFALL_COUNT})
+            <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_WATERFALL_COUNT} 预览</Tag>
+          </span>
+        }
+        extra={
+          completedReqs.length > TOP_WATERFALL_COUNT && (
+            <Button size="small" type="link" onClick={() => navigateTo({ tab: 'events' })}>
+              查看全部 {completedReqs.length} 条
+            </Button>
+          )
+        }
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
         <div style={{ overflowX: 'auto' }}>
           {waterfallReqs.map((req, i) => {
             const left = ((req.startTime - wfMinStart) / wfRange) * 100;

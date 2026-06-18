@@ -79,6 +79,12 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     return ['all', ...Array.from(set).sort()];
   }, [sortedRequests]);
 
+  // 提取所有协议选项（基于解析结果）
+  const protocolOptions = useMemo(() => {
+    const protocols = new Set(sortedRequests.map(r => r.protocol).filter(Boolean));
+    return ['all', ...Array.from(protocols).sort()];
+  }, [sortedRequests]);
+
   // 搜索 + 多维筛选过滤
   const filteredRequests = useMemo(() => {
     let list = sortedRequests;
@@ -115,14 +121,9 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       );
     }
 
-    // 协议筛选
+    // 协议筛选（基于解析结果）
     if (protocolFilter !== 'all') {
-      list = list.filter(r => {
-        if (protocolFilter === 'h2') return r.url.startsWith('https://');
-        if (protocolFilter === 'h1') return r.url.startsWith('http://');
-        if (protocolFilter === 'quic') return r.url.includes('quic');
-        return true;
-      });
+      list = list.filter(r => r.protocol === protocolFilter);
     }
 
     // 慢请求筛选
@@ -503,12 +504,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             onChange={setProtocolFilter}
             size="small"
             style={{ width: 120 }}
-            options={[
-              { value: 'all', label: '全部协议' },
-              { value: 'h2', label: 'HTTPS' },
-              { value: 'h1', label: 'HTTP' },
-              { value: 'quic', label: 'QUIC' },
-            ]}
+            options={protocolOptions.map(p => ({
+              value: p,
+              label: p === 'all' ? '全部协议' : p,
+            }))}
           />
           <Tag
             color={slowOnly ? 'warning' : 'default'}

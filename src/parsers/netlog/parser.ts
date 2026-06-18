@@ -29,6 +29,7 @@ export interface URLRequest {
   errorDesc?: string;       // ERR_FAILED format description
   resolvedIp?: string | null;  // x-response-cinfo / x-tt-cip / x-lsc-source-ip
   remoteIp?: string | null;    // x-response-sinfo
+  protocol?: 'HTTP/1.1' | 'HTTP/2' | 'QUIC';
   events: ParsedEvent[];
   timeline: RequestTimeline;
 }
@@ -251,6 +252,7 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   result.peakConcurrency = calculatePeakConcurrency(parsedEvents);
 
   buildTimelines(result);
+  inferProtocols(result);
   extractFailedDomains(result);
   runDiagnostics(result);
 
@@ -740,6 +742,31 @@ function buildTimelines(r: AnalysisResult) {
     const dEnd = bodyEnd || req.endTime;
     if (dStart !== null && dEnd !== undefined && dEnd !== null && dStart !== undefined && dEnd > dStart) {
       req.timeline.download = { start: dStart, end: dEnd, duration: dEnd - dStart };
+    }
+  }
+}
+
+function inferProtocols(r: AnalysisResult) {
+  for (const req of r.urlRequests) {
+    const hasQuic = req.events.some(e =>
+      e.typeName.includes('QUIC_') || e.source.typeName.includes('QUIC')
+    );
+    const hasHttp2 = req.events.some(e =>
+      e.source.typeName === 'HTTP2_SESSION' || e.typeName.includes('HTTP2_') || e.typeName.includes('HTTP/2_')
+    );
+    const hasSsl = req.events.some(e =>
+      e.typeName.includes('SSL_') || e.typeName.includes('TLS_') ||
+      e.source.typeName === 'SSL_CONNECT_JOB' || e.source.typeName === 'SSL_CONNECT'
+    );
+
+    if (hasQuic) {
+      req.protocol = 'QUIC';
+    } else if (hasHttp2) {
+      req.protocol = 'HTTP/2';
+    } else if (hasSsl || req.url.startsWith('https://')) {
+      req.protocol = 'HTTP/1.1';
+    } else {
+      req.protocol = 'HTTP/1.1';
     }
   }
 }
