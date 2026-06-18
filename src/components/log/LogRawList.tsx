@@ -1,10 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, Input, Select, Tag } from 'antd';
+import { Card, Input, Select, Tag, DatePicker, Button } from 'antd';
+import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import {
   SearchOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  FilterOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { formatDuration } from '../../utils/format';
 import type { LogEntry } from '../../logParser';
@@ -21,6 +25,8 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
   const [domainFilter, setDomainFilter] = useState<string>('all');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
 
@@ -32,7 +38,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   // Reset display count when filters change
   useEffect(() => {
     setDisplayCount(INITIAL_DISPLAY_COUNT);
-  }, [debouncedSearchText, statusFilter, domainFilter]);
+  }, [debouncedSearchText, statusFilter, domainFilter, levelFilter, timeRange]);
 
   const indexedEntries = useMemo(() => {
     return entries.map(entry => ({
@@ -45,6 +51,12 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const domains = useMemo(() => {
     const domainSet = new Set(entries.map(e => e.domain).filter(Boolean));
     return ['all', ...Array.from(domainSet)];
+  }, [entries]);
+
+  // 获取所有日志级别选项
+  const levels = useMemo(() => {
+    const levelSet = new Set(entries.map(e => e.level).filter(Boolean));
+    return ['all', ...Array.from(levelSet)];
   }, [entries]);
 
   // 筛选条目
@@ -60,12 +72,21 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       // 域名筛选
       if (domainFilter !== 'all' && entry.domain !== domainFilter) return false;
 
+      // 日志级别筛选
+      if (levelFilter !== 'all' && entry.level !== levelFilter) return false;
+
+      // 时间范围筛选
+      if (timeRange && timeRange[0] && timeRange[1]) {
+        const entryTime = dayjs(entry.timestampMs);
+        if (entryTime.isBefore(timeRange[0]) || entryTime.isAfter(timeRange[1])) return false;
+      }
+
       // 搜索筛选
       if (lowerSearch && !indexedSearch.includes(lowerSearch)) return false;
 
       return true;
     }).map(({ entry }) => entry);
-  }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter]);
+  }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter, levelFilter, timeRange]);
 
   const visibleEntries = filteredEntries.slice(0, displayCount);
   const hasMore = displayCount < filteredEntries.length;
@@ -115,6 +136,32 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
             label: d === 'all' ? '全部域名' : d,
           }))}
         />
+        <Select
+          value={levelFilter}
+          onChange={setLevelFilter}
+          style={{ width: 130 }}
+          options={levels.map(l => ({
+            value: l,
+            label: l === 'all' ? '全部级别' : l,
+          }))}
+        />
+        <DatePicker.RangePicker
+          showTime={{ format: 'HH:mm' }}
+          format="MM-DD HH:mm"
+          value={timeRange}
+          onChange={setTimeRange}
+          style={{ width: 280 }}
+          placeholder={['开始时间', '结束时间']}
+          suffixIcon={<ClockCircleOutlined />}
+        />
+        {(levelFilter !== 'all' || timeRange) && (
+          <Button
+            icon={<FilterOutlined />}
+            onClick={() => { setLevelFilter('all'); setTimeRange(null); }}
+          >
+            重置筛选
+          </Button>
+        )}
       </div>
 
       {/* 日志列表 */}
