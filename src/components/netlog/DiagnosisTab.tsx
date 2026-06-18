@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from 'react';
 import { Card, Alert, Tag, Collapse, Button } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import { DownOutlined, UpOutlined, UnorderedListOutlined, BulbOutlined, PushpinOutlined, ToolOutlined, MedicineBoxOutlined, WarningOutlined, CloseCircleOutlined, SearchOutlined, SyncOutlined, GlobalOutlined, LockOutlined, LinkOutlined, QuestionCircleOutlined, StopOutlined, AppstoreOutlined, InboxOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../../parsers/netlog/parser';
 import { generateSuggestions, generateNextStepInfo } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
@@ -11,6 +11,25 @@ interface DiagnosisTabProps {
   result: AnalysisResult;
 }
 
+const iconMap: Record<string, React.ReactNode> = {
+  '💡': <BulbOutlined />,
+  '🔧': <ToolOutlined />,
+  '⚠️': <WarningOutlined />,
+  '❌': <CloseCircleOutlined />,
+  '🚨': <WarningOutlined />,
+  '🔍': <SearchOutlined />,
+  '🔄': <SyncOutlined />,
+  '🌐': <GlobalOutlined />,
+  '🔒': <LockOutlined />,
+  '🔗': <LinkOutlined />,
+  '❓': <QuestionCircleOutlined />,
+  '🚫': <StopOutlined />,
+  '⚙️': <AppstoreOutlined />,
+  '📦': <InboxOutlined />,
+  '📡': <GlobalOutlined />,
+  '🦈': <SearchOutlined />,
+};
+
 // Next step info collection panel (uses generateNextStepInfo from diagnosis.ts)
 const NextStepPanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
   const nextSteps = useMemo(() => generateNextStepInfo(result), [result]);
@@ -19,7 +38,7 @@ const NextStepPanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
   if (nextSteps.length === 0) {
     return (
       <Card
-        title="📋 下一步定因所需信息"
+        title={<span><UnorderedListOutlined /> 下一步定因所需信息</span>}
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -31,7 +50,7 @@ const NextStepPanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
 
   return (
     <Card
-      title="📋 下一步定因所需信息"
+      title={<span><UnorderedListOutlined /> 下一步定因所需信息</span>}
       style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
     >
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
@@ -124,7 +143,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
   return (
     <>
       {/* Root Cause Suggestions — MOVED TO TOP */}
-      <Card title="💡 根因建议" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><BulbOutlined /> 根因建议</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         {suggestions.length === 0 ? (
           <Alert
             message={<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>无需特殊处理</span>}
@@ -142,7 +161,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                 key={i}
                 message={
                   <strong style={{ color: 'var(--text-primary)', fontSize: 14 }}>
-                    {s.icon} {s.title}
+                    {iconMap[s.icon] || null} {s.title}
                   </strong>
                 }
                 description={
@@ -154,7 +173,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                     {/* Conclusion */}
                     <div style={{ padding: '10px 14px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 8, border: '1px solid rgba(251, 191, 36, 0.2)', marginBottom: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#fbbf24', marginBottom: 4 }}>
-                        📌 处理结论
+                        <PushpinOutlined /> 处理结论
                       </div>
                       <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                         {s.conclusion}
@@ -164,7 +183,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                     {s.actions && s.actions.length > 0 && (
                       <div style={{ padding: '10px 14px', background: 'var(--bg-base)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                          🔧 自主解决步骤：
+                          <ToolOutlined /> 自主解决步骤：
                         </div>
                         {s.actions.map((action, j) => (
                           <div
@@ -217,7 +236,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
       <Card
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>🩺 定因诊断报告</span>
+            <span><MedicineBoxOutlined /> 定因诊断报告</span>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
               {result.errors.length} 个错误 · {result.warnings.length} 个警告 · {result.info.length} 个信息
             </span>

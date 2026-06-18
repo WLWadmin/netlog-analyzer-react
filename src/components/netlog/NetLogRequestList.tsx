@@ -4,6 +4,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
+import { StatusTag } from '../../components/shared/StatusTag';
+import { CHART_COLORS } from '../../constants/chartColors';
 
 interface NetLogRequestListProps {
   result: AnalysisResult;
@@ -18,14 +20,7 @@ const PHASE_NAMES: Record<string, string> = {
   download: '下载',
 };
 
-const PHASE_COLORS: Record<string, string> = {
-  dns: '#a78bfa',
-  connect: '#22d3ee',
-  ssl: '#34d399',
-  send: '#fbbf24',
-  wait: '#4a9eff',
-  download: '#fb923c',
-};
+const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
 const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -107,15 +102,9 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       dataIndex: 'status',
       key: 'status',
       width: 90,
-      render: (s: string, r: URLRequest) => {
-        if (r.error || s === 'error') {
-          return <Tag color="error" style={{ fontSize: 11, border: 'none', fontWeight: 600 }}>失败</Tag>;
-        }
-        if (r.statusCode && r.statusCode >= 400) {
-          return <Tag color="warning" style={{ fontSize: 11, border: 'none', fontWeight: 600 }}>{r.statusCode}</Tag>;
-        }
-        return <Tag color="success" style={{ fontSize: 11, border: 'none', fontWeight: 600 }}>{r.statusCode || 'OK'}</Tag>;
-      },
+      render: (s: string, r: URLRequest) => (
+        <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' || r.error ? '失败' : r.statusCode || 'OK'}</StatusTag>
+      ),
     },
     {
       title: '耗时',

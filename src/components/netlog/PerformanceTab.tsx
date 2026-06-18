@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Card, Table, Tag, Modal, Descriptions } from 'antd';
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { ThunderboltOutlined, BarChartOutlined, AreaChartOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { StatusTag } from '../../components/shared/StatusTag';
 
 interface PerformanceTabProps {
   result: AnalysisResult;
@@ -84,7 +85,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       ellipsis: true,
       render: (url: string, record: any) => (
         <span
-          style={{ cursor: 'pointer', color: '#5ba3f5', fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          style={{ cursor: 'pointer', color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontSize: 12 }}
           onClick={() => setSelectedReq(record)}
           title={`${url}\n点击查看各阶段耗时详情`}
         >
@@ -145,17 +146,15 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       key: 'status',
       width: 80,
       align: 'center',
-      render: (s: string, r: any) => {
-        if (s === 'error' || r.error) return <Tag color="error" style={{ fontSize: 11, border: 'none' }}>失败</Tag>;
-        if (r.statusCode >= 400) return <Tag color="warning" style={{ fontSize: 11, border: 'none' }}>{r.statusCode}</Tag>;
-        return <Tag color="success" style={{ fontSize: 11, border: 'none' }}>{r.statusCode || 'OK'}</Tag>;
-      },
+      render: (s: string, r: any) => (
+        <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' || r.error ? '失败' : r.statusCode || 'OK'}</StatusTag>
+      ),
     },
   ];
 
   return (
     <>
-      <Card title="📈 请求耗时统计" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><BarChartOutlined /> 请求耗时统计</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 16, marginBottom: 20 }}>
           {[
             { label: '最小值', value: formatDuration(stats.min) },
@@ -204,7 +203,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       </Card>
 
       {/* Waterfall Chart */}
-      <Card title="🌊 请求耗时瀑布图 (Top 30)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><AreaChartOutlined /> 请求耗时瀑布图 (Top 30)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         <div style={{ overflowX: 'auto' }}>
           {waterfallReqs.map((req, i) => {
             const left = ((req.startTime - wfMinStart) / wfRange) * 100;
@@ -291,7 +290,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       </Card>
 
       {result.slowRequests.length > 0 && (
-        <Card title="🐌 慢请求详情 (>3s)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><ClockCircleOutlined /> 慢请求详情 (&gt;3s)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <Table dataSource={result.slowRequests} columns={slowColumns as any} rowKey="id" pagination={false} size="small" scroll={{ x: 800, y: 400 }} />
         </Card>
       )}

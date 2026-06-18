@@ -304,7 +304,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
 
       {/* HTTP/2 Analysis */}
       {hasHttp2 && (
-        <Card title="📡 HTTP/2 分析" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><ApiOutlined /> HTTP/2 分析</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             {[
               { label: '会话数', value: h2Sessions.size, color: 'var(--text-primary)' },
@@ -334,7 +334,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
 
       {/* QUIC Analysis */}
       {hasQuic && (
-        <Card title="📡 QUIC 分析" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><ApiOutlined /> QUIC 分析</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             {[
               { label: '会话数', value: quicSessions.size, color: 'var(--text-primary)' },

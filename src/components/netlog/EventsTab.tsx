@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message } from 'antd';
-import { SearchOutlined, FilterOutlined, BugOutlined } from '@ant-design/icons';
+import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { copyText } from '../../utils/copyText';
 
@@ -231,7 +231,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
 
   return (
     <Card
-      title={`📋 全部事件 (${events.length.toLocaleString()})`}
+      title={<span><UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})</span>}
       style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
     >
       {/* Source ID Filter - Prominent exact match */}
@@ -317,6 +317,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
           <Tag
             key={type}
             color={search === type ? 'blue' : 'default'}
+            className="event-filter-tag"
             style={{ cursor: 'pointer', fontSize: 12 }}
             onClick={() => {
               if (sourceIdFilter) return;

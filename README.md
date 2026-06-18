@@ -30,10 +30,12 @@
 - **一键复制能力**：请求列表的 Domain / Remote Address 列、详情页的关键诊断字段均支持一键复制。
 - **详情面板文本截断与 Hover 提示**：超长 URL、header value、query string、params 等自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
+- **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。
 - **使用说明引导**：首页提供 HAR、NetLog 和 Go 日志文件获取教程链接，帮助新用户快速上手。
 - **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown 格式的分析报告。
+- **错误边界与加载遮罩**：全局 ErrorBoundary 捕获解析异常，LoadingOverlay 展示解析进度。
 
 ## 快速使用
 
@@ -81,16 +83,17 @@
 
 ### 上传模块：`UploadZone`
 
-对应文件：`src/components/UploadZone.tsx`
+对应文件：`src/components/netlog/UploadZone.tsx`
 
-负责 NetLog / HAR 文件的入口交互，包括：
+负责 NetLog / HAR / Go Log 文件的入口交互，包括：
 
 - 支持拖拽上传和点击上传。
-- 支持 `.json`（NetLog）与 `.har` 两种格式（`accept=".json,.har"`），并自动识别类型。
+- 支持 `.json`（NetLog）、`.har`、`.log` 三种格式，并自动识别类型。
 - 使用 `FileReader` 在浏览器本地读取文件内容。
 - 展示读取进度、拖拽高亮和解析中的加载状态。
+- **HAR 文件损坏自动修复**：`.har` 文件 JSON 解析失败时，自动调用 `harRepair.ts` 尝试修复，修复成功后弹窗展示恢复率，用户确认后继续解析。
 - 上传非法格式时通过醒目的 `notification` 弹窗提示。
-- 解析成功后将原始数据传给主应用，由主应用判定走 NetLog 或 HAR 解析逻辑。
+- 解析成功后将原始数据传给主应用，由主应用判定走 NetLog、HAR 或 Go Log 解析逻辑。
 
 ### 使用说明模块
 
@@ -102,7 +105,7 @@
 
 ### 摘要卡片：`SummaryCards`
 
-对应文件：`src/components/SummaryCards.tsx`
+对应文件：`src/components/netlog/SummaryCards.tsx`
 
 负责在解析完成后展示核心指标概览，包括：
 
@@ -114,7 +117,7 @@
 
 ### 总览页：`OverviewTab`
 
-对应文件：`src/components/OverviewTab.tsx`
+对应文件：`src/components/netlog/OverviewTab.tsx`
 
 总览页用于把分析结果按排查视角汇总展示，包含：
 
@@ -127,7 +130,7 @@
 
 ### 定因诊断页：`DiagnosisTab`
 
-对应文件：`src/components/DiagnosisTab.tsx`
+对应文件：`src/components/netlog/DiagnosisTab.tsx`
 
 定因诊断页基于解析结果生成更接近排查动作的结论，包括：
 
@@ -140,7 +143,7 @@
 
 ### 事件列表页：`EventsTab`
 
-对应文件：`src/components/EventsTab.tsx`
+对应文件：`src/components/netlog/EventsTab.tsx`
 
 事件列表页用于查看解析后的 NetLog 原始事件，适合做细节核对：
 
@@ -154,7 +157,7 @@
 
 ### SSL/TLS 分析页：`SSLTab`
 
-对应文件：`src/components/SSLTab.tsx`
+对应文件：`src/components/netlog/SSLTab.tsx`
 
 SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
@@ -167,7 +170,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 ### 协议分析页：`ProtocolTab`
 
-对应文件：`src/components/ProtocolTab.tsx`
+对应文件：`src/components/netlog/ProtocolTab.tsx`
 
 协议分析页聚焦 HTTP/2 与 QUIC 相关行为，包括：
 
@@ -181,7 +184,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 ### 性能分析页：`PerformanceTab`
 
-对应文件：`src/components/PerformanceTab.tsx`
+对应文件：`src/components/netlog/PerformanceTab.tsx`
 
 性能分析页聚焦请求耗时和阶段拆解，包括：
 
@@ -316,19 +319,22 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 整体数据流如下：
 
 ```text
-NetLog / HAR 文件
+NetLog / HAR / Go Log 文件
   → UploadZone 本地读取
   → App.handleFileLoaded（自动识别类型）
-  ├─ NetLog：parser.parseLog → AnalysisResult
+  ├─ NetLog：parsers/netlog/parser.parseLog → AnalysisResult
   │    → SummaryCards / OverviewTab / DiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
   │    → diagnosis.exportReport 导出报告
-  └─ HAR：harParser.parseHar → HarAnalysisResult
-       → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
+  ├─ HAR：harParser.parseHar → HarAnalysisResult
+  │    → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
+  │    → 损坏时：harRepair.parseHarWithRepair → 自动修复 → 用户确认 → 解析
+  └─ Go Log：logParser.parseLogFile → LogAnalysisResult
+       → LogResultPage（LogInsightBanner / LogSummaryCards / LogStatsCharts / LogFlowGroups / LogRawList）
 ```
 
-### 解析引擎：`src/netlog/parser.ts`
+### 解析引擎：`src/parsers/netlog/parser.ts`
 
-`src/netlog/parser.ts` 是 NetLog 的核心解析模块（原 `src/parser.ts` 已移至 `src/netlog/` 目录），主要能力包括：
+`src/parsers/netlog/parser.ts` 是 NetLog 的核心解析模块（原 `src/netlog/parser.ts` 已重构至 `src/parsers/netlog/` 目录），主要能力包括：
 
 - 兼容不同 NetLog JSON 结构，识别 `events`、`logEvents` 或数组形式的事件数据。
 - 将原始事件转换为统一的 `ParsedEvent`。
@@ -358,9 +364,9 @@ NetLog / HAR 文件
 - `decodeResponseBody()`：解码响应体（含 base64）并尝试 JSON 格式化。
 - 提供分类标签 / 状态标签的淡色配色（`categoryStyle` / `statusStyle`）与格式化工具（`formatBytes` / `formatHarTime`）。
 
-### 诊断与报告：`src/netlog/diagnosis.ts`
+### 诊断与报告：`src/parsers/netlog/diagnosis.ts`
 
-`src/netlog/diagnosis.ts` 负责把结构化分析结果转换为可读的排查建议和报告（原 `src/diagnosis.ts` 已移至 `src/netlog/` 目录），主要包含：
+`src/parsers/netlog/diagnosis.ts` 负责把结构化分析结果转换为可读的排查建议和报告（原 `src/netlog/diagnosis.ts` 已随目录重构移至 `src/parsers/netlog/`），主要包含：
 
 - `generateSuggestions()`：根据错误码、失败请求、代理、DNS、证书、协议等信息生成建议。
 - `generateNextStepInfo()`：生成下一步排查动作，例如检查 DNS、代理 / VPN、防火墙、证书、协议配置等。
@@ -369,9 +375,9 @@ NetLog / HAR 文件
 
 其中内置了常见 Chromium `net_error` 错误码的解释和处理建议，并结合错误码区间做兜底判断。
 
-### 常量与错误码：`src/netlog/constants.ts`
+### 常量与错误码：`src/parsers/netlog/constants.ts`
 
-`src/netlog/constants.ts` 主要维护 NetLog 分析所需的静态映射（原 `src/constants.ts` 已移至 `src/netlog/` 目录）：
+`src/parsers/netlog/constants.ts` 主要维护 NetLog 分析所需的静态映射（原 `src/netlog/constants.ts` 已随目录重构移至 `src/parsers/netlog/`）：
 
 - `EVENT_TYPES`：事件类型编号到事件名的映射。
 - `SOURCE_TYPES`：Source 类型编号到 Source 名称的映射。
@@ -412,7 +418,8 @@ src/
 ├── logConstants.ts            # Go 日志解析常量与工具函数
 ├── react-app-env.d.ts         # React 类型声明
 ├── utils/
-│   └── copyText.ts            # 通用复制工具（clipboard + 降级方案）
+│   ├── copyText.ts            # 通用复制工具（clipboard + 降级方案）
+│   └── harRepair.ts           # HAR 文件损坏自动修复引擎
 ├── components/
 │   ├── har/                   # HAR 结果页面组件
 │   │   ├── HarResultPage.tsx
@@ -429,24 +436,38 @@ src/
 │   │   ├── LogStatsCharts.tsx
 │   │   ├── LogFlowGroups.tsx
 │   │   └── LogRawList.tsx
+│   ├── netlog/                # NetLog 结果页面组件（原 src/netlog/components/ 已扁平化至此）
+│   │   ├── UploadZone.tsx
+│   │   ├── SummaryCards.tsx
+│   │   ├── OverviewTab.tsx
+│   │   ├── DiagnosisTab.tsx
+│   │   ├── EventsTab.tsx
+│   │   ├── SSLTab.tsx
+│   │   ├── ProtocolTab.tsx
+│   │   ├── PerformanceTab.tsx
+│   │   └── NetLogRequestList.tsx
 │   └── shared/                # 共享组件
 │       ├── HealthAssessmentCard.tsx
 │       ├── IssueDisplay.tsx
-│       └── SummaryCard.tsx
-└── netlog/                    # NetLog 解析与展示模块
-    ├── parser.ts              # NetLog JSON 解析引擎
-    ├── diagnosis.ts           # 诊断建议与报告生成
-    ├── constants.ts           # 事件类型/错误码常量映射
-    └── components/            # NetLog 结果页面组件
-        ├── UploadZone.tsx
-        ├── SummaryCards.tsx
-        ├── OverviewTab.tsx
-        ├── DiagnosisTab.tsx
-        ├── EventsTab.tsx
-        ├── SSLTab.tsx
-        ├── ProtocolTab.tsx
-        ├── PerformanceTab.tsx
-        └── NetLogRequestList.tsx
+│       ├── SummaryCard.tsx
+│       ├── StatusTag.tsx      # 语义化状态标签（success/warning/error/info/default）
+│       ├── AnimatedNumber.tsx # 数值递增动效组件
+│       ├── ErrorBoundary.tsx  # 全局错误边界
+│       └── LoadingOverlay.tsx # 加载遮罩
+├── constants/                 # 全局常量
+│   ├── tagConfig.ts           # Tag 语义化配置
+│   ├── chartColors.ts         # 图表配色常量
+│   └── iconMapping.ts         # Emoji → Icon 映射
+├── hooks/                     # 自定义 Hooks
+│   ├── useAnimatedNumber.ts   # 数值动效 Hook
+│   ├── useKeyboardNavigation.ts # 键盘导航 Hook
+│   └── useMediaQuery.ts       # 响应式媒体查询 Hook
+└── parsers/                   # 解析引擎（原 src/netlog/ 已重命名至此）
+    └── netlog/
+        ├── index.ts           # 统一导出（parser + diagnosis + constants）
+        ├── parser.ts          # NetLog JSON 解析引擎
+        ├── diagnosis.ts       # 诊断建议与报告生成
+        └── constants.ts       # 事件类型/错误码常量映射
 ```
 
 ## 数据结构概览

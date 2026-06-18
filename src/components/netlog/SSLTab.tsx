@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { Card, Table, Tag, Alert } from 'antd';
-import { SafetyCertificateOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, BarChartOutlined, LockOutlined, GlobalOutlined, WarningOutlined, BulbOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AnalysisResult } from '../../parsers/netlog/parser';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
+import { StatusTag } from '../../components/shared/StatusTag';
 
 // 版本颜色
 const VERSION_COLORS: Record<string, string> = {
@@ -246,7 +247,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
     }},
     { title: '密码套件', dataIndex: 'cipher', key: 'cipher', width: 280, render: (c: string) => <code style={{ fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{c}</code> },
     { title: '握手次数', dataIndex: 'count', key: 'count', width: 80 },
-    { title: '状态', dataIndex: 'hasError', key: 'status', width: 80, render: (e: boolean) => e ? <Tag color="red">失败</Tag> : <Tag color="green">成功</Tag> },
+    { title: '状态', dataIndex: 'hasError', key: 'status', width: 80, render: (e: boolean) => <StatusTag status={e ? 'error' : 'success'}>{e ? '失败' : '成功'}</StatusTag> },
   ];
 
   const hostData = Object.entries(sslHosts).map(([host, info]) => {
@@ -270,7 +271,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
       <HealthAssessmentCard title="SSL/TLS 健康评估" assessment={health} />
 
       {/* TLS Version Distribution */}
-      <Card title="📊 TLS 版本分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><BarChartOutlined /> TLS 版本分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         {(() => {
           const versionChartData = Object.entries(versions).sort((a, b) => b[1] - a[1]).map(([ver, count]) => ({
             name: ver,
@@ -314,7 +315,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
 
       {/* Cipher Suite Distribution */}
       {Object.keys(ciphers).length > 0 && (
-        <Card title="🔐 密码套件分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><LockOutlined /> 密码套件分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           {Object.entries(ciphers).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cipher, count]) => {
             const isWeak = cipher.includes('RC4') || cipher.includes('DES') || cipher.includes('3DES') || cipher.includes('NULL');
             return (
@@ -331,13 +332,13 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
       )}
 
       {/* SSL Connection Details by Host */}
-      <Card title="🌐 SSL 连接详情（按主机）" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><GlobalOutlined /> SSL 连接详情（按主机）</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         <Table dataSource={hostData} columns={hostColumns} rowKey="host" pagination={false} size="small" scroll={{ y: 400 }} />
       </Card>
 
       {/* Certificate Issues */}
       {result.certIssues.length > 0 && (
-        <Card title="⚠️ 证书问题详情" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><WarningOutlined /> 证书问题详情</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           {result.certIssues.map((ci, i) => {
             const evt = ci.event;
             const issuer = evt.params.issuer || evt.params.cert_issuer || '-';
@@ -362,7 +363,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                     {issuer !== '-' && <div>证书颁发者: <code>{issuer}</code></div>}
                     {errorHint && (
                       <div style={{ marginTop: 4, padding: '6px 10px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 6, border: '1px solid rgba(251, 191, 36, 0.15)', fontSize: 12 }}>
-                        💡 {errorHint}
+                        <BulbOutlined /> {errorHint}
                       </div>
                     )}
                   </div>

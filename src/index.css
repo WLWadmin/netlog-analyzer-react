@@ -594,6 +594,15 @@ code, pre, .mono {
   background-color: var(--bg-surface);
 }
 
+/* 事件筛选标签交互反馈 */
+.event-filter-tag {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.event-filter-tag:hover {
+  transform: scale(1.02);
+}
+
 /* 表格行 hover 增强 */
 .ant-table-tbody > tr:hover > td {
   background: var(--bg-surface) !important;
@@ -748,18 +757,6 @@ code, pre, .mono {
 }
 .ant-progress-inner {
   border-radius: 6px !important;
-}
-
-/* ============================================================
-   主题切换过渡
-   ============================================================ */
-@media (prefers-reduced-motion: no-preference) {
-  body, .ant-card, .ant-table, .ant-tabs, .ant-modal-content,
-  .ant-tag, .ant-alert, .ant-input, .ant-select-selector,
-  .ant-btn, .ant-collapse, .ant-descriptions,
-  .ant-drawer-content, .ant-pagination {
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-  }
 }
 
 /* ============================================================

@@ -342,7 +342,7 @@ const App: React.FC = () => {
 
                 {/* NetLog 文件 */}
                 <a
-                  href="https://bytedance.larkoffice.com/docx/GoLogGuide"
+                  href="https://bytedance.larkoffice.com/docx/NfwtdMpCLoh04yx0xnec1PXCnnf"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{

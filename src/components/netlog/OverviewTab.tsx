@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List, Tooltip as AntTooltip } from 'antd';
+import { GlobalOutlined, CloseCircleOutlined, ClockCircleOutlined, ApiOutlined, WarningOutlined, BugOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
 import { getChartColor } from '../../constants/chartColors';
+import { StatusTag } from '../../components/shared/StatusTag';
 
 interface OverviewTabProps {
   result: AnalysisResult;
@@ -35,11 +37,11 @@ const ErrorDetailModal: React.FC<{
   const grouped = useMemo(() => groupErrors(errors), [errors]);
   return (
     <Modal
-      title={<span style={{ color: 'var(--text-primary)' }}>🐛 {domain} — 错误详情</span>}
+      title={<span style={{ color: 'var(--text-primary)' }}><BugOutlined /> {domain} — 错误详情</span>}
       open={open}
       onCancel={onClose}
       footer={[
-        <Button key="close" onClick={onClose} type="primary" style={{ background: '#4a9eff', borderColor: '#4a9eff' }}>
+        <Button key="close" onClick={onClose} type="primary">
           关闭
         </Button>,
       ]}
@@ -134,7 +136,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
       </AntTooltip>
     )},
     { title: '方法', dataIndex: 'method', key: 'method', width: 80, render: (m: string) => <Tag color="blue" style={{ fontSize: 11, border: 'none' }}>{m}</Tag> },
-    { title: '状态', dataIndex: 'status', key: 'status', width: 90, align: 'center', render: (s: string, r: any) => getStatusTag(s, r.statusCode) },
+    { title: '状态', dataIndex: 'status', key: 'status', width: 90, align: 'center', render: (s: string, r: any) => <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' ? '失败' : r.statusCode || s || '-'}</StatusTag> },
     { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (d: number) => (
       <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > 3000 ? '#f87171' : d > 1000 ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
     )},
@@ -161,16 +163,16 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
   return (
     <>
       {/* Proxy/VPN Detection */}
-      <Card title="🌐 代理 / VPN 环境检测" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+      <Card title={<span><GlobalOutlined /> 代理 / VPN 环境检测</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         {pi.isVPN || pi.hasProxy || result.proxyEvents.length > 0 ? (
           <>
             <div style={{ marginBottom: 12 }}>
               {pi.isVPN ? (
-                <Tag color="error" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>🚨 检测到 VPN</Tag>
+                <Tag color="error" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>检测到 VPN</Tag>
               ) : pi.hasProxy ? (
-                <Tag color="warning" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>⚠️ 使用了代理</Tag>
+                <Tag color="warning" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>使用了代理</Tag>
               ) : (
-                <Tag color="blue" style={{ fontSize: 12, border: 'none' }}>ℹ️ 代理事件</Tag>
+                <Tag color="blue" style={{ fontSize: 12, border: 'none' }}>代理事件</Tag>
               )}
               <span style={{ color: 'var(--text-secondary)', marginLeft: 12 }}>代理模式: <strong style={{ color: 'var(--text-primary)' }}>{pi.proxyType || '未知'}</strong></span>
             </div>
@@ -214,7 +216,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
       {/* Failed Domains */}
       {result.failedDomains.length > 0 && (
-        <Card title="❌ 网络报错域名与 IP 列表" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><CloseCircleOutlined /> 网络报错域名与 IP 列表</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <Table
             dataSource={result.failedDomains}
             columns={failedDomainColumns}
@@ -229,14 +231,14 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
       {/* Top Slow Requests */}
       {topRequests.length > 0 && (
-        <Card title="🐌 耗时最长的请求 (Top 20)" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><ClockCircleOutlined /> 耗时最长的请求 (Top 20)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <Table dataSource={topRequests} columns={requestColumns} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content', y: 400 }} sticky={{ offsetHeader: 0 }} />
         </Card>
       )}
 
       {/* Protocol Distribution */}
       {protocolData.length > 0 && (
-        <Card title="📡 协议分布" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><ApiOutlined /> 协议分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <ResponsiveContainer width="100%" height={Math.max(200, protocolData.length * 40)}>
             <BarChart data={protocolData} layout="vertical" margin={{ left: 20, right: 40 }}>
               <XAxis type="number" hide />
@@ -259,7 +261,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
       {/* DNS Records */}
       {Object.keys(result.hosts).length > 0 && (
-        <Card title="🌐 DNS 解析记录" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><GlobalOutlined /> DNS 解析记录</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <Descriptions column={2} size="small">
             {Object.entries(result.hosts).map(([host, ip]) => (
               <Descriptions.Item key={host} label={host}>
@@ -272,22 +274,12 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
       {/* Issue Summary — 放在最底部 */}
       {(result.errors.length > 0 || result.warnings.length > 0) && (
-        <Card title="⚠️ 问题摘要" style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+        <Card title={<span><WarningOutlined /> 问题摘要</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <IssueSummaryList errors={result.errors} warnings={result.warnings} />
         </Card>
       )}
     </>
   );
 };
-
-function getStatusTag(status: string, code?: number) {
-  if (status === 'error') return <Tag color="red">失败</Tag>;
-  if (!code) return <Tag color="blue">{status || '-'}</Tag>;
-  if (code >= 200 && code < 300) return <Tag color="green">{code}</Tag>;
-  if (code >= 300 && code < 400) return <Tag color="blue">{code}</Tag>;
-  if (code >= 400 && code < 500) return <Tag color="orange">{code}</Tag>;
-  if (code >= 500) return <Tag color="red">{code}</Tag>;
-  return <Tag color="blue">{code}</Tag>;
-}
 
 export default OverviewTab;
