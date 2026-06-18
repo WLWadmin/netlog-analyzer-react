@@ -118,6 +118,9 @@ const AppContent: React.FC = () => {
           const logAnalysis = parseLogFile(data);
           setLogResult(logAnalysis);
           setFileType('log');
+          const defaultTab = VALID_TABS['log'][0];
+          setActiveTab(defaultTab);
+          window.location.hash = buildHash('log', defaultTab);
           setHasData(true);
           setLoading(false);
           message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
@@ -132,6 +135,9 @@ const AppContent: React.FC = () => {
           }
           setHarResult(harAnalysis);
           setFileType('har');
+          const defaultTab = VALID_TABS['har'][0];
+          setActiveTab(defaultTab);
+          window.location.hash = buildHash('har', defaultTab);
           setHasData(true);
           setLoading(false);
           message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
@@ -142,6 +148,9 @@ const AppContent: React.FC = () => {
         setEvents(parsedEvents);
         setResult(analysisResult);
         setFileType('netlog');
+        const defaultTab = VALID_TABS['netlog'][0];
+        setActiveTab(defaultTab);
+        window.location.hash = buildHash('netlog', defaultTab);
         setHasData(true);
         setLoading(false);
         message.success(`成功解析 ${parsedEvents.length} 个事件`);
