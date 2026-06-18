@@ -522,8 +522,9 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
           dataSource={filteredRequests}
           rowKey="id"
           size="small"
-          scroll={{ x: 900 }}
-          pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100', '200'] }}
+          virtual
+          scroll={{ x: 900, y: 600 }}
+          pagination={false}
           rowClassName={(_record: URLRequest, index: number) =>
             selectedIndex === index ? 'har-request-row-selected' : ''
           }

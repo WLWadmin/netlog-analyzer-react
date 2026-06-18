@@ -469,16 +469,10 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
             dataSource={filtered}
             columns={columns}
             rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
-            pagination={{
-              current: pagination.current,
-              pageSize: pagination.pageSize,
-              showSizeChanger: true,
-              pageSizeOptions: ['50', '100', '200', '500', '1000'],
-              showTotal: (total) => `共 ${total.toLocaleString()} 条`,
-              onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-            }}
+            pagination={false}
+            virtual
+            scroll={{ y: 600 }}
             size="small"
-            scroll={{ y: 500 }}
           />
         ) : (
           <div style={{ maxHeight: 600, overflow: 'auto', padding: '8px 0' }}>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Layout, Tabs, Button, message, FloatButton, Alert } from 'antd';
+import { Layout, Tabs, Button, message, FloatButton, Alert, Dropdown } from 'antd';
 import {
   ReloadOutlined,
   DownloadOutlined,
@@ -19,6 +19,7 @@ import {
   FileTextOutlined,
   CloudUploadOutlined,
   CodeOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import { parseLog, ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
@@ -56,10 +57,19 @@ const AppContent: React.FC = () => {
   const { mode, toggleTheme } = useTheme();
   const { intent, consumeIntent } = useNavigation();
 
+  // 从 URL hash 恢复 tab 状态
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash && ['overview', 'requests', 'diagnosis', 'events', 'ssl-protocol', 'performance'].includes(hash)) {
+      setActiveTab(hash);
+    }
+  }, []);
+
   // 监听导航意图，自动切换 tab
   useEffect(() => {
     if (!intent) return;
     setActiveTab(intent.tab);
+    window.location.hash = intent.tab;
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
   }, [intent]);
 
@@ -136,6 +146,62 @@ const AppContent: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
     message.success('报告已导出');
+  };
+
+  const handleExportJSON = () => {
+    if (!result) return;
+    const data = {
+      exportTime: new Date().toISOString(),
+      overview: {
+        totalEvents: result.totalEvents,
+        uniqueSources: result.uniqueSources,
+        peakConcurrency: result.peakConcurrency,
+        urlRequestCount: result.urlRequests.length,
+        errorCount: result.errors.length,
+        warningCount: result.warnings.length,
+        slowRequestCount: result.slowRequests.length,
+      },
+      proxyInfo: result.proxyInfo,
+      requests: result.urlRequests.map(r => ({
+        url: r.url,
+        method: r.method,
+        status: r.status,
+        statusCode: r.statusCode,
+        duration: r.duration,
+        error: r.error,
+        timeline: r.timeline,
+      })),
+      errors: result.errors.map(e => ({ severity: e.severity, category: e.category, message: e.message, detail: e.detail, time: e.time })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `netlog-analysis-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success('JSON 数据已导出');
+  };
+
+  const handleExportCSV = () => {
+    if (!result) return;
+    const headers = ['URL', 'Method', 'Status', 'StatusCode', 'Duration(ms)', 'Error', 'DNS(ms)', 'Connect(ms)', 'SSL(ms)', 'Send(ms)', 'Wait(ms)', 'Download(ms)'];
+    const rows = result.urlRequests.map(r => [
+      r.url, r.method, r.status, r.statusCode || '', r.duration || '',
+      r.error || '',
+      r.timeline.dns?.duration || '', r.timeline.connect?.duration || '',
+      r.timeline.ssl?.duration || '', r.timeline.send?.duration || '',
+      r.timeline.wait?.duration || '', r.timeline.download?.duration || '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `netlog-requests-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success('CSV 请求列表已导出');
   };
 
   const tabItems = [
@@ -239,19 +305,28 @@ const AppContent: React.FC = () => {
                 重新上传
               </Button>
               {fileType === 'netlog' && (
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  onClick={handleExport}
-                  style={{
-                    background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-                    border: 'none',
-                    fontWeight: 600,
-                    boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
+                <Dropdown
+                  menu={{
+                    items: [
+                      { key: 'md', label: 'Markdown 报告', icon: <FileTextOutlined />, onClick: handleExport },
+                      { key: 'json', label: 'JSON 数据', icon: <CodeOutlined />, onClick: handleExportJSON },
+                      { key: 'csv', label: 'CSV 请求列表', icon: <UnorderedListOutlined />, onClick: handleExportCSV },
+                    ],
                   }}
                 >
-                  导出报告
-                </Button>
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    style={{
+                      background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                      border: 'none',
+                      fontWeight: 600,
+                      boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
+                    }}
+                  >
+                    导出报告 <DownOutlined />
+                  </Button>
+                </Dropdown>
               )}
             </>
           )}
@@ -497,7 +572,10 @@ const AppContent: React.FC = () => {
             >
               <Tabs
                 activeKey={activeTab}
-                onChange={setActiveTab}
+                onChange={(key) => {
+                  setActiveTab(key);
+                  window.location.hash = key;
+                }}
                 items={tabItems}
                 type="card"
                 style={{
