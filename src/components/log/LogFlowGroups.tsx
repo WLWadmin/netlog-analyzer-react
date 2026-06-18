@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Tag, Descriptions } from 'antd';
+import React, { useState, useMemo } from 'react';
+import { Tag, Descriptions, Select } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -20,14 +20,38 @@ interface LogFlowGroupsProps {
 const INITIAL_DISPLAY_COUNT = 300;
 const LOAD_MORE_COUNT = 300;
 
+type SortMode = 'default' | 'errorFirst' | 'slowest' | 'mostRequests';
+
 const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showDetailEntry, setShowDetailEntry] = useState<string | null>(null);
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
+  const [sortMode, setSortMode] = useState<SortMode>('default');
 
-  const displayedGroups = filterErrorOnly ? groups.filter(g => g.hasError) : groups;
-  const visibleGroups = displayedGroups.slice(0, displayCount);
-  const hasMore = displayCount < displayedGroups.length;
+  const sortedGroups = useMemo(() => {
+    const base = filterErrorOnly ? groups.filter(g => g.hasError) : [...groups];
+    switch (sortMode) {
+      case 'errorFirst':
+        return base.sort((a, b) => {
+          if (a.hasError && !b.hasError) return -1;
+          if (!a.hasError && b.hasError) return 1;
+          return b.errorCount - a.errorCount;
+        });
+      case 'slowest':
+        return base.sort((a, b) => {
+          const aTotal = a.entries.reduce((sum, e) => sum + e.duration, 0);
+          const bTotal = b.entries.reduce((sum, e) => sum + e.duration, 0);
+          return bTotal - aTotal;
+        });
+      case 'mostRequests':
+        return base.sort((a, b) => b.entries.length - a.entries.length);
+      default:
+        return base;
+    }
+  }, [groups, filterErrorOnly, sortMode]);
+
+  const visibleGroups = sortedGroups.slice(0, displayCount);
+  const hasMore = displayCount < sortedGroups.length;
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => {
@@ -121,6 +145,20 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
 
   return (
     <div className="log-flow-groups">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Select
+          value={sortMode}
+          onChange={setSortMode}
+          style={{ width: 160 }}
+          size="small"
+          options={[
+            { value: 'default', label: '默认顺序' },
+            { value: 'errorFirst', label: '错误优先' },
+            { value: 'slowest', label: '耗时最长' },
+            { value: 'mostRequests', label: '请求最多' },
+          ]}
+        />
+      </div>
       {visibleGroups.map((group) => {
         const isExpanded = expandedGroups.has(group.id);
 
@@ -184,7 +222,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
               fontSize: 13,
             }}
           >
-            加载更多 ({displayedGroups.length - displayCount} 条剩余)
+            加载更多 ({sortedGroups.length - displayCount} 条剩余)
           </button>
         </div>
       )}

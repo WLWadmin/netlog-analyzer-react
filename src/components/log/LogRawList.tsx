@@ -37,7 +37,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const indexedEntries = useMemo(() => {
     return entries.map(entry => ({
       entry,
-      searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain}`.toLowerCase(),
+      searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain} ${entry.path} ${entry.worker} ${entry.level} ${entry.rawLine} ${JSON.stringify(entry.headers)} ${entry.bodyRaw ?? ''}`.toLowerCase(),
     }));
   }, [entries]);
 
@@ -89,7 +89,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       {/* 筛选栏 */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <Input
-          placeholder="搜索 URL、方法、状态码..."
+          placeholder="搜索 URL、方法、状态码、域名、路径、Worker、Headers、Body..."
           prefix={<SearchOutlined />}
           value={searchText}
           onChange={e => setSearchText(e.target.value)}
