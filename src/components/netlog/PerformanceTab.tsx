@@ -166,7 +166,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
           ].map(s => (
             <div key={s.label} style={{ textAlign: 'center', padding: 14, background: 'var(--bg-surface)', borderRadius: 12 }}>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>{s.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: s.label === '最大值' ? '#f87171' : s.label === '平均值' ? '#fb923c' : '#4a9eff', fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{s.value}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: s.label === '最大值' ? CHART_COLORS.semantic.error : s.label === '平均值' ? CHART_COLORS.semantic.warning : CHART_COLORS.semantic.info, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{s.value}</div>
             </div>
           ))}
         </div>
@@ -244,9 +244,9 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                       left: `${left}%`,
                       width: `${Math.max(0.5, width)}%`,
                       height: '100%',
-                      background: 'rgba(91, 163, 245, 0.15)',
+                      background: 'rgba(74, 158, 255, 0.15)',
                       borderRadius: 4,
-                      border: '1px solid rgba(91, 163, 245, 0.3)',
+                      border: '1px solid rgba(74, 158, 255, 0.3)',
                     }}
                   />
                   {/* Phase breakdown */}
@@ -317,7 +317,9 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                 <span style={{ color: '#f87171', fontWeight: 600 }}>{formatDuration(selectedReq.duration || 0)}</span>
               </Descriptions.Item>
               <Descriptions.Item label="状态">
-                {selectedReq.status === 'error' ? <Tag color="red">失败</Tag> : <Tag color="green">{selectedReq.statusCode || 'OK'}</Tag>}
+                <StatusTag status={selectedReq.status} statusCode={selectedReq.statusCode}>
+                  {selectedReq.status === 'error' ? '失败' : (selectedReq.statusCode || 'OK')}
+                </StatusTag>
               </Descriptions.Item>
             </Descriptions>
 

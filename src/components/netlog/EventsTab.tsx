@@ -231,7 +231,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
 
   return (
     <Card
-      title={<span><UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})</span>}
+      title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})</span>}
       style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
     >
       {/* Source ID Filter - Prominent exact match */}

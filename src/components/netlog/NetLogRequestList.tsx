@@ -92,7 +92,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       key: 'method',
       width: 70,
       render: (m: string) => (
-        <Tag style={{ fontSize: 11, fontWeight: 600, border: 'none' }}>
+        <Tag color="blue" style={{ fontSize: 11, fontWeight: 600, border: 'none' }}>
           {m || 'GET'}
         </Tag>
       ),

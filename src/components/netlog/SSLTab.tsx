@@ -242,8 +242,8 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
   const hostColumns = [
     { title: '主机', dataIndex: 'host', key: 'host', ellipsis: true },
     { title: 'TLS 版本', dataIndex: 'version', key: 'version', width: 120, render: (v: string) => {
-      const isOld = v.includes('1.0') || v.includes('1.1');
-      return <Tag color={isOld ? 'red' : 'blue'}>{v}</Tag>;
+      const tlsColor = v === 'TLS 1.3' ? 'success' : v === 'TLS 1.2' ? 'processing' : v === 'TLS 1.1' ? 'warning' : 'error';
+      return <Tag color={tlsColor}>{v}</Tag>;
     }},
     { title: '密码套件', dataIndex: 'cipher', key: 'cipher', width: 280, render: (c: string) => <code style={{ fontSize: 12, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace" }}>{c}</code> },
     { title: '握手次数', dataIndex: 'count', key: 'count', width: 80 },

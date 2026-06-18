@@ -168,11 +168,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
           <>
             <div style={{ marginBottom: 12 }}>
               {pi.isVPN ? (
-                <Tag color="error" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>检测到 VPN</Tag>
+                <StatusTag status="error">检测到 VPN</StatusTag>
               ) : pi.hasProxy ? (
-                <Tag color="warning" style={{ fontSize: 12, border: 'none', fontWeight: 600 }}>使用了代理</Tag>
+                <StatusTag status="warning">使用了代理</StatusTag>
               ) : (
-                <Tag color="blue" style={{ fontSize: 12, border: 'none' }}>代理事件</Tag>
+                <StatusTag status="info">代理事件</StatusTag>
               )}
               <span style={{ color: 'var(--text-secondary)', marginLeft: 12 }}>代理模式: <strong style={{ color: 'var(--text-primary)' }}>{pi.proxyType || '未知'}</strong></span>
             </div>

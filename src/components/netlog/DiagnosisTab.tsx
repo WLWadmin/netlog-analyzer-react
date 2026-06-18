@@ -16,7 +16,7 @@ const iconMap: Record<string, React.ReactNode> = {
   '🔧': <ToolOutlined />,
   '⚠️': <WarningOutlined />,
   '❌': <CloseCircleOutlined />,
-  '🚨': <WarningOutlined />,
+  '🚨': <CloseCircleOutlined />,
   '🔍': <SearchOutlined />,
   '🔄': <SyncOutlined />,
   '🌐': <GlobalOutlined />,
