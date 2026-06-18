@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline } from 'antd';
+import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { copyText } from '../../utils/copyText';
@@ -314,7 +314,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       list.push(e);
       groups.set(e.source.id, list);
     }
-    return Array.from(groups.entries())
+    const sortedGroups = Array.from(groups.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([sourceId, evs]) => ({
         sourceId,
@@ -326,7 +326,31 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
           return info.hasError;
         }),
       }));
+    return sortedGroups;
   }, [filtered]);
+
+  const MAX_TIMELINE_GROUPS = 50;
+  const MAX_EVENTS_PER_GROUP = 20;
+
+  const limitedTimelineData = useMemo(() => {
+    if (timelineData.length > MAX_TIMELINE_GROUPS) {
+      return timelineData.slice(0, MAX_TIMELINE_GROUPS).map(g => ({ ...g, totalEvents: g.events.length }));
+    }
+    return timelineData.map(g => ({
+      ...g,
+      events: g.events.length > MAX_EVENTS_PER_GROUP
+        ? g.events.slice(0, MAX_EVENTS_PER_GROUP)
+        : g.events,
+      totalEvents: g.events.length,
+    }));
+  }, [timelineData]) as Array<{
+    sourceId: number;
+    sourceType: string;
+    events: ParsedEvent[];
+    count: number;
+    hasError: boolean;
+    totalEvents?: number;
+  }>;
 
   return (
     <Card
@@ -477,10 +501,21 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         ) : (
           <div style={{ maxHeight: 600, overflow: 'auto', padding: '8px 0' }}>
             {timelineData.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>无匹配事件</div>
+              <div style={{ textAlign: 'center', padding: '40px 24px' }}>
+                <FilterOutlined style={{ fontSize: 32, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+                <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>数据量过大，请先通过 Source ID 或事件类型筛选后再查看时间线</div>
+              </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                {timelineData.map(group => (
+              <>
+                {timelineData.length > MAX_TIMELINE_GROUPS && (
+                  <Alert
+                    type="warning"
+                    message={`时间线数据量过大（${timelineData.length} 个分组），仅展示前 ${MAX_TIMELINE_GROUPS} 个分组。建议使用筛选条件缩小范围。`}
+                    style={{ marginBottom: 16 }}
+                  />
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {limitedTimelineData.map(group => (
                   <Card
                     key={group.sourceId}
                     size="small"
@@ -528,9 +563,15 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
                         );
                       })}
                     </Timeline>
+                    {group.totalEvents !== undefined && group.totalEvents > group.events.length && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 8px 24px' }}>
+                        还有 {group.totalEvents - group.events.length} 条事件未显示，请使用筛选条件缩小范围
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>
+              </>
             )}
           </div>
         )}

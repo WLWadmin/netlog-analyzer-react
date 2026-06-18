@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Select } from 'antd';
+import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Select, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
@@ -36,6 +36,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [errorCodeFilter, setErrorCodeFilter] = useState<string>('all');
   const [protocolFilter, setProtocolFilter] = useState<string>('all');
   const [slowOnly, setSlowOnly] = useState(false);
+  const [waterfallVisibleCount, setWaterfallVisibleCount] = useState(30);
   const { intent, consumeIntent } = useNavigation();
 
   // 消费导航意图，自动应用搜索/筛选
@@ -315,7 +316,12 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
           </div>
 
           {/* 请求行 */}
-          {filteredRequests.map((req, idx) => {
+          {(() => {
+            const visibleWaterfallRequests = filteredRequests.slice(0, waterfallVisibleCount);
+            const hasMoreWaterfall = waterfallVisibleCount < filteredRequests.length;
+            return (
+              <>
+                {visibleWaterfallRequests.map((req, idx) => {
             const left = ((req.startTime - timeRange.min) / totalDuration) * 100;
             const width = ((req.duration || 0) / totalDuration) * 100;
             const isError = req.error || req.status === 'error';
@@ -409,6 +415,16 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
               </div>
             );
           })}
+                {hasMoreWaterfall && (
+                  <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                    <Button onClick={() => setWaterfallVisibleCount(prev => prev + 30)}>
+                      加载更多 ({filteredRequests.length - waterfallVisibleCount} 条剩余)
+                    </Button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* 图例 */}

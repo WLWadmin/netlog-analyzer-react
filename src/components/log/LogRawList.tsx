@@ -12,13 +12,11 @@ import {
 } from '@ant-design/icons';
 import { formatDuration } from '../../utils/format';
 import type { LogEntry } from '../../logParser';
+import useLoadMore from '../../hooks/useLoadMore';
 
 interface LogRawListProps {
   entries: LogEntry[];
 }
-
-const INITIAL_DISPLAY_COUNT = 600;
-const LOAD_MORE_COUNT = 300;
 
 const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [searchText, setSearchText] = useState('');
@@ -28,17 +26,11 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
-  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchText(searchText), 250);
     return () => clearTimeout(timer);
   }, [searchText]);
-
-  // Reset display count when filters change
-  useEffect(() => {
-    setDisplayCount(INITIAL_DISPLAY_COUNT);
-  }, [debouncedSearchText, statusFilter, domainFilter, levelFilter, timeRange]);
 
   const indexedEntries = useMemo(() => {
     return entries.map(entry => ({
@@ -88,8 +80,11 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
     }).map(({ entry }) => entry);
   }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter, levelFilter, timeRange]);
 
-  const visibleEntries = filteredEntries.slice(0, displayCount);
-  const hasMore = displayCount < filteredEntries.length;
+  const { visibleItems: visibleEntries, hasMore, loadMore, remainingCount } = useLoadMore<LogEntry>({
+    items: filteredEntries,
+    initialCount: 600,
+    step: 300,
+  });
 
   return (
     <Card
@@ -197,6 +192,9 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                 ) : (
                   <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 14 }} />
                 )}
+                <Tag style={{ fontSize: 10, margin: 0, height: 18, lineHeight: '18px', fontFamily: 'var(--font-mono)' }} color="default">
+                  {entry.id}
+                </Tag>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                   {entry.timestamp}
                 </span>
@@ -321,7 +319,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       {hasMore && (
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <button
-            onClick={() => setDisplayCount(prev => prev + LOAD_MORE_COUNT)}
+            onClick={loadMore}
             style={{
               padding: '8px 24px',
               borderRadius: 6,
@@ -332,7 +330,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
               fontSize: 13,
             }}
           >
-            加载更多 ({filteredEntries.length - displayCount} 条剩余)
+            加载更多 ({remainingCount} 条剩余)
           </button>
         </div>
       )}

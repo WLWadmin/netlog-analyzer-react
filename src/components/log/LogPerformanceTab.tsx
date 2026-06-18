@@ -135,6 +135,7 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
   ];
 
   const slowColumns: ColumnsType<LogEntry> = [
+    { title: 'LogID', dataIndex: 'id', key: 'id', width: 120, render: (v: string) => <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{v}</code> },
     { title: '名称', dataIndex: 'friendlyName', key: 'name', ellipsis: true, render: (v: string, r) => v || r.url },
     { title: '域名', dataIndex: 'domain', key: 'domain', width: 160, ellipsis: true },
     { title: '方法', dataIndex: 'method', key: 'method', width: 70, align: 'center', render: (v: string) => <Tag style={{ fontSize: 11, margin: 0 }}>{v}</Tag> },

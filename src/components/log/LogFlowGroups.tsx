@@ -11,21 +11,18 @@ import {
 import { formatDuration } from '../../utils/format';
 import type { LogFlowGroup, LogEntry } from '../../logParser';
 import { getErrorDiagnosis } from '../../logConstants';
+import useLoadMore from '../../hooks/useLoadMore';
 
 interface LogFlowGroupsProps {
   groups: LogFlowGroup[];
   filterErrorOnly?: boolean;
 }
 
-const INITIAL_DISPLAY_COUNT = 300;
-const LOAD_MORE_COUNT = 300;
-
 type SortMode = 'default' | 'errorFirst' | 'slowest' | 'mostRequests';
 
 const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showDetailEntry, setShowDetailEntry] = useState<string | null>(null);
-  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
   const [sortMode, setSortMode] = useState<SortMode>('default');
 
   const sortedGroups = useMemo(() => {
@@ -50,8 +47,11 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
     }
   }, [groups, filterErrorOnly, sortMode]);
 
-  const visibleGroups = sortedGroups.slice(0, displayCount);
-  const hasMore = displayCount < sortedGroups.length;
+  const { visibleItems: visibleGroups, hasMore, loadMore, remainingCount } = useLoadMore<LogFlowGroup>({
+    items: sortedGroups,
+    initialCount: 50,
+    step: 30,
+  });
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => {
@@ -79,6 +79,9 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           <span className={`log-flow-step-name${isError ? ' log-flow-step-name--error' : ''}`}>
             {entry.friendlyName}
           </span>
+          <code style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {entry.id}
+          </code>
           <Tag className="log-flow-step-method" color={isError ? 'error' : 'success'}>
             {entry.method}
           </Tag>
@@ -211,7 +214,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
       {hasMore && (
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <button
-            onClick={() => setDisplayCount(prev => prev + LOAD_MORE_COUNT)}
+            onClick={loadMore}
             style={{
               padding: '8px 24px',
               borderRadius: 6,
@@ -222,7 +225,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
               fontSize: 13,
             }}
           >
-            加载更多 ({sortedGroups.length - displayCount} 条剩余)
+            加载更多 ({remainingCount} 条剩余)
           </button>
         </div>
       )}

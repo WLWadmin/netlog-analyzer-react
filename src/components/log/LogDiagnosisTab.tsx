@@ -193,6 +193,9 @@ const LogDiagnosisTab: React.FC<LogDiagnosisTabProps> = ({ result }) => {
                         <span style={{ color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {e.friendlyName || e.url}
                         </span>
+                        <code style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>
+                          {e.id}
+                        </code>
                         <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                           {e.statusCode}
                         </span>
