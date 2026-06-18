@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Layout, Tabs, Button, message, FloatButton, Alert, Dropdown } from 'antd';
+import { useState, useEffect, useRef } from 'react';
+import { Layout, Tabs, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
   DownloadOutlined,
@@ -12,8 +12,6 @@ import {
   SunOutlined,
   MoonOutlined,
   VerticalAlignTopOutlined,
-  WarningOutlined,
-  LoadingOutlined,
   GlobalOutlined,
   QuestionCircleOutlined,
   FileTextOutlined,
@@ -39,6 +37,7 @@ import HarResultPage from './components/har/HarResultPage';
 import LogResultPage from './components/log/LogResultPage';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
+import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 
 const { Header, Content } = Layout;
 
@@ -107,10 +106,15 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const loadTaskIdRef = useRef(0);
+
   const handleFileLoaded = (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
+    const taskId = ++loadTaskIdRef.current;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
     setTimeout(() => {
+      // 如果 taskId 不匹配，说明已有新文件加载任务，丢弃旧任务结果
+      if (taskId !== loadTaskIdRef.current) return;
       try {
         // 自动识别文件类型
         if (isTextLog && typeof data === 'string') {
@@ -257,7 +261,7 @@ const AppContent: React.FC = () => {
 
   return (
     <ErrorBoundary onReset={handleReset}>
-      <LoadingOverlay visible={loading} phase="正在解析..." message="请稍候..." />
+      <LoadingOverlay visible={loading} phase={loadingText} message="请稍候，正在提取事件、统计指标和诊断信息" />
       <Layout style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
       {/* ====== Modern Header ====== */}
       <Header className="app-header">
@@ -372,33 +376,7 @@ const AppContent: React.FC = () => {
 
       {/* ====== Main Content ====== */}
       <Content style={{ width: '100%', boxSizing: 'border-box' }}>
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.15))',
-                border: '2px solid rgba(14, 165, 233, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                animation: 'pulse 1.5s ease-in-out infinite',
-              }}
-            >
-              <LoadingOutlined style={{ fontSize: 32, color: '#0ea5e9' }} />
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                {loadingText}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                请稍候，正在提取事件、统计指标和诊断信息
-              </div>
-            </div>
-          </div>
-        ) : !hasData ? (
+        {!hasData ? (
           <div style={{ maxWidth: 900, margin: '48px auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
             <UploadZone onFileLoaded={handleFileLoaded} />
 
@@ -592,26 +570,7 @@ const AppContent: React.FC = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
             {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) consumeIntent(); }} />}
-            <Alert
-              message={
-                <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
-                  <WarningOutlined style={{ marginRight: 6, color: '#fbbf24' }} />
-                  郑重说明
-                </span>
-              }
-              description={
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  本工具解析内容仅供参考，具体原因需人工二次确认或自行尝试「定因诊断」中的建议操作。分析结果可能因日志版本、浏览器差异等因素存在偏差，请结合实际情况综合判断。
-                </span>
-              }
-              type="warning"
-              showIcon={false}
-              style={{
-                background: 'rgba(251, 191, 36, 0.06)',
-                border: '1px solid rgba(251, 191, 36, 0.2)',
-                borderRadius: 12,
-              }}
-            />
+            <AnalysisDisclaimer variant="netlog" />
             <div
               style={{
                 background: 'var(--bg-surface)',

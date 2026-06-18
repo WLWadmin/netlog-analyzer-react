@@ -174,11 +174,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     });
   }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
-  const phases = [...new Set(events.map(e => e.phaseName))];
-  const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
+  const phases = useMemo(() => [...new Set(events.map(e => e.phaseName))], [events]);
+  const sourceTypes = useMemo(() => [...new Set(events.map(e => e.source.typeName))], [events]);
 
   // Extract top-level event types for better navigation
-  const mainEventTypes = [...new Set(events.map(e => {
+  const mainEventTypes = useMemo(() => [...new Set(events.map(e => {
     const name = e.typeName;
     if (name.startsWith('URL_REQUEST')) return 'URL_REQUEST';
     if (name.startsWith('HTTP_STREAM')) return 'HTTP_STREAM';
@@ -190,7 +190,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     if (name.startsWith('QUIC')) return 'QUIC';
     if (name.startsWith('TCP')) return 'TCP';
     return 'OTHER';
-  }))].sort();
+  }))].sort(), [events]);
 
   // Quick filter for error events
   const filterByError = () => {

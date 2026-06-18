@@ -3,6 +3,7 @@
  *
  * 从 HarAnalysisResult 计算出完整的诊断数据，供 HarSummaryDiagnosis 展示。
  * 纯函数，无副作用。
+ * 性能优化：所有基础统计合并为单次遍历，避免多次 .filter() 全量扫描。
  */
 
 import type {
@@ -212,15 +213,41 @@ function isLoopbackIP(ip: string): boolean {
   return /^127\./.test(ip) || ip === 'localhost';
 }
 
-function isIPv6(ip: string): boolean {
+/** 从 remoteAddress 中提取纯 IP（去除端口），正确处理 IPv4:port 和 [IPv6]:port */
+function extractHostFromAddress(remoteAddress: string): string {
+  if (!remoteAddress || remoteAddress === '-') return '-';
+  // IPv6 with brackets: [::1]:443 -> ::1
+  if (remoteAddress.startsWith('[')) {
+    const bracketEnd = remoteAddress.indexOf(']');
+    if (bracketEnd > 0) {
+      return remoteAddress.slice(1, bracketEnd);
+    }
+  }
+  // IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+  const lastColon = remoteAddress.lastIndexOf(':');
+  if (lastColon > 0) {
+    const beforeColon = remoteAddress.slice(0, lastColon);
+    // 确保冒号前不是 IPv6（IPv6 含多个冒号，且前面已处理 bracket 情况）
+    if (!beforeColon.includes(':')) {
+      return beforeColon;
+    }
+  }
+  return remoteAddress;
+}
+
+function isIPv6Address(ip: string): boolean {
   if (!ip || ip === '-') return false;
-  return ip.includes(':');
+  // 排除 IPv4:port 的情况（IPv4 不含 :: 且最多一个冒号）
+  if (ip.includes('::')) return true;
+  // 统计冒号数量，IPv6 通常有多个
+  const colonCount = (ip.match(/:/g) || []).length;
+  return colonCount > 1;
 }
 
 function classifyIP(ip: string): IpStats['type'] {
   if (!ip || ip === '-') return 'unknown';
   if (isLoopbackIP(ip)) return 'loopback';
-  if (isIPv6(ip)) return 'ipv6';
+  if (isIPv6Address(ip)) return 'ipv6';
   if (isPrivateIP(ip)) return 'private';
   return 'public';
 }
@@ -244,34 +271,137 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const entries = result.entries;
   const total = entries.length;
 
-  // ---- 基础统计 ----
-  const timings = entries.map(e => e.timings);
-  const dnsArr = timings.map(t => t.dns).filter(v => v > 0).sort((a, b) => a - b);
-  const connectArr = timings.map(t => t.connect).filter(v => v > 0).sort((a, b) => a - b);
-  const sslArr = timings.map(t => t.ssl).filter(v => v > 0).sort((a, b) => a - b);
-  const waitArr = timings.map(t => t.wait).filter(v => v > 0).sort((a, b) => a - b);
-  const receiveArr = timings.map(t => t.receive).filter(v => v > 0).sort((a, b) => a - b);
-  // blockedArr reserved for future use
+  // ---- 单次遍历：收集所有基础统计 ----
+  const dnsArr: number[] = [];
+  const connectArr: number[] = [];
+  const sslArr: number[] = [];
+  const waitArr: number[] = [];
+  const receiveArr: number[] = [];
+
+  let dnsSlow = 0;
+  let connectSlow = 0;
+  let sslSlow = 0;
+  let ttfbSlow = 0;
+  let receiveSlow = 0;
+  let blockedSlow = 0;
+
+  let count2xx = 0;
+  let count3xx = 0;
+  let count4xx = 0;
+  let count5xx = 0;
+  let count0 = 0;
+
+  let httpsCount = 0;
+  let h2Count = 0;
+  let h3Count = 0;
+  let h11Count = 0;
+  let mixedContentCount = 0;
+  let cachedCount = 0;
+  let compressedCount = 0;
+
+  // domain/ip 统计（O(N) 单次遍历 + Map 累加）
+  const domainMap = new Map<string, DomainStats & { _totalTime: number }>();
+  const ipMap = new Map<string, IpStats & { _totalTime: number }>();
+  const urlMap = new Map<string, { count: number; totalWasted: number }>();
+  const catStatsMap = new Map<HarCategory, { count: number; totalSize: number; totalTime: number; failedCount: number }>();
+
+  for (const e of entries) {
+    // timings
+    const t = e.timings;
+    if (t.dns > 0) dnsArr.push(t.dns);
+    if (t.connect > 0) connectArr.push(t.connect);
+    if (t.ssl > 0) sslArr.push(t.ssl);
+    if (t.wait > 0) waitArr.push(t.wait);
+    if (t.receive > 0) receiveArr.push(t.receive);
+
+    if (t.dns > THRESHOLDS.dnsSlow) dnsSlow++;
+    if (t.connect > THRESHOLDS.connectSlow) connectSlow++;
+    if (t.ssl > THRESHOLDS.sslSlow) sslSlow++;
+    if (t.wait > THRESHOLDS.ttfbSlow) ttfbSlow++;
+    if (t.receive > THRESHOLDS.receiveSlow) receiveSlow++;
+    if (t.blocked > THRESHOLDS.blockedSlow) blockedSlow++;
+
+    // HTTP status
+    if (e.status >= 200 && e.status < 300) count2xx++;
+    else if (e.status >= 300 && e.status < 400) count3xx++;
+    else if (e.status >= 400 && e.status < 500) count4xx++;
+    else if (e.status >= 500) count5xx++;
+    else if (e.status === 0) count0++;
+
+    // security
+    if (e.url.startsWith('https:')) httpsCount++;
+    if (e.protocol === 'h2') h2Count++;
+    if (e.protocol === 'h3') h3Count++;
+    if (e.protocol === 'http/1.1') h11Count++;
+    if (e.url.startsWith('http:') && !e.url.startsWith('http://localhost')) mixedContentCount++;
+
+    // cache
+    const cc = e.responseHeaders.find(h => h.name.toLowerCase() === 'cache-control')?.value || '';
+    if (cc.includes('max-age') || cc.includes('immutable') || e.status === 304) cachedCount++;
+
+    // compression
+    const ce = e.responseHeaders.find(h => h.name.toLowerCase() === 'content-encoding')?.value || '';
+    if (ce.includes('gzip') || ce.includes('br') || ce.includes('deflate')) compressedCount++;
+
+    // domain stats (累加 totalTime，避免后续 O(N²) 回查)
+    const d = domainMap.get(e.domain) || { domain: e.domain, count: 0, failedCount: 0, avgTime: 0, totalSize: 0, ips: [], _totalTime: 0 };
+    d.count++;
+    if (e.isFailed) d.failedCount++;
+    d.totalSize += e.size;
+    d._totalTime += e.time;
+    if (e.remoteAddress && e.remoteAddress !== '-' && !d.ips.includes(e.remoteAddress)) {
+      d.ips.push(e.remoteAddress);
+    }
+    domainMap.set(e.domain, d);
+
+    // ip stats
+    if (e.remoteAddress && e.remoteAddress !== '-') {
+      const ip = extractHostFromAddress(e.remoteAddress);
+      if (ip !== '-') {
+        const i = ipMap.get(ip) || { ip, count: 0, failedCount: 0, avgTime: 0, domains: [], type: classifyIP(ip), _totalTime: 0 };
+        i.count++;
+        if (e.isFailed) i.failedCount++;
+        i._totalTime += e.time;
+        if (!i.domains.includes(e.domain)) i.domains.push(e.domain);
+        ipMap.set(ip, i);
+      }
+    }
+
+    // duplicate requests
+    const urlKey = `${e.method} ${e.url}`;
+    const u = urlMap.get(urlKey) || { count: 0, totalWasted: 0 };
+    u.count++;
+    if (u.count > 1) u.totalWasted += e.size;
+    urlMap.set(urlKey, u);
+
+    // category stats
+    const cat = e.category;
+    const cs = catStatsMap.get(cat) || { count: 0, totalSize: 0, totalTime: 0, failedCount: 0 };
+    cs.count++;
+    cs.totalSize += e.size;
+    cs.totalTime += e.time;
+    if (e.isFailed) cs.failedCount++;
+    catStatsMap.set(cat, cs);
+  }
+
+  // ---- 排序 timings 用于 percentile ----
+  dnsArr.sort((a, b) => a - b);
+  connectArr.sort((a, b) => a - b);
+  sslArr.sort((a, b) => a - b);
+  waitArr.sort((a, b) => a - b);
+  receiveArr.sort((a, b) => a - b);
 
   const avgDns = avg(dnsArr);
   const avgConnect = avg(connectArr);
   const avgSsl = avg(sslArr);
   const avgWait = avg(waitArr);
   const avgReceive = avg(receiveArr);
-  // avgBlocked / p95Blocked reserved for future use
 
   const p95Dns = percentile(dnsArr, 0.95);
   const p95Connect = percentile(connectArr, 0.95);
   const p95Ssl = percentile(sslArr, 0.95);
   const p95Wait = percentile(waitArr, 0.95);
   const p95Receive = percentile(receiveArr, 0.95);
-
-  const dnsSlow = entries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).length;
-  const connectSlow = entries.filter(e => e.timings.connect > THRESHOLDS.connectSlow).length;
-  const sslSlow = entries.filter(e => e.timings.ssl > THRESHOLDS.sslSlow).length;
-  const ttfbSlow = entries.filter(e => e.timings.wait > THRESHOLDS.ttfbSlow).length;
-  const receiveSlow = entries.filter(e => e.timings.receive > THRESHOLDS.receiveSlow).length;
-  const blockedSlow = entries.filter(e => e.timings.blocked > THRESHOLDS.blockedSlow).length;
 
   // ---- 网络状态 ----
   const networkStatus: NetworkPhaseStatus[] = [
@@ -302,11 +432,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   // ---- HTTP 状态统计 ----
   const httpStatus: HttpStatusBreakdown = {
     total,
-    count2xx: entries.filter(e => e.status >= 200 && e.status < 300).length,
-    count3xx: entries.filter(e => e.status >= 300 && e.status < 400).length,
-    count4xx: entries.filter(e => e.status >= 400 && e.status < 500).length,
-    count5xx: entries.filter(e => e.status >= 500).length,
-    count0: entries.filter(e => e.status === 0).length,
+    count2xx,
+    count3xx,
+    count4xx,
+    count5xx,
+    count0,
     countFailed: result.failedCount,
   };
 
@@ -334,66 +464,51 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     .slice(0, 10)
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
 
-  // ---- 域名统计 ----
-  const domainMap = new Map<string, DomainStats>();
-  for (const e of entries) {
-    const d = domainMap.get(e.domain) || { domain: e.domain, count: 0, failedCount: 0, avgTime: 0, totalSize: 0, ips: [] };
-    d.count++;
-    if (e.isFailed) d.failedCount++;
-    d.totalSize += e.size;
-    if (e.remoteAddress && e.remoteAddress !== '-' && !d.ips.includes(e.remoteAddress)) {
-      d.ips.push(e.remoteAddress);
-    }
-    domainMap.set(e.domain, d);
-  }
+  // ---- 域名统计（O(N) 计算 avgTime） ----
+  const domainStats: DomainStats[] = [];
   for (const d of domainMap.values()) {
-    const domainEntries = entries.filter(e => e.domain === d.domain);
-    d.avgTime = Math.round(avg(domainEntries.map(e => e.time)));
+    domainStats.push({
+      domain: d.domain,
+      count: d.count,
+      failedCount: d.failedCount,
+      avgTime: Math.round(d._totalTime / d.count),
+      totalSize: d.totalSize,
+      ips: d.ips,
+    });
   }
-  const domainStats = Array.from(domainMap.values()).sort((a, b) => b.count - a.count);
+  domainStats.sort((a, b) => b.count - a.count);
 
-  // ---- IP 统计 ----
-  const ipMap = new Map<string, IpStats>();
-  for (const e of entries) {
-    if (!e.remoteAddress || e.remoteAddress === '-') continue;
-    const ip = e.remoteAddress.split(':')[0];
-    const i = ipMap.get(ip) || { ip, count: 0, failedCount: 0, avgTime: 0, domains: [], type: classifyIP(ip) };
-    i.count++;
-    if (e.isFailed) i.failedCount++;
-    if (!i.domains.includes(e.domain)) i.domains.push(e.domain);
-    ipMap.set(ip, i);
-  }
+  // ---- IP 统计（O(N) 计算 avgTime） ----
+  const ipStats: IpStats[] = [];
   for (const i of ipMap.values()) {
-    const ipEntries = entries.filter(e => e.remoteAddress.startsWith(i.ip));
-    i.avgTime = Math.round(avg(ipEntries.map(e => e.time)));
+    ipStats.push({
+      ip: i.ip,
+      count: i.count,
+      failedCount: i.failedCount,
+      avgTime: Math.round(i._totalTime / i.count),
+      domains: i.domains,
+      type: i.type,
+    });
   }
-  const ipStats = Array.from(ipMap.values()).sort((a, b) => b.count - a.count);
+  ipStats.sort((a, b) => b.count - a.count);
 
   // ---- 重复请求检测 ----
-  const urlMap = new Map<string, { count: number; totalWasted: number }>();
-  for (const e of entries) {
-    const key = `${e.method} ${e.url}`;
-    const u = urlMap.get(key) || { count: 0, totalWasted: 0 };
-    u.count++;
-    if (u.count > 1) u.totalWasted += e.size;
-    urlMap.set(key, u);
-  }
   const duplicateRequests = Array.from(urlMap.entries())
     .filter(([, v]) => v.count > 1)
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10)
     .map(([url, v]) => ({ url, count: v.count, totalWasted: v.totalWasted }));
 
-  // ---- 资源类型统计 ----
+  // ---- 资源类型统计（O(1) 从 catStatsMap 取） ----
   const resourceStats: ResourceStats[] = (Object.keys(result.typeCounts) as HarCategory[])
     .map(cat => {
-      const catEntries = entries.filter(e => e.category === cat);
+      const cs = catStatsMap.get(cat);
       return {
         category: cat,
         count: result.typeCounts[cat],
-        totalSize: catEntries.reduce((s, e) => s + e.size, 0),
-        avgTime: Math.round(avg(catEntries.map(e => e.time))),
-        failedCount: catEntries.filter(e => e.isFailed).length,
+        totalSize: cs ? cs.totalSize : 0,
+        avgTime: cs && cs.count > 0 ? Math.round(cs.totalTime / cs.count) : 0,
+        failedCount: cs ? cs.failedCount : 0,
       };
     })
     .filter(r => r.count > 0)
@@ -407,10 +522,6 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
 
   // ---- 缓存统计 ----
-  const cachedCount = entries.filter(e => {
-    const cc = e.responseHeaders.find(h => h.name.toLowerCase() === 'cache-control')?.value || '';
-    return cc.includes('max-age') || cc.includes('immutable') || e.status === 304;
-  }).length;
   const cacheStats: CacheStats = {
     cachedCount,
     uncachedCount: total - cachedCount,
@@ -418,11 +529,6 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   };
 
   // ---- 压缩统计 ----
-  const ceHeader = entries.filter(e => {
-    const ce = e.responseHeaders.find(h => h.name.toLowerCase() === 'content-encoding')?.value || '';
-    return ce.includes('gzip') || ce.includes('br') || ce.includes('deflate');
-  });
-  const compressedCount = ceHeader.length;
   const compressionStats: CompressionStats = {
     compressedCount,
     uncompressedCount: total - compressedCount,
@@ -441,12 +547,6 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
 
   // ---- 安全与协议统计 ----
-  const httpsCount = entries.filter(e => e.url.startsWith('https:')).length;
-  const h2Count = entries.filter(e => e.protocol === 'h2').length;
-  const h3Count = entries.filter(e => e.protocol === 'h3').length;
-  const h11Count = entries.filter(e => e.protocol === 'http/1.1').length;
-  const mixedContentCount = entries.filter(e => e.url.startsWith('http:') && !e.url.startsWith('http://localhost')).length;
-
   const missingSecurityHeaders: string[] = [];
   const firstEntry = entries[0];
   if (firstEntry) {

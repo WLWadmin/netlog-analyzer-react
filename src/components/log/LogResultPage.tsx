@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { Tabs, Alert, Tag, Button } from 'antd';
+import { Tabs, Tag, Button } from 'antd';
 import {
   DashboardOutlined,
   FileTextOutlined,
-  WarningOutlined,
   BranchesOutlined,
   MedicineBoxOutlined,
 } from '@ant-design/icons';
@@ -16,6 +15,7 @@ import LogFlowGroups from './LogFlowGroups';
 import LogRawList from './LogRawList';
 import LogDiagnosisTab from './LogDiagnosisTab';
 import LogPerformanceTab from './LogPerformanceTab';
+import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 
 interface LogResultPageProps {
   result: LogAnalysisResult;
@@ -131,22 +131,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
 
   return (
     <div className="log-result-page">
-      <Alert
-        message={
-          <span className="log-disclaimer-title">
-            <WarningOutlined style={{ marginRight: 6, color: '#fbbf24' }} />
-            郑重说明
-          </span>
-        }
-        description={
-          <span className="log-disclaimer-desc">
-            本工具解析内容仅供参考，具体原因需人工二次确认或自行尝试建议操作。分析结果可能因日志版本、格式差异等因素存在偏差，请结合实际情况综合判断。
-          </span>
-        }
-        type="warning"
-        showIcon={false}
-        className="log-disclaimer-alert"
-      />
+      <AnalysisDisclaimer variant="log" />
 
       <div className="log-tabs-container">
         <Tabs

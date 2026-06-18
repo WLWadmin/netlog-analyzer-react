@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Tabs, Alert } from 'antd';
-import { UnorderedListOutlined, MedicineBoxOutlined, WarningOutlined, ToolOutlined } from '@ant-design/icons';
+import { UnorderedListOutlined, MedicineBoxOutlined, ToolOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
 import HarRequestTable, { StatusFilter } from './HarRequestTable';
 import HarSummaryDiagnosis from './HarSummaryDiagnosis';
+import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 
 interface HarResultPageProps {
   result: HarAnalysisResult;
@@ -93,23 +94,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, activeTab: extern
         onFilterSlow={() => jumpToRequests('slow')}
         onFilterAll={() => jumpToRequests('all')}
       />
-      <div
-        style={{
-          background: 'rgba(251, 191, 36, 0.06)',
-          border: '1px solid rgba(251, 191, 36, 0.2)',
-          borderLeft: '4px solid #f59e0b',
-          borderRadius: 12,
-          padding: '12px 16px',
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', marginBottom: 6 }}>
-          <WarningOutlined style={{ marginRight: 6, color: '#fbbf24' }} />
-          HAR 解析说明
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          数据来自浏览器 DevTools → Network 导出的 .har 文件，解析结果仅供参考。Size 优先取传输大小（_transferSize），关键字段（x-tt-logid / x-tt-cip / x-lsc-source-ip / Server-Timing）依赖响应头是否存在，请结合实际链路综合判断。
-        </div>
-      </div>
+      <AnalysisDisclaimer variant="har" title="HAR 解析说明" />
       <div
         style={{
           background: 'var(--bg-surface)',

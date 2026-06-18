@@ -33,6 +33,39 @@ const PHASE_NAMES: Record<string, string> = {
 
 const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
+// 提取为独立组件，避免每次渲染重复计算 phaseChartData
+const PhaseChart: React.FC<{ phaseStats: Record<string, number[]> }> = ({ phaseStats }) => {
+  const phaseChartData = useMemo(() => {
+    return Object.entries(phaseStats)
+      .filter(([, vals]) => vals.length > 0)
+      .map(([phase, vals]) => ({
+        name: PHASE_NAMES[phase],
+        avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+        fill: PHASE_COLORS[phase],
+      }));
+  }, [phaseStats]);
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(200, phaseChartData.length * 40)}>
+      <BarChart data={phaseChartData} layout="vertical" margin={{ left: 20, right: 80 }}>
+        <XAxis type="number" hide />
+        <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
+        <Tooltip
+          contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
+          labelStyle={{ color: 'var(--text-secondary)' }}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={(value: any) => [formatDuration(Number(value) || 0), '平均耗时']}
+        />
+        <Bar dataKey="avg" radius={[0, 4, 4, 0]} barSize={24}>
+          {phaseChartData.map((entry, index) => (
+            <Cell key={index} fill={entry.fill} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+};
+
 interface HostPerf {
   host: string;
   count: number;
@@ -384,34 +417,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         </div>
 
         <h4 style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-secondary)' }}>各阶段平均耗时</h4>
-        {(() => {
-          const phaseChartData = Object.entries(phaseStats)
-            .filter(([, vals]) => vals.length > 0)
-            .map(([phase, vals]) => ({
-              name: PHASE_NAMES[phase],
-              avg: vals.reduce((a, b) => a + b, 0) / vals.length,
-              fill: PHASE_COLORS[phase],
-            }));
-          return (
-            <ResponsiveContainer width="100%" height={Math.max(200, phaseChartData.length * 40)}>
-              <BarChart data={phaseChartData} layout="vertical" margin={{ left: 20, right: 80 }}>
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={100} tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
-                <Tooltip
-                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
-                  labelStyle={{ color: 'var(--text-secondary)' }}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={(value: any) => [formatDuration(Number(value) || 0), '平均耗时']}
-                />
-                <Bar dataKey="avg" radius={[0, 4, 4, 0]} barSize={24}>
-                  {phaseChartData.map((entry, index) => (
-                    <Cell key={index} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          );
-        })()}
+        <PhaseChart phaseStats={phaseStats} />
       </Card>
 
       {/* ===== 新增：成功 vs 失败耗时对比 ===== */}

@@ -1,5 +1,6 @@
 import { Tooltip } from 'antd';
 import { HarTiming, formatHarTime } from '../../harParser';
+import { CHART_COLORS } from '../../constants/chartColors';
 
 interface HarTimingChartProps {
   timings: HarTiming;
@@ -13,14 +14,15 @@ interface PhaseInfo {
   value: number;
 }
 
+// 统一使用 CHART_COLORS.phases 语义化颜色，与 NetLog PerformanceTab 保持一致
 const PHASE_DEFS: { key: keyof HarTiming; label: string; color: string }[] = [
   { key: 'blocked', label: 'Blocked（排队/阻塞）', color: '#94a3b8' },
-  { key: 'dns', label: 'DNS 解析', color: '#22d3ee' },
-  { key: 'connect', label: 'Connect（TCP 连接）', color: '#fbbf24' },
-  { key: 'ssl', label: 'SSL/TLS 握手', color: '#fb923c' },
-  { key: 'send', label: 'Send（发送请求）', color: '#a78bfa' },
-  { key: 'wait', label: 'Wait（等待响应 TTFB）', color: '#5ba3f5' },
-  { key: 'receive', label: 'Receive（内容下载）', color: '#4ade80' },
+  { key: 'dns', label: 'DNS 解析', color: CHART_COLORS.phases.dns },
+  { key: 'connect', label: 'Connect（TCP 连接）', color: CHART_COLORS.phases.connect },
+  { key: 'ssl', label: 'SSL/TLS 握手', color: CHART_COLORS.phases.ssl },
+  { key: 'send', label: 'Send（发送请求）', color: CHART_COLORS.phases.send },
+  { key: 'wait', label: 'Wait（等待响应 TTFB）', color: CHART_COLORS.phases.wait },
+  { key: 'receive', label: 'Receive（内容下载）', color: CHART_COLORS.phases.download },
 ];
 
 // 请求耗时瀑布图（浏览器 Network Timing 风格）

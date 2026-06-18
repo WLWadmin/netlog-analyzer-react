@@ -329,6 +329,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - `HarTimingChart`：各网络阶段的分段耗时条与占比明细。
 - `CopyText`：通用「文本 + 一键复制」字段组件，支持 clipboard API 不可用时的兜底处理，超长文本自动截断并显示 Tooltip。供请求列表、详情页与诊断 Tab 复用。
 - `TruncatedText`：通用文本截断组件，内容超过阈值时显示省略号并在 hover 时以浅色主题 Tooltip 展示完整内容，未超过阈值时直接显示文本无 Tooltip。用于 HeaderList、Payload Tab 等需要截断展示的场景。
+- `AnalysisDisclaimer`：统一免责声明组件，支持 `netlog` / `har` / `log` 三种变体，统一 Alert 样式和语义化颜色（`CHART_COLORS.semantic.warning`），替代各页面中分散的硬编码免责声明。
 
 ## 核心代码模块说明
 
@@ -340,8 +341,9 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - 自动识别上传文件类型：NetLog 调用 `parseLog()` 生成 `AnalysisResult`，HAR 调用 `parseHar()` 生成 `HarAnalysisResult`。
 - 组织页面 Header、上传区、摘要卡片和各个 Tab。
 - 处理重置、返回顶部、主题切换和报告导出（Markdown / JSON / CSV 三种格式）。
-- **URL hash 路由**：Tab 切换状态写入 `#fileType/tab` 格式 hash，刷新后自动恢复。
+- **URL hash 路由**：Tab 切换状态写入 `#fileType/tab` 格式 hash，刷新后自动恢复。三种文件类型（NetLog / HAR / Go Log）的 Tab 切换均由 App 层统一控制并同步 hash。
 - **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。
+- **文件加载竞态保护**：`handleFileLoaded` 使用 `loadTaskIdRef` 计数器，连续上传新文件时旧任务的 `setTimeout` 回调会被自动丢弃，避免状态覆盖。
 
 整体数据流如下：
 
@@ -481,7 +483,8 @@ src/
 │       ├── StatusTag.tsx      # 语义化状态标签（success/warning/error/info/default）
 │       ├── AnimatedNumber.tsx # 数值递增动效组件
 │       ├── ErrorBoundary.tsx  # 全局错误边界
-│       └── LoadingOverlay.tsx # 加载遮罩
+│       ├── LoadingOverlay.tsx # 加载遮罩（全屏 overlay，支持动态 phase/message）
+│       └── AnalysisDisclaimer.tsx # 统一免责声明组件（netlog/har/log 三变体）
 ├── constants/                 # 全局常量
 │   ├── tagConfig.ts           # Tag 语义化配置
 │   ├── chartColors.ts         # 图表配色常量
@@ -501,6 +504,15 @@ src/
         ├── diagnosis.ts       # 诊断建议与报告生成
         └── constants.ts       # 事件类型/错误码常量映射
 ```
+
+### HAR 诊断计算层：`src/harDiagnosis.ts`
+
+`harDiagnosis.ts` 是 HAR 汇总诊断的纯函数计算层，从 `HarAnalysisResult` 计算出完整的诊断数据供 `HarSummaryDiagnosis` 展示：
+
+- **单次遍历优化**：所有基础统计（DNS/TCP/TLS/TTFB/Receive/Blocked 慢请求计数、HTTP 状态码分布、安全协议统计、缓存压缩统计、domain/ip 累加）合并为单次 `for...of` 遍历，避免多次 `.filter()` 全量扫描。
+- **O(N) avgTime 计算**：domain 和 ip 统计在遍历阶段累加 `_totalTime`，最后一次性除法计算平均值，避免 O(N²) 回查。
+- **IPv6 解析修正**：新增 `extractHostFromAddress()` 正确处理 `192.168.1.1:8080` / `[::1]:443` / `2001:db8::1` 等带端口的地址格式。
+- 输出健康评分、网络阶段状态、HTTP 状态分布、慢请求分类、域名/IP 统计、资源分析、缓存压缩、安全协议、问题归因与修复建议等 10 大类诊断数据。
 
 ## 数据结构概览
 

@@ -17,6 +17,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { SLOW_REQUEST_MS, MODERATE_REQUEST_MS, TOP_REQUESTS_COUNT } from '../../constants/analysisThresholds';
+import { CHART_COLORS } from '../../constants/chartColors';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
@@ -227,8 +228,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     return findings;
   }, [result, pi]);
 
-  const severityColor = { error: '#ff4d4f', warning: '#fa8c16', info: '#52c41a' };
-  const severityBg = { error: 'rgba(255,77,79,0.06)', warning: 'rgba(250,140,22,0.06)', info: 'rgba(82,196,26,0.06)' };
+  const severityColor = { error: CHART_COLORS.semantic.error, warning: CHART_COLORS.semantic.warning, info: CHART_COLORS.semantic.success };
+  const severityBg = { error: 'rgba(248,113,113,0.06)', warning: 'rgba(251,191,36,0.06)', info: 'rgba(52,211,153,0.06)' };
 
   // Protocol distribution
   const protocolData = Object.entries(result.protocols)
@@ -250,7 +251,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     { title: '方法', dataIndex: 'method', key: 'method', width: 80, render: (m: string) => <Tag color="blue" style={{ fontSize: 11, border: 'none' }}>{m}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 90, align: 'center', render: (s: string, r: any) => <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' ? '失败' : r.statusCode || s || '-'}</StatusTag> },
     { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (d: number) => (
-      <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > SLOW_REQUEST_MS ? '#f87171' : d > MODERATE_REQUEST_MS ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
+      <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > SLOW_REQUEST_MS ? CHART_COLORS.semantic.error : d > MODERATE_REQUEST_MS ? CHART_COLORS.semantic.warning : CHART_COLORS.semantic.success }}>{formatDuration(d)}</span>
     )},
   ];
 
@@ -339,12 +340,12 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
             {pi.pacUrl && (
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>PAC 脚本地址:</span>
-                <div style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 13, color: '#fbbf24', marginTop: 4 }}>{pi.pacUrl}</div>
+                <div style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 13, color: CHART_COLORS.semantic.warning, marginTop: 4 }}>{pi.pacUrl}</div>
               </div>
             )}
             {pi.vpnHints.length > 0 && (
               <>
-                <div style={{ fontSize: 13, color: '#f87171', marginBottom: 8, fontWeight: 600 }}>VPN 检测线索</div>
+                <div style={{ fontSize: 13, color: CHART_COLORS.semantic.error, marginBottom: 8, fontWeight: 600 }}>VPN 检测线索</div>
                 {pi.vpnHints.map((h, i) => (
                   <Alert
                     key={i}
@@ -418,7 +419,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               />
               <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={24}>
                 {protocolData.map((_, index) => (
-                  <Cell key={index} fill={['#4a9eff', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c', '#34d399', '#f472b6'][index % 8]} />
+                  <Cell key={index} fill={CHART_COLORS.primary[index % CHART_COLORS.primary.length]} />
                 ))}
               </Bar>
             </BarChart>
