@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import { ThemeProvider } from './theme';
-import { NavigationProvider } from './contexts/NavigationContext';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -11,9 +10,7 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <ThemeProvider>
-      <NavigationProvider>
-        <App />
-      </NavigationProvider>
+      <App />
     </ThemeProvider>
   </React.StrictMode>
 );
