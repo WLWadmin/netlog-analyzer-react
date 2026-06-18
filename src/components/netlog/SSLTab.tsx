@@ -3,6 +3,7 @@ import { Card, Table, Tag, Alert } from 'antd';
 import { SafetyCertificateOutlined, BarChartOutlined, LockOutlined, GlobalOutlined, WarningOutlined, BulbOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { AnalysisResult } from '../../parsers/netlog/parser';
+import { SLOW_SSL_MS, VERY_SLOW_SSL_MS, TOP_PREVIEW_COUNT } from '../../constants/analysisThresholds';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { StatusTag } from '../../components/shared/StatusTag';
 
@@ -125,7 +126,7 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
     for (const timing of sslTimings) {
       totalSslDuration += timing;
       if (timing > maxSsl) maxSsl = timing;
-      if (timing > 1000) verySlowSslCount++;
+      if (timing > VERY_SLOW_SSL_MS) verySlowSslCount++;
     }
     const avgSsl = totalSslDuration / sslTimings.length;
 
@@ -316,7 +317,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
       {/* Cipher Suite Distribution */}
       {Object.keys(ciphers).length > 0 && (
         <Card title={<span><LockOutlined /> 密码套件分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          {Object.entries(ciphers).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([cipher, count]) => {
+          {Object.entries(ciphers).sort((a, b) => b[1] - a[1]).slice(0, TOP_PREVIEW_COUNT).map(([cipher, count]) => {
             const isWeak = cipher.includes('RC4') || cipher.includes('DES') || cipher.includes('3DES') || cipher.includes('NULL');
             return (
               <div key={cipher} style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '6px 0' }}>
@@ -343,8 +344,8 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
           { label: '<50ms', min: 0, max: 50, color: '#34d399' },
           { label: '50-100ms', min: 50, max: 100, color: '#a3e635' },
           { label: '100-300ms', min: 100, max: 300, color: '#fbbf24' },
-          { label: '300-1000ms', min: 300, max: 1000, color: '#fb923c' },
-          { label: '>1000ms', min: 1000, max: Infinity, color: '#f87171' },
+          { label: '300-1000ms', min: SLOW_SSL_MS, max: VERY_SLOW_SSL_MS, color: '#fb923c' },
+          { label: '>1000ms', min: VERY_SLOW_SSL_MS, max: Infinity, color: '#f87171' },
         ];
 
         const chartData = buckets.map(b => ({

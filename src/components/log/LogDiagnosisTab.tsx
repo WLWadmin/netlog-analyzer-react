@@ -9,6 +9,7 @@ import {
 import type { LogAnalysisResult, LogEntry } from '../../logParser';
 import { getErrorDiagnosis } from '../../logConstants';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { SLOW_REQUEST_MS, TOP_PREVIEW_COUNT } from '../../constants/analysisThresholds';
 
 interface LogDiagnosisTabProps {
   result: LogAnalysisResult;
@@ -65,7 +66,7 @@ function generateDiagnosis(result: LogAnalysisResult): DiagnosisItem[] {
         severity: code >= 500 ? 'error' : 'warning',
         title: `HTTP ${code} 错误集中出现（${list.length} 次）`,
         description: diagnosis?.description || `状态码 ${code} 出现 ${list.length} 次`,
-        entries: list.slice(0, 10),
+        entries: list.slice(0, TOP_PREVIEW_COUNT),
         suggestion: diagnosis?.suggestion || '建议检查该状态码对应的服务端逻辑或客户端请求参数',
       });
     }
@@ -88,21 +89,21 @@ function generateDiagnosis(result: LogAnalysisResult): DiagnosisItem[] {
         severity: 'error',
         title: `${domain} 失败请求集中（${list.length} 次）`,
         description: `涉及状态码：${codes}`,
-        entries: list.slice(0, 10),
+        entries: list.slice(0, TOP_PREVIEW_COUNT),
         suggestion: '建议检查该域名的服务端健康状态、DNS 解析和网络连通性',
       });
     }
   }
 
   // 4. 慢请求检测（> 3s）
-  const slowEntries = entries.filter(e => e.duration > 3000);
+  const slowEntries = entries.filter(e => e.duration > SLOW_REQUEST_MS);
   if (slowEntries.length > 0) {
     items.push({
       category: '性能异常',
       severity: 'warning',
       title: `慢请求检测（${slowEntries.length} 个 > 3s）`,
       description: `最慢请求耗时 ${Math.max(...slowEntries.map(e => e.duration))}ms`,
-      entries: slowEntries.slice(0, 10),
+      entries: slowEntries.slice(0, TOP_PREVIEW_COUNT),
       suggestion: '建议优化接口响应时间，检查数据库查询、外部依赖调用和缓存策略',
     });
   }
@@ -199,7 +200,7 @@ const LogDiagnosisTab: React.FC<LogDiagnosisTabProps> = ({ result }) => {
                         <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                           {e.statusCode}
                         </span>
-                        <span style={{ color: e.duration > 3000 ? '#fa8c16' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        <span style={{ color: e.duration > SLOW_REQUEST_MS ? '#fa8c16' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                           {e.duration}ms
                         </span>
                       </div>

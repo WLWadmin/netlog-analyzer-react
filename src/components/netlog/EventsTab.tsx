@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
+import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
 
@@ -119,11 +120,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   const eventRows = useMemo<EventTableRow[]>(() => {
     return events.map(e => {
       const paramsJson = JSON.stringify(e.params || {}, null, 2);
+      // 只索引关键字段，params 做 shallow 索引（只取第一层值）
+      const paramsShallow = e.params ? Object.entries(e.params).map(([k, v]) => `${k}:${v}`).join(' ') : '';
       return {
         ...e,
         paramsJson,
         paramsPreview: paramsJson.substring(0, 50),
-        searchText: `${e.typeName} ${e.source.typeName} ${paramsJson}`.toLowerCase(),
+        searchText: `${e.typeName} ${e.source.typeName} ${e.source.id} ${e.time} ${paramsShallow}`.toLowerCase(),
       };
     });
   }, [events]);
@@ -141,7 +144,9 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
   const filtered = useMemo(() => {
     const normalizedSearch = debouncedSearch.toLowerCase();
-    return eventRows.filter(e => {
+    return eventRows
+      .map((e, idx) => ({ ...e, originalIndex: events.indexOf(e) }))
+      .filter(e => {
       // Source ID exact match takes priority
       if (sourceIdFilter) {
         return e.source.id.toString() === sourceIdFilter;
@@ -169,7 +174,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
       return !normalizedSearch || e.searchText.includes(normalizedSearch);
     });
-  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+  }, [eventRows, events, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
   const phases = [...new Set(events.map(e => e.phaseName))];
   const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
@@ -293,12 +298,12 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       key: 'context',
       width: 80,
       align: 'center' as const,
-      render: (_: unknown, _row: EventTableRow, index: number) => (
+      render: (_: unknown, row: EventTableRow, index: number) => (
         <Button
           size="small"
           type="link"
           style={{ fontSize: 12, padding: 0 }}
-          onClick={() => openContext(index)}
+          onClick={() => openContext((row as any).originalIndex)}
         >
           <FieldTimeOutlined /> 前后
         </Button>
@@ -329,17 +334,14 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     return sortedGroups;
   }, [filtered]);
 
-  const MAX_TIMELINE_GROUPS = 50;
-  const MAX_EVENTS_PER_GROUP = 20;
-
   const limitedTimelineData = useMemo(() => {
     if (timelineData.length > MAX_TIMELINE_GROUPS) {
       return timelineData.slice(0, MAX_TIMELINE_GROUPS).map(g => ({ ...g, totalEvents: g.events.length }));
     }
     return timelineData.map(g => ({
       ...g,
-      events: g.events.length > MAX_EVENTS_PER_GROUP
-        ? g.events.slice(0, MAX_EVENTS_PER_GROUP)
+      events: g.events.length > MAX_TIMELINE_EVENTS_PER_GROUP
+        ? g.events.slice(0, MAX_TIMELINE_EVENTS_PER_GROUP)
         : g.events,
       totalEvents: g.events.length,
     }));

@@ -34,12 +34,13 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           if (!a.hasError && b.hasError) return 1;
           return b.errorCount - a.errorCount;
         });
-      case 'slowest':
-        return base.sort((a, b) => {
-          const aTotal = a.entries.reduce((sum, e) => sum + e.duration, 0);
-          const bTotal = b.entries.reduce((sum, e) => sum + e.duration, 0);
-          return bTotal - aTotal;
-        });
+      case 'slowest': {
+        const withTotal = base.map(g => ({
+          ...g,
+          totalDuration: g.entries.reduce((sum, e) => sum + e.duration, 0),
+        }));
+        return withTotal.sort((a, b) => b.totalDuration - a.totalDuration);
+      }
       case 'mostRequests':
         return base.sort((a, b) => b.entries.length - a.entries.length);
       default:

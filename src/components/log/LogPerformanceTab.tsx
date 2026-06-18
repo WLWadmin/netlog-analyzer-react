@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import type { LogAnalysisResult, LogEntry } from '../../logParser';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { SLOW_REQUEST_MS, MODERATE_REQUEST_MS, TOP_PREVIEW_COUNT, TOP_REQUESTS_COUNT } from '../../constants/analysisThresholds';
 
 interface LogPerformanceTabProps {
   result: LogAnalysisResult;
@@ -99,7 +100,7 @@ function calculatePerformance(result: LogAnalysisResult) {
   }).sort((a, b) => b.avgDuration - a.avgDuration);
 
   // 慢请求 Top
-  const slowEntries = entries.filter(e => e.duration > 1000).sort((a, b) => b.duration - a.duration).slice(0, 20);
+  const slowEntries = entries.filter(e => e.duration > MODERATE_REQUEST_MS).sort((a, b) => b.duration - a.duration).slice(0, TOP_REQUESTS_COUNT);
 
   return { overall, domainPerf, apiPerf, slowEntries };
 }
@@ -140,7 +141,7 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
     { title: '域名', dataIndex: 'domain', key: 'domain', width: 160, ellipsis: true },
     { title: '方法', dataIndex: 'method', key: 'method', width: 70, align: 'center', render: (v: string) => <Tag style={{ fontSize: 11, margin: 0 }}>{v}</Tag> },
     { title: '状态码', dataIndex: 'statusCode', key: 'statusCode', width: 80, align: 'center', render: (v?: number) => v ? <Tag color={v >= 400 ? 'error' : 'success'} style={{ fontSize: 11 }}>{v}</Tag> : '-' },
-    { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)', color: v > 3000 ? '#ff4d4f' : v > 1000 ? '#fa8c16' : 'var(--text-primary)', fontWeight: 600 }}>{v}ms</span> },
+    { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)', color: v > SLOW_REQUEST_MS ? '#ff4d4f' : v > MODERATE_REQUEST_MS ? '#fa8c16' : 'var(--text-primary)', fontWeight: 600 }}>{v}ms</span> },
   ];
 
   return (
@@ -173,13 +174,13 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <GlobalOutlined style={{ color: 'var(--accent-blue)' }} />
-            域名性能 Top {Math.min(perf.domainPerf.length, 10)}
+            域名性能 Top {Math.min(perf.domainPerf.length, TOP_PREVIEW_COUNT)}
           </span>
         }
       >
         <Table
           columns={domainColumns}
-          dataSource={perf.domainPerf.slice(0, 10)}
+          dataSource={perf.domainPerf.slice(0, TOP_PREVIEW_COUNT)}
           rowKey="domain"
           size="small"
           pagination={false}
@@ -194,13 +195,13 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <ApiOutlined style={{ color: 'var(--accent-blue)' }} />
-            接口性能 Top {Math.min(perf.apiPerf.length, 10)}
+            接口性能 Top {Math.min(perf.apiPerf.length, TOP_PREVIEW_COUNT)}
           </span>
         }
       >
         <Table
           columns={apiColumns}
-          dataSource={perf.apiPerf.slice(0, 10)}
+          dataSource={perf.apiPerf.slice(0, TOP_PREVIEW_COUNT)}
           rowKey="path"
           size="small"
           pagination={false}
@@ -216,7 +217,7 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
           title={
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
               <ThunderboltOutlined style={{ color: '#fa8c16' }} />
-              慢请求 Top {Math.min(perf.slowEntries.length, 20)}（{'>'} 1s）
+              慢请求 Top {Math.min(perf.slowEntries.length, TOP_REQUESTS_COUNT)}（{'>'} 1s）
             </span>
           }
         >

@@ -3,6 +3,7 @@ import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Se
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
+import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { CHART_COLORS } from '../../constants/chartColors';
@@ -50,19 +51,20 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     consumeIntent();
   }, [intent, consumeIntent]);
 
-  // 按开始时间排序的请求列表
+  // 按开始时间排序的请求列表（预计算 host 避免重复 new URL()）
   const sortedRequests = useMemo(() => {
-    return [...result.urlRequests].sort((a, b) => a.startTime - b.startTime);
+    return [...result.urlRequests].sort((a, b) => a.startTime - b.startTime).map(r => {
+      let host = '';
+      try { host = new URL(r.url).host; } catch { /* ignore */ }
+      return { ...r, host };
+    });
   }, [result.urlRequests]);
 
   // 提取所有 host 选项
   const hosts = useMemo(() => {
     const set = new Set<string>();
     for (const r of sortedRequests) {
-      try {
-        const url = new URL(r.url);
-        set.add(url.host);
-      } catch { /* ignore */ }
+      if (r.host) set.add(r.host);
     }
     return ['all', ...Array.from(set).sort()];
   }, [sortedRequests]);
@@ -103,9 +105,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
     // Host 筛选
     if (hostFilter !== 'all') {
-      list = list.filter(r => {
-        try { return new URL(r.url).host === hostFilter; } catch { return false; }
-      });
+      list = list.filter(r => r.host === hostFilter);
     }
 
     // 错误码筛选
@@ -127,7 +127,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
     // 慢请求筛选
     if (slowOnly) {
-      list = list.filter(r => (r.duration || 0) > 3000);
+      list = list.filter(r => (r.duration || 0) > SLOW_REQUEST_MS);
     }
 
     return list;
@@ -206,7 +206,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       align: 'right',
       sorter: (a, b) => (a.duration || 0) - (b.duration || 0),
       render: (d: number, r: URLRequest) => {
-        const isSlow = (d || 0) > 3000;
+        const isSlow = (d || 0) > SLOW_REQUEST_MS;
         return (
           <span style={{
             fontFamily: 'var(--font-mono)',
@@ -325,7 +325,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             const left = ((req.startTime - timeRange.min) / totalDuration) * 100;
             const width = ((req.duration || 0) / totalDuration) * 100;
             const isError = req.error || req.status === 'error';
-            const isSlow = (req.duration || 0) > 3000;
+            const isSlow = (req.duration || 0) > SLOW_REQUEST_MS;
             const rowBg = hoveredReq === idx ? 'rgba(74, 158, 255, 0.06)' : selectedIndex === idx ? 'rgba(74, 158, 255, 0.1)' : 'transparent';
 
             return (
@@ -580,7 +580,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
               <Descriptions.Item label="方法">{detailReq.method || 'GET'}</Descriptions.Item>
               <Descriptions.Item label="状态码">{detailReq.statusCode || '-'}</Descriptions.Item>
               <Descriptions.Item label="总耗时">
-                <span style={{ color: (detailReq.duration || 0) > 3000 ? '#fb923c' : 'inherit', fontWeight: 600 }}>
+                <span style={{ color: (detailReq.duration || 0) > SLOW_REQUEST_MS ? '#fb923c' : 'inherit', fontWeight: 600 }}>
                   {formatDuration(detailReq.duration || 0)}
                 </span>
               </Descriptions.Item>

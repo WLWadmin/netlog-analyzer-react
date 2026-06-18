@@ -35,7 +35,10 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const indexedEntries = useMemo(() => {
     return entries.map(entry => ({
       entry,
-      searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain} ${entry.path} ${entry.worker} ${entry.level} ${entry.rawLine} ${JSON.stringify(entry.headers)} ${entry.bodyRaw ?? ''}`.toLowerCase(),
+      // 核心字段索引（快速搜索）
+      searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain} ${entry.path} ${entry.worker} ${entry.level}`.toLowerCase(),
+      // 大字段延迟索引（用于高级搜索，按需拼接）
+      fullText: `${entry.rawLine} ${JSON.stringify(entry.headers)} ${entry.bodyRaw ?? ''}`.toLowerCase(),
     }));
   }, [entries]);
 
@@ -54,7 +57,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   // 筛选条目
   const filteredEntries = useMemo(() => {
     const lowerSearch = debouncedSearchText.trim().toLowerCase();
-    return indexedEntries.filter(({ entry, searchText: indexedSearch }) => {
+    return indexedEntries.filter(({ entry, searchText: indexedSearch, fullText }) => {
       // 状态筛选
       if (statusFilter !== 'all') {
         if (statusFilter === 'success' && entry.status !== 'Success') return false;
@@ -73,8 +76,16 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         if (entryTime.isBefore(timeRange[0]) || entryTime.isAfter(timeRange[1])) return false;
       }
 
-      // 搜索筛选
-      if (lowerSearch && !indexedSearch.includes(lowerSearch)) return false;
+      // 搜索筛选：先搜核心字段，无结果时 fallback 到全文
+      if (lowerSearch) {
+        const coreMatch = indexedSearch.includes(lowerSearch);
+        if (!coreMatch && lowerSearch.length > 3) {
+          // fallback 到大字段搜索
+          if (!fullText.includes(lowerSearch)) return false;
+        } else if (!coreMatch) {
+          return false;
+        }
+      }
 
       return true;
     }).map(({ entry }) => entry);

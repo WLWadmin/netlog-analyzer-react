@@ -1,5 +1,6 @@
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
 import { formatTime, truncateUrl } from '../../utils/format';
+import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 
 export interface ParsedEvent {
   time: number;
@@ -886,7 +887,7 @@ function runDiagnostics(r: AnalysisResult) {
   }
 
   for (const req of r.urlRequests) {
-    if (req.duration && req.duration > 3000) {
+    if (req.duration && req.duration > SLOW_REQUEST_MS) {
       r.slowRequests.push(req);
       r.warnings.push({
         severity: 'warning',

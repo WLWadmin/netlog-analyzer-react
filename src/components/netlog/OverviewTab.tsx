@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
+import { SLOW_REQUEST_MS, MODERATE_REQUEST_MS, TOP_REQUESTS_COUNT } from '../../constants/analysisThresholds';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { IssueSummaryList } from '../../components/shared/IssueDisplay';
@@ -163,7 +164,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     }
 
     // 2. 慢请求
-    const slowCount = result.urlRequests.filter(r => (r.duration || 0) > 3000).length;
+    const slowCount = result.urlRequests.filter(r => (r.duration || 0) > SLOW_REQUEST_MS).length;
     if (slowCount > 0) {
       findings.push({
         severity: 'warning',
@@ -238,7 +239,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
   const topRequests = result.urlRequests
     .filter(q => q.duration)
     .sort((a, b) => (b.duration || 0) - (a.duration || 0))
-    .slice(0, 20);
+    .slice(0, TOP_REQUESTS_COUNT);
 
   const requestColumns: any[] = [
     { title: 'URL', dataIndex: 'url', key: 'url', render: (url: string) => (
@@ -249,7 +250,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     { title: '方法', dataIndex: 'method', key: 'method', width: 80, render: (m: string) => <Tag color="blue" style={{ fontSize: 11, border: 'none' }}>{m}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 90, align: 'center', render: (s: string, r: any) => <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' ? '失败' : r.statusCode || s || '-'}</StatusTag> },
     { title: '耗时', dataIndex: 'duration', key: 'duration', width: 100, align: 'right', render: (d: number) => (
-      <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > 3000 ? '#f87171' : d > 1000 ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
+      <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: d > SLOW_REQUEST_MS ? '#f87171' : d > MODERATE_REQUEST_MS ? '#fbbf24' : '#34d399' }}>{formatDuration(d)}</span>
     )},
   ];
 

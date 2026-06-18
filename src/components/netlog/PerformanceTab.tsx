@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ScatterChart, Scatter, LineChart, Line, ZAxis } from 'recharts';
 import { AnalysisResult, URLRequest, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
+import { SLOW_REQUEST_MS, TOP_PREVIEW_COUNT, TOP_WATERFALL_COUNT } from '../../constants/analysisThresholds';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { StatusTag } from '../../components/shared/StatusTag';
 
@@ -124,7 +125,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         p90Duration: percentile(ds, 0.9),
         errorCount,
         errorRate: Math.round((errorCount / list.length) * 100),
-        slowCount: list.filter(r => (r.duration || 0) > 3000).length,
+        slowCount: list.filter(r => (r.duration || 0) > SLOW_REQUEST_MS).length,
       };
     }).sort((a, b) => b.avgDuration - a.avgDuration);
   }, [completedReqs]);
@@ -155,7 +156,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         maxDuration: ds[ds.length - 1] || 0,
         errorCount,
         errorRate: Math.round((errorCount / reqs.length) * 100),
-        slowCount: reqs.filter(r => (r.duration || 0) > 3000).length,
+        slowCount: reqs.filter(r => (r.duration || 0) > SLOW_REQUEST_MS).length,
       };
     }).sort((a, b) => b.avgDuration - a.avgDuration);
   }, [completedReqs]);
@@ -240,7 +241,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   // Waterfall chart data: top 30 requests by duration
   const waterfallReqs = [...completedReqs]
     .sort((a, b) => (b.duration || 0) - (a.duration || 0))
-    .slice(0, 30);
+    .slice(0, TOP_WATERFALL_COUNT);
   let wfMinStart = Infinity;
   let wfMaxEnd = 0;
   for (const req of waterfallReqs) {
@@ -563,12 +564,12 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {/* ===== 新增：域名性能 Top ===== */}
       <Card
-        title={<span><GlobalOutlined /> 域名性能 Top {Math.min(hostPerf.length, 10)}</span>}
+        title={<span><GlobalOutlined /> 域名性能 Top {Math.min(hostPerf.length, TOP_PREVIEW_COUNT)}</span>}
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <Table
           columns={hostColumns}
-          dataSource={hostPerf.slice(0, 10)}
+          dataSource={hostPerf.slice(0, TOP_PREVIEW_COUNT)}
           rowKey="host"
           size="small"
           pagination={false}
@@ -578,12 +579,12 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {/* ===== 新增：接口性能 Top ===== */}
       <Card
-        title={<span><ApiOutlined /> 接口性能 Top {Math.min(apiPerf.length, 10)}</span>}
+        title={<span><ApiOutlined /> 接口性能 Top {Math.min(apiPerf.length, TOP_PREVIEW_COUNT)}</span>}
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <Table
           columns={apiColumns}
-          dataSource={apiPerf.slice(0, 10)}
+          dataSource={apiPerf.slice(0, TOP_PREVIEW_COUNT)}
           rowKey="path"
           size="small"
           pagination={false}
