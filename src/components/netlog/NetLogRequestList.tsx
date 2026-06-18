@@ -3,8 +3,9 @@ import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Se
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
-import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
+import { SLOW_REQUEST_MS, NETLOG_WATERFALL_INITIAL_COUNT, NETLOG_WATERFALL_LOAD_STEP } from '../../constants/analysisThresholds';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
+import { useLoadMore } from '../../hooks/useLoadMore';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { useNavigation } from '../../contexts/NavigationContext';
@@ -37,7 +38,6 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [errorCodeFilter, setErrorCodeFilter] = useState<string>('all');
   const [protocolFilter, setProtocolFilter] = useState<string>('all');
   const [slowOnly, setSlowOnly] = useState(false);
-  const [waterfallVisibleCount, setWaterfallVisibleCount] = useState(30);
   const { intent, consumeIntent } = useNavigation();
 
   // 消费导航意图，自动应用搜索/筛选
@@ -133,6 +133,19 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
     return list;
   }, [sortedRequests, searchKeyword, statusFilter, hostFilter, errorCodeFilter, protocolFilter, slowOnly]);
+
+  // 瀑布流分页加载（筛选条件变化时自动重置）
+  const {
+    visibleItems: visibleWaterfallRequests,
+    hasMore: hasMoreWaterfall,
+    loadMore: loadMoreWaterfall,
+    remainingCount: waterfallRemaining,
+  } = useLoadMore<URLRequest>({
+    items: filteredRequests,
+    initialCount: NETLOG_WATERFALL_INITIAL_COUNT,
+    step: NETLOG_WATERFALL_LOAD_STEP,
+    resetDeps: [searchKeyword, statusFilter, hostFilter, errorCodeFilter, protocolFilter, slowOnly],
+  });
 
   // 键盘导航
   useKeyboardNavigation<URLRequest>({
@@ -317,12 +330,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
           </div>
 
           {/* 请求行 */}
-          {(() => {
-            const visibleWaterfallRequests = filteredRequests.slice(0, waterfallVisibleCount);
-            const hasMoreWaterfall = waterfallVisibleCount < filteredRequests.length;
-            return (
-              <>
-                {visibleWaterfallRequests.map((req, idx) => {
+          {visibleWaterfallRequests.map((req, idx) => {
             const left = ((req.startTime - timeRange.min) / totalDuration) * 100;
             const width = ((req.duration || 0) / totalDuration) * 100;
             const isError = req.error || req.status === 'error';
@@ -418,14 +426,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
           })}
                 {hasMoreWaterfall && (
                   <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                    <Button onClick={() => setWaterfallVisibleCount(prev => prev + 30)}>
-                      加载更多 ({filteredRequests.length - waterfallVisibleCount} 条剩余)
+                    <Button onClick={loadMoreWaterfall}>
+                      加载更多 ({waterfallRemaining} 条剩余)
                     </Button>
                   </div>
                 )}
-              </>
-            );
-          })()}
         </div>
 
         {/* 图例 */}

@@ -4,6 +4,8 @@ interface UseLoadMoreOptions<T> {
   items: T[];
   initialCount?: number;
   step?: number;
+  /** 额外的依赖项，变化时强制重置 visibleCount（如筛选条件） */
+  resetDeps?: React.DependencyList;
 }
 
 interface UseLoadMoreResult<T> {
@@ -16,13 +18,14 @@ interface UseLoadMoreResult<T> {
   remainingCount: number;
 }
 
-export function useLoadMore<T>({ items, initialCount = 50, step = 50 }: UseLoadMoreOptions<T>): UseLoadMoreResult<T> {
+export function useLoadMore<T>({ items, initialCount = 50, step = 50, resetDeps }: UseLoadMoreOptions<T>): UseLoadMoreResult<T> {
   const [visibleCount, setVisibleCount] = useState(initialCount);
 
-  // 当 items 变化时重置
+  // 当 items.length 或 resetDeps 变化时重置
   useEffect(() => {
     setVisibleCount(initialCount);
-  }, [items.length, initialCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCount, items.length, ...(resetDeps ?? [])]);
 
   const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
   const hasMore = visibleCount < items.length;

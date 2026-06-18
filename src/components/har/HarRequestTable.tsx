@@ -295,6 +295,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       </div>
 
       <Spin spinning={filtering} tip="筛选中..." size="small">
+        {/* HAR 请求表使用 antd 分页（表格型数据更适合分页浏览）；
+            NetLog / Log 长列表使用 useLoadMore "加载更多" 模式 */}
         <Table<HarRequestEntry>
           columns={columns}
           dataSource={filtered}

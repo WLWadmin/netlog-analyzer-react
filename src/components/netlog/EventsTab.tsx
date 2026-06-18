@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
-import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP } from '../../constants/analysisThresholds';
+import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
 
@@ -48,8 +48,8 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
 
 interface EventTableRow extends ParsedEvent {
   searchText: string;
-  paramsJson: string;
   paramsPreview: string;
+  originalIndex: number;
 }
 
 const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
@@ -91,7 +91,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       setDebouncedSearch(value);
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
   };
   const [phaseFilter, setPhaseFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
@@ -113,19 +113,18 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   // 筛选条件变化时短暂显示 loading
   useEffect(() => {
     setFiltering(true);
-    const timer = setTimeout(() => setFiltering(false), 80);
+    const timer = setTimeout(() => setFiltering(false), FILTER_SPINNER_DELAY_MS);
     return () => clearTimeout(timer);
   }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
   const eventRows = useMemo<EventTableRow[]>(() => {
-    return events.map(e => {
-      const paramsJson = JSON.stringify(e.params || {}, null, 2);
+    return events.map((e, originalIndex) => {
       // 只索引关键字段，params 做 shallow 索引（只取第一层值）
       const paramsShallow = e.params ? Object.entries(e.params).map(([k, v]) => `${k}:${v}`).join(' ') : '';
       return {
         ...e,
-        paramsJson,
-        paramsPreview: paramsJson.substring(0, 50),
+        originalIndex,
+        paramsPreview: paramsShallow.substring(0, 50),
         searchText: `${e.typeName} ${e.source.typeName} ${e.source.id} ${e.time} ${paramsShallow}`.toLowerCase(),
       };
     });
@@ -145,7 +144,6 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   const filtered = useMemo(() => {
     const normalizedSearch = debouncedSearch.toLowerCase();
     return eventRows
-      .map((e, idx) => ({ ...e, originalIndex: events.indexOf(e) }))
       .filter(e => {
       // Source ID exact match takes priority
       if (sourceIdFilter) {
@@ -174,7 +172,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
       return !normalizedSearch || e.searchText.includes(normalizedSearch);
     });
-  }, [eventRows, events, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
   const phases = [...new Set(events.map(e => e.phaseName))];
   const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
@@ -260,12 +258,14 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       );
     }},
     { title: '参数', key: 'params', width: 200, render: (_: unknown, row: EventTableRow) => {
-      const hasMore = row.paramsJson.length > 50;
+      const paramsPreview = row.paramsPreview || '-';
       return (
         <Tooltip
           title={
             <div style={{ maxHeight: 300, overflow: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{row.paramsJson}</pre>
+              <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {JSON.stringify(row.params || {}, null, 2)}
+              </pre>
             </div>
           }
           placement="left"
@@ -284,11 +284,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
               whiteSpace: 'nowrap',
             }}
             onClick={() => {
-              setModalContent(row.paramsJson);
+              setModalContent(JSON.stringify(row.params || {}, null, 2));
               setModalOpen(true);
             }}
           >
-            {hasMore ? `${row.paramsPreview}...` : row.paramsPreview || '-'}
+            {paramsPreview}
           </span>
         </Tooltip>
       );
@@ -303,7 +303,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
           size="small"
           type="link"
           style={{ fontSize: 12, padding: 0 }}
-          onClick={() => openContext((row as any).originalIndex)}
+          onClick={() => openContext(row.originalIndex)}
         >
           <FieldTimeOutlined /> 前后
         </Button>
@@ -335,16 +335,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   }, [filtered]);
 
   const limitedTimelineData = useMemo(() => {
-    if (timelineData.length > MAX_TIMELINE_GROUPS) {
-      return timelineData.slice(0, MAX_TIMELINE_GROUPS).map(g => ({ ...g, totalEvents: g.events.length }));
-    }
-    return timelineData.map(g => ({
-      ...g,
-      events: g.events.length > MAX_TIMELINE_EVENTS_PER_GROUP
-        ? g.events.slice(0, MAX_TIMELINE_EVENTS_PER_GROUP)
-        : g.events,
-      totalEvents: g.events.length,
-    }));
+    return timelineData
+      .slice(0, MAX_TIMELINE_GROUPS)
+      .map(g => ({
+        ...g,
+        totalEvents: g.events.length,
+        events: g.events.slice(0, MAX_TIMELINE_EVENTS_PER_GROUP),
+      }));
   }, [timelineData]) as Array<{
     sourceId: number;
     sourceType: string;

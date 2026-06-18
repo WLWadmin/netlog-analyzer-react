@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import { formatDuration } from '../../utils/format';
 import type { LogEntry } from '../../logParser';
+import { LOG_RAW_INITIAL_COUNT, LOG_RAW_LOAD_STEP, SEARCH_DEBOUNCE_MS } from '../../constants/analysisThresholds';
 import useLoadMore from '../../hooks/useLoadMore';
 
 interface LogRawListProps {
@@ -28,7 +29,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearchText(searchText), 250);
+    const timer = setTimeout(() => setDebouncedSearchText(searchText), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchText]);
 
@@ -37,8 +38,6 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       entry,
       // 核心字段索引（快速搜索）
       searchText: `${entry.url} ${entry.method} ${entry.statusCode ?? ''} ${entry.statusText ?? ''} ${entry.friendlyName} ${entry.domain} ${entry.path} ${entry.worker} ${entry.level}`.toLowerCase(),
-      // 大字段延迟索引（用于高级搜索，按需拼接）
-      fullText: `${entry.rawLine} ${JSON.stringify(entry.headers)} ${entry.bodyRaw ?? ''}`.toLowerCase(),
     }));
   }, [entries]);
 
@@ -57,7 +56,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   // 筛选条目
   const filteredEntries = useMemo(() => {
     const lowerSearch = debouncedSearchText.trim().toLowerCase();
-    return indexedEntries.filter(({ entry, searchText: indexedSearch, fullText }) => {
+    return indexedEntries.filter(({ entry, searchText: indexedSearch }) => {
       // 状态筛选
       if (statusFilter !== 'all') {
         if (statusFilter === 'success' && entry.status !== 'Success') return false;
@@ -76,11 +75,12 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         if (entryTime.isBefore(timeRange[0]) || entryTime.isAfter(timeRange[1])) return false;
       }
 
-      // 搜索筛选：先搜核心字段，无结果时 fallback 到全文
+      // 搜索筛选：先搜核心字段，无结果时按需检查大字段
       if (lowerSearch) {
         const coreMatch = indexedSearch.includes(lowerSearch);
         if (!coreMatch && lowerSearch.length > 3) {
-          // fallback 到大字段搜索
+          // 按需拼接大字段（仅在核心字段未命中且搜索词较长时）
+          const fullText = `${entry.rawLine} ${JSON.stringify(entry.headers)} ${entry.bodyRaw ?? ''}`.toLowerCase();
           if (!fullText.includes(lowerSearch)) return false;
         } else if (!coreMatch) {
           return false;
@@ -93,8 +93,8 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
 
   const { visibleItems: visibleEntries, hasMore, loadMore, remainingCount } = useLoadMore<LogEntry>({
     items: filteredEntries,
-    initialCount: 600,
-    step: 300,
+    initialCount: LOG_RAW_INITIAL_COUNT,
+    step: LOG_RAW_LOAD_STEP,
   });
 
   return (

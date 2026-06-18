@@ -8,18 +8,30 @@ import HarSummaryDiagnosis from './HarSummaryDiagnosis';
 
 interface HarResultPageProps {
   result: HarAnalysisResult;
+  /** 外层控制的 activeTab，由 App hash 路由驱动 */
+  activeTab?: string;
+  /** tab 切换回调，用于同步 hash */
+  onTabChange?: (tab: string) => void;
 }
 
 // HAR 解析结果整体页面（汇总卡片 + 请求列表 / 汇总诊断 两个 Tab）
-const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
-  const [activeKey, setActiveKey] = useState('requests');
+const HarResultPage: React.FC<HarResultPageProps> = ({ result, activeTab: externalActiveTab, onTabChange }) => {
+  const [internalActiveKey, setInternalActiveKey] = useState('requests');
+  const activeKey = externalActiveTab || internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   const jumpToRequests = (filter: StatusFilter) => {
     setStatusFilter(filter);
     setCategoryFilter('all'); // 卡片点击时重置类型筛选为 All
-    setActiveKey('requests');
+    const nextKey = 'requests';
+    setInternalActiveKey(nextKey);
+    onTabChange?.(nextKey);
+  };
+
+  const handleTabChange = (key: string) => {
+    setInternalActiveKey(key);
+    onTabChange?.(key);
   };
 
   const tabItems = [
@@ -110,7 +122,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result }) => {
       >
         <Tabs
           activeKey={activeKey}
-          onChange={setActiveKey}
+          onChange={handleTabChange}
           items={tabItems}
           type="card"
           style={{ background: 'var(--bg-surface)', padding: '8px 12px 16px' }}

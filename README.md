@@ -36,11 +36,12 @@
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown / JSON / CSV 三种格式的分析报告（NetLog 模式）。
 - **错误边界与加载遮罩**：全局 ErrorBoundary 捕获解析异常，LoadingOverlay 展示解析进度。
-- **URL hash 路由持久化**：Tab 切换状态自动写入 URL hash（`#netlog/overview`、`#har/requests`、`#log/raw`），刷新页面后保持当前位置。
+- **URL hash 路由持久化**：Tab 切换状态自动写入 URL hash（`#netlog/overview`、`#har/requests`、`#log/raw`），刷新页面后保持当前位置。三种文件类型的 Tab 切换均由 App 层统一控制并同步 hash。
 - **跨 Tab 诊断联动**：诊断建议支持一键跳转到事件列表或请求瀑布，并自动设置筛选条件（通过 NavigationContext 实现）。
 - **虚拟滚动优化**：事件列表和请求瀑布使用 antd 虚拟滚动，流畅处理大数据量。
-- **统一阈值常量**：所有慢请求、Top N 截断、时间线限制等阈值集中管理，便于统一调整。
-- **分层搜索索引**：原始日志搜索采用核心字段 + 大字段 fallback 策略，避免大数据量时搜索卡顿。
+- **统一加载更多策略**：NetLog 瀑布流、Log 流程分组、Log 原始日志统一使用 `useLoadMore` hook 管理"加载更多"分页，筛选条件变化时自动重置；HAR 请求表保留 antd 原生分页（表格型数据更适合分页浏览）。
+- **统一阈值常量**：所有慢请求、Top N 截断、时间线限制、加载更多初始值/步长、搜索防抖等阈值集中管理于 `analysisThresholds.ts`，便于统一调整。
+- **分层搜索索引**：原始日志搜索采用核心字段优先 + 大字段按需 fallback 策略（仅在核心字段未命中且搜索词较长时动态拼接 headers/body），避免大数据量时预计算大字段索引。
 - **Top N 预览标注**：概览和性能分析中的截断列表明确标注"Top N 预览"，并提供"查看全部"跳转链接。
 
 ## 快速使用
@@ -163,7 +164,8 @@
 - **Source ID 聚合时间线视图**：按 source.id 分组展示事件链，支持前后上下文窗口查看。
 - **参数字段过滤**：支持按事件参数中的具体字段名过滤。
 - **虚拟滚动**：大数据量时使用虚拟滚动，避免 DOM 过载。
-- **时间线渲染量限制**：分组超过 50 或每组超过 20 条时自动截断并提示先筛选。
+- **时间线渲染量限制**：分组超过 50 或每组超过 20 条时统一截断并提示先筛选。
+- **参数懒计算**：列表预览只保留轻量 shallow 索引，`paramsJson` 在点击详情弹窗或 hover Tooltip 时才执行 `JSON.stringify`，减少初始渲染开销。
 
 当自动诊断结论需要人工复核时，可以回到该模块查看原始证据。
 
@@ -223,6 +225,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 - 组合核心发现 Banner、摘要卡片、统计图表、操作流程分组和原始日志列表三个 Tab。
 - 支持"仅显示失败"筛选，自动跳转到操作流程 Tab。
+- **支持外层 activeTab 控制**：由 App hash 路由统一驱动 Tab 切换，刷新页面后保持当前位置。
 
 ### 核心发现 Banner：`LogInsightBanner`
 
@@ -251,13 +254,14 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 - 按时间顺序聚合请求流程，每个分组显示起始时间、请求数量、成功/失败计数。
 - 错误分组红色边框高亮，支持展开/折叠查看详情。
+- **单 group 内 entries 限制**：展开时最多显示 100 条记录，超出部分提示总数，避免单个大流程渲染卡顿。
 - 详情页展示每条请求的 worker、级别、方法、URL、状态码、耗时和原始日志行。
 
 ### 原始日志列表：`LogRawList`
 
 对应文件：`src/components/log/LogRawList.tsx`
 
-- 支持按关键词搜索（防抖 250ms，预索引优化，核心字段优先 + 大字段 fallback）。
+- 支持按关键词搜索（防抖 250ms，核心字段预索引 + 大字段按需 fallback，仅在搜索词 > 3 字符且核心字段未命中时动态拼接 headers/body）。
 - 支持按日志级别筛选（全部 / Info / Warn / Error / Debug）。
 - 支持按时间范围筛选（DatePicker.RangePicker）。
 - 展示完整原始日志行、Headers、Body，高亮匹配关键词。
@@ -280,6 +284,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 - 组合顶部汇总卡片与「请求列表」「汇总诊断」两个 Tab。
 - 维护当前激活 Tab 与状态筛选（全部 / 失败 / 慢请求），实现卡片点击联动到请求列表。
+- **支持外层 activeTab 控制**：由 App hash 路由统一驱动 Tab 切换，刷新页面后保持当前位置。
 
 ### 汇总卡片：`HarSummaryCards`
 
@@ -481,12 +486,12 @@ src/
 │   ├── tagConfig.ts           # Tag 语义化配置
 │   ├── chartColors.ts         # 图表配色常量
 │   ├── iconMapping.ts         # Emoji → Icon 映射
-│   └── analysisThresholds.ts  # 分析阈值常量（慢请求、Top N、时间线限制等）
+│   └── analysisThresholds.ts  # 分析阈值常量（慢请求、Top N、时间线限制、加载更多步长、防抖等）
 ├── hooks/                     # 自定义 Hooks
 │   ├── useAnimatedNumber.ts   # 数值动效 Hook
 │   ├── useKeyboardNavigation.ts # 键盘导航 Hook
 │   ├── useMediaQuery.ts       # 响应式媒体查询 Hook
-│   └── useLoadMore.ts         # 可见数 + 加载更多 Hook（长列表统一策略）
+│   └── useLoadMore.ts         # 可见数 + 加载更多 Hook（长列表统一策略，支持 resetDeps）
 ├── contexts/                  # React Context
 │   └── NavigationContext.tsx  # 跨 Tab 导航上下文（intent 机制）
 └── parsers/                   # 解析引擎（原 src/netlog/ 已重命名至此）

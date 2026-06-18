@@ -19,13 +19,23 @@ import LogPerformanceTab from './LogPerformanceTab';
 
 interface LogResultPageProps {
   result: LogAnalysisResult;
+  /** 外层控制的 activeTab，由 App hash 路由驱动 */
+  activeTab?: string;
+  /** tab 切换回调，用于同步 hash */
+  onTabChange?: (tab: string) => void;
 }
 
-const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
-  const [activeTab, setActiveTab] = useState('overview');
+const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: externalActiveTab, onTabChange }) => {
+  const [internalActiveTab, setInternalActiveTab] = useState('overview');
+  const activeTab = externalActiveTab || internalActiveTab;
   const [filterErrorOnly, setFilterErrorOnly] = useState(false);
 
   const { insight, stats, groups, entries } = result;
+
+  const handleTabChange = (key: string) => {
+    setInternalActiveTab(key);
+    onTabChange?.(key);
+  };
 
   const tabItems = [
     {
@@ -43,7 +53,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
             stats={stats}
             onFilterError={() => {
               setFilterErrorOnly(true);
-              setActiveTab('flows');
+              handleTabChange('flows');
             }}
           />
           <LogStatsCharts stats={stats} />
@@ -51,7 +61,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Tag color="blue" style={{ fontSize: 11, marginBottom: 0 }}>Top {TOP_PREVIEW_COUNT} 预览</Tag>
               {groups.length > TOP_PREVIEW_COUNT && (
-                <Button size="small" type="link" onClick={() => setActiveTab('flows')} style={{ padding: 0 }}>
+                <Button size="small" type="link" onClick={() => handleTabChange('flows')} style={{ padding: 0 }}>
                   查看全部 {groups.length} 条
                 </Button>
               )}
@@ -141,7 +151,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result }) => {
       <div className="log-tabs-container">
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           items={tabItems}
           type="card"
           className="log-analysis-tabs"

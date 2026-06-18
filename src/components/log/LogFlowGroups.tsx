@@ -11,6 +11,7 @@ import {
 import { formatDuration } from '../../utils/format';
 import type { LogFlowGroup, LogEntry } from '../../logParser';
 import { getErrorDiagnosis } from '../../logConstants';
+import { MAX_GROUP_ENTRY_PREVIEW, LOG_FLOW_INITIAL_COUNT, LOG_FLOW_LOAD_STEP } from '../../constants/analysisThresholds';
 import useLoadMore from '../../hooks/useLoadMore';
 
 interface LogFlowGroupsProps {
@@ -50,8 +51,8 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
 
   const { visibleItems: visibleGroups, hasMore, loadMore, remainingCount } = useLoadMore<LogFlowGroup>({
     items: sortedGroups,
-    initialCount: 50,
-    step: 30,
+    initialCount: LOG_FLOW_INITIAL_COUNT,
+    step: LOG_FLOW_LOAD_STEP,
   });
 
   const toggleGroup = (groupId: string) => {
@@ -204,8 +205,13 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
             {isExpanded && (
               <div className="log-flow-group-body">
                 <div className="log-flow-group-steps">
-                  {group.entries.map((entry) => renderStep(entry))}
+                  {group.entries.slice(0, MAX_GROUP_ENTRY_PREVIEW).map((entry) => renderStep(entry))}
                 </div>
+                {group.entries.length > MAX_GROUP_ENTRY_PREVIEW && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0 0 0', textAlign: 'center' }}>
+                    该流程共 {group.entries.length} 条记录，仅展示前 {MAX_GROUP_ENTRY_PREVIEW} 条
+                  </div>
+                )}
               </div>
             )}
           </div>

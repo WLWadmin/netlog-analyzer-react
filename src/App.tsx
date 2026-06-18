@@ -560,11 +560,25 @@ const AppContent: React.FC = () => {
           </div>
         ) : fileType === 'har' && harResult ? (
           <div style={{ padding: '24px 28px' }}>
-            <HarResultPage result={harResult} />
+            <HarResultPage
+              result={harResult}
+              activeTab={activeTab}
+              onTabChange={(key) => {
+                setActiveTab(key);
+                window.location.hash = buildHash(fileType, key);
+              }}
+            />
           </div>
         ) : fileType === 'log' && logResult ? (
           <div style={{ padding: '24px 28px' }}>
-            <LogResultPage result={logResult} />
+            <LogResultPage
+              result={logResult}
+              activeTab={activeTab}
+              onTabChange={(key) => {
+                setActiveTab(key);
+                window.location.hash = buildHash(fileType, key);
+              }}
+            />
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
