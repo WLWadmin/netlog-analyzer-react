@@ -9,12 +9,9 @@ import {
   WarningOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  DashboardOutlined,
   SafetyOutlined,
   CompressOutlined,
   CloudOutlined,
-  CloudDownloadOutlined,
-  FileTextOutlined,
   LinkOutlined,
   DesktopOutlined,
   WifiOutlined,
@@ -25,7 +22,6 @@ import {
 import { HarAnalysisResult, formatBytes, formatHarTime, categoryStyle, statusStyle } from '../../harParser';
 import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus, type DiagnosisStatus } from '../../harDiagnosis';
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
-import { SummaryCard } from '../shared/SummaryCard';
 import { CHART_COLORS } from '../../constants/chartColors';
 
 interface HarSummaryDiagnosisProps {
@@ -274,71 +270,13 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
     };
   }, [diag]);
 
-  // 关键指标卡片数据
-  const metricCards = [
-    {
-      title: '总请求数',
-      value: diag.totalRequests,
-      suffix: `${diag.domainCount} 个域名 · ${diag.ipCount} 个 IP`,
-      color: '#0ea5e9',
-      icon: <FileTextOutlined />,
-      bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.08))',
-    },
-    {
-      title: '失败请求',
-      value: diag.failedCount,
-      suffix: diag.failedCount > 0 ? '点击查看失败请求' : '无异常',
-      color: diag.failedCount > 0 ? '#f87171' : '#34d399',
-      valueColor: diag.failedCount > 0 ? '#f87171' : undefined,
-      icon: <CloseCircleOutlined />,
-      bg: 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))',
-    },
-    {
-      title: '慢请求',
-      value: diag.slowCount,
-      suffix: diag.slowCount > 0 ? `平均 TTFB ${diag.avgTtfb}ms` : '响应正常',
-      color: diag.slowCount > 0 ? '#fb923c' : '#34d399',
-      valueColor: diag.slowCount > 0 ? '#fb923c' : '#34d399',
-      icon: <ClockCircleOutlined />,
-      bg: 'linear-gradient(135deg, rgba(251, 146, 60, 0.12), rgba(248, 113, 113, 0.08))',
-    },
-    {
-      title: '总传输',
-      value: formatBytes(diag.totalSize),
-      suffix: `P95 TTFB ${diag.p95Ttfb}ms`,
-      color: '#22d3ee',
-      icon: <CloudDownloadOutlined />,
-      bg: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.08))',
-    },
-  ];
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
       {/* 1. 诊断结论概览 */}
       <HealthAssessmentCard title="HAR 诊断结论" assessment={healthAssessment} />
 
-      {/* 2. 关键指标 */}
-      <div>
-        <SectionTitle icon={<DashboardOutlined />} title="关键指标" />
-        <Row gutter={[16, 16]}>
-          {metricCards.map((card, i) => (
-            <Col key={i} flex="1 1 180px" style={{ minWidth: 180 }}>
-              <SummaryCard
-                title={card.title}
-                value={card.value}
-                suffix={card.suffix}
-                color={card.color}
-                valueColor={card.valueColor}
-                icon={card.icon}
-                bgGradient={card.bg}
-              />
-            </Col>
-          ))}
-        </Row>
-      </div>
-
-      {/* 3. 网络状态 */}
+      {/* 2. 网络状态 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
         bodyStyle={{ padding: '16px 20px' }}
