@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
-import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions } from 'antd';
+import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { SearchOutlined, ClockCircleOutlined, SwapOutlined } from '@ant-design/icons';
+import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -29,17 +29,95 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [detailReq, setDetailReq] = useState<URLRequest | null>(null);
   const waterfallRef = useRef<HTMLDivElement>(null);
 
+  // 多维筛选状态
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [hostFilter, setHostFilter] = useState<string>('all');
+  const [errorCodeFilter, setErrorCodeFilter] = useState<string>('all');
+  const [protocolFilter, setProtocolFilter] = useState<string>('all');
+  const [slowOnly, setSlowOnly] = useState(false);
+
   // 按开始时间排序的请求列表
   const sortedRequests = useMemo(() => {
     return [...result.urlRequests].sort((a, b) => a.startTime - b.startTime);
   }, [result.urlRequests]);
 
-  // 搜索过滤
+  // 提取所有 host 选项
+  const hosts = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of sortedRequests) {
+      try {
+        const url = new URL(r.url);
+        set.add(url.host);
+      } catch { /* ignore */ }
+    }
+    return ['all', ...Array.from(set).sort()];
+  }, [sortedRequests]);
+
+  // 提取所有错误码选项
+  const errorCodes = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of sortedRequests) {
+      if (r.error !== undefined) set.add(r.error.toString());
+      if (r.errorDesc) set.add(r.errorDesc);
+    }
+    return ['all', ...Array.from(set).sort()];
+  }, [sortedRequests]);
+
+  // 搜索 + 多维筛选过滤
   const filteredRequests = useMemo(() => {
-    if (!searchKeyword.trim()) return sortedRequests;
-    const kw = searchKeyword.trim().toLowerCase();
-    return sortedRequests.filter(r => (r.url || '').toLowerCase().includes(kw));
-  }, [sortedRequests, searchKeyword]);
+    let list = sortedRequests;
+
+    // 关键词搜索
+    if (searchKeyword.trim()) {
+      const kw = searchKeyword.trim().toLowerCase();
+      list = list.filter(r =>
+        (r.url || '').toLowerCase().includes(kw) ||
+        (r.method || '').toLowerCase().includes(kw) ||
+        (r.statusCode?.toString() || '').includes(kw) ||
+        (r.errorDesc || '').toLowerCase().includes(kw)
+      );
+    }
+
+    // 状态筛选
+    if (statusFilter !== 'all') {
+      list = list.filter(r => {
+        if (statusFilter === 'success') return !r.error && r.status !== 'error';
+        if (statusFilter === 'error') return !!r.error || r.status === 'error';
+        return true;
+      });
+    }
+
+    // Host 筛选
+    if (hostFilter !== 'all') {
+      list = list.filter(r => {
+        try { return new URL(r.url).host === hostFilter; } catch { return false; }
+      });
+    }
+
+    // 错误码筛选
+    if (errorCodeFilter !== 'all') {
+      list = list.filter(r =>
+        r.error?.toString() === errorCodeFilter || r.errorDesc === errorCodeFilter
+      );
+    }
+
+    // 协议筛选
+    if (protocolFilter !== 'all') {
+      list = list.filter(r => {
+        if (protocolFilter === 'h2') return r.url.startsWith('https://');
+        if (protocolFilter === 'h1') return r.url.startsWith('http://');
+        if (protocolFilter === 'quic') return r.url.includes('quic');
+        return true;
+      });
+    }
+
+    // 慢请求筛选
+    if (slowOnly) {
+      list = list.filter(r => (r.duration || 0) > 3000);
+    }
+
+    return list;
+  }, [sortedRequests, searchKeyword, statusFilter, hostFilter, errorCodeFilter, protocolFilter, slowOnly]);
 
   // 键盘导航
   useKeyboardNavigation<URLRequest>({
@@ -346,11 +424,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       {/* 请求列表 */}
       <Card
         title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <span>请求列表（共 {filteredRequests.length} 条{searchKeyword ? ` / 总计 ${sortedRequests.length} 条` : ''}，按开始时间排序）</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <span>请求列表（共 {filteredRequests.length} 条{searchKeyword || statusFilter !== 'all' || hostFilter !== 'all' || errorCodeFilter !== 'all' || protocolFilter !== 'all' || slowOnly ? ` / 总计 ${sortedRequests.length} 条` : ''}，按开始时间排序）</span>
             <Input
               allowClear
-              placeholder="搜索 URL..."
+              placeholder="搜索 URL、方法、状态码、错误..."
               prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
               value={searchKeyword}
               onChange={e => { setSearchKeyword(e.target.value); setSelectedIndex(null); }}
@@ -361,6 +439,71 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
         }
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
+        {/* 多维筛选栏 */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FilterOutlined style={{ color: 'var(--accent-blue)', fontSize: 14 }} />
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            size="small"
+            style={{ width: 110 }}
+            options={[
+              { value: 'all', label: '全部状态' },
+              { value: 'success', label: '成功' },
+              { value: 'error', label: '失败' },
+            ]}
+          />
+          <Select
+            value={hostFilter}
+            onChange={setHostFilter}
+            size="small"
+            style={{ width: 180 }}
+            options={hosts.map(h => ({ value: h, label: h === 'all' ? '全部域名' : h }))}
+            showSearch
+          />
+          <Select
+            value={errorCodeFilter}
+            onChange={setErrorCodeFilter}
+            size="small"
+            style={{ width: 160 }}
+            options={errorCodes.map(c => ({ value: c, label: c === 'all' ? '全部错误码' : c }))}
+            showSearch
+          />
+          <Select
+            value={protocolFilter}
+            onChange={setProtocolFilter}
+            size="small"
+            style={{ width: 120 }}
+            options={[
+              { value: 'all', label: '全部协议' },
+              { value: 'h2', label: 'HTTPS' },
+              { value: 'h1', label: 'HTTP' },
+              { value: 'quic', label: 'QUIC' },
+            ]}
+          />
+          <Tag
+            color={slowOnly ? 'warning' : 'default'}
+            style={{ cursor: 'pointer', fontSize: 12, margin: 0 }}
+            onClick={() => setSlowOnly(!slowOnly)}
+          >
+            {slowOnly ? '仅慢请求 ✓' : '仅慢请求'}
+          </Tag>
+          {(statusFilter !== 'all' || hostFilter !== 'all' || errorCodeFilter !== 'all' || protocolFilter !== 'all' || slowOnly) && (
+            <Tag
+              color="blue"
+              style={{ cursor: 'pointer', fontSize: 12, margin: 0 }}
+              onClick={() => {
+                setStatusFilter('all');
+                setHostFilter('all');
+                setErrorCodeFilter('all');
+                setProtocolFilter('all');
+                setSlowOnly(false);
+              }}
+            >
+              重置筛选
+            </Tag>
+          )}
+        </div>
         <Table<URLRequest>
           columns={columns}
           dataSource={filteredRequests}

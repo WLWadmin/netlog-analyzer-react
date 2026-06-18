@@ -1,8 +1,18 @@
-import { useState } from 'react';
-import { Card, Table, Tag, Modal, Descriptions } from 'antd';
-import { ThunderboltOutlined, BarChartOutlined, AreaChartOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { useState, useMemo } from 'react';
+import { Card, Table, Tag, Modal, Descriptions, Row, Col } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import {
+  ThunderboltOutlined,
+  BarChartOutlined,
+  AreaChartOutlined,
+  ClockCircleOutlined,
+  GlobalOutlined,
+  ApiOutlined,
+  RiseOutlined,
+  FallOutlined,
+} from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { AnalysisResult, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
+import { AnalysisResult, URLRequest, formatDuration, percentile, truncateUrl } from '../../parsers/netlog/parser';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { StatusTag } from '../../components/shared/StatusTag';
 
@@ -21,47 +31,181 @@ const PHASE_NAMES: Record<string, string> = {
 
 const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
+interface HostPerf {
+  host: string;
+  count: number;
+  avgDuration: number;
+  minDuration: number;
+  maxDuration: number;
+  p90Duration: number;
+  errorCount: number;
+  errorRate: number;
+  slowCount: number;
+}
+
+interface ApiPerf {
+  path: string;
+  host: string;
+  count: number;
+  avgDuration: number;
+  maxDuration: number;
+  errorCount: number;
+  errorRate: number;
+  slowCount: number;
+}
+
+interface BottleneckRank {
+  phase: string;
+  phaseLabel: string;
+  affectedRequests: number;
+  avgDuration: number;
+  maxDuration: number;
+  totalDuration: number;
+  color: string;
+}
+
 const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const [selectedReq, setSelectedReq] = useState<any>(null);
   const completedReqs = result.urlRequests.filter(q => q.duration);
 
-  if (completedReqs.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-        <ThunderboltOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>没有可分析的性能数据</div>
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>上传包含已完成请求的NetLog文件后即可查看性能分析</div>
-      </div>
-    );
-  }
-
   // Single-pass: collect durations, phase stats, and waterfall range
-  const durations: number[] = [];
-  const phaseStats: Record<string, number[]> = { dns: [], connect: [], ssl: [], send: [], wait: [], download: [] };
-  let minDuration = Infinity;
-  let maxDuration = 0;
-  let totalDurationSum = 0;
+  const { phaseStats, stats } = useMemo(() => {
+    const durs: number[] = [];
+    const pStats: Record<string, number[]> = { dns: [], connect: [], ssl: [], send: [], wait: [], download: [] };
+    let minD = Infinity;
+    let maxD = 0;
+    let totalD = 0;
 
-  for (const req of completedReqs) {
-    const d = req.duration!;
-    durations.push(d);
-    if (d < minDuration) minDuration = d;
-    if (d > maxDuration) maxDuration = d;
-    totalDurationSum += d;
+    for (const req of completedReqs) {
+      const d = req.duration!;
+      durs.push(d);
+      if (d < minD) minD = d;
+      if (d > maxD) maxD = d;
+      totalD += d;
 
-    for (const [phase, info] of Object.entries(req.timeline)) {
-      if (info) phaseStats[phase].push(info.duration);
+      for (const [phase, info] of Object.entries(req.timeline)) {
+        if (info) pStats[phase].push(info.duration);
+      }
     }
-  }
 
-  const stats = {
-    min: minDuration,
-    avg: totalDurationSum / durations.length,
-    p50: percentile(durations, 0.5),
-    p90: percentile(durations, 0.9),
-    p99: percentile(durations, 0.99),
-    max: maxDuration,
-  };
+    return {
+      phaseStats: pStats,
+      stats: {
+        min: minD,
+        avg: totalD / durs.length,
+        p50: percentile(durs, 0.5),
+        p90: percentile(durs, 0.9),
+        p99: percentile(durs, 0.99),
+        max: maxD,
+      },
+    };
+  }, [completedReqs]);
+
+  // ===== 新增：Host 维度聚合 =====
+  const hostPerf = useMemo<HostPerf[]>(() => {
+    const map = new Map<string, URLRequest[]>();
+    for (const req of completedReqs) {
+      try {
+        const host = new URL(req.url).host;
+        const list = map.get(host) || [];
+        list.push(req);
+        map.set(host, list);
+      } catch { /* ignore */ }
+    }
+    return Array.from(map.entries()).map(([host, list]) => {
+      const ds = list.map(r => r.duration || 0).sort((a, b) => a - b);
+      const errorCount = list.filter(r => r.status === 'error' || r.error).length;
+      return {
+        host,
+        count: list.length,
+        avgDuration: Math.round(ds.reduce((a, b) => a + b, 0) / ds.length),
+        minDuration: ds[0] || 0,
+        maxDuration: ds[ds.length - 1] || 0,
+        p90Duration: percentile(ds, 0.9),
+        errorCount,
+        errorRate: Math.round((errorCount / list.length) * 100),
+        slowCount: list.filter(r => (r.duration || 0) > 3000).length,
+      };
+    }).sort((a, b) => b.avgDuration - a.avgDuration);
+  }, [completedReqs]);
+
+  // ===== 新增：API 维度聚合 =====
+  const apiPerf = useMemo<ApiPerf[]>(() => {
+    const map = new Map<string, { reqs: URLRequest[]; host: string }>();
+    for (const req of completedReqs) {
+      try {
+        const url = new URL(req.url);
+        const key = `${req.method} ${url.pathname}`;
+        const existing = map.get(key);
+        if (existing) {
+          existing.reqs.push(req);
+        } else {
+          map.set(key, { reqs: [req], host: url.host });
+        }
+      } catch { /* ignore */ }
+    }
+    return Array.from(map.entries()).map(([path, { reqs, host }]) => {
+      const ds = reqs.map(r => r.duration || 0).sort((a, b) => a - b);
+      const errorCount = reqs.filter(r => r.status === 'error' || r.error).length;
+      return {
+        path,
+        host,
+        count: reqs.length,
+        avgDuration: Math.round(ds.reduce((a, b) => a + b, 0) / ds.length),
+        maxDuration: ds[ds.length - 1] || 0,
+        errorCount,
+        errorRate: Math.round((errorCount / reqs.length) * 100),
+        slowCount: reqs.filter(r => (r.duration || 0) > 3000).length,
+      };
+    }).sort((a, b) => b.avgDuration - a.avgDuration);
+  }, [completedReqs]);
+
+  // ===== 新增：瓶颈归因排名 =====
+  const bottleneckRank = useMemo<BottleneckRank[]>(() => {
+    const ranks: BottleneckRank[] = [];
+    const phaseKeys = ['dns', 'connect', 'ssl', 'send', 'wait', 'download'] as const;
+    for (const phase of phaseKeys) {
+      const vals = phaseStats[phase];
+      if (!vals || vals.length === 0) continue;
+      const sorted = [...vals].sort((a, b) => a - b);
+      const affected = completedReqs.filter(req => {
+        const info = req.timeline[phase];
+        return info && info.duration > 0;
+      }).length;
+      ranks.push({
+        phase,
+        phaseLabel: PHASE_NAMES[phase],
+        affectedRequests: affected,
+        avgDuration: Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length),
+        maxDuration: sorted[sorted.length - 1],
+        totalDuration: sorted.reduce((a, b) => a + b, 0),
+        color: PHASE_COLORS[phase],
+      });
+    }
+    return ranks.sort((a, b) => b.totalDuration - a.totalDuration);
+  }, [phaseStats, completedReqs]);
+
+  // ===== 新增：成功 vs 失败耗时对比 =====
+  const successFailCompare = useMemo(() => {
+    const success = completedReqs.filter(r => !r.error && r.status !== 'error');
+    const failed = completedReqs.filter(r => r.error || r.status === 'error');
+    const successDurations = success.map(r => r.duration || 0).sort((a, b) => a - b);
+    const failedDurations = failed.map(r => r.duration || 0).sort((a, b) => a - b);
+    return {
+      success: {
+        count: success.length,
+        avg: successDurations.length > 0 ? Math.round(successDurations.reduce((a, b) => a + b, 0) / successDurations.length) : 0,
+        p90: percentile(successDurations, 0.9),
+        max: successDurations[successDurations.length - 1] || 0,
+      },
+      failed: {
+        count: failed.length,
+        avg: failedDurations.length > 0 ? Math.round(failedDurations.reduce((a, b) => a + b, 0) / failedDurations.length) : 0,
+        p90: percentile(failedDurations, 0.9),
+        max: failedDurations[failedDurations.length - 1] || 0,
+      },
+    };
+  }, [completedReqs]);
 
   // Waterfall chart data: top 30 requests by duration
   const waterfallReqs = [...completedReqs]
@@ -75,6 +219,41 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     if (end > wfMaxEnd) wfMaxEnd = end;
   }
   const wfRange = wfMaxEnd - wfMinStart || 1;
+
+  const hostColumns: ColumnsType<HostPerf> = [
+    { title: '域名', dataIndex: 'host', key: 'host', ellipsis: true },
+    { title: '请求数', dataIndex: 'count', key: 'count', width: 80, align: 'right' },
+    { title: '平均耗时', dataIndex: 'avgDuration', key: 'avgDuration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: 'P90', dataIndex: 'p90Duration', key: 'p90Duration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '最大', dataIndex: 'maxDuration', key: 'maxDuration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '慢请求', dataIndex: 'slowCount', key: 'slowCount', width: 80, align: 'right', render: (v: number) => v > 0 ? <Tag color="warning" style={{ fontSize: 11 }}>{v}</Tag> : <span style={{ color: 'var(--text-muted)' }}>-</span> },
+    { title: '失败率', dataIndex: 'errorRate', key: 'errorRate', width: 90, align: 'right', render: (v: number) => <Tag color={v > 10 ? 'error' : v > 0 ? 'warning' : 'success'} style={{ fontSize: 11 }}>{v}%</Tag> },
+  ];
+
+  const apiColumns: ColumnsType<ApiPerf> = [
+    { title: '接口', dataIndex: 'path', key: 'path', ellipsis: true },
+    { title: '域名', dataIndex: 'host', key: 'host', width: 180, ellipsis: true },
+    { title: '请求数', dataIndex: 'count', key: 'count', width: 80, align: 'right' },
+    { title: '平均耗时', dataIndex: 'avgDuration', key: 'avgDuration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '最大耗时', dataIndex: 'maxDuration', key: 'maxDuration', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '慢请求', dataIndex: 'slowCount', key: 'slowCount', width: 80, align: 'right', render: (v: number) => v > 0 ? <Tag color="warning" style={{ fontSize: 11 }}>{v}</Tag> : <span style={{ color: 'var(--text-muted)' }}>-</span> },
+    { title: '失败率', dataIndex: 'errorRate', key: 'errorRate', width: 90, align: 'right', render: (v: number) => <Tag color={v > 10 ? 'error' : v > 0 ? 'warning' : 'success'} style={{ fontSize: 11 }}>{v}%</Tag> },
+  ];
+
+  const bottleneckColumns: ColumnsType<BottleneckRank> = [
+    { title: '阶段', dataIndex: 'phaseLabel', key: 'phase', width: 100, render: (v: string, r: BottleneckRank) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.color, flexShrink: 0 }} />
+        <span>{v}</span>
+      </div>
+    )},
+    { title: '影响请求数', dataIndex: 'affectedRequests', key: 'affected', width: 110, align: 'right', render: (v: number, r: BottleneckRank) => (
+      <span>{v} / {completedReqs.length} ({((v / completedReqs.length) * 100).toFixed(0)}%)</span>
+    )},
+    { title: '平均耗时', dataIndex: 'avgDuration', key: 'avg', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '最大耗时', dataIndex: 'maxDuration', key: 'max', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },
+    { title: '总耗时', dataIndex: 'totalDuration', key: 'total', width: 110, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatDuration(v)}</span> },
+  ];
 
   const slowColumns = [
     {
@@ -200,6 +379,92 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             </ResponsiveContainer>
           );
         })()}
+      </Card>
+
+      {/* ===== 新增：成功 vs 失败耗时对比 ===== */}
+      <Card
+        title={<span><RiseOutlined /> 成功 vs 失败 耗时对比</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <Row gutter={[16, 16]}>
+          <Col flex="1 1 200px">
+            <div style={{ textAlign: 'center', padding: '16px 12px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+              <div style={{ fontSize: 12, color: CHART_COLORS.semantic.success, marginBottom: 6 }}>
+                <RiseOutlined /> 成功请求
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: CHART_COLORS.semantic.success, fontFamily: 'var(--font-mono)' }}>
+                {successFailCompare.success.count}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>请求数</div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.success.avg)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>平均</div></div>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.success.p90)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>P90</div></div>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.success.max)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>最大</div></div>
+              </div>
+            </div>
+          </Col>
+          <Col flex="1 1 200px">
+            <div style={{ textAlign: 'center', padding: '16px 12px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+              <div style={{ fontSize: 12, color: CHART_COLORS.semantic.error, marginBottom: 6 }}>
+                <FallOutlined /> 失败请求
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: CHART_COLORS.semantic.error, fontFamily: 'var(--font-mono)' }}>
+                {successFailCompare.failed.count}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>请求数</div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.failed.avg)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>平均</div></div>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.failed.p90)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>P90</div></div>
+                <div><div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatDuration(successFailCompare.failed.max)}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>最大</div></div>
+              </div>
+            </div>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* ===== 新增：瓶颈归因排名 ===== */}
+      <Card
+        title={<span><ThunderboltOutlined /> 瓶颈归因排名（按总耗时）</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <Table
+          columns={bottleneckColumns}
+          dataSource={bottleneckRank}
+          rowKey="phase"
+          size="small"
+          pagination={false}
+          scroll={{ x: 600 }}
+        />
+      </Card>
+
+      {/* ===== 新增：域名性能 Top ===== */}
+      <Card
+        title={<span><GlobalOutlined /> 域名性能 Top {Math.min(hostPerf.length, 10)}</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <Table
+          columns={hostColumns}
+          dataSource={hostPerf.slice(0, 10)}
+          rowKey="host"
+          size="small"
+          pagination={false}
+          scroll={{ x: 600 }}
+        />
+      </Card>
+
+      {/* ===== 新增：接口性能 Top ===== */}
+      <Card
+        title={<span><ApiOutlined /> 接口性能 Top {Math.min(apiPerf.length, 10)}</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <Table
+          columns={apiColumns}
+          dataSource={apiPerf.slice(0, 10)}
+          rowKey="path"
+          size="small"
+          pagination={false}
+          scroll={{ x: 700 }}
+        />
       </Card>
 
       {/* Waterfall Chart */}

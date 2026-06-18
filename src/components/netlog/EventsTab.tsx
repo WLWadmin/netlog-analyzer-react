@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message } from 'antd';
-import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline } from 'antd';
+import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { copyText } from '../../utils/copyText';
 
@@ -77,12 +77,21 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
   const [pagination, setPagination] = useState({ current: 1, pageSize: 100 });
   const [filtering, setFiltering] = useState(false);
 
+  // 新增：视图模式（列表 / 时间线）
+  const [viewMode, setViewMode] = useState<'list' | 'timeline'>('list');
+  // 新增：参数字段级过滤
+  const [paramFieldFilter, setParamFieldFilter] = useState('');
+  // 新增：上下文窗口
+  const [contextModalOpen, setContextModalOpen] = useState(false);
+  const [contextIndex, setContextIndex] = useState<number>(-1);
+  const [contextWindowSize, setContextWindowSize] = useState(10);
+
   // 筛选条件变化时短暂显示 loading
   useEffect(() => {
     setFiltering(true);
     const timer = setTimeout(() => setFiltering(false), 80);
     return () => clearTimeout(timer);
-  }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
+  }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
   const eventRows = useMemo<EventTableRow[]>(() => {
     return events.map(e => {
@@ -94,6 +103,17 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         searchText: `${e.typeName} ${e.source.typeName} ${paramsJson}`.toLowerCase(),
       };
     });
+  }, [events]);
+
+  // 提取所有参数字段名
+  const paramFields = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of events) {
+      if (e.params && typeof e.params === 'object') {
+        Object.keys(e.params).forEach(k => set.add(k));
+      }
+    }
+    return ['', ...Array.from(set).sort()];
   }, [events]);
 
   const filtered = useMemo(() => {
@@ -114,6 +134,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         return false;
       }
 
+      // Param field filter
+      if (paramFieldFilter) {
+        if (!e.params || !(paramFieldFilter in e.params)) return false;
+      }
+
       // When searching for "net_error", use special error-only filter
       if (normalizedSearch === 'net_error') {
         return e.params?.net_error !== undefined && e.params?.net_error !== 0;
@@ -121,7 +146,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
 
       return !normalizedSearch || e.searchText.includes(normalizedSearch);
     });
-  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter]);
+  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
   const phases = [...new Set(events.map(e => e.phaseName))];
   const sourceTypes = [...new Set(events.map(e => e.source.typeName))];
@@ -154,6 +179,19 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
     } catch {
       message.error('复制失败，请手动选择内容复制');
     }
+  };
+
+  // 上下文窗口数据
+  const contextEvents = useMemo(() => {
+    if (contextIndex < 0) return [];
+    const start = Math.max(0, contextIndex - contextWindowSize);
+    const end = Math.min(events.length, contextIndex + contextWindowSize + 1);
+    return events.slice(start, end).map((e, i) => ({ ...e, relativeIndex: start + i }));
+  }, [contextIndex, contextWindowSize, events]);
+
+  const openContext = (index: number) => {
+    setContextIndex(index);
+    setContextModalOpen(true);
   };
 
   const columns = [
@@ -227,11 +265,53 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         </Tooltip>
       );
     }},
+    {
+      title: '上下文',
+      key: 'context',
+      width: 80,
+      align: 'center' as const,
+      render: (_: unknown, _row: EventTableRow, index: number) => (
+        <Button
+          size="small"
+          type="link"
+          style={{ fontSize: 12, padding: 0 }}
+          onClick={() => openContext(index)}
+        >
+          <FieldTimeOutlined /> 前后
+        </Button>
+      ),
+    },
   ];
+
+  // Source ID 聚合时间线数据
+  const timelineData = useMemo(() => {
+    const groups = new Map<number, ParsedEvent[]>();
+    for (const e of filtered) {
+      const list = groups.get(e.source.id) || [];
+      list.push(e);
+      groups.set(e.source.id, list);
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([sourceId, evs]) => ({
+        sourceId,
+        sourceType: evs[0]?.source.typeName || 'Unknown',
+        events: evs.sort((a, b) => a.time - b.time),
+        count: evs.length,
+        hasError: evs.some(e => {
+          const info = extractErrorInfo(e.params);
+          return info.hasError;
+        }),
+      }));
+  }, [filtered]);
 
   return (
     <Card
-      title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})</span>}
+      title={
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})
+        </span>
+      }
       style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
     >
       {/* Source ID Filter - Prominent exact match */}
@@ -264,7 +344,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
       </div>
 
       {/* General Search & Filters */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative', width: 320 }}>
           <SearchOutlined style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 1, fontSize: 14 }} />
           <Input
@@ -300,6 +380,16 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
           style={{ width: 200, opacity: sourceIdFilter ? 0.5 : 1 }}
           options={sourceTypes.map(s => ({ label: s, value: s }))}
         />
+        <Select
+          placeholder="参数字段筛选"
+          value={paramFieldFilter || undefined}
+          onChange={setParamFieldFilter}
+          disabled={!!sourceIdFilter}
+          allowClear
+          style={{ width: 180, opacity: sourceIdFilter ? 0.5 : 1 }}
+          options={paramFields.map(f => ({ label: f || '全部字段', value: f }))}
+          showSearch
+        />
         <Button
           icon={<BugOutlined />}
           onClick={filterByError}
@@ -308,6 +398,25 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         >
           只看错误
         </Button>
+      </div>
+
+      {/* View Mode Toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>视图模式:</span>
+        <Tag
+          color={viewMode === 'list' ? 'blue' : 'default'}
+          style={{ cursor: 'pointer', fontSize: 12 }}
+          onClick={() => setViewMode('list')}
+        >
+          <UnorderedListOutlined /> 列表
+        </Tag>
+        <Tag
+          color={viewMode === 'timeline' ? 'blue' : 'default'}
+          style={{ cursor: 'pointer', fontSize: 12 }}
+          onClick={() => setViewMode('timeline')}
+        >
+          <ClockCircleOutlined /> 时间线
+        </Tag>
       </div>
 
       {/* Quick event type tags */}
@@ -332,22 +441,85 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
       </div>
 
       <Spin spinning={filtering} tip="筛选中..." size="small">
-        <Table
-          dataSource={filtered}
-          columns={columns}
-          rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
-          pagination={{
-            current: pagination.current,
-            pageSize: pagination.pageSize,
-            showSizeChanger: true,
-            pageSizeOptions: ['50', '100', '200', '500', '1000'],
-            showTotal: (total) => `共 ${total.toLocaleString()} 条`,
-            onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-          }}
-          size="small"
-          scroll={{ y: 500 }}
-        />
+        {viewMode === 'list' ? (
+          <Table
+            dataSource={filtered}
+            columns={columns}
+            rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
+            pagination={{
+              current: pagination.current,
+              pageSize: pagination.pageSize,
+              showSizeChanger: true,
+              pageSizeOptions: ['50', '100', '200', '500', '1000'],
+              showTotal: (total) => `共 ${total.toLocaleString()} 条`,
+              onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
+            }}
+            size="small"
+            scroll={{ y: 500 }}
+          />
+        ) : (
+          <div style={{ maxHeight: 600, overflow: 'auto', padding: '8px 0' }}>
+            {timelineData.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>无匹配事件</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {timelineData.map(group => (
+                  <Card
+                    key={group.sourceId}
+                    size="small"
+                    style={{
+                      background: 'var(--bg-surface)',
+                      borderColor: group.hasError ? 'rgba(255, 77, 79, 0.2)' : 'var(--border-color)',
+                      borderLeft: group.hasError ? '3px solid #ff4d4f' : 'none',
+                    }}
+                    title={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Tag color="cyan">{group.sourceType}</Tag>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}>
+                          Source ID: {group.sourceId}
+                        </span>
+                        <Tag style={{ fontSize: 11, margin: 0 }}>{group.count} 个事件</Tag>
+                        {group.hasError && <Tag color="error" style={{ fontSize: 11, margin: 0 }}>含错误</Tag>}
+                      </div>
+                    }
+                  >
+                    <Timeline mode="left" style={{ marginTop: 8 }}>
+                      {group.events.map((ev, i) => {
+                        const errInfo = extractErrorInfo(ev.params);
+                        return (
+                          <Timeline.Item
+                            key={i}
+                            color={errInfo.hasError ? 'red' : ev.phaseName === 'BEGIN' ? 'green' : ev.phaseName === 'END' ? 'blue' : 'gray'}
+                            label={
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                                {ev.time.toFixed(0)}ms
+                              </span>
+                            }
+                          >
+                            <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>
+                              {ev.typeName}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {ev.phaseName}
+                              {errInfo.hasError && (
+                                <span style={{ color: '#ff4d4f', marginLeft: 8 }}>
+                                  {errInfo.errorCode} {errInfo.errorText}
+                                </span>
+                              )}
+                            </div>
+                          </Timeline.Item>
+                        );
+                      })}
+                    </Timeline>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Spin>
+
+      {/* 事件参数详情弹窗 */}
       <Modal
         open={modalOpen}
         title="事件参数详情"
@@ -362,6 +534,101 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => 
         <pre style={{ margin: 0, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
           {modalContent}
         </pre>
+      </Modal>
+
+      {/* 上下文窗口弹窗 */}
+      <Modal
+        open={contextModalOpen}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FieldTimeOutlined style={{ color: 'var(--accent-blue)' }} />
+            <span>事件上下文窗口</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              (前后 {contextWindowSize} 条，共 {contextEvents.length} 条)
+            </span>
+          </div>
+        }
+        onCancel={() => setContextModalOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setContextModalOpen(false)}>关闭</Button>,
+        ]}
+        width={800}
+        styles={{ body: { maxHeight: 600, overflow: 'auto', background: 'var(--bg-elevated)' } }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>窗口大小:</span>
+          <Select
+            value={contextWindowSize}
+            onChange={setContextWindowSize}
+            size="small"
+            style={{ width: 100 }}
+            options={[
+              { value: 5, label: '5 条' },
+              { value: 10, label: '10 条' },
+              { value: 20, label: '20 条' },
+              { value: 50, label: '50 条' },
+            ]}
+          />
+        </div>
+        <Timeline mode="left">
+          {contextEvents.map((ev, i) => {
+            const isCenter = ev.relativeIndex === contextIndex;
+            const errInfo = extractErrorInfo(ev.params);
+            return (
+              <Timeline.Item
+                key={i}
+                color={isCenter ? 'blue' : errInfo.hasError ? 'red' : ev.phaseName === 'BEGIN' ? 'green' : ev.phaseName === 'END' ? 'blue' : 'gray'}
+                label={
+                  <span style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    color: isCenter ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    fontWeight: isCenter ? 700 : 400,
+                  }}>
+                    {ev.time.toFixed(0)}ms
+                  </span>
+                }
+              >
+                <div style={{
+                  padding: '8px 12px',
+                  background: isCenter ? 'rgba(74, 158, 255, 0.06)' : 'transparent',
+                  borderRadius: 6,
+                  border: isCenter ? '1px solid rgba(74, 158, 255, 0.2)' : 'none',
+                }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>
+                    {ev.typeName}
+                    {isCenter && <Tag color="blue" style={{ fontSize: 10, marginLeft: 8, margin: 0 }}>当前位置</Tag>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {ev.phaseName} · {ev.source.typeName} · Source ID: {ev.source.id}
+                    {errInfo.hasError && (
+                      <span style={{ color: '#ff4d4f', marginLeft: 8 }}>
+                        {errInfo.errorCode} {errInfo.errorText}
+                      </span>
+                    )}
+                  </div>
+                  {ev.params && Object.keys(ev.params).length > 0 && (
+                    <pre style={{
+                      margin: '6px 0 0 0',
+                      padding: 6,
+                      background: 'var(--bg-base)',
+                      borderRadius: 4,
+                      fontSize: 10,
+                      lineHeight: 1.4,
+                      color: 'var(--text-muted)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      maxHeight: 80,
+                      overflow: 'auto',
+                    }}>
+                      {JSON.stringify(ev.params, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              </Timeline.Item>
+            );
+          })}
+        </Timeline>
       </Modal>
     </Card>
   );

@@ -131,7 +131,7 @@ const App: React.FC = () => {
 
   const tabItems = [
     { key: 'overview', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DashboardOutlined />总览</span>, children: result ? <OverviewTab result={result} /> : null },
-    { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />图列预览</span>, children: result ? <NetLogRequestList result={result} /> : null },
+    { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />请求瀑布</span>, children: result ? <NetLogRequestList result={result} /> : null },
     { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} /> : null },
     { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} initialSearch={eventsSearch} /> },
     { key: 'ssl-protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />安全与协议</span>, children: result ? (
