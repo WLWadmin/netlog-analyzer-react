@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
@@ -6,6 +6,7 @@ import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../p
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface NetLogRequestListProps {
   result: AnalysisResult;
@@ -35,6 +36,18 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [errorCodeFilter, setErrorCodeFilter] = useState<string>('all');
   const [protocolFilter, setProtocolFilter] = useState<string>('all');
   const [slowOnly, setSlowOnly] = useState(false);
+  const { intent, consumeIntent } = useNavigation();
+
+  // 消费导航意图，自动应用搜索/筛选
+  useEffect(() => {
+    if (!intent || intent.tab !== 'requests') return;
+    const filters = intent.filters;
+    if (filters?.keyword) setSearchKeyword(filters.keyword);
+    if (filters?.host) setHostFilter(filters.host);
+    if (filters?.errorCode) setErrorCodeFilter(filters.errorCode);
+    if (filters?.protocol) setProtocolFilter(filters.protocol);
+    consumeIntent();
+  }, [intent, consumeIntent]);
 
   // 按开始时间排序的请求列表
   const sortedRequests = useMemo(() => {

@@ -3,10 +3,10 @@ import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message,
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { copyText } from '../../utils/copyText';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface EventsTabProps {
   events: ParsedEvent[];
-  initialSearch?: string;
 }
 
 // Extract error info from event params
@@ -51,16 +51,39 @@ interface EventTableRow extends ParsedEvent {
   paramsPreview: string;
 }
 
-const EventsTab: React.FC<EventsTabProps> = ({ events, initialSearch = '' }) => {
-  const [search, setSearch] = useState(initialSearch);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const { intent, consumeIntent } = useNavigation();
 
-  // 当外部传入的 initialSearch 变化时，同步更新内部搜索状态
+  // 当导航意图指向事件列表时，自动应用搜索条件
   useEffect(() => {
-    setSearch(initialSearch);
-    setDebouncedSearch(initialSearch);
-  }, [initialSearch]);
+    if (!intent || intent.tab !== 'events') return;
+    const filters = intent.filters;
+    if (filters?.keyword) {
+      setSearch(filters.keyword);
+      setDebouncedSearch(filters.keyword);
+    }
+    if (filters?.eventType) {
+      setSearch(filters.eventType);
+      setDebouncedSearch(filters.eventType);
+    }
+    if (filters?.errorOnly) {
+      setSearch('net_error');
+      setDebouncedSearch('net_error');
+    }
+    if (filters?.sourceId) {
+      setSourceIdFilter(filters.sourceId);
+    }
+    if (filters?.sourceType) {
+      setSourceFilter(filters.sourceType);
+    }
+    if (filters?.phase) {
+      setPhaseFilter(filters.phase);
+    }
+    consumeIntent();
+  }, [intent, consumeIntent]);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);

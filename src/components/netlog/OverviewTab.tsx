@@ -1,11 +1,24 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Alert, Descriptions, Modal, Button, List, Tooltip as AntTooltip } from 'antd';
-import { GlobalOutlined, CloseCircleOutlined, ClockCircleOutlined, ApiOutlined, WarningOutlined, BugOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Alert, Button, Modal, Descriptions, List, Tooltip as AntTooltip } from 'antd';
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  WarningOutlined,
+  RiseOutlined,
+  SwapOutlined,
+  ArrowRightOutlined,
+  BugOutlined,
+  FieldTimeOutlined,
+  LockOutlined,
+  GlobalOutlined,
+  ClockCircleOutlined,
+  ApiOutlined,
+} from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AnalysisResult, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
-import { IssueSummaryList } from '../../components/shared/IssueDisplay';
-import { getChartColor } from '../../constants/chartColors';
+import { useNavigation } from '../../contexts/NavigationContext';
 import { StatusTag } from '../../components/shared/StatusTag';
+import { IssueSummaryList } from '../../components/shared/IssueDisplay';
 
 interface OverviewTabProps {
   result: AnalysisResult;
@@ -117,6 +130,104 @@ const ErrorDescCell: React.FC<{
 
 const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
   const pi = result.proxyInfo;
+  const { navigateTo } = useNavigation();
+
+  // 关键结论：自动提取 Top 发现
+  const keyFindings = useMemo(() => {
+    const findings: { severity: 'error' | 'warning' | 'info'; icon: React.ReactNode; title: string; description: string; navigateTab: string; navigateFilters?: { keyword?: string } }[] = [];
+
+    // 1. 错误率
+    const errorCount = result.urlRequests.filter(r => r.status === 'error' || r.error).length;
+    const totalReqs = result.urlRequests.length;
+    if (errorCount > 0 && totalReqs > 0) {
+      const ratePct = Math.round((errorCount / totalReqs) * 100);
+      if (ratePct > 10) {
+        findings.push({
+          severity: 'error',
+          icon: <CloseCircleOutlined />,
+          title: `高错误率（${ratePct}%）`,
+          description: `共 ${errorCount} 个错误 / ${totalReqs} 个总请求`,
+          navigateTab: 'diagnosis',
+          navigateFilters: { keyword: 'error' },
+        });
+      } else {
+        findings.push({
+          severity: 'warning',
+          icon: <WarningOutlined />,
+          title: `存在 ${errorCount} 个请求错误`,
+          description: `错误率 ${ratePct}%，建议查看诊断详情`,
+          navigateTab: 'diagnosis',
+          navigateFilters: { keyword: 'error' },
+        });
+      }
+    }
+
+    // 2. 慢请求
+    const slowCount = result.urlRequests.filter(r => (r.duration || 0) > 3000).length;
+    if (slowCount > 0) {
+      findings.push({
+        severity: 'warning',
+        icon: <FieldTimeOutlined />,
+        title: `${slowCount} 个请求耗时超过 3s`,
+        description: '建议查看性能分析和慢请求详情',
+        navigateTab: 'performance',
+      });
+    }
+
+    // 3. 失败域名
+    if (result.failedDomains.length > 0) {
+      findings.push({
+        severity: 'error',
+        icon: <BugOutlined />,
+        title: `${result.failedDomains.length} 个域名存在错误`,
+        description: result.failedDomains.map(d => d.domain).join('、'),
+        navigateTab: 'ssl-protocol',
+        navigateFilters: { keyword: result.failedDomains[0]?.domain },
+      });
+    }
+
+    // 4. 代理 / VPN
+    if (pi.isVPN) {
+      findings.push({
+        severity: 'warning',
+        icon: <SwapOutlined />,
+        title: '检测到 VPN',
+        description: 'VPN 可能影响网络延迟和连接稳定性',
+        navigateTab: 'overview',
+      });
+    }
+
+    // 5. SSL 问题
+    const sslErrors = result.urlRequests.filter(r => {
+      const sslInfo = r.timeline?.ssl;
+      return sslInfo && sslInfo.duration > 0 && (r.error || r.status === 'error');
+    }).length;
+    if (sslErrors > 0) {
+      findings.push({
+        severity: 'error',
+        icon: <LockOutlined />,
+        title: `${sslErrors} 个 SSL 相关错误`,
+        description: '建议查看安全与协议 tab 的详细分析',
+        navigateTab: 'ssl-protocol',
+        navigateFilters: { keyword: 'ssl' },
+      });
+    }
+
+    if (findings.length === 0) {
+      findings.push({
+        severity: 'info',
+        icon: <CheckCircleOutlined />,
+        title: '未发现明显问题',
+        description: '所有指标正常，无需特别关注',
+        navigateTab: 'overview',
+      });
+    }
+
+    return findings;
+  }, [result, pi]);
+
+  const severityColor = { error: '#ff4d4f', warning: '#fa8c16', info: '#52c41a' };
+  const severityBg = { error: 'rgba(255,77,79,0.06)', warning: 'rgba(250,140,22,0.06)', info: 'rgba(82,196,26,0.06)' };
 
   // Protocol distribution
   const protocolData = Object.entries(result.protocols)
@@ -162,6 +273,46 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
 
   return (
     <>
+      {/* 关键结论置顶摘要 */}
+      <Card
+        title={<span><RiseOutlined style={{ color: 'var(--accent-blue)' }} /> 关键结论与建议</span>}
+        style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {keyFindings.map((finding, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 14px',
+                background: severityBg[finding.severity],
+                borderRadius: 10,
+                borderLeft: `3px solid ${severityColor[finding.severity]}`,
+              }}
+            >
+              <span style={{ color: severityColor[finding.severity], fontSize: 16 }}>{finding.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{finding.title}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{finding.description}</div>
+              </div>
+              {finding.navigateTab !== 'overview' && (
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  icon={<ArrowRightOutlined />}
+                  onClick={() => navigateTo({ tab: finding.navigateTab, filters: finding.navigateFilters || {} })}
+                >
+                  查看详情
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* Proxy/VPN Detection */}
       <Card title={<span><GlobalOutlined /> 代理 / VPN 环境检测</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         {pi.isVPN || pi.hasProxy || result.proxyEvents.length > 0 ? (
@@ -251,7 +402,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
               />
               <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={24}>
                 {protocolData.map((_, index) => (
-                  <Cell key={index} fill={getChartColor(index)} />
+                  <Cell key={index} fill={['#4a9eff', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c', '#34d399', '#f472b6'][index % 8]} />
                 ))}
               </Bar>
             </BarChart>

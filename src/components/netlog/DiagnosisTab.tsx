@@ -4,6 +4,7 @@ import { DownOutlined, UpOutlined, UnorderedListOutlined, BulbOutlined, PushpinO
 import { AnalysisResult } from '../../parsers/netlog/parser';
 import { generateSuggestions, generateNextStepInfo } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 const { Panel } = Collapse;
 
@@ -125,6 +126,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [loadedCategories, setLoadedCategories] = useState<Map<string, number>>(new Map());
   const suggestions = generateSuggestions(result);
+  const { navigateTo } = useNavigation();
 
   const INITIAL_SHOW = 10;
   const LOAD_MORE_STEP = 100;
@@ -178,6 +180,23 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                       <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                         {s.conclusion}
                       </div>
+                    </div>
+                    {/* Evidence Navigation */}
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <Button
+                        size="small"
+                        icon={<SearchOutlined />}
+                        onClick={() => navigateTo({ tab: 'events', filters: { keyword: s.title }, source: '诊断建议', reason: '查看相关事件证据' })}
+                      >
+                        查看事件证据
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<GlobalOutlined />}
+                        onClick={() => navigateTo({ tab: 'requests', filters: { keyword: s.title }, source: '诊断建议', reason: '查看相关请求瀑布' })}
+                      >
+                        查看请求瀑布
+                      </Button>
                     </div>
                     {/* Action steps */}
                     {s.actions && s.actions.length > 0 && (

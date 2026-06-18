@@ -24,6 +24,7 @@ import { parseLog, ParsedEvent, AnalysisResult, exportReport } from './parsers/n
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
 import { parseLogFile, LogAnalysisResult } from './logParser';
 import { useTheme } from './theme';
+import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
 import SummaryCards from './components/netlog/SummaryCards';
 import OverviewTab from './components/netlog/OverviewTab';
@@ -40,7 +41,8 @@ import { LoadingOverlay } from './components/shared/LoadingOverlay';
 
 const { Header, Content } = Layout;
 
-const App: React.FC = () => {
+/** 内部组件：可以使用 useNavigation 监听 tab 切换 */
+const AppContent: React.FC = () => {
   const [hasData, setHasData] = useState(false);
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -51,8 +53,15 @@ const App: React.FC = () => {
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [showBackTop, setShowBackTop] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
-  const [eventsSearch, setEventsSearch] = useState('');
   const { mode, toggleTheme } = useTheme();
+  const { intent, consumeIntent } = useNavigation();
+
+  // 监听导航意图，自动切换 tab
+  useEffect(() => {
+    if (!intent) return;
+    setActiveTab(intent.tab);
+    // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
+  }, [intent]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -133,7 +142,7 @@ const App: React.FC = () => {
     { key: 'overview', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DashboardOutlined />总览</span>, children: result ? <OverviewTab result={result} /> : null },
     { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />请求瀑布</span>, children: result ? <NetLogRequestList result={result} /> : null },
     { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} /> : null },
-    { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} initialSearch={eventsSearch} /> },
+    { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} /> },
     { key: 'ssl-protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />安全与协议</span>, children: result ? (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         <SSLTab result={result} />
@@ -456,7 +465,7 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
-            {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) setEventsSearch(search); }} />}
+            {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) consumeIntent(); }} />}
             <Alert
               message={
                 <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
@@ -518,5 +527,11 @@ const App: React.FC = () => {
     </ErrorBoundary>
   );
 };
+
+const App: React.FC = () => (
+  <NavigationProvider>
+    <AppContent />
+  </NavigationProvider>
+);
 
 export default App;
