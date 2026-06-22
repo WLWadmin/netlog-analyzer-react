@@ -263,7 +263,9 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     const minTime = allStartTimes.length > 0 ? Math.min(...allStartTimes) : 0;
     const maxTime = allStartTimes.length > 0 ? Math.max(...allStartTimes) : 0;
     const timeRange = maxTime - minTime;
-    const autoMode: 'relative' | 'absolute' = timeRange < 5000 ? 'relative' : 'absolute';
+    const hasCompletedReqs = completedReqs.length > 0;
+    const autoMode: 'relative' | 'absolute' =
+      hasCompletedReqs && timeRange < 5000 ? 'relative' : 'absolute';
 
     // 吞吐量：按 1 秒桶聚合
     const bucketMap = new Map<number, number>();
@@ -492,7 +494,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         title={<span><AreaChartOutlined /> 请求耗时时间线</span>}
         extra={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {timeMode === 'relative' && displayMode === 'auto' && (
+            {completedReqs.length > 0 && timeMode === 'relative' && displayMode === 'auto' && (
               <Tag color="blue" style={{ fontSize: 11 }}>
                 请求集中，已自动切换相对时间
               </Tag>

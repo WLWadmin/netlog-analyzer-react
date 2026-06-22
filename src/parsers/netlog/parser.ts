@@ -284,26 +284,72 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
 // DNS 解析工具函数
 // ============================================================
 
+function stripIpWrapper(value: string): string {
+  const trimmed = value.trim();
+
+  // [IPv6]:port 或 [IPv6]
+  const bracketMatch = trimmed.match(/^\[([0-9a-fA-F:.]+)\](?::\d+)?$/);
+  if (bracketMatch) {
+    return bracketMatch[1];
+  }
+
+  // IPv4:port
+  if (/^(\d{1,3}\.){3}\d{1,3}:\d+$/.test(trimmed)) {
+    return trimmed.replace(/:\d+$/, '');
+  }
+
+  return trimmed;
+}
+
+function isValidIpv4(value: string): boolean {
+  const ip = stripIpWrapper(value);
+  const parts = ip.split('.');
+
+  if (parts.length !== 4) return false;
+
+  return parts.every(part => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    const num = Number(part);
+    return num >= 0 && num <= 255;
+  });
+}
+
+function isValidIpv6(value: string): boolean {
+  const ip = stripIpWrapper(value);
+
+  // 避免把 abcdef、123abc 这类纯十六进制字符串误判为 IPv6
+  if (!ip.includes(':')) return false;
+
+  // IPv6 只允许十六进制字符、冒号，以及 IPv4-mapped 地址中的点
+  if (!/^[0-9a-fA-F:.]+$/.test(ip)) return false;
+
+  // :: 最多出现一次
+  if ((ip.match(/::/g) || []).length > 1) return false;
+
+  const segments = ip.split(':');
+
+  // 普通 IPv6 最多 8 段；带 :: 压缩时允许空段
+  if (segments.length > 8) return false;
+
+  return segments.every(segment => {
+    if (segment === '') return true;
+
+    // 兼容 IPv4-mapped IPv6，例如 ::ffff:192.168.1.1
+    if (segment.includes('.')) {
+      return isValidIpv4(segment);
+    }
+
+    return /^[0-9a-fA-F]{1,4}$/.test(segment);
+  });
+}
+
 function isIpLike(value: unknown): value is string {
   if (typeof value !== 'string') return false;
-  // IPv4 with optional port
-  if (/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(value)) return true;
-  // IPv6 (including bracketed with port and plain)
-  if (/^\[?[0-9a-fA-F:]+\]?(:\d+)?$/.test(value)) return true;
-  return false;
+  return isValidIpv4(value) || isValidIpv6(value);
 }
 
 function normalizeIp(value: string): string {
-  // IPv4 with port: strip port
-  if (/^(\d{1,3}\.){3}\d{1,3}:\d+$/.test(value)) {
-    return value.replace(/:\d+$/, '');
-  }
-  // Bracketed IPv6 with port: strip brackets and port
-  if (/^\[[0-9a-fA-F:]+\]:\d+$/.test(value)) {
-    return value.slice(1, value.indexOf(']'));
-  }
-  // Plain IPv6 or IPv4 without port: return as-is
-  return value;
+  return stripIpWrapper(value);
 }
 
 function extractIpsFromValue(value: unknown): string[] {

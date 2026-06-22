@@ -31,37 +31,64 @@ const iconMap: Record<string, React.ReactNode> = {
   '🦈': <SearchOutlined />,
 };
 
+// 从诊断标题中提取 Chrome NetLog 错误码
+const extractNetErrorCode = (title: string): string | undefined => {
+  const patterns = [
+    // ERR_NAME_NOT_RESOLVED (-105)
+    /\((-?\d{1,4})\)/,
+    // 错误码: -105 / errorCode: -105 / net_error: -105
+    /(?:错误码|errorCode|net_error)\s*[:：]?\s*(-\d{1,4})/i,
+    // 涉及错误码: -105
+    /涉及错误码\s*[:：]?\s*(-\d{1,4})/,
+    // 兜底：只抓负数，避免 HTTP/2、TLS 1.3、P90 被误识别
+    /(-\d{1,4})/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = title.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+
+  return undefined;
+};
+
 // 根据诊断建议类型构造精确筛选条件
 const buildNavigationFilters = (s: Suggestion): NavigationFilters => {
-  const errorCodeMatch = s.title.match(/-?\d+/g);
-  const errorCodes = errorCodeMatch ? errorCodeMatch.map(Number) : [];
+  const errorCode = extractNetErrorCode(s.title);
 
+  const withErrorCode = (filters: NavigationFilters): NavigationFilters => ({
+    ...filters,
+    ...(errorCode ? { errorCode } : {}),
+  });
+
+  if (s.title.includes('DNS 劫持')) {
+    return withErrorCode({ keyword: 'DNS', errorOnly: true });
+  }
   if (s.icon === '🌐' || s.title.includes('DNS')) {
-    return { keyword: 'DNS', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+    return withErrorCode({ keyword: 'DNS', errorOnly: true });
   }
   if (s.icon === '🔒' || s.title.includes('证书') || s.title.includes('SSL')) {
-    return { keyword: 'SSL', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+    return withErrorCode({ keyword: 'SSL', errorOnly: true });
   }
   if (s.icon === '🔗' || s.title.includes('连接')) {
-    return { errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+    return withErrorCode({ errorOnly: true });
   }
   if (s.icon === '⚠️' || s.icon === '🚨' || s.title.includes('代理') || s.title.includes('VPN')) {
     return { keyword: 'PROXY' };
   }
   if (s.icon === '📡' || s.title.includes('QUIC') || s.title.includes('HTTP/2')) {
-    return { keyword: s.title.includes('QUIC') ? 'QUIC' : 'HTTP_STREAM', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined };
+    return withErrorCode({
+      keyword: s.title.includes('QUIC') ? 'QUIC' : 'HTTP_STREAM',
+    });
   }
   if (s.icon === '🦈' || s.title.includes('慢请求')) {
     return {};
   }
   if (s.icon === '❌' || s.title.includes('域名')) {
-    return { errorOnly: true };
+    return withErrorCode({ errorOnly: true });
   }
-  if (s.title.includes('DNS 劫持')) {
-    return { keyword: 'DNS', errorOnly: true };
-  }
-  if (errorCodes.length > 0) {
-    return { errorCode: String(errorCodes[0]), errorOnly: true };
+  if (errorCode) {
+    return { errorCode, errorOnly: true };
   }
   return { keyword: s.title };
 };
