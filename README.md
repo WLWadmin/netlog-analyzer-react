@@ -149,6 +149,7 @@
 - 错误、告警、提示信息的聚合展示，使用 `CHART_COLORS.semantic` 语义化颜色（error 红 / warning 黄 / success 绿）。
 - 请求 Top 列表和失败域名列表。
 - 协议分布柱状图使用 `CHART_COLORS.primary` 调色板，代理信息、系统信息等整体画像。
+- **DNS 信息展示**：独立展示 DNS Server IP（从 `polledData` 递归提取）和域名解析 IP（从 DNS 事件和 `dns_cache` 提取），支持多 IP 合并展示和来源标注（`dns_cache` / `dns_event`），异常 IP（127.0.0.1 / 0.0.0.0 / ::1）红色高亮并触发劫持检测告警。
 - 对重复错误和大量问题做分组、折叠和"加载更多"，避免大日志页面过载。
 
 适合用来快速回答"这份日志主要问题在哪里"。
@@ -430,6 +431,7 @@ NetLog / HAR / Go Log 文件
   - 缓存事件
   - 网络变更事件
 - 构建 URL 请求的阶段时间线：DNS、连接、SSL、发送、等待、下载。
+- **DNS 信息提取**：从 `polledData` 递归提取 DNS Server IP（`dnsServers`），从 DNS 事件（`HOST_RESOLVER` / `HOST_RESOLVER_IMPL_JOB` / `HOST_RESOLVER_MANAGER_JOB`）和 `dns_cache` 提取域名解析 IP（`dnsRecords`），支持多 IP 合并、IPv4/IPv6 地址识别和端口剥离。
 - **协议推断**：根据关联事件（QUIC / HTTP2 / SSL）为每个 URLRequest 推断 `protocol` 字段（HTTP/1.1 / HTTP/2 / QUIC）。
 - 提取响应头中的 IP 线索，例如 `x-response-cinfo`、`x-tt-cip`、`x-lsc-source-ip`、`x-response-sinfo`。
 - 识别失败请求、失败域名、错误码、慢请求、证书问题、代理 / VPN 线索等。
@@ -590,6 +592,9 @@ src/
 | `proxyEvents` | 代理相关事件 |
 | `errors` / `warnings` / `info` | 自动诊断出的错误、告警和提示 |
 | `protocols` | 协议分布统计 |
+| `hosts` | DNS 解析记录（兼容旧字段，新解析优先使用 `dnsRecords`） |
+| `dnsServers` | DNS Server IP 列表（从 `polledData` 递归提取） |
+| `dnsRecords` | 域名解析 IP 记录（含 `host`、`ips`、`source`、`time`） |
 | `errorSources` | 错误码出现次数统计 |
 | `certIssues` | 证书 / TLS 问题 |
 | `connectionFailures` | 连接失败请求 |

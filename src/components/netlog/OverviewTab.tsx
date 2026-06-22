@@ -432,17 +432,81 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
         </Card>
       )}
 
-      {/* DNS Records */}
-      {Object.keys(result.hosts).length > 0 && (
-        <Card title={<span><GlobalOutlined /> DNS 解析记录</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          <Descriptions column={2} size="small">
-            {Object.entries(result.hosts).map(([host, ip]) => (
-              <Descriptions.Item key={host} label={host}>
-                <Tag color="cyan">{ip}</Tag>
-              </Descriptions.Item>
-            ))}
-          </Descriptions>
+      {/* DNS 信息 */}
+      {((result.dnsServers?.length || 0) > 0 || (result.dnsRecords?.length || 0) > 0 || Object.keys(result.hosts || {}).length > 0) && (
+        <Card
+          title={<span><GlobalOutlined /> DNS 信息</span>}
+          style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+        >
+          {/* DNS Server IP */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+              DNS Server IP
+            </div>
+            {result.dnsServers?.length > 0 ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {result.dnsServers.map(ip => (
+                  <Tag key={ip} color="geekblue" style={{ fontFamily: 'var(--font-mono)' }}>
+                    {ip}
+                  </Tag>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                当前 NetLog 未检测到明确的 DNS Server IP。建议结合 nslookup 或系统网络设置截图确认。
+              </div>
+            )}
+          </div>
+
+          {/* DNS Resolved IP */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+              域名解析 IP
+            </div>
+            {(result.dnsRecords?.length || 0) > 0 ? (
+              <>
+                <Descriptions column={2} size="small">
+                  {result.dnsRecords.slice(0, 80).map(record => (
+                    <Descriptions.Item key={record.host} label={record.host}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {record.ips.map(ip => (
+                          <Tag key={ip} color={ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1' ? 'red' : 'cyan'}>
+                            {ip}
+                          </Tag>
+                        ))}
+                        <Tag color="default">{record.source}</Tag>
+                      </div>
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+                {(result.dnsRecords?.length || 0) > 80 && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    仅展示前 80 条 DNS 解析记录，更多请在事件列表中筛选 DNS / HOST_RESOLVER。
+                  </div>
+                )}
+              </>
+            ) : (
+              <Descriptions column={2} size="small">
+                {Object.entries(result.hosts || {}).map(([host, ip]) => (
+                  <Descriptions.Item key={host} label={host}>
+                    <Tag color="cyan">{ip}</Tag>
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+            )}
+          </div>
         </Card>
+      )}
+
+      {/* DNS 异常检测 */}
+      {result.dnsRecords?.some(record => record.ips.some(ip => ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1')) && (
+        <Alert
+          type="warning"
+          showIcon
+          message="检测到疑似异常 DNS 解析结果"
+          description="部分域名被解析到 127.0.0.1、0.0.0.0 或 ::1，可能存在 hosts 劫持、DNS 劫持或本地代理接管。"
+          style={{ marginBottom: 16, borderRadius: 12 }}
+        />
       )}
 
       {/* Issue Summary — 放在最底部 */}

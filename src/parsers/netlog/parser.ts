@@ -91,6 +91,13 @@ export interface SslIssue {
   category: 'cert' | 'timeout' | 'protocol' | 'connection' | 'other';
 }
 
+export interface DnsRecord {
+  host: string;
+  ips: string[];
+  source: 'dns_cache' | 'dns_event' | 'socket_event' | 'unknown';
+  time?: number;
+}
+
 export interface AnalysisResult {
   totalEvents: number;
   uniqueSources: number;
@@ -108,6 +115,8 @@ export interface AnalysisResult {
   timeRange: { start: number; end: number };
   protocols: Record<string, number>;
   hosts: Record<string, string>;
+  dnsServers: string[];
+  dnsRecords: DnsRecord[];
   errorSources: Record<string, number>;
   certIssues: SslIssue[];
   sslIssues: SslIssue[];
@@ -168,6 +177,8 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     },
     failedDomains: [],
     systemInfo: { os: null, browser: null, netLogVersion: null, commandLine: null },
+    dnsServers: [],
+    dnsRecords: [],
   };
 
   // Extract events
@@ -269,6 +280,147 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   return { events: parsedEvents, result };
 }
 
+// ============================================================
+// DNS 解析工具函数
+// ============================================================
+
+function isIpLike(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  // IPv4 with optional port
+  if (/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(value)) return true;
+  // IPv6 (including bracketed with port and plain)
+  if (/^\[?[0-9a-fA-F:]+\]?(:\d+)?$/.test(value)) return true;
+  return false;
+}
+
+function normalizeIp(value: string): string {
+  // IPv4 with port: strip port
+  if (/^(\d{1,3}\.){3}\d{1,3}:\d+$/.test(value)) {
+    return value.replace(/:\d+$/, '');
+  }
+  // Bracketed IPv6 with port: strip brackets and port
+  if (/^\[[0-9a-fA-F:]+\]:\d+$/.test(value)) {
+    return value.slice(1, value.indexOf(']'));
+  }
+  // Plain IPv6 or IPv4 without port: return as-is
+  return value;
+}
+
+function extractIpsFromValue(value: unknown): string[] {
+  const ips = new Set<string>();
+  const walk = (v: unknown) => {
+    if (!v) return;
+    if (typeof v === 'string') {
+      if (isIpLike(v)) ips.add(normalizeIp(v));
+      return;
+    }
+    if (Array.isArray(v)) {
+      v.forEach(walk);
+      return;
+    }
+    if (typeof v === 'object') {
+      Object.entries(v as Record<string, unknown>).forEach(([key, child]) => {
+        const lowerKey = key.toLowerCase();
+        if (
+          lowerKey.includes('address') ||
+          lowerKey.includes('ip') ||
+          lowerKey.includes('endpoint') ||
+          lowerKey.includes('nameserver') ||
+          lowerKey.includes('server')
+        ) {
+          walk(child);
+        } else if (Array.isArray(child) || typeof child === 'object') {
+          walk(child);
+        }
+      });
+    }
+  };
+  walk(value);
+  return Array.from(ips);
+}
+
+function extractHostFromParams(params: any): string | null {
+  return (
+    params?.host ||
+    params?.hostname ||
+    params?.host_name ||
+    params?.domain ||
+    params?.query ||
+    params?.url ||
+    null
+  );
+}
+
+function normalizeHost(hostOrUrl: string | null): string | null {
+  if (!hostOrUrl) return null;
+  try {
+    if (hostOrUrl.startsWith('http://') || hostOrUrl.startsWith('https://')) {
+      return new URL(hostOrUrl).hostname;
+    }
+  } catch { /* ignore */ }
+  return hostOrUrl;
+}
+
+function addDnsRecord(
+  result: AnalysisResult,
+  host: string | null,
+  ips: string[],
+  source: DnsRecord['source'],
+  time?: number
+) {
+  const normalizedHost = normalizeHost(host);
+  if (!normalizedHost || ips.length === 0) return;
+  const cleanIps = Array.from(new Set(ips.map(normalizeIp).filter(Boolean)));
+  if (cleanIps.length === 0) return;
+
+  // 兼容旧 hosts 字段：取第一个 IP
+  if (!result.hosts[normalizedHost] && cleanIps[0]) {
+    result.hosts[normalizedHost] = cleanIps[0];
+  }
+
+  const existing = result.dnsRecords.find(r => r.host === normalizedHost);
+  if (existing) {
+    existing.ips = Array.from(new Set([...existing.ips, ...cleanIps]));
+    return;
+  }
+
+  result.dnsRecords.push({ host: normalizedHost, ips: cleanIps, source, time });
+}
+
+function addDnsServers(result: AnalysisResult, ips: string[]) {
+  const next = new Set(result.dnsServers);
+  ips.forEach(ip => {
+    const normalized = normalizeIp(ip);
+    if (normalized) next.add(normalized);
+  });
+  result.dnsServers = Array.from(next);
+}
+
+function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) {
+  if (!polledData) return;
+  const candidates: unknown[] = [];
+  const walk = (obj: unknown) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const lowerKey = key.toLowerCase();
+      if (
+        lowerKey.includes('dns') ||
+        lowerKey.includes('nameserver') ||
+        lowerKey.includes('name_server') ||
+        lowerKey.includes('resolver')
+      ) {
+        candidates.push(value);
+      }
+      if (typeof value === 'object') {
+        walk(value);
+      }
+    }
+  };
+  walk(polledData);
+  const dnsServerIps = candidates.flatMap(extractIpsFromValue);
+  addDnsServers(result, dnsServerIps);
+}
+
 function parsePolledData(polledData: any, r: AnalysisResult) {
   if (!polledData) return;
   const pi = r.proxyInfo;
@@ -294,11 +446,15 @@ function parsePolledData(polledData: any, r: AnalysisResult) {
     }
   }
 
+  // DNS Server IP extraction
+  parseDnsServersFromPolledData(r, polledData);
+
   // DNS cache info
   if (polledData.dns_cache) {
     for (const entry of polledData.dns_cache) {
-      if (entry.hostname && entry.address) {
-        r.hosts[entry.hostname] = entry.address;
+      if (entry.hostname) {
+        const ips = extractIpsFromValue(entry);
+        addDnsRecord(r, entry.hostname, ips, 'dns_cache');
       }
     }
   }
@@ -402,11 +558,17 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   }
 
   // ---- DNS events ----
-  if (stn === 'HOST_RESOLVER_IMPL_JOB' || stn === 'HOST_RESOLVER_MANAGER_JOB' || tn.includes('DNS_')) {
+  if (
+    stn === 'HOST_RESOLVER_IMPL_JOB' ||
+    stn === 'HOST_RESOLVER_MANAGER_JOB' ||
+    stn === 'HOST_RESOLVER' ||
+    tn.includes('DNS_') ||
+    tn.includes('HOST_RESOLVER')
+  ) {
     r.dnsEvents.push(evt);
-    if (p.address) {
-      r.hosts[p.host || p.hostname || 'unknown'] = p.address;
-    }
+    const host = extractHostFromParams(p);
+    const ips = extractIpsFromValue(p);
+    addDnsRecord(r, host, ips, 'dns_event', evt.time);
   }
 
   // ---- URL_REQUEST events ----
