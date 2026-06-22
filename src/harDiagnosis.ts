@@ -252,16 +252,19 @@ function classifyIP(ip: string): IpStats['type'] {
   return 'public';
 }
 
-function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number, threshold: number, label: string): NetworkPhaseStatus {
+function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number, total: number, threshold: number, label: string): NetworkPhaseStatus {
+  const slowRate = total > 0 ? slowCount / total : 0;
   let status: DiagnosisStatus = 'healthy';
   let detail = `${label}正常`;
-  if (p95 > threshold * 3 || slowCount > 10) {
+
+  if (p95 > threshold * 3 || max > threshold * 8 || slowRate > 0.2) {
     status = 'critical';
     detail = `${label}严重偏高`;
-  } else if (p95 > threshold || slowCount > 3) {
+  } else if (p95 > threshold || max > threshold * 4 || slowRate > 0.05 || slowCount > 3) {
     status = 'warning';
     detail = `${label}偏高`;
   }
+
   return { label, status, avgMs: Math.round(avg), maxMs: Math.round(max), p95Ms: Math.round(p95), slowCount, slowDomains: [], detail };
 }
 
@@ -405,11 +408,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 网络状态 ----
   const networkStatus: NetworkPhaseStatus[] = [
-    getPhaseStatus(avgDns, dnsArr[dnsArr.length - 1] || 0, p95Dns, dnsSlow, THRESHOLDS.dnsSlow, 'DNS'),
-    getPhaseStatus(avgConnect, connectArr[connectArr.length - 1] || 0, p95Connect, connectSlow, THRESHOLDS.connectSlow, 'TCP'),
-    getPhaseStatus(avgSsl, sslArr[sslArr.length - 1] || 0, p95Ssl, sslSlow, THRESHOLDS.sslSlow, 'TLS'),
-    getPhaseStatus(avgWait, waitArr[waitArr.length - 1] || 0, p95Wait, ttfbSlow, THRESHOLDS.ttfbSlow, 'TTFB'),
-    getPhaseStatus(avgReceive, receiveArr[receiveArr.length - 1] || 0, p95Receive, receiveSlow, THRESHOLDS.receiveSlow, '下载'),
+    getPhaseStatus(avgDns, dnsArr[dnsArr.length - 1] || 0, p95Dns, dnsSlow, total, THRESHOLDS.dnsSlow, 'DNS'),
+    getPhaseStatus(avgConnect, connectArr[connectArr.length - 1] || 0, p95Connect, connectSlow, total, THRESHOLDS.connectSlow, 'TCP'),
+    getPhaseStatus(avgSsl, sslArr[sslArr.length - 1] || 0, p95Ssl, sslSlow, total, THRESHOLDS.sslSlow, 'TLS'),
+    getPhaseStatus(avgWait, waitArr[waitArr.length - 1] || 0, p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'TTFB'),
+    getPhaseStatus(avgReceive, receiveArr[receiveArr.length - 1] || 0, p95Receive, receiveSlow, total, THRESHOLDS.receiveSlow, '下载'),
   ];
 
   // 填充慢域名
@@ -569,17 +572,29 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 健康评分 ----
   let healthScore = 100;
-  if (httpStatus.countFailed > 0) healthScore -= Math.min(30, httpStatus.countFailed * 2);
-  if (result.slowCount > 0) healthScore -= Math.min(20, result.slowCount);
-  if (networkStatus.some(n => n.status === 'critical')) healthScore -= 15;
-  if (networkStatus.some(n => n.status === 'warning')) healthScore -= 5;
+  const failRate = total > 0 ? httpStatus.countFailed / total : 0;
+  const slowRate = total > 0 ? result.slowCount / total : 0;
+
+  if (failRate > 0.1) healthScore -= 35;
+  else if (failRate > 0.03) healthScore -= 20;
+  else if (failRate > 0) healthScore -= Math.min(10, httpStatus.countFailed * 2);
+
+  if (slowRate > 0.3) healthScore -= 30;
+  else if (slowRate > 0.1) healthScore -= 20;
+  else if (slowRate > 0.03) healthScore -= 10;
+
+  const criticalPhaseCount = networkStatus.filter(n => n.status === 'critical').length;
+  const warningPhaseCount = networkStatus.filter(n => n.status === 'warning').length;
+  healthScore -= criticalPhaseCount * 10;
+  healthScore -= warningPhaseCount * 5;
+
   if (duplicateRequests.length > 0) healthScore -= 5;
   if (uncompressedLargeResources.length > 0) healthScore -= 5;
   healthScore = Math.max(0, healthScore);
 
   let overallStatus: DiagnosisStatus = 'healthy';
   if (healthScore < 60) overallStatus = 'critical';
-  else if (healthScore < 80) overallStatus = 'warning';
+  else if (healthScore < 85) overallStatus = 'warning';
 
   // ---- 核心发现 ----
   const findings: string[] = [];
