@@ -53,7 +53,7 @@ const extractNetErrorCode = (title: string): string | undefined => {
 };
 
 // 根据诊断建议类型构造精确筛选条件
-const buildNavigationFilters = (s: Suggestion): NavigationFilters => {
+const buildNavigationFilters = (s: Suggestion, target: 'events' | 'requests' = 'events'): NavigationFilters => {
   const errorCode = extractNetErrorCode(s.title);
 
   const withErrorCode = (filters: NavigationFilters): NavigationFilters => ({
@@ -62,24 +62,24 @@ const buildNavigationFilters = (s: Suggestion): NavigationFilters => {
   });
 
   if (s.title.includes('DNS 劫持')) {
-    return withErrorCode({ keyword: 'DNS', errorOnly: true });
+    return target === 'requests' ? withErrorCode({ keyword: 'dns', errorOnly: true }) : withErrorCode({ keyword: 'DNS', errorOnly: true });
   }
   if (s.icon === '🌐' || s.title.includes('DNS')) {
-    return withErrorCode({ keyword: 'DNS', errorOnly: true });
+    return target === 'requests' ? withErrorCode({ keyword: 'dns', errorOnly: true }) : withErrorCode({ keyword: 'DNS', errorOnly: true });
   }
   if (s.icon === '🔒' || s.title.includes('证书') || s.title.includes('SSL')) {
-    return withErrorCode({ keyword: 'SSL', errorOnly: true });
+    return target === 'requests' ? withErrorCode({ keyword: 'ssl', errorOnly: true }) : withErrorCode({ keyword: 'SSL', errorOnly: true });
   }
   if (s.icon === '🔗' || s.title.includes('连接')) {
     return withErrorCode({ errorOnly: true });
   }
   if (s.icon === '⚠️' || s.icon === '🚨' || s.title.includes('代理') || s.title.includes('VPN')) {
-    return { keyword: 'PROXY' };
+    return target === 'requests' ? { errorOnly: true, keyword: 'proxy' } : { keyword: 'PROXY' };
   }
   if (s.icon === '📡' || s.title.includes('QUIC') || s.title.includes('HTTP/2')) {
-    return withErrorCode({
-      keyword: s.title.includes('QUIC') ? 'QUIC' : 'HTTP_STREAM',
-    });
+    return target === 'requests'
+      ? withErrorCode({ protocol: s.title.includes('QUIC') ? 'QUIC' : 'HTTP/2' })
+      : withErrorCode({ keyword: s.title.includes('QUIC') ? 'QUIC' : 'HTTP_STREAM' });
   }
   if (s.icon === '🦈' || s.title.includes('慢请求')) {
     return {};
@@ -248,14 +248,14 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                       <Button
                         size="small"
                         icon={<SearchOutlined />}
-                        onClick={() => navigateTo({ tab: 'events', filters: buildNavigationFilters(s), source: '诊断建议', reason: '查看相关事件证据' })}
+                        onClick={() => navigateTo({ tab: 'events', filters: buildNavigationFilters(s, 'events'), source: '诊断建议', reason: '查看相关事件证据' })}
                       >
                         查看事件证据
                       </Button>
                       <Button
                         size="small"
                         icon={<GlobalOutlined />}
-                        onClick={() => navigateTo({ tab: 'requests', filters: buildNavigationFilters(s), source: '诊断建议', reason: '查看相关请求瀑布' })}
+                        onClick={() => navigateTo({ tab: 'requests', filters: buildNavigationFilters(s, 'requests'), source: '诊断建议', reason: '查看相关请求瀑布' })}
                       >
                         查看请求瀑布
                       </Button>

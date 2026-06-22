@@ -73,7 +73,7 @@ const AppContent: React.FC = () => {
   const [showBackTop, setShowBackTop] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const { mode, toggleTheme } = useTheme();
-  const { intent, consumeIntent } = useNavigation();
+  const { intent, navigateTo } = useNavigation();
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -569,7 +569,19 @@ const AppContent: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
-            {result && <SummaryCards result={result} onNavigate={(tab, search) => { setActiveTab(tab); if (search) consumeIntent(); }} />}
+            {result && <SummaryCards result={result} onNavigate={(tab, search) => {
+              if (search) {
+                navigateTo({
+                  tab,
+                  filters: search === 'net_error' ? { errorOnly: true } : { keyword: search },
+                  source: '概览卡片',
+                  reason: '点击摘要卡片',
+                });
+                return;
+              }
+              setActiveTab(tab);
+              window.location.hash = buildHash(fileType, tab);
+            }} />}
             <AnalysisDisclaimer variant="netlog" />
             <div
               style={{

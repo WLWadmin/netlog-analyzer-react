@@ -62,22 +62,29 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   useEffect(() => {
     if (!intent || intent.tab !== 'events') return;
     const filters = intent.filters;
-    if (filters?.keyword) {
-      setSearch(filters.keyword);
-      setDebouncedSearch(filters.keyword);
-    }
-    if (filters?.eventType) {
-      setSearch(filters.eventType);
-      setDebouncedSearch(filters.eventType);
-    }
-    if (filters?.errorOnly) {
-      setSearch('net_error');
-      setDebouncedSearch('net_error');
-    }
-    // errorCode 精确匹配 → 搜索 net_error:xxx 语法
+
+    setSearch("");
+    setDebouncedSearch("");
+    setSourceIdFilter("");
+    setSourceFilter("");
+    setPhaseFilter("");
+    setParamFieldFilter("");
+    setPagination(prev => ({ ...prev, current: 1 }));
+
+    let nextSearch = "";
     if (filters?.errorCode) {
-      setSearch(`net_error:${filters.errorCode}`);
-      setDebouncedSearch(`net_error:${filters.errorCode}`);
+      nextSearch = `net_error:${filters.errorCode}`;
+    } else if (filters?.eventType) {
+      nextSearch = filters.eventType;
+    } else if (filters?.keyword) {
+      nextSearch = filters.keyword;
+    } else if (filters?.errorOnly) {
+      nextSearch = 'net_error';
+    }
+
+    if (nextSearch) {
+      setSearch(nextSearch);
+      setDebouncedSearch(nextSearch);
     }
     if (filters?.sourceId) {
       setSourceIdFilter(filters.sourceId);
@@ -87,6 +94,9 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     }
     if (filters?.phase) {
       setPhaseFilter(filters.phase);
+    }
+    if (filters?.paramField) {
+      setParamFieldFilter(filters.paramField);
     }
     consumeIntent();
   }, [intent, consumeIntent]);

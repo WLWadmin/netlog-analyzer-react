@@ -44,15 +44,26 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   useEffect(() => {
     if (!intent || intent.tab !== 'requests') return;
     const filters = intent.filters;
+
+    setSearchKeyword("");
+    setStatusFilter('all');
+    setHostFilter('all');
+    setErrorCodeFilter('all');
+    setProtocolFilter('all');
+    setSlowOnly(false);
+    setSelectedIndex(null);
+    setDetailReq(null);
+
     if (filters?.keyword) setSearchKeyword(filters.keyword);
     if (filters?.host) setHostFilter(filters.host);
+    if (filters?.status) setStatusFilter(filters.status);
     if (filters?.errorCode) {
-      // 精确设置错误码筛选，同时开启"仅失败"状态
       setErrorCodeFilter(filters.errorCode);
+      setStatusFilter('error');
+    } else if (filters?.errorOnly) {
       setStatusFilter('error');
     }
     if (filters?.protocol) setProtocolFilter(filters.protocol);
-    if (filters?.errorOnly) setStatusFilter('error');
     consumeIntent();
   }, [intent, consumeIntent]);
 
@@ -83,7 +94,6 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     }
     return ['all', ...Array.from(set).sort()];
   }, [sortedRequests]);
-
   // 提取所有协议选项（基于解析结果）
   const protocolOptions = useMemo(() => {
     const protocols = new Set(sortedRequests.map(r => r.protocol).filter(Boolean));
@@ -97,12 +107,21 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     // 关键词搜索
     if (searchKeyword.trim()) {
       const kw = searchKeyword.trim().toLowerCase();
-      list = list.filter(r =>
-        (r.url || '').toLowerCase().includes(kw) ||
-        (r.method || '').toLowerCase().includes(kw) ||
-        (r.statusCode?.toString() || '').includes(kw) ||
-        (r.errorDesc || '').toLowerCase().includes(kw)
-      );
+      list = list.filter(r => {
+        const searchText = [
+          r.url || '',
+          r.method || '',
+          r.statusCode?.toString() || '',
+          r.errorDesc || '',
+          r.protocol || '',
+          r.status || '',
+          r.host || '',
+          r.timeline.dns ? 'dns' : '',
+          r.timeline.ssl ? 'ssl tls https' : '',
+          r.timeline.connect ? 'connect tcp socket' : '',
+        ].join(' ').toLowerCase();
+        return searchText.includes(kw);
+      });
     }
 
     // 状态筛选
