@@ -55,7 +55,7 @@
 ### 架构一致性
 
 - **URL hash 路由持久化**：Tab 切换状态自动写入 URL hash（`#netlog/overview`、`#har/requests`、`#log/raw`），刷新页面后保持当前位置。三种文件类型的 Tab 切换均由 App 层统一控制并同步 hash。
-- **跨 Tab 诊断联动**：诊断建议支持一键跳转到事件列表或请求瀑布，并自动设置筛选条件（通过 NavigationContext 实现）。`DiagnosisTab` 根据诊断类型（DNS / SSL / 连接 / 代理 / QUIC / HTTP/2 等）构造结构化 `NavigationFilters`（含 `keyword`、`errorCode`、`errorOnly` 等精确维度），而非传入人类可读标题文本；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
+- **跨 Tab 诊断联动**：诊断建议支持一键跳转到事件列表或请求瀑布，并自动设置筛选条件（通过 NavigationContext 实现）。`DiagnosisTab` 使用 `extractNetErrorCode()` 从标题中精确提取 Chrome NetLog 错误码（优先匹配括号内、标签后、"涉及错误码"后的负数，避免 `HTTP/2`、`TLS 1.3`、`P90` 被误识别），并根据诊断类型（DNS / SSL / 连接 / 代理 / QUIC / HTTP/2 等）构造结构化 `NavigationFilters`（含 `keyword`、`errorCode`、`errorOnly` 等精确维度），而非传入人类可读标题文本；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
 - **统一颜色体系**：所有图表和 UI 组件使用 `CHART_COLORS` 语义化常量（`semantic.error/warning/success`、`phases.dns/connect/ssl` 等），避免硬编码颜色值。HarTimingChart 与 NetLog PerformanceTab 使用相同的阶段颜色。
 - **统一免责声明**：`AnalysisDisclaimer` 共享组件支持 `netlog` / `har` / `log` 三种变体，统一 Alert 样式和语义化颜色，替代各页面中分散的硬编码免责声明。
 - **统一 Loading 机制**：全局使用 `LoadingOverlay` 全屏遮罩组件，支持动态 `phase` 和 `message` 文案，解析过程中实时更新进度提示。
@@ -151,7 +151,7 @@
 - 错误、告警、提示信息的聚合展示，使用 `CHART_COLORS.semantic` 语义化颜色（error 红 / warning 黄 / success 绿）。
 - 请求 Top 列表和失败域名列表。
 - 协议分布柱状图使用 `CHART_COLORS.primary` 调色板，代理信息、系统信息等整体画像。
-- **DNS 信息展示**：独立展示 DNS Server IP（从 `polledData` 递归提取）和域名解析 IP（从 DNS 事件和 `dns_cache` 提取），支持多 IP 合并展示和来源标注（`dns_cache` / `dns_event`），异常 IP（127.0.0.1 / 0.0.0.0 / ::1）红色高亮并触发劫持检测告警。
+- **DNS 信息展示**：独立展示 DNS Server IP（从 `polledData` 白名单配置字段提取，最多展示 6 个，超过时显示异常数量告警）和域名解析 IP（从 DNS 事件和 `dns_cache` 提取，最多展示 20 个域名，每个域名最多 5 个 IP），支持多 IP 合并展示、来源标注（`dns_cache` / `dns_event`）和隐藏计数，异常 IP（127.0.0.1 / 0.0.0.0 / ::1）红色高亮并触发劫持检测告警。
 - 对重复错误和大量问题做分组、折叠和"加载更多"，避免大日志页面过载。
 
 适合用来快速回答"这份日志主要问题在哪里"。
@@ -164,7 +164,7 @@
 
 - 按类别聚合错误、告警和信息项。
 - 展示自动生成的排查建议、结论和行动项。
-- 每条建议底部提供"查看事件证据"和"查看请求瀑布"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。
+- 每条建议底部提供"查看事件证据"和"查看请求瀑布"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。跳转时使用 `buildNavigationFilters()` 根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度），而非传入人类可读标题文本。
 - 提供"下一步排查"视图，例如 DNS、代理 / VPN、防火墙、证书、协议等方向。
 - 对大量同类问题进行分组和分页加载，便于阅读。
 
@@ -233,7 +233,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - **Host / API 维度聚合**：按域名和接口路径聚合耗时统计，识别高耗时来源。
 - **瓶颈归因排名**：按阶段统计总耗时和影响请求数，定位最大瓶颈。
 - **成功 vs 失败耗时对比**：对比成功和失败请求的平均/P90/最大耗时。
-- **请求耗时时间线**：散点图展示请求耗时随时间分布（成功绿/失败红），叠加吞吐量折线图。支持**智能时间模式切换**：当请求集中在 5 秒内时自动切换为相对时间（以首个请求为起点），避免散点退化为垂直线；提供「自动/绝对/相对」Segmented 控件供手动切换；Tooltip 保留原始绝对时间。
+- **请求耗时时间线**：散点图展示请求耗时随时间分布（成功绿/失败红），叠加吞吐量折线图。支持**智能时间模式切换**：当存在完成请求且时间范围 < 5 秒时自动切换为相对时间（以首个请求为起点），避免散点退化为垂直线；空数据时默认使用绝对时间；提供「自动/绝对/相对」Segmented 控件供手动切换；Tooltip 保留原始绝对时间。
 - **PhaseChart 缓存**：各阶段平均耗时柱状图提取为独立 `PhaseChart` 组件，内部使用 `useMemo` 缓存 `phaseChartData`，避免每次渲染重复计算。
 
 适合排查页面加载慢、接口响应慢、DNS 慢、TLS 握手慢、下载慢等性能问题。
@@ -403,7 +403,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - 组织页面 Header、上传区、摘要卡片和各个 Tab。
 - 处理重置、返回顶部、主题切换和报告导出（Markdown / JSON / CSV 三种格式）。
 - **URL hash 路由**：Tab 切换状态写入 `#fileType/tab` 格式 hash，刷新后自动恢复。三种文件类型（NetLog / HAR / Go Log）的 Tab 切换均由 App 层统一控制并同步 hash。文件加载成功后自动将 `activeTab` 重置为该文件类型的第一个合法 tab。
-- **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。`DiagnosisTab` 根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度）；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
+- **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。`DiagnosisTab` 使用 `extractNetErrorCode()` 从标题中精确提取 Chrome NetLog 错误码（避免 `HTTP/2`、`TLS 1.3`、`P90` 被误识别），并根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度）；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
 - **文件加载竞态保护**：`handleFileLoaded` 使用 `loadTaskIdRef`（`useRef(0)`）计数器，连续上传新文件时旧任务的 `setTimeout` 回调会被自动丢弃，避免状态覆盖。
 - **统一 Loading 机制**：仅使用 `LoadingOverlay` 全屏遮罩，`loadingText` 状态实时同步到遮罩的 `phase` prop，无内联 LoadingUI。
 
@@ -443,7 +443,7 @@ NetLog / HAR / Go Log 文件
   - 缓存事件
   - 网络变更事件
 - 构建 URL 请求的阶段时间线：DNS、连接、SSL、发送、等待、下载。
-- **DNS 信息提取**：从 `polledData` 递归提取 DNS Server IP（`dnsServers`），从 DNS 事件（`HOST_RESOLVER` / `HOST_RESOLVER_IMPL_JOB` / `HOST_RESOLVER_MANAGER_JOB`）和 `dns_cache` 提取域名解析 IP（`dnsRecords`），支持多 IP 合并、IPv4/IPv6 地址识别和端口剥离。
+- **DNS 信息提取**：从 `polledData` 白名单配置字段（`nameservers` / `dns_servers` 等，仅在 `dns_config` / `resolver_config` 等容器内）提取 DNS Server IP（`dnsServers`），从 DNS 事件（`HOST_RESOLVER` / `HOST_RESOLVER_IMPL_JOB` / `HOST_RESOLVER_MANAGER_JOB`）和 `dns_cache` 提取域名解析 IP（`dnsRecords`），支持多 IP 合并、IPv4/IPv6 地址识别和端口剥离。IP 验证使用严格校验（`isValidIpv4` / `isValidIpv6`）：IPv4 每段 0-255，IPv6 必须含 `:` 且最多 8 段，支持 `::` 压缩和 IPv4-mapped 地址，防止纯十六进制字符串被误判为 IP。DNS 解析工具函数包括 `extractIpsFromValue`（递归提取对象/数组中的 IP）、`extractHostFromParams`（从事件参数提取 host）、`normalizeHost`（URL 转 hostname）、`addDnsRecord`（合并同一域名多 IP 并回填 `hosts` 兼容）、`addDnsServers`（带 `isIpLike` 守卫的去重添加）。
 - **协议推断**：根据关联事件（QUIC / HTTP2 / SSL）为每个 URLRequest 推断 `protocol` 字段（HTTP/1.1 / HTTP/2 / QUIC）。
 - 提取响应头中的 IP 线索，例如 `x-response-cinfo`、`x-tt-cip`、`x-lsc-source-ip`、`x-response-sinfo`。
 - 识别失败请求、失败域名、错误码、慢请求、证书问题、代理 / VPN 线索等。
@@ -596,7 +596,7 @@ src/
 └── parsers/                   # 解析引擎
     └── netlog/
         ├── index.ts           # 统一导出（parser + diagnosis + constants + errorClassifier）
-        ├── parser.ts          # NetLog JSON 解析引擎
+        ├── parser.ts          # NetLog JSON 解析引擎（含 DNS 信息提取、IP 严格校验、协议推断）
         ├── diagnosis.ts       # 诊断建议与报告生成
         ├── errorClassifier.ts # 错误码分类器（net_error → DNS/证书/代理/网络等类别）
         └── constants.ts       # 事件类型/错误码常量映射
@@ -623,7 +623,7 @@ src/
 | `errors` / `warnings` / `info` | 自动诊断出的错误、告警和提示 |
 | `protocols` | 协议分布统计 |
 | `hosts` | DNS 解析记录（兼容旧字段，新解析优先使用 `dnsRecords`） |
-| `dnsServers` | DNS Server IP 列表（从 `polledData` 递归提取） |
+| `dnsServers` | DNS Server IP 列表（从 `polledData` 白名单配置字段提取） |
 | `dnsRecords` | 域名解析 IP 记录（含 `host`、`ips`、`source`、`time`） |
 | `errorSources` | 错误码出现次数统计 |
 | `certIssues` | 证书 / TLS 问题 |
