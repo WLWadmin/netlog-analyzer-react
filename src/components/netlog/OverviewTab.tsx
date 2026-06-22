@@ -443,19 +443,38 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
               DNS Server IP
             </div>
-            {result.dnsServers?.length > 0 ? (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {result.dnsServers.map(ip => (
-                  <Tag key={ip} color="geekblue" style={{ fontFamily: 'var(--font-mono)' }}>
-                    {ip}
-                  </Tag>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                当前 NetLog 未检测到明确的 DNS Server IP。建议结合 nslookup 或系统网络设置截图确认。
-              </div>
-            )}
+
+            {(() => {
+              const dnsServers = result.dnsServers || [];
+              const visibleDnsServers = dnsServers.slice(0, 6);
+              const hasTooManyDnsServers = dnsServers.length > 6;
+
+              return visibleDnsServers.length > 0 ? (
+                <>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {visibleDnsServers.map(ip => (
+                      <Tag key={ip} color="geekblue" style={{ fontFamily: 'var(--font-mono)' }}>
+                        {ip}
+                      </Tag>
+                    ))}
+                  </div>
+
+                  {hasTooManyDnsServers && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="检测到异常数量的 DNS Server IP"
+                      description="正常设备通常不会配置大量 DNS 服务器。当前结果可能混入了域名解析 IP 或 CDN IP，建议优先查看下方“域名解析 IP”。"
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  当前 NetLog 未检测到明确的 DNS Server IP。NetLog 中的解析结果已在下方“域名解析 IP”中展示。
+                </div>
+              );
+            })()}
           </div>
 
           {/* DNS Resolved IP */}
@@ -463,37 +482,64 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
               域名解析 IP
             </div>
-            {(result.dnsRecords?.length || 0) > 0 ? (
-              <>
-                <Descriptions column={2} size="small">
-                  {result.dnsRecords.slice(0, 80).map(record => (
-                    <Descriptions.Item key={record.host} label={record.host}>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {record.ips.map(ip => (
-                          <Tag key={ip} color={ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1' ? 'red' : 'cyan'}>
-                            {ip}
-                          </Tag>
-                        ))}
-                        <Tag color="default">{record.source}</Tag>
-                      </div>
+
+            {(() => {
+              const dnsRecords = result.dnsRecords || [];
+              const visibleDnsRecords = dnsRecords.slice(0, 20);
+
+              return visibleDnsRecords.length > 0 ? (
+                <>
+                  <Descriptions column={1} size="small">
+                    {visibleDnsRecords.map(record => {
+                      const visibleIps = record.ips.slice(0, 5);
+                      const hiddenCount = record.ips.length - visibleIps.length;
+
+                      return (
+                        <Descriptions.Item key={record.host} label={record.host}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {visibleIps.map(ip => (
+                              <Tag
+                                key={ip}
+                                color={ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1' ? 'red' : 'cyan'}
+                                style={{ fontFamily: 'var(--font-mono)' }}
+                              >
+                                {ip}
+                              </Tag>
+                            ))}
+
+                            {hiddenCount > 0 && (
+                              <Tag color="default">+{hiddenCount} 个</Tag>
+                            )}
+
+                            <Tag color="default">{record.source}</Tag>
+                          </div>
+                        </Descriptions.Item>
+                      );
+                    })}
+                  </Descriptions>
+
+                  {dnsRecords.length > visibleDnsRecords.length && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                      仅展示前 {visibleDnsRecords.length} 个域名解析结果，更多请在事件列表中筛选 DNS / HOST_RESOLVER。
+                    </div>
+                  )}
+                </>
+              ) : Object.keys(result.hosts || {}).length > 0 ? (
+                <Descriptions column={1} size="small">
+                  {Object.entries(result.hosts || {}).slice(0, 20).map(([host, ip]) => (
+                    <Descriptions.Item key={host} label={host}>
+                      <Tag color="cyan" style={{ fontFamily: 'var(--font-mono)' }}>
+                        {ip}
+                      </Tag>
                     </Descriptions.Item>
                   ))}
                 </Descriptions>
-                {(result.dnsRecords?.length || 0) > 80 && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                    仅展示前 80 条 DNS 解析记录，更多请在事件列表中筛选 DNS / HOST_RESOLVER。
-                  </div>
-                )}
-              </>
-            ) : (
-              <Descriptions column={2} size="small">
-                {Object.entries(result.hosts || {}).map(([host, ip]) => (
-                  <Descriptions.Item key={host} label={host}>
-                    <Tag color="cyan">{ip}</Tag>
-                  </Descriptions.Item>
-                ))}
-              </Descriptions>
-            )}
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  当前 NetLog 未检测到明确的域名解析 IP。
+                </div>
+              );
+            })()}
           </div>
         </Card>
       )}

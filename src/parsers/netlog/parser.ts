@@ -442,29 +442,77 @@ function addDnsServers(result: AnalysisResult, ips: string[]) {
   result.dnsServers = Array.from(next);
 }
 
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[-_\s]/g, '');
+}
+
+function isDnsServerConfigKey(key: string): boolean {
+  const normalized = normalizeKey(key);
+  return [
+    'nameservers',
+    'nameserver',
+    'dnsservers',
+    'dnsserver',
+    'nameserveraddresses',
+    'dnsserveraddresses',
+    'resolverservers',
+    'resolvernameservers',
+  ].includes(normalized);
+}
+
+function isDnsConfigContainerKey(key: string): boolean {
+  const normalized = normalizeKey(key);
+  return [
+    'dnsconfig',
+    'dnsconfiguration',
+    'resolverconfig',
+    'hostresolverconfig',
+    'networkconfig',
+  ].includes(normalized);
+}
+
 function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) {
-  if (!polledData) return;
-  const candidates: unknown[] = [];
-  const walk = (obj: unknown) => {
-    if (!obj || typeof obj !== 'object') return;
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      const lowerKey = key.toLowerCase();
-      if (
-        lowerKey.includes('dns') ||
-        lowerKey.includes('nameserver') ||
-        lowerKey.includes('name_server') ||
-        lowerKey.includes('resolver')
-      ) {
-        candidates.push(value);
+  if (!polledData || typeof polledData !== 'object') return;
+
+  const dnsServerIps = new Set<string>();
+
+  const collectFromConfigValue = (value: unknown) => {
+    extractIpsFromValue(value).forEach(ip => {
+      if (isIpLike(ip)) {
+        dnsServerIps.add(normalizeIp(ip));
       }
-      if (typeof value === 'object') {
-        walk(value);
+    });
+  };
+
+  const walkConfigOnly = (obj: unknown, insideDnsConfig = false) => {
+    if (!obj || typeof obj !== 'object') return;
+
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const isServerKey = isDnsServerConfigKey(key);
+      const isConfigContainer = isDnsConfigContainerKey(key);
+
+      // 只在明确 DNS 配置字段中提取 nameservers / dns_servers
+      if (isServerKey) {
+        collectFromConfigValue(value);
+        continue;
+      }
+
+      // 进入明确 DNS 配置容器继续查找
+      if (isConfigContainer) {
+        walkConfigOnly(value, true);
+        continue;
+      }
+
+      // 已经在 dns_config / resolver_config 容器内时，允许继续向下找 nameservers
+      if (insideDnsConfig && value && typeof value === 'object') {
+        walkConfigOnly(value, true);
       }
     }
   };
-  walk(polledData);
-  const dnsServerIps = candidates.flatMap(extractIpsFromValue);
-  addDnsServers(result, dnsServerIps);
+
+  walkConfigOnly(polledData);
+
+  addDnsServers(result, Array.from(dnsServerIps));
 }
 
 function parsePolledData(polledData: any, r: AnalysisResult) {
