@@ -275,7 +275,7 @@ class GoServiceLogParser implements LogParserStrategy {
   canParse(content: string): boolean {
     const firstLine = content.split(/\r?\n/).find(l => l.trim());
     if (!firstLine) return false;
-    return firstLine.startsWith('[') && /^\[\w+\]\s+(Info|Error|Warn|Debug)/.test(firstLine);
+    return firstLine.startsWith("[") && /^\[[^\]]+\]\s+(Info|Error|Warn|Debug)\b/.test(firstLine);
   }
 
   parse(content: string): LogAnalysisResult {
@@ -589,7 +589,7 @@ class GoServiceLogParser implements LogParserStrategy {
 
     for (const entry of entries) {
       currentGroup.push(entry);
-      if (entry.level === 'Error') {
+      if (entry.status === "Error") {
         groups.push(this.createGroup(currentGroup));
         currentGroup = [];
       }
@@ -695,40 +695,54 @@ class GoServiceLogParser implements LogParserStrategy {
       };
     }
 
-    const errorEntries = entries.filter(e => e.status === 'Error');
+    const errorEntries = entries.filter(e => e.status === "Error");
     const firstError = errorEntries[0];
     const errorCodes = [...new Set(errorEntries.map(e => e.statusCode).filter(code => code !== undefined))];
+    const errorDomains = [...new Set(errorEntries.map(e => e.domain).filter(Boolean))];
+    const singleErrorDomain = errorDomains.length === 1 ? errorDomains[0] : null;
 
     if (errorCodes.length === 1 && errorCodes[0]) {
       const code = errorCodes[0];
-      const diagnosis = getErrorDiagnosis(code, firstError.domain);
-      if (diagnosis) {
-        return {
-          summary: `${firstError.friendlyName}持续被拒 (${code}${firstError.statusText ? ` ${firstError.statusText}` : ''})，共 ${stats.error} 次失败`,
-          severity: 'error',
-          suggestion: diagnosis.suggestion,
-          diagnosis: diagnosis.description,
-        };
+      if (singleErrorDomain) {
+        const diagnosis = getErrorDiagnosis(code, singleErrorDomain);
+        if (diagnosis) {
+          return {
+            summary: `${firstError.friendlyName}持续被拒 (${code}${firstError.statusText ? ` ${firstError.statusText}` : ""})，共 ${stats.error} 次失败`,
+            severity: "error",
+            suggestion: diagnosis.suggestion,
+            diagnosis: diagnosis.description,
+          };
+        }
       }
+
+      const fallbackSummary = errorDomains.length > 1 ? `多个域名持续失败 (${code})，共 ${stats.error} 次失败，涉及 ${errorDomains.length} 个域名` : `${firstError.friendlyName}持续被拒 (${code}${firstError.statusText ? ` ${firstError.statusText}` : ""})，共 ${stats.error} 次失败`;
+      return {
+        summary: fallbackSummary,
+        severity: "error",
+        suggestion: getUnknownErrorSuggestion(),
+      };
     }
 
-    const errorTexts = [...new Set(errorEntries.map(e => e.statusText).filter(Boolean))];
+    const errorTexts = [...new Set(errorEntries.map(e => e.statusText).filter((text): text is string => Boolean(text)))];
     if (errorTexts.length === 1 && errorTexts[0] && !errorCodes.length) {
       const text = errorTexts[0];
-      const errorDomains = [...new Set(errorEntries.map(e => e.domain).filter(Boolean))];
-      const domainStr = errorDomains.length === 1 ? ` (${errorDomains[0]})` : '';
-      const diagnosis = this.getDiagnosisByText(text, firstError.domain);
-      if (diagnosis) {
-        return {
-          summary: `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`,
-          severity: 'error',
-          suggestion: diagnosis.suggestion,
-          diagnosis: diagnosis.description,
-        };
+      const domainStr = singleErrorDomain ? ` (${singleErrorDomain})` : "";
+      if (singleErrorDomain) {
+        const diagnosis = this.getDiagnosisByText(text, singleErrorDomain);
+        if (diagnosis) {
+          return {
+            summary: `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`,
+            severity: "error",
+            suggestion: diagnosis.suggestion,
+            diagnosis: diagnosis.description,
+          };
+        }
       }
+
+      const fallbackSummary = errorDomains.length > 1 ? `多个域名持续失败 (${text})，共 ${stats.error} 次失败，涉及 ${errorDomains.length} 个域名` : `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`;
       return {
-        summary: `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`,
-        severity: 'error',
+        summary: fallbackSummary,
+        severity: "error",
         suggestion: getUnknownErrorSuggestion(),
       };
     }

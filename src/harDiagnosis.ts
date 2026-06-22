@@ -273,6 +273,7 @@ function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number
 export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const entries = result.entries;
   const total = entries.length;
+  const hasHttpsDocument = entries.some(e => e.category === 'doc' && e.url.startsWith('https:'));
 
   // ---- 单次遍历：收集所有基础统计 ----
   const dnsArr: number[] = [];
@@ -336,7 +337,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     if (e.protocol === 'h2') h2Count++;
     if (e.protocol === 'h3') h3Count++;
     if (e.protocol === 'http/1.1') h11Count++;
-    if (e.url.startsWith('http:') && !e.url.startsWith('http://localhost')) mixedContentCount++;
+    if (hasHttpsDocument && e.url.startsWith('http:') && !e.url.startsWith('http://localhost')) mixedContentCount++;
 
     // cache
     const cc = e.responseHeaders.find(h => h.name.toLowerCase() === 'cache-control')?.value || '';
@@ -551,9 +552,13 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 安全与协议统计 ----
   const missingSecurityHeaders: string[] = [];
-  const firstEntry = entries[0];
-  if (firstEntry) {
-    const respHeaders = firstEntry.responseHeaders.map(h => h.name.toLowerCase());
+  const securityHeaderTarget = entries.find(e =>
+    e.category === 'doc' && e.url.startsWith('https:') && e.status >= 200 && e.status < 400
+  ) || entries.find(e =>
+    e.url.startsWith('https:') && e.status >= 200 && e.status < 400
+  );
+  if (securityHeaderTarget) {
+    const respHeaders = securityHeaderTarget.responseHeaders.map(h => h.name.toLowerCase());
     const required = ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options'];
     for (const h of required) {
       if (!respHeaders.includes(h)) missingSecurityHeaders.push(h);

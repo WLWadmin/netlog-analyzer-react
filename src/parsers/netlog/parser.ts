@@ -247,11 +247,11 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     const parsed: ParsedEvent = {
       time: parseFloat(evt.time) || 0,
       type: evt.type,
-      typeName: eventNames[evt.type] || EVENT_TYPES[evt.type] || `UNKNOWN_${evt.type}`,
+      typeName: eventNames[evt.type] || EVENT_TYPES[evt.type] || ("UNKNOWN_" + evt.type),
       source: {
         id: sourceId,
         type: sourceType,
-        typeName: sourceNames[sourceType] || SOURCE_TYPES[sourceType] || 'UNKNOWN_SRC',
+        typeName: sourceNames[sourceType] || SOURCE_TYPES[sourceType] || "UNKNOWN_SRC",
       },
       phase: evt.phase,
       phaseName: PHASE[evt.phase] || `PHASE_${evt.phase}`,
@@ -264,7 +264,13 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     if (parsed.time < result.timeRange.start) result.timeRange.start = parsed.time;
     if (parsed.time > result.timeRange.end) result.timeRange.end = parsed.time;
 
-    categorizeEvent(parsed, result, requestIndex);
+    ensureUrlRequest(parsed, result, requestIndex);
+  }
+
+  const sourceOwners = buildSourceOwnerMap(parsedEvents, requestIndex);
+
+  for (const evt of parsedEvents) {
+    categorizeEvent(evt, result, requestIndex, sourceOwners);
   }
 
   // Calculate unique sources and peak concurrency
@@ -581,11 +587,11 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
     const sid = evt.source.id;
     const wasActive = sourceStates.get(sid) || false;
 
-    if (evt.phaseName === 'BEGIN' && !wasActive) {
+    if (evt.phaseName === "BEGIN" && !wasActive) {
       sourceStates.set(sid, true);
       current++;
       if (current > peak) peak = current;
-    } else if (evt.phaseName === 'END' && wasActive) {
+    } else if (evt.phaseName === "END" && wasActive) {
       sourceStates.set(sid, false);
       current--;
     }
@@ -594,42 +600,214 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
   return peak;
 }
 
-function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>) {
+function ensureUrlRequest(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>) {
+  if (evt.source.typeName !== "URL_REQUEST" || !evt.params.url || requestIndex.has(evt.source.id)) {
+    return;
+  }
+
+  const newReq: URLRequest = {
+    id: evt.source.id,
+    url: evt.params.url,
+    method: evt.params.method || "GET",
+    startTime: evt.time,
+    events: [evt],
+    status: "pending",
+    timeline: {},
+    resolvedIp: null,
+    remoteIp: null,
+    errorDesc: undefined,
+  };
+  r.urlRequests.push(newReq);
+  requestIndex.set(evt.source.id, newReq);
+}
+
+function getEventStreamId(evt: ParsedEvent): number | null {
+  const raw = evt.params.stream_id ?? evt.params.streamId ?? evt.params.spdy_stream_id;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+function buildSourceOwnerMap(events: ParsedEvent[], requestIndex: Map<number, URLRequest>): Map<number, Set<number>> {
+  const graph = new Map<number, Set<number>>();
+
+  const link = (a: number, b: number) => {
+    if (!graph.has(a)) graph.set(a, new Set());
+    if (!graph.has(b)) graph.set(b, new Set());
+    graph.get(a)!.add(b);
+    graph.get(b)!.add(a);
+  };
+
+  for (const evt of events) {
+    const dep = evt.params?.source_dependency;
+    const depId = Number(dep?.id);
+    if (Number.isFinite(depId) && depId > 0) {
+      link(evt.source.id, depId);
+    }
+  }
+
+  const owners = new Map<number, Set<number>>();
+  const addOwner = (sourceId: number, requestId: number) => {
+    if (!owners.has(sourceId)) owners.set(sourceId, new Set());
+    owners.get(sourceId)!.add(requestId);
+  };
+
+  for (const requestId of requestIndex.keys()) {
+    const queue = [requestId];
+    const seen = new Set<number>(queue);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      addOwner(current, requestId);
+
+      for (const next of graph.get(current) || []) {
+        if (seen.has(next)) continue;
+        if (next !== requestId && requestIndex.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+
+  return owners;
+}
+
+function resolveRequestForEvent(
+  evt: ParsedEvent,
+  requestIndex: Map<number, URLRequest>,
+  sourceOwners: Map<number, Set<number>>
+ ): URLRequest | null {
+  if (evt.source.typeName === "URL_REQUEST") {
+    return requestIndex.get(evt.source.id) || null;
+  }
+
+  const ownerIds = Array.from(sourceOwners.get(evt.source.id) || []);
+  if (ownerIds.length === 0) return null;
+
+  let candidates = ownerIds
+    .map(id => requestIndex.get(id))
+    .filter((req): req is URLRequest => Boolean(req));
+
+  if (candidates.length <= 1) {
+    return candidates[0] || null;
+  }
+
+  const streamId = getEventStreamId(evt);
+  if (streamId !== null) {
+    const streamMatches = candidates.filter(req => req.events.some(event => getEventStreamId(event) === streamId));
+    if (streamMatches.length === 1) {
+      return streamMatches[0];
+    }
+    if (streamMatches.length > 1) {
+      candidates = streamMatches;
+    }
+  }
+
+  const host = normalizeHost(extractHostFromParams(evt.params));
+  if (host) {
+    const hostMatches = candidates.filter(req => normalizeHost(req.url) === host);
+    if (hostMatches.length === 1) {
+      return hostMatches[0];
+    }
+    if (hostMatches.length > 1) {
+      candidates = hostMatches;
+    }
+  }
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function appendRequestEvent(req: URLRequest, evt: ParsedEvent, r: AnalysisResult) {
+  const p = evt.params;
+  const tn = evt.typeName;
+
+  const isDuplicate = req.events.some(
+    e => e.type === evt.type && e.phase === evt.phase && e.time === evt.time && e.source.id === evt.source.id
+  );
+  if (!isDuplicate) {
+    req.events.push(evt);
+  }
+
+  if (evt.source.typeName === "URL_REQUEST" && p.method) {
+    req.method = p.method;
+  }
+
+  if (tn === "HTTP_TRANSACTION_READ_RESPONSE_HEADERS" || tn === "HTTP_TRANSACTION_READ_HEADERS") {
+    req.status = p.status_code ? `${p.status_code}` : "completed";
+    req.statusCode = p.status_code ?? req.statusCode;
+  }
+
+  if ((tn === "HTTP_TRANSACTION_READ_RESPONSE_HEADERS" || tn === "HTTP_TRANSACTION_READ_HEADERS") && p.headers) {
+    const headers = parseHeaders(p.headers);
+    if (!req.resolvedIp) {
+      req.resolvedIp = headers["x-response-cinfo"] || headers["x-tt-cip"] || headers["x-lsc-source-ip"] || null;
+    }
+    if (!req.remoteIp) {
+      req.remoteIp = headers["x-response-sinfo"] || null;
+    }
+  }
+
+  if (evt.phaseName === "END") {
+    if (!req.endTime || evt.time > req.endTime) {
+      req.endTime = evt.time;
+    }
+    req.duration = (req.endTime || evt.time) - req.startTime;
+  }
+
+  if (p.net_error || p.error_code) {
+    const errCode = Number(p.net_error || p.error_code);
+    req.error = errCode;
+    req.errorDesc = getNetErrorDescription(errCode);
+    req.status = "error";
+
+    const alreadyTracked = r.connectionFailures.some(
+      failure => failure.url === req.url && failure.error === errCode && failure.time === evt.time
+    );
+    if (!alreadyTracked) {
+      r.connectionFailures.push({
+        url: req.url,
+        error: errCode,
+        time: evt.time,
+      });
+    }
+  }
+}
+
+function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>, sourceOwners: Map<number, Set<number>>) {
   const p = evt.params;
   const tn = evt.typeName;
   const stn = evt.source.typeName;
 
   // ---- SSL/TLS events ----
-  if (stn === 'SSL_CONNECT_JOB' || stn === 'SSL_CONNECT' || tn.includes('SSL_') || tn.includes('TLS_')) {
+  if (stn === "SSL_CONNECT_JOB" || stn === "SSL_CONNECT" || tn.includes("SSL_") || tn.includes("TLS_")) {
     r.sslEvents.push(evt);
     const sslError = p.error_code ?? p.net_error;
     if (sslError !== undefined && sslError !== 0) {
       const issue: SslIssue = {
         event: evt,
         error: Number(sslError),
-        host: p.host || p.server_info || 'unknown',
+        host: p.host || p.server_info || "unknown",
         category: classifySslIssueCategory(sslError),
       };
       r.sslIssues.push(issue);
-      if (issue.category === 'cert') {
+      if (issue.category === "cert") {
         r.certIssues.push(issue);
       }
     }
     if (p.encrypted_protocol || p.version) {
-      const key = 'TLS_' + (p.encrypted_protocol || p.version);
+      const key = "TLS_" + (p.encrypted_protocol || p.version);
       r.protocols[key] = (r.protocols[key] || 0) + 1;
     }
   }
 
   // ---- QUIC events ----
-  if (tn.includes('QUIC_')) {
+  if (tn.includes("QUIC_")) {
     r.quicEvents.push(evt);
-    r.protocols['QUIC'] = (r.protocols['QUIC'] || 0) + 1;
+    r.protocols["QUIC"] = (r.protocols["QUIC"] || 0) + 1;
     if (p.error_code || p.net_error) {
       r.errors.push({
-        severity: 'error',
-        category: 'QUIC',
-        message: `QUIC 连接错误: ${p.error_code || p.net_error}`,
+        severity: "error",
+        category: "QUIC",
+        message: "QUIC 连接错误: " + (p.error_code || p.net_error),
         detail: JSON.stringify(p, null, 2),
         time: evt.time,
       });
@@ -637,15 +815,15 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   }
 
   // ---- HTTP/2 events ----
-  if (stn === 'HTTP2_SESSION' || tn.includes('HTTP2_') || tn.includes('HTTP/2_')) {
+  if (stn === "HTTP2_SESSION" || tn.includes("HTTP2_") || tn.includes("HTTP/2_")) {
     r.http2Events.push(evt);
-    r.protocols['HTTP/2'] = (r.protocols['HTTP/2'] || 0) + 1;
+    r.protocols["HTTP/2"] = (r.protocols["HTTP/2"] || 0) + 1;
     if (isHttp2Goaway(evt)) {
       r.errors.push({
-        severity: 'warning',
-        category: 'HTTP/2',
-        message: `HTTP/2 ${isHttp2GoawayRecv(evt) ? '接收' : '发送'} GOAWAY 帧`,
-        detail: `Last Stream ID: ${p.last_stream_id}, Error: ${p.error_code || p.status}`,
+        severity: "warning",
+        category: "HTTP/2",
+        message: "HTTP/2 " + (isHttp2GoawayRecv(evt) ? "接收" : "发送") + " GOAWAY 帧",
+        detail: "Last Stream ID: " + p.last_stream_id + ", Error: " + (p.error_code || p.status),
         time: evt.time,
       });
     }
@@ -653,86 +831,22 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
 
   // ---- DNS events ----
   if (
-    stn === 'HOST_RESOLVER_IMPL_JOB' ||
-    stn === 'HOST_RESOLVER_MANAGER_JOB' ||
-    stn === 'HOST_RESOLVER' ||
-    tn.includes('DNS_') ||
-    tn.includes('HOST_RESOLVER')
+    stn === "HOST_RESOLVER_IMPL_JOB" ||
+    stn === "HOST_RESOLVER_MANAGER_JOB" ||
+    stn === "HOST_RESOLVER" ||
+    tn.includes("DNS_") ||
+    tn.includes("HOST_RESOLVER")
   ) {
     r.dnsEvents.push(evt);
     const host = extractHostFromParams(p);
     const ips = extractIpsFromValue(p);
-    addDnsRecord(r, host, ips, 'dns_event', evt.time);
+    addDnsRecord(r, host, ips, "dns_event", evt.time);
   }
 
-  // ---- URL_REQUEST events ----
-  if (stn === 'URL_REQUEST') {
-    // Create new URLRequest when we see a URL
-    if (p.url) {
-      if (!requestIndex.has(evt.source.id)) {
-        const newReq: URLRequest = {
-          id: evt.source.id,
-          url: p.url,
-          method: p.method || 'GET',
-          startTime: evt.time,
-          events: [evt],
-          status: 'pending',
-          timeline: {},
-          resolvedIp: null,
-          remoteIp: null,
-          errorDesc: undefined,
-        };
-        r.urlRequests.push(newReq);
-        requestIndex.set(evt.source.id, newReq);
-      }
-    }
-    // Associate event with existing request by source.id (O(1) lookup)
-    const req = requestIndex.get(evt.source.id);
-    if (req) {
-      // Avoid duplicate events (same type+phase+time)
-      const isDuplicate = req.events.some(
-        e => e.type === evt.type && e.phase === evt.phase && e.time === evt.time
-      );
-      if (!isDuplicate) {
-        req.events.push(evt);
-      }
-      // Detect response received
-      if (tn === 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS') {
-        req.status = p.status_code ? `${p.status_code}` : 'completed';
-        req.statusCode = p.status_code;
-      }
-      // Extract IP info from response headers
-      if ((tn === 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS' || tn === 'HTTP_TRANSACTION_READ_HEADERS') && p.headers) {
-        const headers = parseHeaders(p.headers);
-        if (!req.resolvedIp) {
-          req.resolvedIp = headers['x-response-cinfo'] || headers['x-tt-cip'] || headers['x-lsc-source-ip'] || null;
-        }
-        if (!req.remoteIp) {
-          req.remoteIp = headers['x-response-sinfo'] || null;
-        }
-      }
-      // Detect request end
-      if (evt.phaseName === 'END') {
-        if (!req.endTime || evt.time > req.endTime) {
-          req.endTime = evt.time;
-        }
-        req.duration = (req.endTime || evt.time) - req.startTime;
-      }
-      // Detect errors
-      if (p.net_error || p.error_code) {
-        const errCode = p.net_error || p.error_code;
-        req.error = errCode;
-        req.errorDesc = getNetErrorDescription(errCode);
-        req.status = 'error';
-        r.connectionFailures.push({
-          url: req.url,
-          error: errCode,
-          time: evt.time,
-        });
-      }
-    }
+  const req = resolveRequestForEvent(evt, requestIndex, sourceOwners);
+  if (req) {
+    appendRequestEvent(req, evt, r);
   }
-
   // ---- Connection events ----
   if (tn.includes('TCP_') || tn.includes('SOCKET_') || tn.includes('TRANSPORT_CONNECT_')) {
     r.connectEvents.push(evt);
