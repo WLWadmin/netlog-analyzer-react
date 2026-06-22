@@ -55,7 +55,7 @@
 ### 架构一致性
 
 - **URL hash 路由持久化**：Tab 切换状态自动写入 URL hash（`#netlog/overview`、`#har/requests`、`#log/raw`），刷新页面后保持当前位置。三种文件类型的 Tab 切换均由 App 层统一控制并同步 hash。
-- **跨 Tab 诊断联动**：诊断建议支持一键跳转到事件列表或请求瀑布，并自动设置筛选条件（通过 NavigationContext 实现）。
+- **跨 Tab 诊断联动**：诊断建议支持一键跳转到事件列表或请求瀑布，并自动设置筛选条件（通过 NavigationContext 实现）。`DiagnosisTab` 根据诊断类型（DNS / SSL / 连接 / 代理 / QUIC / HTTP/2 等）构造结构化 `NavigationFilters`（含 `keyword`、`errorCode`、`errorOnly` 等精确维度），而非传入人类可读标题文本；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
 - **统一颜色体系**：所有图表和 UI 组件使用 `CHART_COLORS` 语义化常量（`semantic.error/warning/success`、`phases.dns/connect/ssl` 等），避免硬编码颜色值。HarTimingChart 与 NetLog PerformanceTab 使用相同的阶段颜色。
 - **统一免责声明**：`AnalysisDisclaimer` 共享组件支持 `netlog` / `har` / `log` 三种变体，统一 Alert 样式和语义化颜色，替代各页面中分散的硬编码免责声明。
 - **统一 Loading 机制**：全局使用 `LoadingOverlay` 全屏遮罩组件，支持动态 `phase` 和 `message` 文案，解析过程中实时更新进度提示。
@@ -390,7 +390,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - 组织页面 Header、上传区、摘要卡片和各个 Tab。
 - 处理重置、返回顶部、主题切换和报告导出（Markdown / JSON / CSV 三种格式）。
 - **URL hash 路由**：Tab 切换状态写入 `#fileType/tab` 格式 hash，刷新后自动恢复。三种文件类型（NetLog / HAR / Go Log）的 Tab 切换均由 App 层统一控制并同步 hash。文件加载成功后自动将 `activeTab` 重置为该文件类型的第一个合法 tab。
-- **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。
+- **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。`DiagnosisTab` 根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度）；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
 - **文件加载竞态保护**：`handleFileLoaded` 使用 `loadTaskIdRef`（`useRef(0)`）计数器，连续上传新文件时旧任务的 `setTimeout` 回调会被自动丢弃，避免状态覆盖。
 - **统一 Loading 机制**：仅使用 `LoadingOverlay` 全屏遮罩，`loadingText` 状态实时同步到遮罩的 `phase` prop，无内联 LoadingUI。
 

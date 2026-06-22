@@ -46,8 +46,13 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     const filters = intent.filters;
     if (filters?.keyword) setSearchKeyword(filters.keyword);
     if (filters?.host) setHostFilter(filters.host);
-    if (filters?.errorCode) setErrorCodeFilter(filters.errorCode);
+    if (filters?.errorCode) {
+      // 精确设置错误码筛选，同时开启"仅失败"状态
+      setErrorCodeFilter(filters.errorCode);
+      setStatusFilter('error');
+    }
     if (filters?.protocol) setProtocolFilter(filters.protocol);
+    if (filters?.errorOnly) setStatusFilter('error');
     consumeIntent();
   }, [intent, consumeIntent]);
 

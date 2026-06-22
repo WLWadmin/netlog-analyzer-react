@@ -74,6 +74,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       setSearch('net_error');
       setDebouncedSearch('net_error');
     }
+    // errorCode 精确匹配 → 搜索 net_error:xxx 语法
+    if (filters?.errorCode) {
+      setSearch(`net_error:${filters.errorCode}`);
+      setDebouncedSearch(`net_error:${filters.errorCode}`);
+    }
     if (filters?.sourceId) {
       setSourceIdFilter(filters.sourceId);
     }
@@ -168,6 +173,14 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       // When searching for "net_error", use special error-only filter
       if (normalizedSearch === 'net_error') {
         return e.params?.net_error !== undefined && e.params?.net_error !== 0;
+      }
+
+      // 支持 "net_error:-105" 精确匹配语法
+      if (normalizedSearch.startsWith('net_error:')) {
+        const targetCode = normalizedSearch.replace('net_error:', '');
+        return e.params?.net_error !== undefined
+          && e.params?.net_error !== 0
+          && e.params?.net_error.toString() === targetCode;
       }
 
       return !normalizedSearch || e.searchText.includes(normalizedSearch);

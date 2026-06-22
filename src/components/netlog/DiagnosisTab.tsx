@@ -2,9 +2,9 @@ import { useState, useMemo, Fragment } from 'react';
 import { Card, Alert, Tag, Collapse, Button } from 'antd';
 import { DownOutlined, UpOutlined, UnorderedListOutlined, BulbOutlined, PushpinOutlined, ToolOutlined, MedicineBoxOutlined, WarningOutlined, CloseCircleOutlined, SearchOutlined, SyncOutlined, GlobalOutlined, LockOutlined, LinkOutlined, QuestionCircleOutlined, StopOutlined, AppstoreOutlined, InboxOutlined } from '@ant-design/icons';
 import { AnalysisResult } from '../../parsers/netlog/parser';
-import { generateSuggestions, generateNextStepInfo } from '../../parsers/netlog/diagnosis';
+import { generateSuggestions, generateNextStepInfo, Suggestion } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
-import { useNavigation } from '../../contexts/NavigationContext';
+import { useNavigation, NavigationFilters } from '../../contexts/NavigationContext';
 
 const { Panel } = Collapse;
 
@@ -29,6 +29,41 @@ const iconMap: Record<string, React.ReactNode> = {
   '📦': <InboxOutlined />,
   '📡': <GlobalOutlined />,
   '🦈': <SearchOutlined />,
+};
+
+// 根据诊断建议类型构造精确筛选条件
+const buildNavigationFilters = (s: Suggestion): NavigationFilters => {
+  const errorCodeMatch = s.title.match(/-?\d+/g);
+  const errorCodes = errorCodeMatch ? errorCodeMatch.map(Number) : [];
+
+  if (s.icon === '🌐' || s.title.includes('DNS')) {
+    return { keyword: 'DNS', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+  }
+  if (s.icon === '🔒' || s.title.includes('证书') || s.title.includes('SSL')) {
+    return { keyword: 'SSL', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+  }
+  if (s.icon === '🔗' || s.title.includes('连接')) {
+    return { errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined, errorOnly: true };
+  }
+  if (s.icon === '⚠️' || s.icon === '🚨' || s.title.includes('代理') || s.title.includes('VPN')) {
+    return { keyword: 'PROXY' };
+  }
+  if (s.icon === '📡' || s.title.includes('QUIC') || s.title.includes('HTTP/2')) {
+    return { keyword: s.title.includes('QUIC') ? 'QUIC' : 'HTTP_STREAM', errorCode: errorCodes.length > 0 ? String(errorCodes[0]) : undefined };
+  }
+  if (s.icon === '🦈' || s.title.includes('慢请求')) {
+    return {};
+  }
+  if (s.icon === '❌' || s.title.includes('域名')) {
+    return { errorOnly: true };
+  }
+  if (s.title.includes('DNS 劫持')) {
+    return { keyword: 'DNS', errorOnly: true };
+  }
+  if (errorCodes.length > 0) {
+    return { errorCode: String(errorCodes[0]), errorOnly: true };
+  }
+  return { keyword: s.title };
 };
 
 // Next step info collection panel (uses generateNextStepInfo from diagnosis.ts)
@@ -186,14 +221,14 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
                       <Button
                         size="small"
                         icon={<SearchOutlined />}
-                        onClick={() => navigateTo({ tab: 'events', filters: { keyword: s.title }, source: '诊断建议', reason: '查看相关事件证据' })}
+                        onClick={() => navigateTo({ tab: 'events', filters: buildNavigationFilters(s), source: '诊断建议', reason: '查看相关事件证据' })}
                       >
                         查看事件证据
                       </Button>
                       <Button
                         size="small"
                         icon={<GlobalOutlined />}
-                        onClick={() => navigateTo({ tab: 'requests', filters: { keyword: s.title }, source: '诊断建议', reason: '查看相关请求瀑布' })}
+                        onClick={() => navigateTo({ tab: 'requests', filters: buildNavigationFilters(s), source: '诊断建议', reason: '查看相关请求瀑布' })}
                       >
                         查看请求瀑布
                       </Button>
