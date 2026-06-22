@@ -303,9 +303,14 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
                 <Button
                   size="small"
                   type="primary"
-                  ghost
                   icon={<ArrowRightOutlined />}
                   onClick={() => navigateTo({ tab: finding.navigateTab, filters: finding.navigateFilters || {} })}
+                  style={{
+                    borderRadius: 8,
+                    fontWeight: 600,
+                    fontSize: 13,
+                    boxShadow: '0 2px 6px rgba(14, 165, 233, 0.2)',
+                  }}
                 >
                   查看详情
                 </Button>
