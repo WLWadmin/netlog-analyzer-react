@@ -97,7 +97,9 @@
 2. **摘要卡片**：总请求数、成功/失败数、成功率、错误类型分布、域名分布、耗时分布。
 3. **日志级别分布**：Info / Warn / Error / Debug 的占比统计。
 4. **操作流程分组**：按时间顺序聚合请求流程，错误流程红色高亮，支持展开查看详情。
-5. **原始日志列表**：支持按关键词搜索、按级别筛选，展示完整日志行。
+5. **错误诊断**：展示错误类型分布、错误详情和诊断建议。
+6. **性能分析**：展示请求耗时分布、慢请求分析和性能瓶颈定位。
+7. **原始日志列表**：支持按关键词搜索、按级别筛选，展示完整日志行。
 
 ### 4. 导出报告
 
@@ -255,7 +257,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 对应文件：`src/components/log/LogResultPage.tsx`
 
-- 组合核心发现 Banner、摘要卡片、统计图表、操作流程分组和原始日志列表五个 Tab。
+- 组合核心发现 Banner、摘要卡片、统计图表、操作流程分组、错误诊断、性能分析和原始日志列表共六个 Tab。
 - 支持"仅显示失败"筛选，自动跳转到操作流程 Tab。
 - **支持外层 activeTab 控制**：由 App hash 路由统一驱动 Tab 切换，刷新页面后保持当前位置。
 - 使用 `AnalysisDisclaimer` 组件展示免责声明（`variant="log"`）。
@@ -359,19 +361,29 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 对应文件：`src/components/har/HarSummaryDiagnosis.tsx`
 
-- 当前为占位模块，后续将补充汇总诊断功能。
+- 展示 HAR 汇总诊断结果，由 `harDiagnosis.ts` 计算层驱动。
+- **健康评分卡片**：使用 `HealthAssessmentCard` 展示总体健康评分（0-100）和状态（healthy/warning/critical）。
+- **网络阶段状态**：DNS、TCP、TLS、TTFB、下载五个阶段的平均耗时、P95、最大耗时和慢请求数，用状态标签（健康/警告/严重）直观展示。
+- **HTTP 状态分布**：2xx/3xx/4xx/5xx/0 的计数和占比。
+- **慢请求分类**：按 DNS/TCP/TLS/TTFB/Receive/Blocked 分类统计慢请求数量。
+- **域名/IP 统计**：展示请求最多的域名和 IP，含平均耗时、失败数、IP 类型（public/private/loopback/ipv6）。
+- **资源分析**：按资源类型（JS/CSS/Img/Font/XHR 等）统计数量、大小、平均耗时。
+- **缓存与压缩**：缓存命中率、压缩率、未压缩大资源列表。
+- **安全协议**：HTTPS/HTTP 占比、HTTP/2/HTTP/3/HTTP/1.1 分布、混合内容检测。
+- **问题归因**：按客户端/网络/服务端/CDN/DNS 分类展示问题根因。
+- **修复建议**：按优先级（P0/P1/P2）展示具体修复建议。
 
 ### 辅助组件：`HarTimingChart` / `CopyText` / `TruncatedText`
 
 - `HarTimingChart`：各网络阶段的分段耗时条与占比明细。颜色统一使用 `CHART_COLORS.phases`（dns/connect/ssl/send/wait/download），与 NetLog PerformanceTab 保持一致。
 - `CopyText`：通用「文本 + 一键复制」字段组件，支持 clipboard API 不可用时的兜底处理，超长文本自动截断并显示 Tooltip。供请求列表、详情页与诊断 Tab 复用。
-- `TruncatedText`：通用文本截断组件，内容超过阈值时显示省略号并在 hover 时以浅色主题 Tooltip 展示完整内容，未超过阈值时直接显示文本无 Tooltip。用于 HeaderList、Payload Tab 等需要截断展示的场景。
+- `TruncatedText`：通用文本截断组件（定义于 `HarRequestDetail.tsx` 内部），内容超过阈值时显示省略号并在 hover 时以浅色主题 Tooltip 展示完整内容，未超过阈值时直接显示文本无 Tooltip。用于 HeaderList、Payload Tab 等需要截断展示的场景。
 
 ## 共享组件说明
 
 位于 `src/components/shared/` 目录，供各模块复用：
 
-- `StatusTag`：语义化状态标签（success/warning/error/info/default），使用 `tagConfig.ts` 配置。
+- `StatusTag`：语义化状态标签（success/warning/error/info/default），使用 `tagConfig.ts` 配置。`tagConfig.ts` 不仅包含样式配置，还提供 `getStatusTagType(statusCode)` 函数，根据 HTTP 状态码自动映射到对应的 Tag 类型。
 - `SummaryCard`：通用摘要卡片，带图标、数值、趋势和描述。
 - `HealthAssessmentCard`：健康评估卡片，显示评分和状态。
 - `IssueDisplay`：问题/告警/信息聚合展示组件，支持分组和加载更多。
@@ -480,6 +492,23 @@ NetLog / HAR / Go Log 文件
 
 该文件是事件识别、错误展示和诊断建议的基础字典。
 
+### 错误码分类器：`src/parsers/netlog/errorClassifier.ts`
+
+`errorClassifier.ts` 提供 `classifyNetError` 和 `classifySslIssueCategory` 函数，用于将 Chromium `net_error` 错误码分类到以下维度：
+
+- **DNS**：DNS 解析失败、超时、配置错误。
+- **证书**：SSL/TLS 证书无效、过期、不受信任。
+- **代理**：代理配置错误、认证失败、连接拒绝。
+- **网络变更**：网络切换、连接中断。
+- **阻止**：安全策略阻止、防火墙拦截。
+- **协议**：HTTP/2、QUIC、TLS 版本不兼容。
+- **连接**：TCP 连接失败、超时、重置。
+- **应用层**：HTTP 错误码、服务端拒绝。
+- **缓存**：缓存命中/未命中、缓存过期。
+- **其他**：无法归类的错误码。
+
+该分类器被 `parser.ts`、`diagnosis.ts` 和 `index.ts` 统一导出使用，是诊断建议生成的基础输入之一。
+
 ### 主题模块：`src/theme.tsx`
 
 主题模块提供全局主题上下文，负责：
@@ -517,13 +546,13 @@ src/
 │   └── harRepair.ts           # HAR 文件损坏自动修复引擎
 ├── components/
 │   ├── har/                   # HAR 结果页面组件
-│   │   ├── HarResultPage.tsx  # HAR 结果页容器（支持外层 activeTab）
-│   │   ├── HarRequestTable.tsx # 请求列表（antd 分页）
-│   │   ├── HarRequestDetail.tsx # 请求详情抽屉
-│   │   ├── HarSummaryCards.tsx  # 汇总卡片
-│   │   ├── HarSummaryDiagnosis.tsx # 汇总诊断（占位）
-│   │   ├── HarTimingChart.tsx    # 各阶段耗时瀑布图（CHART_COLORS.phases）
-│   │   └── CopyText.tsx          # 文本 + 一键复制组件
+    │   ├── HarResultPage.tsx  # HAR 结果页容器（支持外层 activeTab）
+    │   ├── HarRequestTable.tsx # 请求列表（antd 分页）
+    │   ├── HarRequestDetail.tsx # 请求详情抽屉（内含 TruncatedText 组件）
+    │   ├── HarSummaryCards.tsx  # 汇总卡片
+    │   ├── HarSummaryDiagnosis.tsx # 汇总诊断（健康评分/网络阶段/HTTP状态/慢请求/域名IP/资源/缓存/安全/归因/建议）
+    │   ├── HarTimingChart.tsx    # 各阶段耗时瀑布图（CHART_COLORS.phases）
+    │   └── CopyText.tsx          # 文本 + 一键复制组件
 │   ├── log/                   # Go 服务日志结果页面组件
 │   │   ├── LogResultPage.tsx  # 日志结果页容器（支持外层 activeTab）
 │   │   ├── LogInsightBanner.tsx # 核心发现 Banner
@@ -553,9 +582,9 @@ src/
 │       ├── LoadingOverlay.tsx # 全屏加载遮罩（支持动态 phase/message）
 │       └── AnalysisDisclaimer.tsx # 统一免责声明（netlog/har/log 三变体）
 ├── constants/                 # 全局常量
-│   ├── tagConfig.ts           # Tag 语义化配置
+│   ├── tagConfig.ts           # Tag 语义化配置 + HTTP 状态码自动映射
 │   ├── chartColors.ts         # 图表配色常量（semantic/phases/primary）
-│   ├── iconMapping.ts         # Emoji → Icon 映射
+│   ├── iconMapping.ts         # Emoji → Icon 映射 + FINDING_COLORS 颜色映射
 │   └── analysisThresholds.ts  # 分析阈值常量（慢请求/Top N/时间线/加载步长/防抖）
 ├── hooks/                     # 自定义 Hooks
 │   ├── useAnimatedNumber.ts   # 数值动效 Hook
@@ -566,9 +595,10 @@ src/
 │   └── NavigationContext.tsx  # 跨 Tab 导航上下文（intent 机制）
 └── parsers/                   # 解析引擎
     └── netlog/
-        ├── index.ts           # 统一导出（parser + diagnosis + constants）
+        ├── index.ts           # 统一导出（parser + diagnosis + constants + errorClassifier）
         ├── parser.ts          # NetLog JSON 解析引擎
         ├── diagnosis.ts       # 诊断建议与报告生成
+        ├── errorClassifier.ts # 错误码分类器（net_error → DNS/证书/代理/网络等类别）
         └── constants.ts       # 事件类型/错误码常量映射
 ```
 
@@ -710,4 +740,8 @@ npm test
 
 ### Go 服务日志
 
-先看 **核心发现 Banner** 了解错误模式，再查看 **摘要卡片** 确认失败规模和分布，然后在 **操作流程** Tab 中查看错误流程详情，最后在 **原始日志** Tab 中核对具体日志行。
+1. 先看 **核心发现 Banner** 了解错误模式，再查看 **摘要卡片** 确认失败规模和分布。
+2. 在 **错误诊断** Tab 中查看错误类型分布和诊断建议。
+3. 在 **性能分析** Tab 中查看请求耗时分布和慢请求分析。
+4. 在 **操作流程** Tab 中查看错误流程详情。
+5. 最后在 **原始日志** Tab 中核对具体日志行。
