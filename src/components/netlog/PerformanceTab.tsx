@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Modal, Descriptions, Row, Col, Button } from 'antd';
+import { Card, Table, Tag, Modal, Descriptions, Row, Col, Button, Segmented } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ThunderboltOutlined,
@@ -101,6 +101,7 @@ interface BottleneckRank {
 
 const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const [selectedReq, setSelectedReq] = useState<any>(null);
+  const [displayMode, setDisplayMode] = useState<'auto' | 'absolute' | 'relative'>('auto');
   const { navigateTo } = useNavigation();
   const completedReqs = result.urlRequests.filter(q => q.duration);
 
@@ -244,18 +245,25 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   }, [completedReqs]);
 
   // ===== 请求耗时时间线：散点数据 & 吞吐量数据 =====
-  const { scatterData, throughputData } = useMemo(() => {
-    // 散点数据：成功 / 失败分组
-    const successPts: { startTime: number; duration: number }[] = [];
-    const failedPts: { startTime: number; duration: number }[] = [];
+  const { scatterData, throughputData, timeMode, minStartTime } = useMemo(() => {
+    // 散点数据：成功 / 失败分组（保留原始时间）
+    const successPts: { startTime: number; duration: number; originalTime: number }[] = [];
+    const failedPts: { startTime: number; duration: number; originalTime: number }[] = [];
     for (const req of completedReqs) {
-      const pt = { startTime: req.startTime, duration: req.duration || 0 };
+      const pt = { startTime: req.startTime, duration: req.duration || 0, originalTime: req.startTime };
       if (req.error || req.status === 'error') {
         failedPts.push(pt);
       } else {
         successPts.push(pt);
       }
     }
+
+    // 检测时间范围，自动决定是否使用相对时间
+    const allStartTimes = completedReqs.map(r => r.startTime);
+    const minTime = allStartTimes.length > 0 ? Math.min(...allStartTimes) : 0;
+    const maxTime = allStartTimes.length > 0 ? Math.max(...allStartTimes) : 0;
+    const timeRange = maxTime - minTime;
+    const autoMode: 'relative' | 'absolute' = timeRange < 5000 ? 'relative' : 'absolute';
 
     // 吞吐量：按 1 秒桶聚合
     const bucketMap = new Map<number, number>();
@@ -270,8 +278,26 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         rps: count,
       }));
 
-    return { scatterData: { successPts, failedPts }, throughputData: throughput };
+    return { scatterData: { successPts, failedPts }, throughputData: throughput, timeMode: autoMode, minStartTime: minTime };
   }, [completedReqs]);
+
+  // 实际生效的展示模式
+  const effectiveMode = displayMode === 'auto' ? timeMode : displayMode;
+
+  // 根据生效模式转换散点数据
+  const displayScatterData = useMemo(() => {
+    const offset = effectiveMode === 'relative' ? minStartTime : 0;
+    return {
+      successPts: scatterData.successPts.map(pt => ({
+        ...pt,
+        startTime: pt.originalTime - offset,
+      })),
+      failedPts: scatterData.failedPts.map(pt => ({
+        ...pt,
+        startTime: pt.originalTime - offset,
+      })),
+    };
+  }, [scatterData, effectiveMode, minStartTime]);
 
   // Waterfall chart data: top 30 requests by duration
   const waterfallReqs = [...completedReqs]
@@ -464,6 +490,25 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       {/* ===== 请求耗时时间线 ===== */}
       <Card
         title={<span><AreaChartOutlined /> 请求耗时时间线</span>}
+        extra={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {timeMode === 'relative' && displayMode === 'auto' && (
+              <Tag color="blue" style={{ fontSize: 11 }}>
+                请求集中，已自动切换相对时间
+              </Tag>
+            )}
+            <Segmented
+              size="small"
+              value={displayMode}
+              onChange={(v) => setDisplayMode(v as 'auto' | 'absolute' | 'relative')}
+              options={[
+                { label: '自动', value: 'auto' },
+                { label: '绝对', value: 'absolute' },
+                { label: '相对', value: 'relative' },
+              ]}
+            />
+          </div>
+        }
         style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         {/* 散点图：每个请求的耗时随时间变化 */}
@@ -473,10 +518,19 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             <XAxis
               dataKey="startTime"
               type="number"
-              name="开始时间"
-              tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}s`}
+              name={effectiveMode === 'relative' ? '相对开始时间' : '开始时间'}
+              tickFormatter={(v: number) =>
+                effectiveMode === 'relative'
+                  ? `+${(v / 1000).toFixed(1)}s`
+                  : `${(v / 1000).toFixed(1)}s`
+              }
               tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-              label={{ value: '请求开始时间 (ms)', position: 'insideBottom', offset: -2, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+              label={{
+                value: effectiveMode === 'relative' ? '相对时间 (ms)' : '请求开始时间 (ms)',
+                position: 'insideBottom',
+                offset: -2,
+                style: { fill: 'var(--text-muted)', fontSize: 12 },
+              }}
             />
             <YAxis
               dataKey="duration"
@@ -490,13 +544,19 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             <Tooltip
               contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13 }}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={(value: any, name: any) => {
-                if (name === '开始时间') return [`${Number(value).toFixed(0)} ms`, name];
+              formatter={(value: any, name: any, props: any) => {
+                if (name === '相对开始时间' || name === '开始时间') {
+                  const original = props?.payload?.originalTime;
+                  const originalLabel = original !== undefined
+                    ? ` (原始: ${(original / 1000).toFixed(2)}s)`
+                    : '';
+                  return [`${Number(value).toFixed(0)} ms${originalLabel}`, name];
+                }
                 return [formatDuration(Number(value) || 0), name];
               }}
             />
-            <Scatter name="成功请求" data={scatterData.successPts} fill="#34d399" />
-            <Scatter name="失败请求" data={scatterData.failedPts} fill="#f87171" />
+            <Scatter name="成功请求" data={displayScatterData.successPts} fill="#34d399" />
+            <Scatter name="失败请求" data={displayScatterData.failedPts} fill="#f87171" />
           </ScatterChart>
         </ResponsiveContainer>
 
