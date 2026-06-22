@@ -74,7 +74,7 @@ export function classifyNetError(code: string | number | null): NetErrorCategory
     if (PROXY_ERRORS.has(num)) return byName('代理');
     if (num === -21) return byName('网络变更');
     if (BLOCKED_ERRORS.has(num)) return byName('阻止');
-    if (PROTOCOL_ERRORS.has(num) || (num >= -399 && num <= -300)) return byName('协议');
+    if (PROTOCOL_ERRORS.has(num)) return byName('协议');
     if (CONNECTION_ERRORS.has(num) || (num >= -199 && num <= -100)) return byName('连接');
     if (num >= -413 && num <= -400) return byName('缓存');
     if (num >= -99 && num <= -1) return byName('应用层');

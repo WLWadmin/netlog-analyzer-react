@@ -1159,6 +1159,7 @@ function extractFailedDomains(r: AnalysisResult) {
   }
 
   r.failedDomains = Array.from(domainMap.values())
+    .filter(entry => entry.errors.length > 0)
     .map(entry => ({ ...entry, urls: [...new Set(entry.urls)] }))
     .sort((a, b) => b.count - a.count);
 }
