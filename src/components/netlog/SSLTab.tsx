@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { Card, Table, Tag, Alert } from 'antd';
 import { SafetyCertificateOutlined, BarChartOutlined, LockOutlined, GlobalOutlined, WarningOutlined, BulbOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { AnalysisResult } from '../../parsers/netlog/parser';
+import { AnalysisResult, SslIssue } from '../../parsers/netlog/parser';
+import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { SLOW_SSL_MS, VERY_SLOW_SSL_MS, TOP_PREVIEW_COUNT } from '../../constants/analysisThresholds';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -22,6 +23,27 @@ interface SSLTabProps {
 // ============================================================
 // SSL/TLS Health Assessment
 // ============================================================
+
+function getSslIssueLabel(category: SslIssue['category']): string {
+  switch (category) {
+    case 'cert': return '证书错误';
+    case 'timeout': return '握手/连接超时';
+    case 'protocol': return '协议/密码套件错误';
+    case 'connection': return '连接错误';
+    default: return '其他错误';
+  }
+}
+
+function getSslIssueHint(issue: SslIssue): string {
+  const code = Number(issue.error);
+  if (issue.category === 'timeout') return '连接超时通常不是证书问题，建议排查代理/VPN/防火墙、目标服务可达性和 TLS 握手响应耗时';
+  if (issue.category === 'connection') return '连接层错误通常与网络链路、代理、端口可达性或服务端连接处理有关';
+  if (issue.category === 'protocol') return 'TLS 协议错误通常与协议版本、ALPN、密码套件或中间设备 TLS Inspection 有关';
+  if (code === -202) return '证书颁发机构不受信任 — 可能是防火墙 MITM 替换证书';
+  if (code === -200) return '证书域名不匹配 — 可能是未登录 Wi-Fi 认证页面或防火墙替换证书';
+  if (code === -201) return '证书已过期 — 检查系统时间是否正确';
+  return '';
+}
 
 function assessSSLHealth(result: AnalysisResult): HealthAssessment {
   const findings: HealthAssessment['findings'] = [];
@@ -82,11 +104,12 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
     suggestions.push('排查防火墙是否强制降级了 TLS 版本');
   }
 
-  // 2. Check certificate issues
+  // 2. Check SSL/TLS issues by category
   const certErrorCount = result.certIssues.length;
-  const failedHosts = Object.values(sslHosts).filter(h => h.errors.length > 0);
+  const sslIssueCount = result.sslIssues?.length || 0;
 
   if (certErrorCount > 0) {
+    const failedHosts = [...new Set(result.certIssues.map(ci => ci.host))];
     const errorCodes = [...new Set(result.certIssues.map(ci => ci.error))];
     findings.push({
       icon: '🚨',
@@ -104,14 +127,34 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
         suggestions.push('ERR_CERT_COMMON_NAME_INVALID (-200)：可能是未登录 Wi-Fi 认证页面，或防火墙替换证书');
       } else if (numCode === -201) {
         suggestions.push('ERR_CERT_DATE_INVALID (-201)：证书过期，检查系统时间是否正确');
-      } else if (numCode === -107) {
-        suggestions.push('ERR_SSL_PROTOCOL_ERROR (-107)：大面积出现则为防火墙 SSL 解密导致');
       } else {
         suggestions.push(`证书错误码 ${code}，需进一步排查`);
       }
     }
-  } else {
-    findings.push({ icon: '✅', text: '所有 SSL/TLS 握手均成功完成，无证书错误', severity: 'info' });
+  }
+
+  const nonCertIssues = (result.sslIssues || []).filter(issue => issue.category !== 'cert');
+  if (nonCertIssues.length > 0) {
+    const issuesByCategory = nonCertIssues.reduce<Record<SslIssue['category'], number>>((acc, issue) => {
+      acc[issue.category] = (acc[issue.category] || 0) + 1;
+      return acc;
+    }, {} as Record<SslIssue['category'], number>);
+    const issueSummary = Object.entries(issuesByCategory)
+      .map(([category, count]) => `${getSslIssueLabel(category as SslIssue['category'])} ${count} 个`)
+      .join('、');
+    findings.push({
+      icon: '⚠️',
+      text: `${nonCertIssues.length} 个 SSL/TLS 非证书错误：${issueSummary}`,
+      severity: 'warning',
+    });
+    score -= Math.min(20, nonCertIssues.length * 5);
+    if (issuesByCategory.timeout) suggestions.push('检测到 SSL/TLS 握手超时：优先排查代理/VPN/防火墙、目标服务连通性和服务端握手响应');
+    if (issuesByCategory.protocol) suggestions.push('检测到 SSL/TLS 协议错误：检查 TLS 版本、ALPN、密码套件及中间设备 TLS Inspection 配置');
+    if (issuesByCategory.connection) suggestions.push('检测到 SSL/TLS 连接错误：检查网络链路、端口可达性、代理隧道和服务端连接限制');
+  }
+
+  if (sslIssueCount === 0) {
+    findings.push({ icon: '✅', text: '所有 SSL/TLS 握手均成功完成，无证书或协议错误', severity: 'info' });
   }
 
   // 3. Check SSL handshake duration (from timeline)
@@ -392,31 +435,31 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
         <Table dataSource={hostData} columns={hostColumns} rowKey="host" pagination={false} size="small" scroll={{ y: 400 }} />
       </Card>
 
-      {/* Certificate Issues */}
-      {result.certIssues.length > 0 && (
-        <Card title={<span><WarningOutlined /> 证书问题详情</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          {result.certIssues.map((ci, i) => {
-            const evt = ci.event;
+      {/* SSL/TLS Issues */}
+      {(result.sslIssues?.length || 0) > 0 && (
+        <Card title={<span><WarningOutlined /> SSL/TLS 问题详情</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
+          {result.sslIssues.map((issue, i) => {
+            const evt = issue.event;
             const issuer = evt.params.issuer || evt.params.cert_issuer || '-';
-            const numCode = typeof ci.error === 'number' ? ci.error : parseInt(String(ci.error), 10);
-            let errorHint = '';
-            if (numCode === -202) errorHint = '证书颁发机构不受信任 — 可能是防火墙 MITM 替换证书';
-            else if (numCode === -200) errorHint = '证书域名不匹配 — 可能是未登录 Wi-Fi 认证页面或防火墙替换证书';
-            else if (numCode === -201) errorHint = '证书已过期 — 检查系统时间是否正确';
-            else if (numCode === -107) errorHint = 'SSL 协议错误 — 大面积出现则为防火墙 SSL 解密导致';
+            const errorHint = getSslIssueHint(issue);
+            const tagColor = issue.category === 'cert' ? 'red' : issue.category === 'timeout' ? 'orange' : 'volcano';
 
             return (
               <Alert
                 key={i}
                 message={
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {ci.host} — SSL/TLS 握手失败
+                    {issue.host} — {getSslIssueLabel(issue.category)}
                   </span>
                 }
                 description={
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    <div>错误码: <Tag color="red">{ci.error}</Tag></div>
-                    {issuer !== '-' && <div>证书颁发者: <code>{issuer}</code></div>}
+                    <div>
+                      错误码: <Tag color={tagColor}>{issue.error}</Tag>
+                      <span style={{ marginLeft: 6 }}>{getNetErrorDescription(issue.error)}</span>
+                    </div>
+                    <div>事件: <code>{evt.typeName}</code></div>
+                    {issue.category === 'cert' && issuer !== '-' && <div>证书颁发者: <code>{issuer}</code></div>}
                     {errorHint && (
                       <div style={{ marginTop: 4, padding: '6px 10px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 6, border: '1px solid rgba(251, 191, 36, 0.15)', fontSize: 12 }}>
                         <BulbOutlined /> {errorHint}
@@ -424,7 +467,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                     )}
                   </div>
                 }
-                type="error"
+                type={issue.category === 'cert' ? 'error' : 'warning'}
                 style={{ marginBottom: 8, background: 'var(--bg-surface)', borderRadius: 12 }}
               />
             );

@@ -11,6 +11,7 @@ export type {
   RequestTimeline,
   PhaseInfo,
   ProxyInfo,
+  SslIssue,
   FailedDomain,
   DiagnosisIssue,
   AnalysisResult,
@@ -38,3 +39,13 @@ export {
   isHttp2GoawayRecv,
   isHttp2GoawaySend,
 } from './constants';
+
+export {
+  classifyNetError,
+  classifySslIssueCategory,
+} from './errorClassifier';
+
+export type {
+  NetErrorCategory,
+  NetErrorCategoryName,
+} from './errorClassifier';

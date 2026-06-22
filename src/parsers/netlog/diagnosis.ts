@@ -1,5 +1,6 @@
 import { AnalysisResult } from './parser';
 import { getNetErrorDescription } from './constants';
+import { classifyNetError } from './errorClassifier';
 
 export interface Suggestion {
   icon: string;
@@ -327,29 +328,7 @@ interface CategoryGroup {
 }
 
 function _getErrorCategory(code: string | number | null): { catName: string; icon: string; sortWeight: number } {
-  if (code === null) return { catName: '其他', icon: '❓', sortWeight: 99 };
-
-  const num = typeof code === 'number' ? code : Number(code);
-  if (!isNaN(num)) {
-    if (num === -111 || num === -130) return { catName: '代理', icon: '⚠️', sortWeight: 3 };
-    if (num === -21) return { catName: '网络变更', icon: '🔄', sortWeight: 4 };
-    if (num === -20 || num === -22) return { catName: '阻止', icon: '🚫', sortWeight: 5 };
-    if ((num >= -820 && num <= -800) || num === -105 || num === -106 || num === -137) return { catName: 'DNS', icon: '🌐', sortWeight: 1 };
-    if (num >= -299 && num <= -200) return { catName: '证书', icon: '🔒', sortWeight: 2 };
-    if ((num >= -399 && num <= -300) || num === -352 || num === -356) return { catName: '协议', icon: '📡', sortWeight: 6 };
-    if ((num >= -199 && num <= -100) || num === -7 || num === -109) return { catName: '连接', icon: '🔗', sortWeight: 7 };
-    if (num >= -99 && num <= -1) return { catName: '应用层', icon: '⚙️', sortWeight: 8 };
-    if (num >= -413 && num <= -400) return { catName: '缓存', icon: '📦', sortWeight: 9 };
-  }
-
-  const desc = getNetErrorDescription(code);
-  if (desc.includes('DNS') || desc.includes('NAME_NOT_RESOLVED')) return { catName: 'DNS', icon: '🌐', sortWeight: 1 };
-  if (desc.includes('SSL') || desc.includes('CERT') || desc.includes('证书')) return { catName: '证书', icon: '🔒', sortWeight: 2 };
-  if (desc.includes('QUIC')) return { catName: '协议', icon: '📡', sortWeight: 6 };
-  if (desc.includes('TIMED_OUT') || desc.includes('超时')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
-  if (desc.includes('REFUSED') || desc.includes('拒绝')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
-  if (desc.includes('RESET') || desc.includes('重置')) return { catName: '连接', icon: '🔗', sortWeight: 7 };
-  return { catName: '其他', icon: '❓', sortWeight: 99 };
+  return classifyNetError(code);
 }
 
 function _dedupActions(actions: string[]): string[] {

@@ -1,4 +1,5 @@
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
+import { classifySslIssueCategory } from './errorClassifier';
 import { formatTime, truncateUrl } from '../../utils/format';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 
@@ -83,6 +84,13 @@ export interface DiagnosisIssue {
   time: number;
 }
 
+export interface SslIssue {
+  event: ParsedEvent;
+  error: number;
+  host: string;
+  category: 'cert' | 'timeout' | 'protocol' | 'connection' | 'other';
+}
+
 export interface AnalysisResult {
   totalEvents: number;
   uniqueSources: number;
@@ -101,7 +109,8 @@ export interface AnalysisResult {
   protocols: Record<string, number>;
   hosts: Record<string, string>;
   errorSources: Record<string, number>;
-  certIssues: { event: ParsedEvent; error: number; host: string }[];
+  certIssues: SslIssue[];
+  sslIssues: SslIssue[];
   connectionFailures: { url: string; error: number; time: number }[];
   stalledRequests: URLRequest[];
   slowRequests: URLRequest[];
@@ -139,6 +148,7 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     hosts: {},
     errorSources: {},
     certIssues: [],
+    sslIssues: [],
     connectionFailures: [],
     stalledRequests: [],
     slowRequests: [],
@@ -342,12 +352,18 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   // ---- SSL/TLS events ----
   if (stn === 'SSL_CONNECT_JOB' || stn === 'SSL_CONNECT' || tn.includes('SSL_') || tn.includes('TLS_')) {
     r.sslEvents.push(evt);
-    if (p.error_code || p.net_error) {
-      r.certIssues.push({
+    const sslError = p.error_code ?? p.net_error;
+    if (sslError !== undefined && sslError !== 0) {
+      const issue: SslIssue = {
         event: evt,
-        error: p.error_code || p.net_error,
+        error: Number(sslError),
         host: p.host || p.server_info || 'unknown',
-      });
+        category: classifySslIssueCategory(sslError),
+      };
+      r.sslIssues.push(issue);
+      if (issue.category === 'cert') {
+        r.certIssues.push(issue);
+      }
     }
     if (p.encrypted_protocol || p.version) {
       const key = 'TLS_' + (p.encrypted_protocol || p.version);
@@ -903,13 +919,20 @@ function runDiagnostics(r: AnalysisResult) {
     });
   }
 
-  for (const cert of r.certIssues) {
+  for (const issue of r.sslIssues) {
+    const categoryMap: Record<SslIssue['category'], string> = {
+      cert: '证书错误',
+      timeout: 'TLS/SSL 握手超时',
+      protocol: 'TLS/SSL 协议错误',
+      connection: 'TLS/SSL 连接错误',
+      other: 'TLS/SSL 错误',
+    };
     r.errors.push({
       severity: 'error',
       category: 'SSL/TLS',
-      message: `SSL/TLS 握手失败: ${cert.host}`,
-      detail: `错误码: ${cert.error}\n事件: ${cert.event.typeName}`,
-      time: cert.event.time,
+      message: `${categoryMap[issue.category]}: ${issue.host}`,
+      detail: `错误码: ${issue.error} (${getNetErrorDescription(issue.error)})\n事件: ${issue.event.typeName}\n分类: ${categoryMap[issue.category]}`,
+      time: issue.event.time,
     });
   }
 
