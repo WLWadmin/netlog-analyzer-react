@@ -49,28 +49,38 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
     if (goawaySent.length > 0 || goawayRecv.length > 0) {
       const totalGoaway = goawaySent.length + goawayRecv.length;
       // Extract error codes from GOAWAY
+      const getGoawayErrorCode = (e: any): string | null => {
+        const code = e.params?.error_code ?? e.params?.status;
+        if (code === undefined || code === null || code === '') return null;
+        return String(code);
+      };
       const goawayErrorCodes = [...new Set([
-        ...goawaySent.map(e => e.params.error_code || e.params.status || 'unknown'),
-        ...goawayRecv.map(e => e.params.error_code || e.params.status || 'unknown'),
-      ])];
+        ...goawaySent.map(getGoawayErrorCode),
+        ...goawayRecv.map(getGoawayErrorCode),
+      ].filter((code): code is string => Boolean(code)))];
+
+      const errorCodeText = goawayErrorCodes.length > 0
+        ? `错误码: ${goawayErrorCodes.join(', ')}`
+        : '未记录明确错误码';
 
       findings.push({
         icon: '⚠️',
-        text: `HTTP/2: 检测到 ${totalGoaway} 个 GOAWAY 帧（发送 ${goawaySent.length}，接收 ${goawayRecv.length}），错误码: ${goawayErrorCodes.join(', ')}`,
+        text: `HTTP/2: 检测到 ${totalGoaway} 个 GOAWAY 帧（发送 ${goawaySent.length}，接收 ${goawayRecv.length}），${errorCodeText}`,
         severity: totalGoaway > 3 ? 'error' : 'warning',
       });
       score -= totalGoaway > 3 ? 25 : 15;
 
       // Analyze GOAWAY error codes
       for (const code of goawayErrorCodes) {
-        if (code === 0) {
+        const numCode = Number(code);
+        if (numCode === 0) {
           suggestions.push('GOAWAY 错误码 0 (NO_ERROR)：正常关闭，可能是服务器重启或连接空闲超时');
-        } else if (code === 1 || code === '1' || code === 0x1) {
+        } else if (numCode === 1) {
           suggestions.push('GOAWAY 错误码 1 (PROTOCOL_ERROR)：协议错误，可能是代理/TLB 不支持 HTTP/2 导致');
           score -= 5;
-        } else if (code === 2 || code === '2') {
+        } else if (numCode === 2) {
           suggestions.push('GOAWAY 错误码 2 (INTERNAL_ERROR)：服务器内部错误，可能是服务端或 TLB 问题');
-        } else if (code === 11 || code === '11') {
+        } else if (numCode === 11) {
           suggestions.push('GOAWAY 错误码 11 (INTERNAL_ERROR)：HTTP/2 连接黑洞，常见于应用切后台休眠后恢复');
         } else {
           suggestions.push(`GOAWAY 错误码 ${code}，需进一步排查`);
@@ -279,12 +289,19 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: 'Last Stream ID', dataIndex: 'lastStreamId', key: 'lastStreamId', width: 120 },
     { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
   ];
-  const goawayData = goawayEvents.map(e => ({
-    direction: isHttp2GoawaySend(e) ? '发送' : '接收',
-    errorCode: String(e.params.error_code || e.params.status || '-'),
-    lastStreamId: String(e.params.last_stream_id || '-'),
-    time: e.time.toFixed(2) + 'ms',
-  }));
+  const goawayData = goawayEvents.map(e => {
+    const getGoawayErrorCode = (ev: any): string | null => {
+      const code = ev.params?.error_code ?? ev.params?.status;
+      if (code === undefined || code === null || code === '') return null;
+      return String(code);
+    };
+    return {
+      direction: isHttp2GoawaySend(e) ? '发送' : '接收',
+      errorCode: getGoawayErrorCode(e) || '-',
+      lastStreamId: String(e.params.last_stream_id || '-'),
+      time: e.time.toFixed(2) + 'ms',
+    };
+  });
 
   // QUIC error detail data
   const quicErrorColumns = [

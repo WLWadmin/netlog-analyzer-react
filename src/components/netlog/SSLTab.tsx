@@ -9,12 +9,41 @@ import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/
 import { StatusTag } from '../../components/shared/StatusTag';
 
 // 版本颜色
+const TLS_VERSION_UNKNOWN = '未记录版本';
+
 const VERSION_COLORS: Record<string, string> = {
-  'TLS 1.3': '#34d399', 'TLSv1.3': '#34d399',
-  'TLS 1.2': '#4a9eff', 'TLSv1.2': '#4a9eff',
-  'TLS 1.1': '#fbbf24', 'TLSv1.1': '#fbbf24',
-  'TLS 1.0': '#f87171', 'TLSv1.0': '#f87171',
+  'TLS 1.3': '#34d399',
+  'TLS 1.2': '#4a9eff',
+  'TLS 1.1': '#fbbf24',
+  'TLS 1.0': '#f87171',
+  [TLS_VERSION_UNKNOWN]: '#94a3b8',
 };
+
+function normalizeTlsVersion(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+
+  const value = String(raw).trim();
+  if (!value || value === '-' || value.toLowerCase() === 'unknown') return null;
+
+  const compact = value.toUpperCase().replace(/\s+/g, '');
+
+  if (compact.includes('TLS1.3') || compact.includes('TLSV1.3')) return 'TLS 1.3';
+  if (compact.includes('TLS1.2') || compact.includes('TLSV1.2')) return 'TLS 1.2';
+  if (compact.includes('TLS1.1') || compact.includes('TLSV1.1')) return 'TLS 1.1';
+  if (compact.includes('TLS1.0') || compact.includes('TLSV1.0')) return 'TLS 1.0';
+
+  return null;
+}
+
+function getTlsVersionFromParams(params: any): string | null {
+  return (
+    normalizeTlsVersion(params?.version) ||
+    normalizeTlsVersion(params?.tls_version) ||
+    normalizeTlsVersion(params?.ssl_version) ||
+    normalizeTlsVersion(params?.protocol) ||
+    normalizeTlsVersion(params?.encrypted_protocol)
+  );
+}
 
 interface SSLTabProps {
   result: AnalysisResult;
@@ -55,8 +84,10 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
   const sslHosts: Record<string, { events: any[]; errors: any[]; version: string; cipher: string; handshakeDuration?: number }> = {};
 
   for (const evt of result.sslEvents) {
-    const ver = evt.params.encrypted_protocol || evt.params.version || evt.params.tls_version || 'unknown';
-    versions[ver] = (versions[ver] || 0) + 1;
+    const ver = getTlsVersionFromParams(evt.params);
+    if (ver) {
+      versions[ver] = (versions[ver] || 0) + 1;
+    }
 
     const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
     if (cipher !== 'unknown') ciphers[cipher] = (ciphers[cipher] || 0) + 1;
@@ -64,8 +95,9 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
     const host = evt.params.host || evt.params.server_info || 'unknown';
     if (!sslHosts[host]) sslHosts[host] = { events: [], errors: [], version: '', cipher: '' };
     sslHosts[host].events.push(evt);
-    if (evt.params.encrypted_protocol || evt.params.version) {
-      sslHosts[host].version = evt.params.encrypted_protocol || evt.params.version;
+    const normalizedHostVer = getTlsVersionFromParams(evt.params);
+    if (normalizedHostVer) {
+      sslHosts[host].version = normalizedHostVer;
     }
     if (evt.params.cipher_suite || evt.params.cipher) {
       sslHosts[host].cipher = evt.params.cipher_suite || evt.params.cipher;
@@ -77,10 +109,10 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
 
   // 1. Check TLS version distribution
   const totalSsl = result.sslEvents.length;
-  const tls13Count = versions['TLS 1.3'] || versions['TLSv1.3'] || 0;
-  const tls12Count = versions['TLS 1.2'] || versions['TLSv1.2'] || 0;
-  const tls11Count = versions['TLS 1.1'] || versions['TLSv1.1'] || 0;
-  const tls10Count = versions['TLS 1.0'] || versions['TLSv1.0'] || 0;
+  const tls13Count = versions['TLS 1.3'] || 0;
+  const tls12Count = versions['TLS 1.2'] || 0;
+  const tls11Count = versions['TLS 1.1'] || 0;
+  const tls10Count = versions['TLS 1.0'] || 0;
   const tls13Ratio = totalSsl > 0 ? tls13Count / totalSsl : 0;
   const tls12Ratio = totalSsl > 0 ? tls12Count / totalSsl : 0;
   const oldTlsCount = tls11Count + tls10Count;
@@ -267,10 +299,16 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
   const versions: Record<string, number> = {};
   const ciphers: Record<string, number> = {};
   const sslHosts: Record<string, { events: any[]; errors: any[] }> = {};
+  let unknownTlsVersionEventCount = 0;
 
   for (const evt of result.sslEvents) {
-    const ver = evt.params.encrypted_protocol || evt.params.version || evt.params.tls_version || 'unknown';
-    versions[ver] = (versions[ver] || 0) + 1;
+    const ver = getTlsVersionFromParams(evt.params);
+
+    if (ver) {
+      versions[ver] = (versions[ver] || 0) + 1;
+    } else {
+      unknownTlsVersionEventCount += 1;
+    }
 
     const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
     if (cipher !== 'unknown') ciphers[cipher] = (ciphers[cipher] || 0) + 1;
@@ -298,7 +336,7 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
     const last = info.events[info.events.length - 1];
     return {
       host,
-      version: last.params.encrypted_protocol || last.params.version || '-',
+      version: getTlsVersionFromParams(last.params) || '-',
       cipher: last.params.cipher_suite || last.params.cipher || '-',
       count: info.events.length,
       hasError: info.errors.length > 0,
@@ -333,13 +371,13 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                   paddingAngle={2}
                   dataKey="value"
                   label={({ name, percent }) => {
-                    const color = (name ? VERSION_COLORS[name] : undefined) || '#4a9eff';
+                    const color = (name ? VERSION_COLORS[name] : undefined) || '#94a3b8';
                     return <span style={{ color }}>{name || 'Unknown'} {((percent ?? 0) * 100).toFixed(0)}%</span>;
                   }}
                   labelLine={{ stroke: 'var(--text-muted)' }}
                 >
                   {versionChartData.map((entry) => (
-                    <Cell key={entry.name} fill={VERSION_COLORS[entry.name] || '#4a9eff'} />
+                    <Cell key={entry.name} fill={VERSION_COLORS[entry.name] || '#94a3b8'} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -355,6 +393,15 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
             </ResponsiveContainer>
           );
         })()}
+        {unknownTlsVersionEventCount > 0 && (
+          <Alert
+            type="info"
+            showIcon
+            message="部分 SSL/TLS 事件未记录明确 TLS 版本"
+            description={`有 ${unknownTlsVersionEventCount} 条 SSL/TLS 事件没有明确的 version / tls_version 字段，已不纳入 TLS 版本占比。`}
+            style={{ marginTop: 12 }}
+          />
+        )}
       </Card>
 
       {/* Cipher Suite Distribution */}
