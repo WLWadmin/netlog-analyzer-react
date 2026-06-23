@@ -4,6 +4,7 @@
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
+
 ## 项目用途
 
 本项目用于解析 `chrome://net-export/` 或 `edge://net-export/` 导出的 `.json` 网络日志文件，并在浏览器本地完成分析与展示。工具不会把日志上传到服务器，适合用于包含访问链路、网络错误、代理配置、TLS 握手、HTTP/2、QUIC、DNS 解析、请求耗时等信息的排查场景。
@@ -40,6 +41,7 @@
 - **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown / JSON / CSV 三种格式的分析报告（NetLog 模式）。
+- **更稳健的基础交互 Hook**：键盘导航会自动避开 `input` / `textarea` / `contenteditable` 编辑场景，响应式断点在挂载后立即同步，减少误触和首屏状态偏差。
 
 ### 性能优化
 
@@ -518,6 +520,13 @@ NetLog / HAR / Go Log 文件
 - 在页面根节点设置 `data-theme` 属性。
 - 提供 `useTheme()` Hook 供页面组件切换主题。
 
+### 基础 Hooks：`src/hooks/useKeyboardNavigation.ts` / `src/hooks/useMediaQuery.ts`
+
+这两个基础 Hook 在本轮优化后承担了更稳定的交互底座职责：
+
+- `useKeyboardNavigation()`：提供列表型交互的上下键 / Enter / Escape 导航能力，并在编辑态元素（如 `input`、`textarea`、`select`、`contenteditable`）聚焦时主动跳过全局快捷键处理，避免输入过程中误触列表跳转。
+- `useMediaQuery()`：封装 `matchMedia` 监听逻辑，组件挂载后会立即以当前查询结果回填状态，减少首屏断点状态与真实视口不一致的问题。
+
 ### 样式：`src/index.css`
 
 `index.css` 定义全局样式、主题变量和页面视觉效果，包括：
@@ -588,8 +597,8 @@ src/
 │   └── analysisThresholds.ts  # 分析阈值常量（慢请求/Top N/时间线/加载步长/防抖）
 ├── hooks/                     # 自定义 Hooks
 │   ├── useAnimatedNumber.ts   # 数值动效 Hook
-│   ├── useKeyboardNavigation.ts # 键盘导航 Hook
-│   ├── useMediaQuery.ts       # 响应式媒体查询 Hook
+│   ├── useKeyboardNavigation.ts # 键盘导航 Hook（自动避开 input/textarea/contenteditable）
+│   ├── useMediaQuery.ts       # 响应式媒体查询 Hook（挂载后立即同步真实 matches）
 │   └── useLoadMore.ts         # 加载更多 Hook（支持 resetDeps 自动重置）
 ├── contexts/                  # React Context
 │   └── NavigationContext.tsx  # 跨 Tab 导航上下文（intent 机制）
