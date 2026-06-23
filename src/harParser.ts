@@ -48,6 +48,7 @@ export interface HarRequestEntry {
   protocol: string;
   domain: string;
   remoteAddress: string;
+  connectionId?: string;
   category: HarCategory;
   rawType: string;
   mimeType: string;
@@ -234,10 +235,8 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
   const xTtLogid = getHeader(responseHeaders, 'x-tt-logid') || getHeader(requestHeaders, 'x-tt-logid');
   const xTtCip = getHeader(responseHeaders, 'x-tt-cip') || getHeader(requestHeaders, 'x-tt-cip');
   const xLscSourceIp = getHeader(responseHeaders, 'x-lsc-source-ip') || getHeader(requestHeaders, 'x-lsc-source-ip');
-
-  let remoteAddress = entry.serverIPAddress || '';
-  if (remoteAddress && entry.connection) remoteAddress += ':' + entry.connection;
-
+  const remoteAddress = entry.serverIPAddress || '';
+  const connectionId = entry.connection ? String(entry.connection) : '';
   // 提取 queryString 和 postData
   const queryString: HarQueryParam[] = (req.queryString || []).map((q: any) => ({
     name: q.name || '',
@@ -261,6 +260,7 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
     protocol: normalizeProtocol(resp.httpVersion || req.httpVersion || ''),
     domain,
     remoteAddress: remoteAddress || '-',
+    connectionId,
     category,
     rawType: rawType || category,
     mimeType,

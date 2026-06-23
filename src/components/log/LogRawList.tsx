@@ -175,7 +175,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         {visibleEntries.map(entry => {
           const isExpanded = expandedEntry === entry.id;
           const isError = entry.status === 'Error';
-
+          const statusCodeColor = entry.statusCode === undefined ? 'default' : entry.statusCode >= 400 ? 'error' : entry.statusCode >= 300 ? 'processing' : 'success';
           return (
             <div
               key={entry.id}
@@ -234,7 +234,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                 {entry.statusCode !== undefined && (
                   <Tag
                    
-                    color="error"
+                    color={statusCodeColor}
                     style={{ fontSize: 11, margin: 0, height: 18, lineHeight: '18px' }}
                   >
                     {entry.statusCode}

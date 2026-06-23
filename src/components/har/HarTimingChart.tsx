@@ -33,7 +33,8 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total }) => {
   }));
 
   const sum = phases.reduce((acc, p) => acc + p.value, 0);
-  const denom = sum > 0 ? sum : 1;
+  const denom = total > 0 ? total : (sum > 0 ? sum : 1);
+  const unaccounted = Math.max(0, total - sum);
 
   // 计算每个阶段的起始位置（百分比）
   let currentOffset = 0;
@@ -87,6 +88,15 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total }) => {
           ) : null
         )}
       </div>
+
+      {unaccounted > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          说明：仍有
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{formatHarTime(unaccounted)}</span>
+          {" "}耗时未在已记录阶段中拆分，图表按总耗时口径保留这部分空白。
+        </div>
+      )}
+
 
       {/* 阶段明细表格（浏览器 Network 风格） */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>

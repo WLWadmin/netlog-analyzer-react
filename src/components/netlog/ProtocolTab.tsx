@@ -394,14 +394,12 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
         const quicDurations = quicReqs.map(r => r.duration!);
         const tcpDurations = tcpReqs.map(r => r.duration!);
 
-        const quicConnectPhases = quicReqs.map(r => {
-          const connectEvt = r.events.find(e => e.typeName === 'HTTP_TRANSACTION_SEND_REQUEST' || e.typeName.includes('CONNECT'));
-          return connectEvt ? connectEvt.time : 0;
-        }).filter(t => t > 0);
-        const tcpConnectPhases = tcpReqs.map(r => {
-          const connectEvt = r.events.find(e => e.typeName === 'HTTP_TRANSACTION_SEND_REQUEST' || e.typeName.includes('CONNECT'));
-          return connectEvt ? connectEvt.time : 0;
-        }).filter(t => t > 0);
+        const quicConnectPhases = quicReqs
+          .map(r => r.timeline.connect?.duration || 0)
+          .filter(d => d > 0);
+        const tcpConnectPhases = tcpReqs
+          .map(r => r.timeline.connect?.duration || 0)
+          .filter(d => d > 0);
 
         const quicErrorRate = quicReqs.length > 0
           ? (quicReqs.filter(r => r.events.some(e => e.params.net_error || e.params.error_code)).length / quicReqs.length) * 100
