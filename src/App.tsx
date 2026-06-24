@@ -19,6 +19,7 @@ import {
   CodeOutlined,
   DownOutlined,
 } from '@ant-design/icons';
+
 import { parseLog, ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
 import { parseLogFile, LogAnalysisResult } from './logParser';
@@ -77,6 +78,10 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const { mode, toggleTheme } = useTheme();
   const { intent, navigateTo } = useNavigation();
+
+  // Ref 用于避免连续多文件上传时的 state 异步判断问题
+  const resultRef = useRef<AnalysisResult | null>(null);
+  const harResultRef = useRef<HarAnalysisResult | null>(null);
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -141,9 +146,10 @@ const AppContent: React.FC = () => {
             harAnalysis.repairInfo = repairInfo;
           }
           setHarResult(harAnalysis);
+          harResultRef.current = harAnalysis;
 
-          // 如果已有 NetLog 数据，切换到联合诊断模式
-          if (result) {
+          // 使用 ref 判断是否有 NetLog 数据（避免 state 异步问题）
+          if (resultRef.current) {
             setFileType('combined');
             const defaultTab = 'combined';
             setActiveTab(defaultTab);
@@ -167,9 +173,10 @@ const AppContent: React.FC = () => {
         const { events: parsedEvents, result: analysisResult } = parseLog(data);
         setEvents(parsedEvents);
         setResult(analysisResult);
+        resultRef.current = analysisResult;
 
-        // 如果已有 HAR 数据，切换到联合诊断模式
-        if (harResult) {
+        // 使用 ref 判断是否有 HAR 数据（避免 state 异步问题）
+        if (harResultRef.current) {
           setFileType('combined');
           const defaultTab = 'combined';
           setActiveTab(defaultTab);
@@ -194,56 +201,88 @@ const AppContent: React.FC = () => {
     }, 100);
   };
 
-  const handleReset = () => {
-    setHasData(false);
-    setEvents([]);
-    setResult(null);
-    setHarResult(null);
-    setLogResult(null);
-    setFileType('netlog');
-    setActiveTab('overview');
-    window.location.hash = '';
-  };
-
-  // 处理追加上传第二个文件（用于联合诊断）
-  const handleSecondaryFileLoaded = (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
-    // 复用 handleFileLoaded 的解析逻辑，但保留已有数据
-    const taskId = ++loadTaskIdRef.current;
+  // 追加上传：支持在已有数据基础上追加另一类型文件
+  const handleSecondaryFileLoaded = (
+    data: unknown,
+    isTextLog = false,
+    repairInfo?: HarAnalysisResult['repairInfo']
+  ) => {
     setLoading(true);
     setLoadingText('正在解析追加文件...');
+
     setTimeout(() => {
-      if (taskId !== loadTaskIdRef.current) return;
       try {
-        if (isHarFile(data)) {
-          const harAnalysis = parseHar(data);
-          if (repairInfo) harAnalysis.repairInfo = repairInfo;
-          setHarResult(harAnalysis);
-          setFileType('combined');
-          setActiveTab('combined');
-          window.location.hash = buildHash('combined', 'combined');
-          setLoading(false);
-          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
-          return;
-        }
         if (isTextLog && typeof data === 'string') {
           message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
           setLoading(false);
           return;
         }
+
+        if (isHarFile(data)) {
+          const harAnalysis = parseHar(data);
+          if (repairInfo) harAnalysis.repairInfo = repairInfo;
+
+          setHarResult(harAnalysis);
+          harResultRef.current = harAnalysis;
+
+          if (resultRef.current) {
+            setFileType('combined');
+            setActiveTab('combined');
+            window.location.hash = buildHash('combined', 'combined');
+            message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
+          } else {
+            setFileType('har');
+            setActiveTab('requests');
+            window.location.hash = buildHash('har', 'requests');
+            message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求）`);
+          }
+
+          setHasData(true);
+          setLoading(false);
+          return;
+        }
+
         const { events: parsedEvents, result: analysisResult } = parseLog(data);
+
         setEvents(parsedEvents);
         setResult(analysisResult);
-        setFileType('combined');
-        setActiveTab('combined');
-        window.location.hash = buildHash('combined', 'combined');
+        resultRef.current = analysisResult;
+
+        if (harResultRef.current) {
+          setFileType('combined');
+          setActiveTab('combined');
+          window.location.hash = buildHash('combined', 'combined');
+          message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
+        } else {
+          setFileType('netlog');
+          setActiveTab('overview');
+          window.location.hash = buildHash('netlog', 'overview');
+          message.success(`追加 NetLog 成功（${parsedEvents.length} 事件）`);
+        }
+
+        setHasData(true);
         setLoading(false);
-        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
       } catch (err) {
         setLoading(false);
         message.error('追加文件解析失败: ' + (err as Error).message);
       }
     }, 100);
   };
+
+  const handleReset = () => {
+    setHasData(false);
+    setEvents([]);
+    setResult(null);
+    setHarResult(null);
+    setLogResult(null);
+    resultRef.current = null;
+    harResultRef.current = null;
+    setFileType('netlog');
+    setActiveTab('overview');
+    window.location.hash = '';
+  };
+
+
 
   const handleExport = () => {
     if (!result) return;
@@ -326,7 +365,7 @@ const AppContent: React.FC = () => {
       </div>
     ) : null },
     { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
-    { key: 'combined', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />联合诊断</span>, children: <CombinedDiagnosisTab harResult={harResult} netlogResult={result} /> },
+    ...(result && harResult ? [{ key: 'combined', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />联合诊断</span>, children: <CombinedDiagnosisTab harResult={harResult} netlogResult={result} /> }] : []),
     { key: 'baseline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileTextOutlined />A-B 对比</span>, children: <BaselineCompareTab /> },
   ];
 
@@ -449,7 +488,7 @@ const AppContent: React.FC = () => {
       <Content style={{ width: '100%', boxSizing: 'border-box' }}>
         {!hasData ? (
           <div style={{ maxWidth: 900, margin: '48px auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
-            <UploadZone onFileLoaded={handleFileLoaded} />
+            <UploadZone onFileLoaded={handleFileLoaded} multiple />
 
             {/* 使用说明 */}
             <div>
@@ -685,6 +724,19 @@ const AppContent: React.FC = () => {
               setActiveTab(tab);
               window.location.hash = buildHash(fileType, tab);
             }} />}
+            {/* NetLog 单文件页：追加上传 HAR 入口 */}
+            {result && !harResult && (
+              <div style={{ padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <RadarChartOutlined style={{ color: '#6366f1' }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>启用联合诊断</span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  已加载 NetLog 文件，再上传同一次问题复现导出的 HAR 文件即可启用 HAR + NetLog 联合诊断。
+                </p>
+                <UploadZone onFileLoaded={handleSecondaryFileLoaded} compact />
+              </div>
+            )}
             <AnalysisDisclaimer variant="netlog" />
             <div
               style={{
