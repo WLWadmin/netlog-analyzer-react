@@ -5,6 +5,8 @@ import { AnalysisResult } from '../../parsers/netlog/parser';
 import { generateSuggestions, generateNextStepInfo, Suggestion } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
 import { useNavigation, NavigationFilters } from '../../contexts/NavigationContext';
+import { buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
+import DiagnosisPanel from '../shared/DiagnosisPanel';
 
 const { Panel } = Collapse;
 
@@ -190,6 +192,9 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
   const suggestions = generateSuggestions(result);
   const { navigateTo } = useNavigation();
 
+  // 统一诊断模型
+  const diagnosisSummary = useMemo(() => buildNetlogDiagnosisSummary(result, suggestions), [result, suggestions]);
+
   const INITIAL_SHOW = 10;
   const LOAD_MORE_STEP = 100;
   const FULL_THRESHOLD = 300;
@@ -206,6 +211,9 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
 
   return (
     <>
+      {/* 统一诊断卡片 */}
+      <DiagnosisPanel summary={diagnosisSummary} />
+
       {/* Root Cause Suggestions — MOVED TO TOP */}
       <Card title={<span><BulbOutlined /> 根因建议</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
         {suggestions.length === 0 ? (

@@ -23,6 +23,8 @@ import { HarAnalysisResult, formatBytes, formatHarTime, categoryStyle, statusSty
 import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus, type DiagnosisStatus } from '../../harDiagnosis';
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { buildHarDiagnosisSummary } from '../../diagnosis/shared';
+import DiagnosisPanel from '../shared/DiagnosisPanel';
 
 interface HarSummaryDiagnosisProps {
   result: HarAnalysisResult;
@@ -270,10 +272,16 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
     };
   }, [diag]);
 
+  // 统一诊断模型
+  const diagnosisSummary = useMemo(() => buildHarDiagnosisSummary(result, diag), [result, diag]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* 1. 诊断结论概览 */}
+      {/* 统一诊断卡片 */}
+      <DiagnosisPanel summary={diagnosisSummary} />
+
+      {/* 原始诊断视图（保留原有详细统计） */}
       <HealthAssessmentCard title="HAR 诊断结论" assessment={healthAssessment} />
 
       {/* 2. 网络状态 */}
