@@ -12,7 +12,9 @@
 除 NetLog 外，工具还支持：
 
 - **HAR 文件**：浏览器 DevTools → Network 面板导出的 `.har` 文件，进入独立的「请求列表 + 汇总诊断」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键诊断字段。
-- **Go 服务日志**：Go 后端服务输出的 `.log` 文件（如 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式），支持解析 Success / Error / Retrying / Network Error 等多种日志格式，展示核心发现、统计图表、操作流程分组和原始日志列表。
+- **Go 服务日志解析**：Go 后端服务输出的 `.log` 文件（如 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式），支持解析 Success / Error / Retrying / Network Error 等多种日志格式，展示核心发现、统计图表、操作流程分组和原始日志列表。
+- **HAR + NetLog 联合诊断**：支持同时上传 HAR 和 NetLog 两个文件，系统按 host 粒度对齐请求与事件，生成「HAR 看到什么现象，NetLog 解释为什么」的联合诊断卡片。联合诊断作为 NetLog 页面的一个 Tab 展示，而非独立页面。
+- **正常/异常 A-B 对比**：上传两份同源 HAR 文件（正常环境 + 异常环境），系统自动对比域名级别耗时差异，定位性能退化根因。
 
 典型使用场景包括：
 
@@ -20,6 +22,7 @@
 - 从大量 NetLog 事件中提取 URL 请求、错误来源、失败域名、慢请求与关键链路。
 - 判断是否存在代理、VPN、PAC、HTTP/2 GOAWAY、QUIC 错误、网络切换等异常线索。
 - 将分析结果导出为 Markdown 报告，便于沉淀到工单、文档或排查记录中。
+- 通过统一诊断卡片快速获取结构化诊断结论、可执行动作和排查命令。
 
 ## 核心特性
 
@@ -38,16 +41,21 @@
 - **一键复制能力**：请求列表的 Domain / Remote Address 列、详情页的关键诊断字段均支持一键复制。
 - **详情面板文本截断与 Hover 提示**：超长 URL、header value、query string、params 等自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip。
 - **使用说明引导**：首页提供 HAR、NetLog 和 Go 日志文件获取教程链接，帮助新用户快速上手。
-- **模块化可视化界面**：通过总览、定因诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
+- **模块化可视化界面**：通过总览、定因诊断、联合诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown / JSON / CSV 三种格式的分析报告（NetLog 模式）。
 - **更稳健的基础交互 Hook**：键盘导航会自动避开 `input` / `textarea` / `contenteditable` 编辑场景，响应式断点在挂载后立即同步，减少误触和首屏状态偏差。
+- **多文件同时上传**：首页上传区支持一次选择或拖拽多个文件，可同时上传 HAR + NetLog，系统自动识别并进入联合诊断。
+- **追加上传**：单文件状态下可通过「联合诊断」Tab 或 HAR 页面入口追加上传另一类型文件，无需重新上传。
 
 ### 性能优化
 
 - **虚拟滚动优化**：事件列表和请求瀑布使用 antd 虚拟滚动，流畅处理大数据量。
 - **统一加载更多策略**：NetLog 瀑布流、Log 流程分组、Log 原始日志统一使用 `useLoadMore` hook 管理"加载更多"分页，筛选条件变化时通过 `resetDeps` 自动重置；HAR 请求表保留 antd 原生分页（表格型数据更适合分页浏览）。
 - **统一阈值常量**：所有慢请求、Top N 截断、时间线限制、加载更多初始值/步长、搜索防抖等阈值集中管理于 `analysisThresholds.ts`，便于统一调整。
+- **HAR 诊断阈值抽离**：HAR 诊断中的慢请求判定、证据关联数量、严重度分级等阈值集中管理于 `harThresholds.ts`，避免魔法数字散落。
+- **NetLog 采集质量补全**：`checkNetlogQuality` 新增 polledData、socket 层事件、URL_REQUEST 深度检查，帮助用户判断 NetLog 采集是否完整。
+- **HAR Cookie 细化检测**：新增 Set-Cookie 数量检测（>5 个），识别响应头膨胀风险。
 - **分层搜索索引**：原始日志搜索采用核心字段优先 + 大字段按需 fallback 策略（仅在核心字段未命中且搜索词较长时动态拼接 headers/body），避免大数据量时预计算大字段索引。
 - **参数懒计算**：事件列表预览只保留轻量 shallow 索引，`paramsJson` 在点击详情弹窗或 hover Tooltip 时才执行 `JSON.stringify`，减少初始渲染开销。
 - **HAR 诊断单次遍历**：`harDiagnosis.ts` 将所有基础统计合并为单次 `for...of` 遍历，domain/ip 的 `avgTime` 在遍历阶段累加后一次性计算，避免多次 `.filter()` 全量扫描和 O(N²) 回查。
@@ -62,6 +70,9 @@
 - **统一免责声明**：`AnalysisDisclaimer` 共享组件支持 `netlog` / `har` / `log` 三种变体，统一 Alert 样式和语义化颜色，替代各页面中分散的硬编码免责声明。
 - **统一 Loading 机制**：全局使用 `LoadingOverlay` 全屏遮罩组件，支持动态 `phase` 和 `message` 文案，解析过程中实时更新进度提示。
 - **Top N 预览标注**：概览和性能分析中的截断列表明确标注"Top N 预览"，并提供"查看全部"跳转链接。
+- **统一诊断模型**：NetLog 和 HAR 的诊断结果统一输出为 `DiagnosticCard` 结构（结论、证据、动作、限制、导航目标），由 `DiagnosisPanel` 统一渲染。诊断卡片支持证据跳转、自助命令库内嵌、脱敏导出等功能。
+- **联合诊断作为 NetLog Tab**：HAR + NetLog 联合诊断不再使用独立 `fileType='combined'` 页面，而是作为 NetLog 页面的一个固定 Tab（`#netlog/combined`）。NetLog 是主诊断工作台，HAR 是补充证据源。
+- **统一证据跳转规则**：`navigation.ts` 集中管理 HAR 和 NetLog 的证据跳转规则（`buildHarNavigationTarget` / `buildNetlogNavigationTarget`），页面组件不再根据 title/icon 自行推断。
 
 ## 快速使用
 
@@ -82,14 +93,17 @@
 
 将导出的 `.json`（NetLog）或 `.har` 文件拖拽到页面上传区域，或点击上传区域选择文件。页面会在本地读取并自动识别文件类型后完成解析。
 
+支持同时上传 HAR + NetLog 两个文件，自动进入联合诊断模式（`#netlog/combined`）。
+
 ### 3. 查看分析结果
 
 **NetLog 文件**解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
 
 1. **总览**：先看整体错误、失败域名、协议分布和关键异常。
 2. **定因诊断**：查看自动生成的根因建议和下一步排查动作。
-3. **事件列表**：必要时回到原始事件级别核对细节。
-4. **SSL/TLS、协议分析、性能分析**：针对证书、HTTP/2、QUIC、耗时分布等方向深入定位。
+3. **联合诊断**：如果已上传 HAR，查看 HAR + NetLog 跨源对齐诊断；否则可通过此 Tab 追加上传 HAR。
+4. **事件列表**：必要时回到原始事件级别核对细节。
+5. **SSL/TLS、协议分析、性能分析**：针对证书、HTTP/2、QUIC、耗时分布等方向深入定位。
 
 **HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求列表」与「汇总诊断」两个 Tab，详见下文「HAR 解析模块说明」。
 
@@ -105,7 +119,11 @@
 
 ### 4. 导出报告
 
-（NetLog 模式）解析完成后点击页面顶部的导出按钮，可下载 `netlog-analysis-report-<timestamp>.md` 格式的 Markdown 报告。HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复制。
+（NetLog 模式）解析完成后点击页面顶部的导出按钮，可下载 `netlog-analysis-report-<timestamp>.md` 格式的 Markdown 报告。
+
+**诊断卡片脱敏导出**：在「汇总诊断」Tab 的右上角点击「生成协作摘要」，可导出已脱敏的诊断报告（自动脱敏 Cookie、Authorization、Token、URL 敏感参数等），便于安全地分享给他人协作排查。
+
+HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复制。
 
 ## 页面模块说明
 
@@ -117,6 +135,7 @@
 
 - 支持拖拽上传和点击上传。
 - 支持 `.json`（NetLog）、`.har`、`.log` 三种格式，并自动识别类型。
+- **支持多文件同时上传**：可一次选择 HAR + NetLog 两个文件，系统自动识别类型并进入联合诊断。
 - 使用 `FileReader` 在浏览器本地读取文件内容。
 - 展示读取进度、拖拽高亮和解析中的加载状态。
 - **HAR 文件损坏自动修复**：`.har` 文件 JSON 解析失败时，自动调用 `harRepair.ts` 尝试修复，修复成功后弹窗展示恢复率，用户确认后继续解析。
@@ -164,13 +183,34 @@
 
 定因诊断页基于解析结果生成更接近排查动作的结论，包括：
 
+- **统一诊断卡片**：由 `DiagnosisPanel` 渲染 `DiagnosticCard` 结构，每张卡片包含结论、证据列表、动作项（按角色分配：用户/后端/IT/安全）、限制说明和排查命令库。
 - 按类别聚合错误、告警和信息项。
-- 展示自动生成的排查建议、结论和行动项。
-- 每条建议底部提供"查看事件证据"和"查看请求瀑布"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。跳转时使用 `buildNavigationFilters()` 根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度），而非传入人类可读标题文本。
-- 提供"下一步排查"视图，例如 DNS、代理 / VPN、防火墙、证书、协议等方向。
+- 每条建议底部提供"查看证据"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。跳转规则统一收口到 `navigation.ts`（`buildHarNavigationTarget` / `buildNetlogNavigationTarget`），页面组件不再根据 title/icon 自行推断。
+- **自助命令库**：诊断卡片内嵌排查命令区块，按类别推荐命令（`nslookup`、`curl`、`openssl` 等），支持一键复制，包含平台标注、预期结果和失败后续指引。
 - 对大量同类问题进行分组和分页加载，便于阅读。
 
 该模块的建议来源主要由 `src/parsers/netlog/diagnosis.ts` 生成。
+
+### 联合诊断页：`CombinedDiagnosisTab`
+
+对应文件：`src/components/shared/CombinedDiagnosisTab.tsx`
+
+联合诊断页将 HAR 的请求级 timing 与 NetLog 的事件级网络状态对齐，生成跨源诊断：
+
+- 按 host 粒度对齐 HAR 请求与 NetLog 事件。
+- 生成三类联合卡片：DNS 慢 + NetLog DNS 失败域、慢请求 + 代理介入、TLS 握手慢 + NetLog SSL 异常。
+- 缺 HAR 时展示上传入口，用户可直接在 Tab 内追加上传 HAR 文件。
+- 作为 NetLog 页面的固定 Tab（`#netlog/combined`），而非独立页面。
+
+### A-B 对比页：`BaselineCompareTab`
+
+对应文件：`src/components/shared/BaselineCompareTab.tsx`
+
+支持上传两份同源 HAR 文件（正常环境 + 异常环境），自动对比域名级别耗时差异：
+
+- 按域名分组计算平均耗时差异。
+- 自动归因退化根因阶段（DNS / TCP 连接 / TLS 握手 / 服务端响应 / 资源下载）。
+- 为每个退化域名生成对比诊断卡片，包含推荐排查命令。
 
 ### 事件列表页：`EventsTab`
 
@@ -332,6 +372,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 
 - 展示总请求数、失败请求、慢请求、总传输大小、总耗时。
 - 「失败请求」「慢请求」卡片可点击，自动跳转到请求列表并按对应条件筛选。
+- **辅助健康评估**：展示总体健康评分（0-100），但明确标注为「辅助健康分（仅供参考）」，主诊断以统一诊断卡片为准。
 
 ### 请求列表：`HarRequestTable`
 
@@ -393,6 +434,11 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - `ErrorBoundary`：全局错误边界，捕获解析异常并提供重置按钮。
 - `LoadingOverlay`：全屏加载遮罩，支持动态 `phase`（阶段文案）和 `message`（提示文案），可选 Progress 进度条。解析过程中 App 层实时更新 `loadingText` 同步到 LoadingOverlay 的 `phase` prop。
 - `AnalysisDisclaimer`：统一免责声明组件，支持 `netlog` / `har` / `log` 三种变体，使用 `CHART_COLORS.semantic.warning` 语义化颜色，替代各页面中分散的硬编码免责声明块。
+- `DiagnosisPanel`：统一诊断卡片容器，渲染 `DiagnosticCard` 列表，支持健康分展示和脱敏导出按钮。
+- `DiagnosticCard`：统一诊断卡片，包含结论、证据列表、动作项（按角色分配）、限制说明、排查命令库（内嵌展开区块）和证据跳转按钮。
+- `ExportSummaryButton`：脱敏导出按钮，生成 Markdown 格式的协作摘要报告，自动脱敏敏感信息。
+- `CombinedDiagnosisTab`：联合诊断 Tab，将 HAR 请求与 NetLog 事件对齐生成跨源诊断。
+- `BaselineCompareTab`：A-B 对比 Tab，支持两份 HAR 文件的域名级别耗时差异对比。
 
 ## 核心代码模块说明
 
@@ -408,21 +454,25 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - **NavigationContext**：提供跨 Tab 导航机制，支持诊断建议一键跳转到事件/请求列表并自动设置筛选条件。`DiagnosisTab` 使用 `extractNetErrorCode()` 从标题中精确提取 Chrome NetLog 错误码（避免 `HTTP/2`、`TLS 1.3`、`P90` 被误识别），并根据诊断类型构造结构化 `NavigationFilters`（`keyword`/`errorCode`/`errorOnly` 等精确维度）；`EventsTab` 支持 `net_error:-105` 精确匹配语法；`NetLogRequestList` 收到 `errorCode` 时自动设置错误码筛选并将状态切为"仅失败"。
 - **文件加载竞态保护**：`handleFileLoaded` 使用 `loadTaskIdRef`（`useRef(0)`）计数器，连续上传新文件时旧任务的 `setTimeout` 回调会被自动丢弃，避免状态覆盖。
 - **统一 Loading 机制**：仅使用 `LoadingOverlay` 全屏遮罩，`loadingText` 状态实时同步到遮罩的 `phase` prop，无内联 LoadingUI。
+- **多文件上传与联合诊断**：支持同时上传 HAR + NetLog，自动进入 NetLog 页面的「联合诊断」Tab（`#netlog/combined`）。使用 `resultRef` / `harResultRef` 避免连续多文件上传时的 state 异步判断问题。
+- **追加上传**：单文件状态下可通过「联合诊断」Tab 或 HAR 页面入口追加上传另一类型文件，无需重新上传。
 
 整体数据流如下：
 
 ```text
 NetLog / HAR / Go Log 文件
-  → UploadZone 本地读取
+  → UploadZone 本地读取（支持多文件同时上传）
   → App.handleFileLoaded（自动识别类型 + 竞态保护）
   ├─ NetLog：parsers/netlog/parser.parseLog → AnalysisResult
-  │    → SummaryCards / OverviewTab / DiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
+  │    → SummaryCards / OverviewTab / DiagnosisTab / CombinedDiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
   │    → NetLogRequestList（useLoadMore 瀑布流分页）
   │    → diagnosis.exportReport 导出报告
+  │    → 联合诊断：diagnosis/fromCombined.ts → 对齐 HAR + NetLog → 联合诊断卡片
   ├─ HAR：harParser.parseHar → HarAnalysisResult
   │    → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
   │    → harDiagnosis.diagnoseHar → HarDiagnosisResult（单次遍历计算）
   │    → 损坏时：harRepair.parseHarWithRepair → 自动修复 → 用户确认 → 解析
+  │    → 联合诊断：追加 NetLog 后进入 NetLog 页面 CombinedDiagnosisTab
   └─ Go Log：logParser.parseLogFile → LogAnalysisResult
        → LogResultPage（LogInsightBanner / LogSummaryCards / LogStatsCharts / LogFlowGroups / LogRawList）
        → LogFlowGroups / LogRawList 均使用 useLoadMore 分页
@@ -555,13 +605,13 @@ src/
 │   └── harRepair.ts           # HAR 文件损坏自动修复引擎
 ├── components/
 │   ├── har/                   # HAR 结果页面组件
-    │   ├── HarResultPage.tsx  # HAR 结果页容器（支持外层 activeTab）
-    │   ├── HarRequestTable.tsx # 请求列表（antd 分页）
-    │   ├── HarRequestDetail.tsx # 请求详情抽屉（内含 TruncatedText 组件）
-    │   ├── HarSummaryCards.tsx  # 汇总卡片
-    │   ├── HarSummaryDiagnosis.tsx # 汇总诊断（健康评分/网络阶段/HTTP状态/慢请求/域名IP/资源/缓存/安全/归因/建议）
-    │   ├── HarTimingChart.tsx    # 各阶段耗时瀑布图（CHART_COLORS.phases）
-    │   └── CopyText.tsx          # 文本 + 一键复制组件
+│   │   ├── HarResultPage.tsx  # HAR 结果页容器（支持外层 activeTab）
+│   │   ├── HarRequestTable.tsx # 请求列表（antd 分页）
+│   │   ├── HarRequestDetail.tsx # 请求详情抽屉（内含 TruncatedText 组件）
+│   │   ├── HarSummaryCards.tsx  # 汇总卡片
+│   │   ├── HarSummaryDiagnosis.tsx # 汇总诊断（健康评分/网络阶段/HTTP状态/慢请求/域名IP/资源/缓存/安全/归因/建议）
+│   │   ├── HarTimingChart.tsx    # 各阶段耗时瀑布图（CHART_COLORS.phases）
+│   │   └── CopyText.tsx          # 文本 + 一键复制组件
 │   ├── log/                   # Go 服务日志结果页面组件
 │   │   ├── LogResultPage.tsx  # 日志结果页容器（支持外层 activeTab）
 │   │   ├── LogInsightBanner.tsx # 核心发现 Banner
@@ -572,16 +622,21 @@ src/
 │   │   ├── LogDiagnosisTab.tsx  # 错误诊断 Tab
 │   │   └── LogPerformanceTab.tsx # 性能分析 Tab
 │   ├── netlog/                # NetLog 结果页面组件
-│   │   ├── UploadZone.tsx     # 文件上传区（支持拖拽 + HAR 损坏修复）
+│   │   ├── UploadZone.tsx     # 文件上传区（支持拖拽 + 多文件 + HAR 损坏修复）
 │   │   ├── SummaryCards.tsx   # 摘要卡片
 │   │   ├── OverviewTab.tsx   # 总览页（CHART_COLORS 语义化颜色）
-│   │   ├── DiagnosisTab.tsx   # 定因诊断页
+│   │   ├── DiagnosisTab.tsx   # 定因诊断页（统一诊断卡片）
 │   │   ├── EventsTab.tsx     # 事件列表（useMemo 缓存 + 参数懒计算）
 │   │   ├── SSLTab.tsx        # SSL/TLS 分析页
 │   │   ├── ProtocolTab.tsx   # 协议分析页
 │   │   ├── PerformanceTab.tsx # 性能分析页（PhaseChart useMemo 缓存）
 │   │   └── NetLogRequestList.tsx # 请求瀑布流（useLoadMore + resetDeps）
 │   └── shared/                # 共享组件
+│       ├── DiagnosisPanel.tsx     # 统一诊断卡片容器
+│       ├── DiagnosticCard.tsx     # 统一诊断卡片（结论/证据/动作/命令/跳转）
+│       ├── ExportSummaryButton.tsx # 脱敏导出按钮
+│       ├── CombinedDiagnosisTab.tsx # 联合诊断 Tab（HAR + NetLog 对齐）
+│       ├── BaselineCompareTab.tsx   # A-B 对比 Tab（正常/异常 HAR 对比）
 │       ├── HealthAssessmentCard.tsx # 健康评估卡片
 │       ├── IssueDisplay.tsx   # 问题/告警/信息聚合展示
 │       ├── SummaryCard.tsx    # 通用摘要卡片
@@ -594,7 +649,8 @@ src/
 │   ├── tagConfig.ts           # Tag 语义化配置 + HTTP 状态码自动映射
 │   ├── chartColors.ts         # 图表配色常量（semantic/phases/primary）
 │   ├── iconMapping.ts         # Emoji → Icon 映射 + FINDING_COLORS 颜色映射
-│   └── analysisThresholds.ts  # 分析阈值常量（慢请求/Top N/时间线/加载步长/防抖）
+│   ├── analysisThresholds.ts  # 分析阈值常量（慢请求/Top N/时间线/加载步长/防抖）
+│   └── harThresholds.ts       # HAR 诊断阈值（慢请求/证据关联/严重度分级）
 ├── hooks/                     # 自定义 Hooks
 │   ├── useAnimatedNumber.ts   # 数值动效 Hook
 │   ├── useKeyboardNavigation.ts # 键盘导航 Hook（自动避开 input/textarea/contenteditable）
@@ -602,13 +658,25 @@ src/
 │   └── useLoadMore.ts         # 加载更多 Hook（支持 resetDeps 自动重置）
 ├── contexts/                  # React Context
 │   └── NavigationContext.tsx  # 跨 Tab 导航上下文（intent 机制）
-└── parsers/                   # 解析引擎
-    └── netlog/
-        ├── index.ts           # 统一导出（parser + diagnosis + constants + errorClassifier）
-        ├── parser.ts          # NetLog JSON 解析引擎（含 DNS 信息提取、IP 严格校验、协议推断）
-        ├── diagnosis.ts       # 诊断建议与报告生成
-        ├── errorClassifier.ts # 错误码分类器（net_error → DNS/证书/代理/网络等类别）
-        └── constants.ts       # 事件类型/错误码常量映射
+├── parsers/                   # 解析引擎
+│   └── netlog/
+│       ├── index.ts           # 统一导出（parser + diagnosis + constants + errorClassifier）
+│       ├── parser.ts          # NetLog JSON 解析引擎（含 DNS 信息提取、IP 严格校验、协议推断）
+│       ├── diagnosis.ts       # 诊断建议与报告生成
+│       ├── errorClassifier.ts # 错误码分类器（net_error → DNS/证书/代理/网络等类别）
+│       └── constants.ts       # 事件类型/错误码常量映射
+└── diagnosis/                 # 统一诊断模型
+    └── shared/
+        ├── types.ts           # 诊断类型定义（DiagnosticCard / DiagnosisSummary 等）
+        ├── fromHar.ts         # HAR → DiagnosticCard 转换
+        ├── fromNetlog.ts      # NetLog → DiagnosticCard 转换
+        ├── fromCombined.ts    # HAR + NetLog 联合诊断
+        ├── baselineComparator.ts # HAR A-B 对比
+        ├── navigation.ts      # 统一证据跳转规则
+        ├── commandLibrary.ts  # 自助命令库
+        ├── maskedExport.ts    # 脱敏导出逻辑
+        ├── harThresholds.ts   # HAR 诊断阈值常量
+        └── index.ts           # 统一导出
 ```
 
 ## 数据结构概览
