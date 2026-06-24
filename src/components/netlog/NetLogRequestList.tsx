@@ -38,12 +38,14 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [errorCodeFilter, setErrorCodeFilter] = useState<string>('all');
   const [protocolFilter, setProtocolFilter] = useState<string>('all');
   const [slowOnly, setSlowOnly] = useState(false);
+  const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
   const { intent, consumeIntent } = useNavigation();
 
-  // 消费导航意图，自动应用搜索/筛选
+  // 消费导航意图，自动应用搜索/筛选 + 高亮
   useEffect(() => {
     if (!intent || intent.tab !== 'requests') return;
     const filters = intent.filters;
+    const highlight = intent.highlight;
 
     setSearchKeyword("");
     setStatusFilter('all');
@@ -53,6 +55,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     setSlowOnly(false);
     setSelectedIndex(null);
     setDetailReq(null);
+    setHighlightIds(new Set());
 
     if (filters?.keyword) setSearchKeyword(filters.keyword);
     if (filters?.host) setHostFilter(filters.host);
@@ -64,6 +67,12 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       setStatusFilter('error');
     }
     if (filters?.protocol) setProtocolFilter(filters.protocol);
+
+    // 应用高亮
+    if (highlight?.requestIds && highlight.requestIds.length > 0) {
+      setHighlightIds(new Set(highlight.requestIds));
+    }
+
     consumeIntent();
   }, [intent, consumeIntent]);
 
@@ -359,7 +368,14 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             const width = ((req.duration || 0) / totalDuration) * 100;
             const isError = req.error || req.status === 'error';
             const isSlow = (req.duration || 0) > SLOW_REQUEST_MS;
-            const rowBg = hoveredReq === idx ? 'rgba(74, 158, 255, 0.06)' : selectedIndex === idx ? 'rgba(74, 158, 255, 0.1)' : 'transparent';
+            const isHighlighted = highlightIds.has(req.id);
+            const rowBg = isHighlighted
+              ? 'rgba(245, 158, 11, 0.2)'
+              : hoveredReq === idx
+                ? 'rgba(74, 158, 255, 0.06)'
+                : selectedIndex === idx
+                  ? 'rgba(74, 158, 255, 0.1)'
+                  : 'transparent';
 
             return (
               <div
@@ -371,6 +387,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
                   cursor: 'pointer',
                   background: rowBg,
                   transition: 'background 0.15s',
+                  borderLeft: isHighlighted ? '3px solid #f59e0b' : '3px solid transparent',
                 }}
                 onClick={() => { setSelectedIndex(idx); setDetailReq(req); }}
                 onMouseEnter={() => setHoveredReq(idx)}

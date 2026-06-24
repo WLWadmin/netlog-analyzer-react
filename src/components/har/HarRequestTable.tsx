@@ -16,6 +16,7 @@ import {
 import { StatusTag } from '../../components/shared/StatusTag';
 import HarRequestDetail from './HarRequestDetail';
 import CopyText from './CopyText';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -41,6 +42,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   const [innerCategory, setInnerCategory] = useState<string>('all');
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [filtering, setFiltering] = useState(false);
+  const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
+  const { intent, consumeIntent } = useNavigation();
 
   const status: StatusFilter = statusFilter ?? innerStatus;
   const setStatus = (f: StatusFilter) => {
@@ -52,6 +55,42 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setInnerCategory(c);
     onCategoryFilterChange?.(c);
   };
+
+  // 消费导航意图：筛选 + 高亮 + 滚动定位
+  useEffect(() => {
+    if (!intent || intent.tab !== 'requests') return;
+    const filters = intent.filters;
+    const highlight = intent.highlight;
+
+    // 重置筛选
+    setKeyword('');
+    setBlockedDomains([]);
+    setBlockedInput('');
+    setInnerStatus('all');
+    setInnerCategory('all');
+    setSelected(null);
+    setHighlightIds(new Set());
+
+    // 应用筛选
+    if (filters?.keyword) setKeyword(filters.keyword);
+    if (filters?.requestId) {
+      const entry = result.entries.find(e => e.id === filters.requestId);
+      if (entry) {
+        setKeyword(entry.url);
+      }
+    }
+    if (filters?.errorOnly) {
+      setInnerStatus('failed');
+      onStatusFilterChange?.('failed');
+    }
+
+    // 应用高亮
+    if (highlight?.requestIds && highlight.requestIds.length > 0) {
+      setHighlightIds(new Set(highlight.requestIds));
+    }
+
+    consumeIntent();
+  }, [intent, consumeIntent, result.entries, onStatusFilterChange]);
 
   // 筛选条件变化时短暂显示 loading，避免用户觉得卡顿
   useEffect(() => {
@@ -185,11 +224,26 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     },
   ];
 
-  const rowClassName = (record: HarRequestEntry) =>
-    selected?.id === record.id ? 'har-request-row-selected' : '';
+  const rowClassName = (record: HarRequestEntry) => {
+    const classes: string[] = [];
+    if (selected?.id === record.id) classes.push('har-request-row-selected');
+    if (highlightIds.has(record.id)) classes.push('har-request-row-highlight');
+    return classes.join(' ');
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 高亮样式注入 */}
+      <style>{`
+        .har-request-row-highlight td {
+          background-color: rgba(245, 158, 11, 0.12) !important;
+          animation: harHighlightPulse 2s ease-in-out;
+        }
+        @keyframes harHighlightPulse {
+          0% { background-color: rgba(245, 158, 11, 0.3); }
+          100% { background-color: rgba(245, 158, 11, 0.12); }
+        }
+      `}</style>
       {/* 第一行：类型筛选 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {CATEGORY_LABELS.map(c => {

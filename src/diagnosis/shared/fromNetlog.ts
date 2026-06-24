@@ -63,9 +63,36 @@ function buildScope(
 // ========== 从 Suggestion 构建 Card ==========
 
 function suggestionToCard(suggestion: Suggestion, index: number, result: AnalysisResult): DiagnosticCard {
-  const errorCode = extractErrorCode(suggestion.title);
-  const netCategory = errorCode ? classifyNetError(Number(errorCode)).catName : null;
-  const category = netCategory ? mapErrorCategoryToDiagnostic(netCategory) : inferCategoryFromTitle(suggestion.title);
+  // ========== 结构化字段优先策略 ==========
+  // 1. 优先使用 Suggestion 结构化字段（errorCode / category / severity）
+  // 2. 次选从 title 正则提取错误码，再用 errorClassifier 映射
+  // 3. 最后兜底：从 title 关键词推断
+
+  const errorCode: number | null = suggestion.errorCode ?? extractErrorCodeFromTitle(suggestion.title);
+
+  // category 优先级：结构化字段 > errorClassifier > title 关键词兜底
+  let category: DiagnosticCategory;
+  if (suggestion.category) {
+    category = mapErrorCategoryToDiagnostic(suggestion.category);
+  } else if (errorCode) {
+    category = mapErrorCategoryToDiagnostic(classifyNetError(errorCode).catName);
+  } else {
+    category = inferCategoryFromTitle(suggestion.title);
+  }
+
+  // severity 优先级：结构化字段 > icon/title 启发式
+  let severity: DiagnosticCard['severity'];
+  if (suggestion.severity) {
+    severity = suggestion.severity;
+  } else if (suggestion.icon === '🚨' || suggestion.title.includes('劫持') || suggestion.title.includes('VPN')) {
+    severity = 'critical';
+  } else if (suggestion.icon === '❌' || suggestion.title.includes('失败')) {
+    severity = 'warning';
+  } else if (suggestion.icon === '⚠️') {
+    severity = 'warning';
+  } else {
+    severity = 'info';
+  }
 
   const evidence: DiagnosticEvidence[] = [];
 
@@ -104,19 +131,9 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
   // 构建 actions
   const actions = buildActionsFromSuggestion(suggestion, category);
 
-  // 确定严重程度
-  let severity: DiagnosticCard['severity'] = 'warning';
-  if (suggestion.icon === '🚨' || suggestion.title.includes('劫持') || suggestion.title.includes('VPN')) {
-    severity = 'critical';
-  } else if (suggestion.icon === '❌' || suggestion.title.includes('失败')) {
-    severity = 'warning';
-  } else if (suggestion.icon === '⚠️') {
-    severity = 'warning';
-  }
-
   // 确定置信度
   let confidence: DiagnosticCard['confidence'] = 'medium';
-  if (errorCode && result.connectionFailures.some(f => f.error === Number(errorCode))) {
+  if (errorCode && result.connectionFailures.some(f => f.error === errorCode)) {
     confidence = 'high';
   }
 
@@ -152,9 +169,14 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
   };
 }
 
-function extractErrorCode(title: string): string | null {
+/**
+ * 集中封装的错误码提取逻辑
+ * 优先级：结构化字段 > title 正则提取
+ * 注意：下游应优先使用 Suggestion.errorCode 结构化字段
+ */
+function extractErrorCodeFromTitle(title: string): number | null {
   const match = title.match(/\((-?\d+)\)/);
-  return match ? match[1] : null;
+  return match ? Number(match[1]) : null;
 }
 
 function inferCategoryFromTitle(title: string): DiagnosticCategory {
@@ -172,12 +194,12 @@ function inferCategoryFromTitle(title: string): DiagnosticCategory {
 
 function findRelatedRequests(suggestion: Suggestion, result: AnalysisResult): number[] {
   const ids: number[] = [];
-  const errorCode = extractErrorCode(suggestion.title);
+  // 优先使用结构化 errorCode，其次从 title 提取
+  const errorCode = suggestion.errorCode ?? extractErrorCodeFromTitle(suggestion.title);
 
   if (errorCode) {
-    const code = Number(errorCode);
     result.connectionFailures
-      .filter(f => f.error === code)
+      .filter(f => f.error === errorCode)
       .forEach(f => {
         const req = result.urlRequests.find(r => r.url === f.url);
         if (req && !ids.includes(req.id)) ids.push(req.id);
@@ -266,10 +288,20 @@ function buildActionsFromSuggestion(suggestion: Suggestion, category: Diagnostic
   return actions;
 }
 
+/**
+ * 从 action 文本推断角色
+ * 优先级规则：按关键词匹配，第一个匹配到的角色胜出
+ * 注意：这是一个启发式推断，上游 Suggestion 应尽量提供结构化 role
+ */
 function inferRoleFromAction(actionText: string): DiagnosticRole {
-  if (actionText.includes('联系 IT') || actionText.includes('IT ') || actionText.includes('防火墙')) return 'it';
-  if (actionText.includes('后端') || actionText.includes('服务端') || actionText.includes('数据库')) return 'backend';
-  if (actionText.includes('前端') || actionText.includes('缓存策略') || actionText.includes('资源加载')) return 'frontend';
+  const text = actionText.toLowerCase();
+  // 优先级 1：IT 相关
+  if (text.includes('it') || text.includes('防火墙') || text.includes('代理') || text.includes('dns') || text.includes('vpn')) return 'it';
+  // 优先级 2：后端相关
+  if (text.includes('后端') || text.includes('服务端') || text.includes('数据库') || text.includes('服务器') || text.includes('证书')) return 'backend';
+  // 优先级 3：前端相关
+  if (text.includes('前端') || text.includes('缓存策略') || text.includes('资源加载') || text.includes('页面')) return 'frontend';
+  // 默认：用户
   return 'user';
 }
 

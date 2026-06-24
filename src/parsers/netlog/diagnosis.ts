@@ -8,6 +8,12 @@ export interface Suggestion {
   detail: string;
   conclusion: string;
   actions: string[];
+  /** 结构化错误码，避免下游正则提取 */
+  errorCode?: number;
+  /** 结构化分类，避免下游从标题推断 */
+  category?: 'dns' | 'proxy' | 'tls' | 'connect' | 'protocol' | 'network-change' | 'security' | 'performance' | 'cache' | 'server' | 'unknown';
+  /** 结构化严重程度 */
+  severity?: 'critical' | 'warning' | 'info';
 }
 
 // ============================================================
@@ -444,12 +450,29 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
       const conclusion = Array.from(g.conclusionParts).join('；');
       const actions = _dedupActions(g.actions);
 
+      // 结构化字段映射：将 errorClassifier 的分类映射到 Suggestion 结构化字段
+      const categoryMap: Record<string, Suggestion['category']> = {
+        'DNS': 'dns',
+        '证书': 'tls',
+        '代理': 'proxy',
+        '网络变更': 'network-change',
+        '阻止': 'security',
+        '协议': 'protocol',
+        '连接': 'connect',
+        '应用层': 'server',
+        '缓存': 'cache',
+        '其他': 'unknown',
+      };
+
       suggestions.push({
         icon: g.icon,
         title: `${g.catName}问题 -- 涉及错误码: ${codeList}`,
         detail,
         conclusion,
         actions,
+        errorCode: typeof g.codes[0] === 'number' ? g.codes[0] : Number(g.codes[0]),
+        category: categoryMap[g.catName] || 'unknown',
+        severity: g.catName === 'DNS' || g.catName === '证书' ? 'critical' : 'warning',
       });
     }
   }
@@ -492,6 +515,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '检查 VPN 是否拦截了目标域名',
         '如果必须使用 VPN，确认 VPN 服务器出口网络正常',
       ],
+      category: 'proxy',
+      severity: 'critical',
     });
   } else if (pi.hasProxy) {
     suggestions.unshift({
@@ -507,6 +532,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '检查 PAC 脚本是否正确配置了 Bypass 列表',
         '如果代理对 HTTP/2 支持不佳，可尝试强制走 HTTP/1.1',
       ],
+      category: 'proxy',
+      severity: 'warning',
     });
   }
 
@@ -524,6 +551,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '检查 DNS 解析结果是否正确（是否被劫持到异常 IP）',
         '将相关域名加入防火墙白名单（建议使用泛域名形式）',
       ],
+      category: 'dns',
+      severity: 'warning',
     });
   }
 
@@ -543,6 +572,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '清除 DNS 缓存：Windows 执行 ipconfig /flushdns',
         '在 Chrome 地址栏输入 chrome://net-internals/#dns，点击 "clear host cache"',
       ],
+      category: 'dns',
+      severity: 'critical',
     });
   }
 
@@ -565,6 +596,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '【判断】如果国内用户解析到海外 IP → 存在跨境问题（DNS 异常）',
         '【解决】跨网/跨境问题：国内用户修改 DNS 为 223.5.5.5，海外用户修改 DNS 为 8.8.8.8',
       ],
+      category: 'dns',
+      severity: 'info',
     });
   }
 
@@ -580,6 +613,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '检查 VPN 连接是否不稳定',
         '检查网络设备是否正常',
       ],
+      category: 'network-change',
+      severity: r.networkChanges.length > 3 ? 'warning' : 'info',
     });
   }
 
@@ -597,6 +632,8 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '尝试禁用 HTTP/2 强制走 HTTP/1.1 进行对比测试',
         '如果是企业内网，联系 IT 排查 TLB/负载均衡器配置',
       ],
+      category: 'protocol',
+      severity: 'warning',
     });
   }
 

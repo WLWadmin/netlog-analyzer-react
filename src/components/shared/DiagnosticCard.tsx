@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Tag, Button, Badge } from 'antd';
 import {
   SafetyOutlined,
@@ -25,9 +25,13 @@ import {
   TeamOutlined,
   DatabaseOutlined,
   BranchesOutlined,
+  ToolOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import type { DiagnosticCard as DiagnosticCardType, DiagnosticRole, DiagnosticAction } from '../../diagnosis/shared/types';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { getCommandsForCategory } from '../../diagnosis/shared/commandLibrary';
+import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
 
 interface DiagnosticCardProps {
   card: DiagnosticCardType;
@@ -125,21 +129,81 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
   const categoryIcon = categoryIconMap[card.category] || <QuestionCircleOutlined />;
   const categoryLabel = categoryLabelMap[card.category] || card.category;
 
+  /**
+   * 计算该卡片是否具备可导航能力
+   * 优先级：navigationTarget > relatedRequestIds > relatedEventIds
+   */
+  const canNavigate = useMemo(() => {
+    if (card.navigationTarget) return true;
+    if (card.relatedRequestIds && card.relatedRequestIds.length > 0) return true;
+    if (card.relatedEventIds && card.relatedEventIds.length > 0) return true;
+    return false;
+  }, [card.navigationTarget, card.relatedRequestIds, card.relatedEventIds]);
+
+  /**
+   * 构建最终的导航意图
+   * 模式 B：优先使用 navigationTarget，否则用 relatedRequestIds / relatedEventIds 构造 fallback
+   */
+  const buildNavigationIntent = useMemo(() => {
+    // 模式 A：已有完整 navigationTarget
+    if (card.navigationTarget) {
+      const { tab, keyword, errorCode, errorOnly, requestIds, eventIds } = card.navigationTarget;
+      return {
+        tab,
+        filters: {
+          ...(keyword && { keyword }),
+          ...(errorCode && { errorCode }),
+          ...(errorOnly && { errorOnly }),
+          ...(requestIds?.length === 1 && { requestId: requestIds[0] }),
+        },
+        highlight: {
+          ...(requestIds && { requestIds }),
+          ...(eventIds && { sourceIds: eventIds.map(Number) }),
+        },
+      };
+    }
+
+    // 模式 B fallback：根据 source 类型和关联数据自动推断目标 tab
+    if (card.source === 'har' && card.relatedRequestIds && card.relatedRequestIds.length > 0) {
+      return {
+        tab: 'requests',
+        filters: {
+          ...(card.relatedRequestIds.length === 1 && { requestId: card.relatedRequestIds[0] }),
+        },
+        highlight: { requestIds: card.relatedRequestIds },
+      };
+    }
+
+    if (card.source === 'netlog' && card.relatedRequestIds && card.relatedRequestIds.length > 0) {
+      return {
+        tab: 'requests',
+        filters: {
+          ...(card.relatedRequestIds.length === 1 && { requestId: card.relatedRequestIds[0] }),
+        },
+        highlight: { requestIds: card.relatedRequestIds },
+      };
+    }
+
+    if (card.source === 'netlog' && card.relatedEventIds && card.relatedEventIds.length > 0) {
+      return {
+        tab: 'events',
+        filters: {
+          ...(card.relatedEventIds.length === 1 && { sourceId: card.relatedEventIds[0] }),
+        },
+        highlight: { sourceIds: card.relatedEventIds.map(Number) },
+      };
+    }
+
+    return null;
+  }, [card]);
+
   const handleNavigate = () => {
-    if (!card.navigationTarget) return;
-    const { tab, keyword, errorCode, errorOnly, requestIds, eventIds } = card.navigationTarget;
+    const intent = buildNavigationIntent;
+    if (!intent) return;
     navigateTo({
-      tab,
-      filters: {
-        ...(keyword && { keyword }),
-        ...(errorCode && { errorCode }),
-        ...(errorOnly && { errorOnly }),
-        ...(requestIds?.length === 1 && { requestId: requestIds[0] }),
-      },
-      highlight: {
-        ...(requestIds && { requestIds }),
-        ...(eventIds && { sourceIds: eventIds.map(Number) }),
-      },
+      tab: intent.tab,
+      filters: intent.filters,
+      highlight: intent.highlight,
       source: '诊断卡片',
       reason: `查看「${card.title}」相关证据`,
     });
@@ -209,21 +273,24 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
             )}
           </div>
         </div>
-        {(card.navigationTarget || (card.relatedRequestIds && card.relatedRequestIds.length > 0)) && (
-          <Button
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={handleNavigate}
-            style={{
-              background: config.color + '15',
-              borderColor: config.color + '40',
-              color: config.color,
-              fontSize: 12,
-            }}
-          >
-            查看证据
-          </Button>
-        )}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {canNavigate && (
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={handleNavigate}
+              style={{
+                background: config.color + '15',
+                borderColor: config.color + '40',
+                color: config.color,
+                fontSize: 12,
+              }}
+            >
+              查看证据
+            </Button>
+          )}
+          <DiagnosticCardTools card={card} />
+        </div>
       </div>
 
       {/* 结论 */}
@@ -453,6 +520,114 @@ const ActionItem: React.FC<{ action: DiagnosticAction; index: number }> = ({ act
         </div>
       )}
     </div>
+  );
+};
+
+// ========== 工具按钮子组件 ==========
+
+const DiagnosticCardTools: React.FC<{ card: DiagnosticCardType }> = ({ card }) => {
+  const [showCommands, setShowCommands] = useState(false);
+
+  // 获取该类别的推荐排查命令
+  const commands = useMemo(() => {
+    return getCommandsForCategory(card.category).slice(0, 3);
+  }, [card.category]);
+
+  // 导出当前卡片脱敏摘要
+  const handleExport = () => {
+    const report = generateMaskedReport([card]);
+    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `诊断-${card.category}-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      {commands.length > 0 && (
+        <>
+          <Button
+            size="small"
+            icon={<ToolOutlined />}
+            onClick={() => setShowCommands(!showCommands)}
+            style={{ fontSize: 12 }}
+          >
+            排查命令
+          </Button>
+          {showCommands && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 18,
+                top: 50,
+                zIndex: 100,
+                width: 420,
+                maxWidth: '90vw',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 10,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+                padding: 14,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-primary)' }}>
+                <ToolOutlined style={{ marginRight: 6 }} />
+                推荐排查命令（{commands.length} 个）
+              </div>
+              {commands.map((cmd, i) => (
+                <div key={i} style={{ marginBottom: 10, padding: 10, background: 'var(--bg-surface)', borderRadius: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {cmd.title}
+                    <Tag style={{ marginLeft: 8, fontSize: 10 }}>{cmd.platform}</Tag>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{cmd.description}</div>
+                  <div
+                    style={{
+                      padding: '6px 10px',
+                      background: '#1e293b',
+                      borderRadius: 4,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      color: '#e2e8f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <code style={{ wordBreak: 'break-all' }}>{cmd.command}</code>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CodeOutlined />}
+                      onClick={() => navigator.clipboard.writeText(cmd.command)}
+                      style={{ color: '#94a3b8', flexShrink: 0 }}
+                    >
+                      复制
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button size="small" block onClick={() => setShowCommands(false)}>
+                关闭
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+      <Button
+        size="small"
+        icon={<DownloadOutlined />}
+        onClick={handleExport}
+        style={{ fontSize: 12 }}
+      >
+        导出
+      </Button>
+    </>
   );
 };
 

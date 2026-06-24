@@ -52,6 +52,10 @@ export interface DiagnosticEvidence {
   requestIds?: number[];
   eventIds?: string[];
   detail?: string;
+  /** 联合诊断：该证据来自哪个原始 source（用于双源融合时区分） */
+  originalSource?: 'har' | 'netlog';
+  /** 联合诊断：与另一源的证据是否冲突 */
+  conflictWith?: string;
 }
 
 export interface DiagnosticAction {
@@ -88,6 +92,10 @@ export interface DiagnosticCard {
   relatedRequestIds?: number[];
   relatedEventIds?: string[];
   navigationTarget?: DiagnosticNavigationTarget;
+  /** 联合诊断：该卡片融合了哪些原始 source 的证据 */
+  mergedSources?: ('har' | 'netlog')[];
+  /** 联合诊断：融合时发现的证据冲突提示 */
+  conflictNotes?: string[];
 }
 
 /** 采集质量检查结果 */
@@ -110,4 +118,8 @@ export interface DiagnosisSummary {
   quality: CollectionQuality;
   overallSeverity: 'critical' | 'warning' | 'info';
   healthScore?: number;
+  /** 联合诊断：双源融合后的联合置信度 */
+  combinedConfidence?: 'high' | 'medium' | 'low';
+  /** 联合诊断：融合过程中发现的冲突摘要 */
+  fusionConflicts?: string[];
 }

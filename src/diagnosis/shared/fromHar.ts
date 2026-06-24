@@ -14,6 +14,11 @@ import type {
   CollectionQuality,
   DiagnosisSummary,
 } from './types';
+import {
+  HAR_DIAG_THRESHOLDS,
+  HAR_EVIDENCE_THRESHOLDS,
+  HAR_SEVERITY_THRESHOLDS,
+} from './harThresholds';
 
 // ========== 工具函数 ==========
 
@@ -112,17 +117,18 @@ function buildAttributionEvidence(attr: AttributionItem, entries: HarRequestEntr
     });
   }
 
-  // 查找相关请求 ID
+  // 查找相关请求 ID（使用集中阈值配置）
+  const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked, maxRelatedRequestsPerAttr } = HAR_EVIDENCE_THRESHOLDS;
   const relatedIds = entries
     .filter(e => {
-      if (attr.type === 'server') return e.timings.wait > 800;
-      if (attr.type === 'dns') return e.timings.dns > 500;
-      if (attr.type === 'network') return e.timings.dns > 500 || e.timings.connect > 500;
-      if (attr.type === 'client') return e.timings.blocked > 500;
+      if (attr.type === 'server') return e.timings.wait > attributionServerWait;
+      if (attr.type === 'dns') return e.timings.dns > attributionDns;
+      if (attr.type === 'network') return e.timings.dns > attributionNetworkDns || e.timings.connect > attributionNetworkConnect;
+      if (attr.type === 'client') return e.timings.blocked > attributionClientBlocked;
       return false;
     })
     .map(e => e.id)
-    .slice(0, 5);
+    .slice(0, maxRelatedRequestsPerAttr);
 
   if (relatedIds.length > 0) {
     evidence.push({
@@ -311,15 +317,16 @@ export function harDiagnosisToCards(
       relatedRequestIds: entries
         .filter(e => {
           const t = e.timings;
-          if (phase.label === 'DNS') return t.dns > 500;
-          if (phase.label === 'TCP') return t.connect > 500;
-          if (phase.label === 'TLS') return t.ssl > 500;
-          if (phase.label === 'TTFB') return t.wait > 800;
-          if (phase.label === '下载') return t.receive > 1000;
+          const { dnsSlow, connectSlow, sslSlow, ttfbSlow, receiveSlow } = HAR_DIAG_THRESHOLDS;
+          if (phase.label === 'DNS') return t.dns > dnsSlow;
+          if (phase.label === 'TCP') return t.connect > connectSlow;
+          if (phase.label === 'TLS') return t.ssl > sslSlow;
+          if (phase.label === 'TTFB') return t.wait > ttfbSlow;
+          if (phase.label === '下载') return t.receive > receiveSlow;
           return false;
         })
         .map(e => e.id)
-        .slice(0, 10),
+        .slice(0, HAR_EVIDENCE_THRESHOLDS.maxRelatedRequestsPerPhase),
     });
   });
 
@@ -395,10 +402,11 @@ export function harDiagnosisToCards(
       conclusion: attr.description,
       scope: buildScope(
         entries.filter(e => {
-          if (attr.type === 'server') return e.timings.wait > 800;
-          if (attr.type === 'dns') return e.timings.dns > 500;
-          if (attr.type === 'network') return e.timings.dns > 500 || e.timings.connect > 500;
-          if (attr.type === 'client') return e.timings.blocked > 500;
+          const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked } = HAR_EVIDENCE_THRESHOLDS;
+          if (attr.type === 'server') return e.timings.wait > attributionServerWait;
+          if (attr.type === 'dns') return e.timings.dns > attributionDns;
+          if (attr.type === 'network') return e.timings.dns > attributionNetworkDns || e.timings.connect > attributionNetworkConnect;
+          if (attr.type === 'client') return e.timings.blocked > attributionClientBlocked;
           return false;
         }).length,
         undefined,
@@ -414,7 +422,8 @@ export function harDiagnosisToCards(
   });
 
   // 5. 缓存问题卡片
-  if (diagnosis.cacheStats.cacheRate < 50 && diagnosis.totalRequests > 10) {
+  const { cacheRateLow, cacheRateMinRequests } = HAR_SEVERITY_THRESHOLDS;
+  if (diagnosis.cacheStats.cacheRate < cacheRateLow && diagnosis.totalRequests > cacheRateMinRequests) {
     cards.push({
       id: generateId('har-cache', 0),
       source: 'har',
@@ -617,8 +626,9 @@ export function harDiagnosisToCards(
   }
 
   // ========== 批次 B 增强：Redirect 诊断 ==========
+  const { redirectSlow } = HAR_DIAG_THRESHOLDS;
   const redirectEntries = entries.filter(e => e.status >= 300 && e.status < 400);
-  const longRedirectChains = redirectEntries.filter(e => e.time > 500);
+  const longRedirectChains = redirectEntries.filter(e => e.time > redirectSlow);
   if (longRedirectChains.length > 0) {
     cards.push({
       id: generateId('har-redirect', 0),
@@ -651,11 +661,12 @@ export function harDiagnosisToCards(
   }
 
   // ========== 批次 B 增强：Server-Timing 利用 ==========
+  const { serverTimingSlow } = HAR_DIAG_THRESHOLDS;
   const entriesWithServerTiming = entries.filter(e => e.serverTiming && e.serverTiming.length > 0);
   if (entriesWithServerTiming.length > 0) {
     const slowServerTimings = entriesWithServerTiming.filter(e => {
       const totalDur = e.serverTiming.reduce((s, st) => s + (st.dur || 0), 0);
-      return totalDur > 500;
+      return totalDur > serverTimingSlow;
     });
     if (slowServerTimings.length > 0) {
       cards.push({
@@ -665,7 +676,7 @@ export function harDiagnosisToCards(
         severity: 'info',
         confidence: 'high',
         title: `Server-Timing 慢请求分析 (${slowServerTimings.length} 个)`,
-        conclusion: `${slowServerTimings.length} 个请求的 Server-Timing 显示服务端内部处理耗时超过 500ms，可据此定位服务端瓶颈`,
+        conclusion: `${slowServerTimings.length} 个请求的 Server-Timing 显示服务端内部处理耗时超过 ${serverTimingSlow}ms，可据此定位服务端瓶颈`,
         scope: buildScope(slowServerTimings.length, undefined, 'server-side'),
         evidence: slowServerTimings.slice(0, 5).map((e, i) => ({
           label: `慢请求 ${i + 1}`,
@@ -689,9 +700,10 @@ export function harDiagnosisToCards(
   }
 
   // ========== 批次 B 增强：Cookie 过大诊断 ==========
+  const { cookieLarge } = HAR_DIAG_THRESHOLDS;
   const largeCookieEntries = entries.filter(e => {
     const cookieHeader = e.requestHeaders.find(h => h.name.toLowerCase() === 'cookie');
-    return cookieHeader && cookieHeader.value.length > 2000;
+    return cookieHeader && cookieHeader.value.length > cookieLarge;
   });
   if (largeCookieEntries.length > 0) {
     const maxCookieSize = Math.max(...largeCookieEntries.map(e => {
@@ -705,12 +717,12 @@ export function harDiagnosisToCards(
       severity: 'warning',
       confidence: 'high',
       title: `Cookie 体积过大 (${largeCookieEntries.length} 个请求)`,
-      conclusion: `${largeCookieEntries.length} 个请求的 Cookie 超过 2KB，最大 ${(maxCookieSize / 1024).toFixed(1)}KB，每次请求都会携带额外开销`,
+      conclusion: `${largeCookieEntries.length} 个请求的 Cookie 超过 ${(cookieLarge / 1024).toFixed(0)}KB，最大 ${(maxCookieSize / 1024).toFixed(1)}KB，每次请求都会携带额外开销`,
       scope: buildScope(largeCookieEntries.length, undefined, 'global'),
       evidence: [
         {
           label: '受影响请求数',
-          value: `${largeCookieEntries.length} 个请求 Cookie > 2KB`,
+          value: `${largeCookieEntries.length} 个请求 Cookie > ${(cookieLarge / 1024).toFixed(0)}KB`,
           source: 'har',
         },
         {
