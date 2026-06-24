@@ -25,7 +25,6 @@ import {
   TeamOutlined,
   DatabaseOutlined,
   BranchesOutlined,
-  ToolOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
 import type { DiagnosticCard as DiagnosticCardType, DiagnosticRole, DiagnosticAction } from '../../diagnosis/shared/types';
@@ -129,6 +128,20 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
   const config = severityConfig[card.severity];
   const categoryIcon = categoryIconMap[card.category] || <QuestionCircleOutlined />;
   const categoryLabel = categoryLabelMap[card.category] || card.category;
+
+  // 导出当前卡片脱敏摘要
+  const handleExportCard = () => {
+    const report = generateMaskedReport([card]);
+    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `诊断-${card.category}-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   /**
    * 计算该卡片是否具备可导航能力
@@ -290,7 +303,14 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
               查看证据
             </Button>
           )}
-          <DiagnosticCardTools card={card} />
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleExportCard}
+            style={{ fontSize: 12 }}
+          >
+            导出
+          </Button>
         </div>
       </div>
 
@@ -443,7 +463,17 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
 
 const CardCommandSection: React.FC<{ card: DiagnosticCardType }> = ({ card }) => {
   const [expanded, setExpanded] = useState(false);
-  const commands = useMemo(() => getCommandsForCategory(card.category), [card.category]);
+  const allCommands = useMemo(() => getCommandsForCategory(card.category), [card.category]);
+
+  // 去重：如果卡片的 actions 中已包含某条命令（按 command 文本匹配），则不再重复展示
+  const commands = useMemo(() => {
+    const actionCommands = new Set(
+      card.actions
+        .filter(a => a.command)
+        .map(a => a.command!.trim())
+    );
+    return allCommands.filter(cmd => !actionCommands.has(cmd.command.trim()));
+  }, [allCommands, card.actions]);
 
   if (commands.length === 0) return null;
 
@@ -642,114 +672,6 @@ const ActionItem: React.FC<{ action: DiagnosticAction; index: number }> = ({ act
         </div>
       )}
     </div>
-  );
-};
-
-// ========== 工具按钮子组件 ==========
-
-const DiagnosticCardTools: React.FC<{ card: DiagnosticCardType }> = ({ card }) => {
-  const [showCommands, setShowCommands] = useState(false);
-
-  // 获取该类别的推荐排查命令
-  const commands = useMemo(() => {
-    return getCommandsForCategory(card.category).slice(0, 3);
-  }, [card.category]);
-
-  // 导出当前卡片脱敏摘要
-  const handleExport = () => {
-    const report = generateMaskedReport([card]);
-    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `诊断-${card.category}-${Date.now()}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <>
-      {commands.length > 0 && (
-        <>
-          <Button
-            size="small"
-            icon={<ToolOutlined />}
-            onClick={() => setShowCommands(!showCommands)}
-            style={{ fontSize: 12 }}
-          >
-            排查命令
-          </Button>
-          {showCommands && (
-            <div
-              style={{
-                position: 'absolute',
-                right: 18,
-                top: 50,
-                zIndex: 100,
-                width: 420,
-                maxWidth: '90vw',
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 10,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-                padding: 14,
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-primary)' }}>
-                <ToolOutlined style={{ marginRight: 6 }} />
-                推荐排查命令（{commands.length} 个）
-              </div>
-              {commands.map((cmd, i) => (
-                <div key={i} style={{ marginBottom: 10, padding: 10, background: 'var(--bg-surface)', borderRadius: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                    {cmd.title}
-                    <Tag style={{ marginLeft: 8, fontSize: 10 }}>{cmd.platform}</Tag>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{cmd.description}</div>
-                  <div
-                    style={{
-                      padding: '6px 10px',
-                      background: '#1e293b',
-                      borderRadius: 4,
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 11,
-                      color: '#e2e8f0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <code style={{ wordBreak: 'break-all' }}>{cmd.command}</code>
-                    <Button
-                      size="small"
-                      type="text"
-                      icon={<CodeOutlined />}
-                      onClick={() => navigator.clipboard.writeText(cmd.command)}
-                      style={{ color: '#94a3b8', flexShrink: 0 }}
-                    >
-                      复制
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button size="small" block onClick={() => setShowCommands(false)}>
-                关闭
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-      <Button
-        size="small"
-        icon={<DownloadOutlined />}
-        onClick={handleExport}
-        style={{ fontSize: 12 }}
-      >
-        导出
-      </Button>
-    </>
   );
 };
 

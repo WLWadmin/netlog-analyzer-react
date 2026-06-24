@@ -17,12 +17,13 @@ const CombinedDiagnosisTab: React.FC<CombinedDiagnosisTabProps> = ({ harResult, 
   }, [harResult, netlogResult]);
 
   if (!harResult || !netlogResult) {
+    const missing = !harResult ? 'HAR' : 'NetLog';
     return (
       <Alert
         type="info"
         showIcon
-        message="联合诊断需要同时上传 HAR 和 NetLog 文件"
-        description="请在首页同时上传两种文件后，切换到「联合诊断」标签页查看跨源诊断结果。"
+        message={`联合诊断需要同时拥有 HAR 和 NetLog 数据`}
+        description={`当前缺少 ${missing} 数据。请在下方追加上传 ${missing} 文件，或点击「重新上传」回到首页上传两种文件。`}
         style={{ margin: 20 }}
       />
     );

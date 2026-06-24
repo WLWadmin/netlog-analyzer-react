@@ -70,7 +70,7 @@ const AppContent: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
-  const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
+  const [fileType, setFileType] = useState<'netlog' | 'har' | 'log' | 'combined'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [showBackTop, setShowBackTop] = useState(false);
@@ -141,6 +141,19 @@ const AppContent: React.FC = () => {
             harAnalysis.repairInfo = repairInfo;
           }
           setHarResult(harAnalysis);
+
+          // 如果已有 NetLog 数据，切换到联合诊断模式
+          if (result) {
+            setFileType('combined');
+            const defaultTab = 'combined';
+            setActiveTab(defaultTab);
+            window.location.hash = buildHash('combined', defaultTab);
+            setHasData(true);
+            setLoading(false);
+            message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
+            return;
+          }
+
           setFileType('har');
           const defaultTab = VALID_TABS['har'][0];
           setActiveTab(defaultTab);
@@ -154,6 +167,19 @@ const AppContent: React.FC = () => {
         const { events: parsedEvents, result: analysisResult } = parseLog(data);
         setEvents(parsedEvents);
         setResult(analysisResult);
+
+        // 如果已有 HAR 数据，切换到联合诊断模式
+        if (harResult) {
+          setFileType('combined');
+          const defaultTab = 'combined';
+          setActiveTab(defaultTab);
+          window.location.hash = buildHash('combined', defaultTab);
+          setHasData(true);
+          setLoading(false);
+          message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
+          return;
+        }
+
         setFileType('netlog');
         const defaultTab = VALID_TABS['netlog'][0];
         setActiveTab(defaultTab);
@@ -177,6 +203,46 @@ const AppContent: React.FC = () => {
     setFileType('netlog');
     setActiveTab('overview');
     window.location.hash = '';
+  };
+
+  // 处理追加上传第二个文件（用于联合诊断）
+  const handleSecondaryFileLoaded = (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
+    // 复用 handleFileLoaded 的解析逻辑，但保留已有数据
+    const taskId = ++loadTaskIdRef.current;
+    setLoading(true);
+    setLoadingText('正在解析追加文件...');
+    setTimeout(() => {
+      if (taskId !== loadTaskIdRef.current) return;
+      try {
+        if (isHarFile(data)) {
+          const harAnalysis = parseHar(data);
+          if (repairInfo) harAnalysis.repairInfo = repairInfo;
+          setHarResult(harAnalysis);
+          setFileType('combined');
+          setActiveTab('combined');
+          window.location.hash = buildHash('combined', 'combined');
+          setLoading(false);
+          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
+          return;
+        }
+        if (isTextLog && typeof data === 'string') {
+          message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
+          setLoading(false);
+          return;
+        }
+        const { events: parsedEvents, result: analysisResult } = parseLog(data);
+        setEvents(parsedEvents);
+        setResult(analysisResult);
+        setFileType('combined');
+        setActiveTab('combined');
+        window.location.hash = buildHash('combined', 'combined');
+        setLoading(false);
+        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
+      } catch (err) {
+        setLoading(false);
+        message.error('追加文件解析失败: ' + (err as Error).message);
+      }
+    }, 100);
   };
 
   const handleExport = () => {
@@ -560,6 +626,19 @@ const AppContent: React.FC = () => {
                 window.location.hash = buildHash(fileType, key);
               }}
             />
+            {/* 追加上传 NetLog 文件用于联合诊断 */}
+            {!result && (
+              <div style={{ marginTop: 24, padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <RadarChartOutlined style={{ color: '#6366f1' }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>启用联合诊断</span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  已加载 HAR 文件，再上传一份 NetLog 文件即可启用 HAR + NetLog 联合诊断，定位更精准。
+                </p>
+                <UploadZone onFileLoaded={handleSecondaryFileLoaded} compact />
+              </div>
+            )}
           </div>
         ) : fileType === 'log' && logResult ? (
           <div style={{ padding: '24px 28px' }}>
@@ -571,6 +650,25 @@ const AppContent: React.FC = () => {
                 window.location.hash = buildHash(fileType, key);
               }}
             />
+          </div>
+        ) : fileType === 'combined' ? (
+          <div style={{ padding: '24px 28px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <CombinedDiagnosisTab harResult={harResult} netlogResult={result} />
+              {/* 单文件诊断入口 */}
+              {harResult && (
+                <div style={{ background: 'var(--bg-surface)', borderRadius: 14, border: '1px solid var(--border-color)', overflow: 'hidden', padding: 16 }}>
+                  <HarResultPage
+                    result={harResult}
+                    activeTab={activeTab === 'combined' || activeTab === 'baseline' ? 'requests' : activeTab}
+                    onTabChange={(key) => {
+                      setActiveTab(key);
+                      window.location.hash = buildHash('har', key);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>

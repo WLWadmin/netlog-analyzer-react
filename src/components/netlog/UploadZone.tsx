@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, message, Progress, notification, Modal } from 'antd';
+import { Upload, message, Progress, notification, Modal, Button } from 'antd';
 import {
   CloudUploadOutlined,
   FileTextOutlined,
@@ -24,9 +24,11 @@ function formatFileSize(size: number): string {
 
 interface UploadZoneProps {
   onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: HarRepairResult) => void;
+  /** 紧凑模式：只显示一个小按钮，不显示全屏拖拽区域 */
+  compact?: boolean;
 }
 
-const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
+const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false }) => {
   const [reading, setReading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
@@ -283,6 +285,34 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded }) => {
     dragDepthRef.current = 0;
     setDragOver(false);
   }, []);
+
+  // 紧凑模式：只显示一个小上传按钮
+  if (compact) {
+    return (
+      <Upload
+        customRequest={customRequest}
+        beforeUpload={beforeUpload}
+        accept=".json,.har,.log"
+        showUploadList={false}
+        disabled={reading}
+      >
+        <Button
+          icon={<CloudUploadOutlined />}
+          loading={reading}
+          style={{
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            border: 'none',
+            color: '#fff',
+            fontWeight: 600,
+            borderRadius: 10,
+            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)',
+          }}
+        >
+          {reading ? '读取中...' : '上传 NetLog / HAR 文件'}
+        </Button>
+      </Upload>
+    );
+  }
 
   return (
     <div
