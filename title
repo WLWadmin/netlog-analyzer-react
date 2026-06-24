@@ -1,0 +1,16 @@
+错误：路径规格 '兜底三级优先级策略
+- extractErrorCodeFromTitle() 集中封装，避免散落
+- inferRoleFromAction() 扩展关键词覆盖，降低文案变动影响
+
+P2 阈值抽离：
+- 新增 harThresholds.ts：集中管理诊断阈值、证据关联阈值、严重度分级阈值
+- fromHar.ts：所有魔法数字替换为阈值常量引用
+
+P2 产品入口：
+- DiagnosticCard.tsx：新增排查命令按钮（按 category 推荐命令）和导出按钮（脱敏 Markdown）
+- 排查命令弹窗展示可复制命令，导出自动走 maskedExport 脱敏逻辑
+
+P3 联合诊断预埋：
+- types.ts：DiagnosticEvidence 新增 originalSource / conflictWith
+- DiagnosticCard 新增 mergedSources / conflictNotes
+- DiagnosisSummary 新增 combinedConfidence / fusionConflicts' 未匹配任何 git 已知文件
