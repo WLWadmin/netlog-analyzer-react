@@ -3,13 +3,15 @@ import { Empty, Spin } from 'antd';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import DiagnosticCard from './DiagnosticCard';
 import CollectionQualityAlert from './CollectionQualityAlert';
+import ExportSummaryButton from './ExportSummaryButton';
 
 interface DiagnosisPanelProps {
   summary?: DiagnosisSummary;
   loading?: boolean;
+  showExport?: boolean;
 }
 
-const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading }) => {
+const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showExport = true }) => {
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
@@ -37,15 +39,18 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading }) => 
       {/* 采集质量提示 */}
       <CollectionQualityAlert quality={summary.quality} />
 
-      {/* 诊断概览 */}
+      {/* 诊断概览 + 导出按钮 */}
       <div
         style={{
           display: 'flex',
-          gap: 12,
+          alignItems: 'center',
+          justifyContent: 'space-between',
           marginBottom: 20,
           flexWrap: 'wrap',
+          gap: 12,
         }}
       >
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         {criticalCount > 0 && (
           <div
             style={{
@@ -89,14 +94,19 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading }) => 
           <div
             style={{
               padding: '8px 16px',
-              background: 'rgba(16, 185, 129, 0.08)',
+              background: 'rgba(107, 114, 128, 0.06)',
               borderRadius: 8,
-              border: '1px solid rgba(16, 185, 129, 0.2)',
+              border: '1px dashed rgba(107, 114, 128, 0.3)',
             }}
           >
-            <span style={{ color: '#10b981', fontWeight: 700, fontSize: 18 }}>{summary.healthScore}</span>
-            <span style={{ color: '#10b981', fontSize: 13, marginLeft: 4 }}>健康分</span>
+            <span style={{ color: '#6b7280', fontWeight: 700, fontSize: 18 }}>{summary.healthScore}</span>
+            <span style={{ color: '#6b7280', fontSize: 13, marginLeft: 4 }}>辅助健康分</span>
+            <span style={{ color: '#9ca3af', fontSize: 11, marginLeft: 8 }}>（仅供参考，主诊断见上方卡片）</span>
           </div>
+        )}
+        </div>
+        {showExport && summary.cards.length > 0 && (
+          <ExportSummaryButton summary={summary} />
         )}
       </div>
 

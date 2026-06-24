@@ -19,6 +19,7 @@ import {
   HAR_EVIDENCE_THRESHOLDS,
   HAR_SEVERITY_THRESHOLDS,
 } from './harThresholds';
+import { buildHarNavigationTarget } from './navigation';
 
 // ========== 工具函数 ==========
 
@@ -779,6 +780,58 @@ export function harDiagnosisToCards(
           detail: `将上述 logid 提交给后端团队，在服务端日志系统中查询对应请求的完整处理链路`,
         },
       ],
+    });
+  }
+
+  // ========== 批次 F4 增强：Set-Cookie 数量检测 ==========
+  const entriesWithManySetCookies = entries.filter(e => {
+    const setCookieHeaders = e.responseHeaders.filter(
+      h => h.name.toLowerCase() === 'set-cookie'
+    );
+    return setCookieHeaders.length > 5;
+  });
+
+  if (entriesWithManySetCookies.length > 0) {
+    const domains = [...new Set(entriesWithManySetCookies.map(e => {
+      try { return new URL(e.url).hostname; } catch { return e.url; }
+    }))];
+
+    cards.push({
+      id: generateId('har-set-cookie', cards.length),
+      source: 'har',
+      category: 'security',
+      severity: entriesWithManySetCookies.length > 5 ? 'warning' : 'info',
+      confidence: 'medium',
+      title: `Set-Cookie 数量过多 (${entriesWithManySetCookies.length} 个请求)`,
+      conclusion: `${entriesWithManySetCookies.length} 个请求返回了超过 5 个 Set-Cookie，可能导致响应头膨胀和 Cookie 存储溢出`,
+      scope: buildScope(entriesWithManySetCookies.length, domains.length),
+      evidence: entriesWithManySetCookies.slice(0, 5).map((e, i) => {
+        const count = e.responseHeaders.filter(h => h.name.toLowerCase() === 'set-cookie').length;
+        return {
+          label: `请求 ${i + 1}`,
+          value: `${count} 个 Set-Cookie`,
+          source: 'har',
+          requestIds: [e.id],
+        };
+      }),
+      actions: [
+        {
+          role: 'frontend',
+          title: '检查 Cookie 使用策略',
+          detail: '过多的 Set-Cookie 会增加响应体积和后续请求的 Cookie 头大小，建议评估是否需要全部 Cookie',
+        },
+        {
+          role: 'backend',
+          title: '优化 Set-Cookie 策略',
+          detail: '服务端应避免在单次响应中设置过多 Cookie，考虑合并或使用 HttpOnly/Secure/SameSite 属性',
+        },
+      ],
+      limitations: ['部分 CDN 或中间代理会注入额外 Set-Cookie，不一定都来自目标服务端'],
+      relatedRequestIds: entriesWithManySetCookies.slice(0, 10).map(e => e.id),
+      navigationTarget: buildHarNavigationTarget('security', {
+        requestIds: entriesWithManySetCookies.slice(0, 10).map(e => e.id),
+        keyword: 'set-cookie',
+      }),
     });
   }
 

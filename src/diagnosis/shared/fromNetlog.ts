@@ -752,6 +752,41 @@ export function checkNetlogQuality(result: AnalysisResult): CollectionQuality {
     recommendations.push('建议在完整复现问题后再停止 NetLog 采集');
   }
 
+  // ===== 新增：检查 polledData =====
+  if (!result.systemInfo.browser && result.totalEvents > 100) {
+    issues.push({
+      type: 'missing_field',
+      severity: 'info',
+      message: '可能缺少 polledData',
+      detail: 'NetLog 可能缺少轮询数据（polledData），影响实时状态分析',
+    });
+    missingFields.push('polledData');
+  }
+
+  // ===== 新增：检查 socket 事件 =====
+  const hasHttpsRequests = result.urlRequests.some(r => r.url?.startsWith('https:'));
+  const hasSocketEvents = result.sslEvents.length > 0 || result.urlRequests.some(r => r.error !== undefined && r.error !== 0);
+  if (hasHttpsRequests && !hasSocketEvents && result.totalEvents > 50) {
+    issues.push({
+      type: 'missing_field',
+      severity: 'info',
+      message: '可能缺少 socket 层事件',
+      detail: '存在 HTTPS 请求但未检测到 socket/SSL 连接事件，可能影响连接层分析',
+    });
+    missingFields.push('socketEvents');
+  }
+
+  // ===== 新增：检查 URL_REQUEST 深度 =====
+  if (result.urlRequests.length > 0 && result.urlRequests.length < 5 && result.totalEvents > 50) {
+    issues.push({
+      type: 'insufficient_data',
+      severity: 'info',
+      message: 'URL 请求数量过少',
+      detail: `仅 ${result.urlRequests.length} 个 URL_REQUEST，可能未完整记录网络请求`,
+    });
+    recommendations.push('确保采集时勾选了 "Include raw bytes" 且复现了完整操作');
+  }
+
   return {
     source: 'netlog',
     isDiagnosable: result.totalEvents >= 20 && result.urlRequests.length > 0,

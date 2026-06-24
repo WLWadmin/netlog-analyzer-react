@@ -29,6 +29,7 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons';
 import type { DiagnosticCard as DiagnosticCardType, DiagnosticRole, DiagnosticAction } from '../../diagnosis/shared/types';
+import type { TroubleshootingCommand } from '../../diagnosis/shared/commandLibrary';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { getCommandsForCategory } from '../../diagnosis/shared/commandLibrary';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
@@ -431,7 +432,128 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
           </div>
         </div>
       )}
+
+      {/* 排查命令库 */}
+      <CardCommandSection card={card} />
     </Card>
+  );
+};
+
+// ========== 排查命令内嵌区块 ==========
+
+const CardCommandSection: React.FC<{ card: DiagnosticCardType }> = ({ card }) => {
+  const [expanded, setExpanded] = useState(false);
+  const commands = useMemo(() => getCommandsForCategory(card.category), [card.category]);
+
+  if (commands.length === 0) return null;
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--border-color)' }}>
+      <div
+        style={{
+          padding: '10px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          background: expanded ? 'var(--bg-surface)' : 'transparent',
+        }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <CodeOutlined style={{ color: '#8b5cf6' }} />
+          排查命令 ({commands.length})
+        </div>
+        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          {expanded ? '收起' : '展开'}
+        </span>
+      </div>
+      {expanded && (
+        <div style={{ padding: '0 18px 14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {commands.map((cmd) => (
+              <CommandItem key={cmd.id} command={cmd} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CommandItem: React.FC<{ command: TroubleshootingCommand }> = ({ command }) => {
+  const platformLabel: Record<string, string> = {
+    windows: 'Windows',
+    macos: 'macOS',
+    linux: 'Linux',
+    all: '全平台',
+  };
+
+  return (
+    <div
+      style={{
+        padding: '10px 14px',
+        background: 'var(--bg-surface)',
+        borderRadius: 8,
+        border: '1px solid var(--border-color)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          {command.title}
+        </span>
+        <Tag
+          style={{
+            fontSize: 10,
+            background: '#ede9fe',
+            color: '#6d28d9',
+            border: 'none',
+          }}
+        >
+          {platformLabel[command.platform]}
+        </Tag>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+        {command.description}
+      </div>
+      <div
+        style={{
+          padding: '8px 12px',
+          background: '#1e293b',
+          borderRadius: 6,
+          fontFamily: 'var(--font-mono)',
+          fontSize: 12,
+          color: '#e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <code style={{ wordBreak: 'break-all', lineHeight: 1.5 }}>{command.command}</code>
+        <Button
+          size="small"
+          type="text"
+          icon={<CodeOutlined />}
+          onClick={() => navigator.clipboard.writeText(command.command)}
+          style={{ color: '#94a3b8', flexShrink: 0 }}
+        >
+          复制
+        </Button>
+      </div>
+      {command.expectedResult && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+          <CheckCircleOutlined style={{ color: '#10b981', marginRight: 4 }} />
+          预期结果：{command.expectedResult}
+        </div>
+      )}
+      {command.nextIfFailed && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+          <ArrowRightOutlined style={{ color: '#f59e0b', marginRight: 4 }} />
+          失败后续：{command.nextIfFailed}
+        </div>
+      )}
+    </div>
   );
 };
 

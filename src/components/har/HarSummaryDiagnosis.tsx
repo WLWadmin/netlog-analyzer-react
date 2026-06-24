@@ -282,7 +282,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       <DiagnosisPanel summary={diagnosisSummary} />
 
       {/* 原始诊断视图（保留原有详细统计） */}
-      <HealthAssessmentCard title="HAR 诊断结论" assessment={healthAssessment} />
+      <HealthAssessmentCard title="辅助健康评估（仅供参考）" assessment={healthAssessment} />
 
       {/* 2. 网络状态 */}
       <Card

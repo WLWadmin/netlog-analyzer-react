@@ -35,6 +35,8 @@ import EventsTab from './components/netlog/EventsTab';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
 import LogResultPage from './components/log/LogResultPage';
+import CombinedDiagnosisTab from './components/shared/CombinedDiagnosisTab';
+import BaselineCompareTab from './components/shared/BaselineCompareTab';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
@@ -46,6 +48,7 @@ const VALID_TABS: Record<string, string[]> = {
   netlog: ['overview', 'requests', 'diagnosis', 'events', 'ssl-protocol', 'performance'],
   har: ['requests', 'diagnosis'],
   log: ['overview', 'flows', 'diagnosis', 'performance', 'raw'],
+  combined: ['combined', 'baseline'],
 };
 
 function parseHash(hash: string): { fileType?: string; tab?: string } {
@@ -257,6 +260,8 @@ const AppContent: React.FC = () => {
       </div>
     ) : null },
     { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
+    { key: 'combined', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />联合诊断</span>, children: <CombinedDiagnosisTab harResult={harResult} netlogResult={result} /> },
+    { key: 'baseline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileTextOutlined />A-B 对比</span>, children: <BaselineCompareTab /> },
   ];
 
   return (
