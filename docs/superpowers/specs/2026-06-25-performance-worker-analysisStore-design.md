@@ -17,7 +17,7 @@
 ### 必须满足
 
 1. Worker 持有 `rawData/events/sourceGraph/eventIndex` 等大对象。
-2. 主线程只保存：`analysisId`、`summary`、`counts`、当前页数据（分页结果）。
+2. 主线程只保存：`analysisId`、瘦身后的 `summary`、`counts`、当前页数据（分页结果）。
 3. App 不再长期保存完整 `ParsedEvent[]`。
 4. `EventsTab` 改为 `query-events`：分页/筛选在 Worker 侧执行。
 5. `SourceChainViewer` 改为 `query-source-chains` / `get-source-chain-detail`：链路构建与查询在 Worker 侧执行。
@@ -44,7 +44,7 @@ Worker 侧：
 - 解析后把大对象写入 `analysisStore`：
   - `rawData`（原始 JSON）
   - `events`（NetLog 全量事件）
-  - `result`（现有解析结果，可视为 summary 的上层结构）
+  - `result`（Worker 内部完整分析结果，不直接整体回传主线程）
   - `sourceGraph`（惰性构建/缓存）
   - `eventIndex`（惰性构建/缓存，且避免把大 searchText 全量复制到索引里）
 
@@ -52,9 +52,11 @@ Worker 侧：
 
 - 仅保存：
   - `analysisId`
-  - `summary`（可先复用现有 `AnalysisResult`/`HarAnalysisResult` 结构，但必须确保其中不包含全量 events 引用）
+  - `summary`（必须是瘦身后的 `NetlogSummary`/`HarSummary`，不能直接复用包含大数组的完整 `AnalysisResult`）
   - `counts`（eventCount、requestCount 等）
   - 当前 tab 的分页数据（如 events 的当前页、source chain 列表的当前页）
+
+> 关键约束：`summary` 只允许包含统计、诊断结论、少量 topN 证据与必要概览。不得包含完整 `events`、完整 `urlRequests`、完整 `sslEvents/proxyEvents/cacheEvents/http2Events/quicEvents` 等事件派生大数组；这些数据统一留在 Worker，由按需查询协议返回轻量预览或单条详情。
 
 ## Worker Store 设计
 
@@ -68,7 +70,8 @@ interface StoredNetlogAnalysis {
   kind: 'netlog';
   rawData: unknown;
   events: ParsedEvent[];
-  result: AnalysisResult; // 作为 summary 输出
+  result: AnalysisResult; // Worker 内部完整结果，不直接整体 postMessage 给主线程
+  summary: NetlogSummary; // 主线程可持有的瘦身摘要
   // lazy cache
   eventIndex?: WorkerEventIndex;
   sourceGraph?: SourceGraph;
@@ -78,6 +81,7 @@ interface StoredHarAnalysis {
   kind: 'har';
   rawData: unknown;
   result: HarAnalysisResult;
+  summary: HarSummary;
 }
 
 type StoredAnalysis = StoredNetlogAnalysis | StoredHarAnalysis;
@@ -89,7 +93,7 @@ const analysisStore = new Map<string, StoredAnalysis>();
 
 1. `parse-netlog` / `parse-har`：
    - 解析完成后 `keepAnalysis()` 生成 `analysisId` 并写入 store
-   - 返回 `analysisId + summary + counts (+ rawDataId)`
+   - 返回 `analysisId + slim summary + counts (+ rawDataId)`
 2. `release-analysis`：
    - `analysisId` 指定释放，或 `all` 全部释放
 3. 替换新文件：
@@ -109,7 +113,7 @@ export interface ParseHarRequest { type: 'parse-har'; id: string; payload: strin
 
 export interface ParseNetlogSuccessPayload {
   analysisId: string;
-  summary: AnalysisResult;
+  summary: NetlogSummary;
   eventCount: number;
   requestCount: number;
   rawDataId: string; // RawEvidence 继续沿用 rawDataId-only 模式
@@ -117,11 +121,22 @@ export interface ParseNetlogSuccessPayload {
 
 export interface ParseHarSuccessPayload {
   analysisId: string;
-  summary: HarAnalysisResult;
+  summary: HarSummary;
   requestCount: number;
   rawDataId: string;
 }
 ```
+
+`NetlogSummary` / `HarSummary` 要显式定义为“主线程安全类型”，只保留：
+- 文件级统计：请求数、错误数、DNS/Connect/SSL/TTFB 等摘要指标。
+- 诊断结论：诊断卡片摘要、原因分类、严重程度、少量 evidence id。
+- 少量 topN 列表：例如 top slow requests / top errors，单项必须是轻量 preview。
+
+不得包含：
+- `events: ParsedEvent[]`
+- 完整 `urlRequests`
+- 完整 `sslEvents/proxyEvents/cacheEvents/http2Events/quicEvents`
+- 完整 raw JSON 或完整 params。
 
 ### 释放
 
@@ -142,7 +157,7 @@ export interface QueryEventsRequest {
   payload: {
     analysisId: string;
     page: number;
-    pageSize: number;
+    pageSize: number; // Worker 强制 cap，建议最大 200 或 500
     filters?: {
       sourceId?: string;
       sourceType?: string;
@@ -157,11 +172,25 @@ export interface QueryEventsRequest {
   };
 }
 
+export interface EventRowPreview {
+  eventKey: string; // 可用原始 index 或稳定组合 key
+  time: string;
+  type: number;
+  typeName: string;
+  phase: string;
+  sourceId?: string | number;
+  sourceType?: string;
+  errorCode?: string | number;
+  url?: string;
+  method?: string;
+  shortParams?: Record<string, unknown>; // 只放白名单小字段，不放完整 params
+}
+
 export interface QueryEventsResponsePayload {
   total: number;
   page: number;
   pageSize: number;
-  items: ParsedEvent[]; // 当前页数据（限制大小）
+  items: EventRowPreview[]; // 当前页轻量数据，禁止返回完整 ParsedEvent/完整 params
   facets?: {
     phases: string[];
     sourceTypes: string[];
@@ -169,7 +198,25 @@ export interface QueryEventsResponsePayload {
     paramFields?: string[];
   };
 }
+
+export interface GetEventDetailRequest {
+  type: 'get-event-detail';
+  id: string;
+  payload: { analysisId: string; eventKey: string; maxParamChars?: number };
+}
+
+export interface GetEventDetailResponsePayload {
+  event: EventRowPreview;
+  paramsPreview?: unknown;
+  paramsTruncated: boolean;
+}
 ```
+
+查询约束：
+- Worker 必须限制 `pageSize` 上限，不能信任 UI 入参。
+- 默认 keyword 只匹配轻量索引字段，不对全量 `params` 做 `JSON.stringify`。
+- UI 侧请求要带当前请求 id；过滤条件快速变化时，只接收最后一次请求的响应，旧响应直接丢弃。
+- 如需查看完整 params，必须通过 `get-event-detail` 按单条事件懒加载，并限制 `maxParamChars`。
 
 ### SourceChain 查询
 
@@ -192,6 +239,51 @@ export interface GetSourceChainDetailRequest {
 }
 ```
 
+SourceChain 约束：
+- `query-source-chains` 只返回链路摘要列表，不返回整棵图。
+- `get-source-chain-detail` 只返回单条链路详情，必要时对 nodes 数量做上限与截断标记。
+- 全量展开功能默认关闭；恢复时也必须分页或分批查询，不能一次性把完整 `sourceGraph` 克隆到主线程。
+
+### Diagnosis / 请求详情查询
+
+诊断页、请求详情、生命周期卡片不能继续隐式依赖完整 `events` 或完整 `urlRequests`。如现有组件需要这些数据，必须改为以下按需查询：
+
+```ts
+export interface QueryDiagnosisSummaryRequest {
+  type: 'query-diagnosis-summary';
+  id: string;
+  payload: { analysisId: string };
+}
+
+export interface QueryRequestPageRequest {
+  type: 'query-request-page';
+  id: string;
+  payload: {
+    analysisId: string;
+    page: number;
+    pageSize: number; // Worker 强制 cap
+    filters?: { keyword?: string; errorOnly?: boolean; slowOnly?: boolean };
+  };
+}
+
+export interface GetRequestDetailRequest {
+  type: 'get-request-detail';
+  id: string;
+  payload: { analysisId: string; requestId: string | number };
+}
+
+export interface GetEventEvidenceRequest {
+  type: 'get-event-evidence';
+  id: string;
+  payload: { analysisId: string; evidenceIds: string[]; maxItems?: number };
+}
+```
+
+约束：
+- `DiagnosisTab` 只能接收 summary / evidence preview，不能接收完整 events。
+- 请求列表只接收分页 preview；单个请求的生命周期、证据事件、raw params 通过详情接口按需加载。
+- 诊断卡片中的 evidence 应保存 `eventKey/requestId/rawPath` 等引用，不保存完整大对象。
+
 ### RawEvidence（延续 rawDataId-only）
 
 保留现有：
@@ -202,6 +294,8 @@ export interface GetSourceChainDetailRequest {
 
 约束：
 - 禁止把完整 raw JSON 回传主线程（只回结构概要、搜索 matches、字段值预览）。
+- `search-raw-json` 必须限制 `maxMatches`、`maxDepth`、`maxPreviewChars`，并在结果中返回 `truncated` 标记。
+- `get-raw-value` 默认只返回预览文本；用户点击“加载更多/复制详情”时再按上限继续请求。
 
 ## UI 侧改造
 
@@ -210,7 +304,7 @@ export interface GetSourceChainDetailRequest {
 1. App 不再 `useState<ParsedEvent[]>` 持有全量 events。
 2. App 在 netlog 上传成功后只保存：
    - `netlogAnalysisId`
-   - `netlogSummary`
+   - `netlogSummary`（瘦身 summary，不是完整 AnalysisResult）
    - `netlogEventCount`（可选）
 3. 切换 tab 不触发任何全量索引构建。
 4. reset / 重新上传必须先 `release-analysis`。
@@ -227,6 +321,9 @@ Props：
    - 首次请求 `query-events(page=1,pageSize=100,filters=...)`
 2. 过滤项变更：
    - 在 Worker 侧重新查询，不在主线程 build index
+   - UI debounce 后发起查询，并忽略过期响应
+3. 点击某条 event：
+   - 调用 `get-event-detail` 拉取单条详情与 params 预览
 
 保留核心功能：
 - 分页列表（必须）
@@ -273,22 +370,29 @@ export const ENABLE_SOURCECHAIN_FULL_EXPAND = false;
 - 入口隐藏（flag false 时不渲染按钮/Tab 视图）
 - 或点击“加载详情”后才触发 heavy worker query
 
+Feature flag 关闭时，组件不得在 render/useMemo/useEffect 中预先构建重型数据；按钮隐藏只是 UI 表现，真正的数据路径也必须断开。
+
 ## 迁移步骤（实现顺序建议）
 
 1. Worker：引入 `analysisStore`，实现 `parse-*` 写入 store，并调整 parse response（不回传 events/rawPayload）。
-2. Worker：实现 `release-analysis`。
-3. Worker：实现 `query-events`（先支持核心筛选），并设计轻量索引结构（避免 params stringify）。
-4. Worker：实现 `query-source-chains`/`get-source-chain-detail`（sourceGraph lazy build + cache）。
-5. Main：App 改为保存 `analysisId+summary+counts`，并在 reset/替换时 release。
-6. Main：EventsTab 改为 worker query，移除 `buildEventIndex(events)` 主线程路径（保留代码但 feature flag 关闭入口）。
-7. Main：SourceChainViewer 改为 worker query，移除主线程 `buildSourceGraph(events)` 路径。
-8. 最后做 `rg` 验收与 `tsc/test/build`。
+2. Worker：定义 `NetlogSummary`/`HarSummary`，确保 parse response 只回传瘦身 summary。
+3. Worker：实现 `release-analysis`。
+4. Worker：实现 `query-events`/`get-event-detail`（先支持核心筛选），并设计轻量索引结构（避免 params stringify）。
+5. Worker：实现 `query-source-chains`/`get-source-chain-detail`（sourceGraph lazy build + cache）。
+6. Worker：补齐 `query-diagnosis-summary`/`query-request-page`/`get-request-detail` 等诊断与请求详情按需查询。
+7. Main：App 改为保存 `analysisId+summary+counts`，并在 reset/替换时 release。
+8. Main：EventsTab 改为 worker query，移除 `buildEventIndex(events)` 主线程路径（保留代码但 feature flag 关闭入口）。
+9. Main：SourceChainViewer 改为 worker query，移除主线程 `buildSourceGraph(events)` 路径。
+10. Main：Diagnosis/请求详情改为 summary + query，不再接收完整 events/urlRequests。
+11. 最后做 `rg` 验收、性能手测与 `tsc/test/build`。
 
 ## 验收清单
 
 1. `tsc --noEmit` 通过
 2. `CI=true npm test -- --watchAll=false` 通过
 3. `npm run build` 通过
-4. 大 NetLog 下切换 Events / SourceChain / RawEvidence 不应长时间无响应
-5. `rg -n "setEvents|useState<ParsedEvent\\[\\]>|<EventsTab events=|buildEventIndex\\(events\\)|buildSourceGraph\\(events" src` 无匹配（或只存在于“已被 feature flag 彻底隔离且不会走到的 dead code”，但推荐直接移除调用路径）
-
+4. 大 NetLog 下切换 Events / SourceChain / RawEvidence 不应长时间无响应；目标是 tab 切换交互无秒级 scripting 长任务，常规切换 < 500ms。
+5. Chrome Task Manager 中页面内存相比当前 1.1GB 明显下降，且主线程内存不再随 events 数量线性上涨。
+6. Performance 录制中，tab 切换不应触发主线程全量遍历 events/sourceGraph/rawData。
+7. `rg -n "setEvents|useState<ParsedEvent\\[\\]>|<EventsTab events=|buildEventIndex\\(events\\)|buildSourceGraph\\(events" src` 无匹配（或只存在于“已被 feature flag 彻底隔离且不会走到的 dead code”，但推荐直接移除调用路径）
+8. `rg -n "summary: AnalysisResult|summary: HarAnalysisResult|items: ParsedEvent\\[\\]" src` 无匹配，避免协议层再次把完整结果/完整事件页回传主线程。
