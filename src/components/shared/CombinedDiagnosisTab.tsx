@@ -63,7 +63,7 @@ const CombinedDiagnosisTab: React.FC<CombinedDiagnosisTabProps> = ({
         type="info"
         showIcon
         message="联合诊断说明"
-        description="联合诊断基于 host 粒度对齐 HAR 请求与 NetLog 事件，生成「HAR 看到慢，NetLog 解释为什么慢」的联合诊断卡片。"
+        description="联合诊断会优先使用 URL/path 精确对齐，其次使用同 host 证据；只有同域名 NetLog 错误与 HAR timing 阶段吻合时才给出高置信结论。"
         style={{ marginBottom: 16 }}
       />
       <DiagnosisPanel summary={summary} />

@@ -1,55 +1,220 @@
 /**
  * HAR + NetLog 联合诊断
- * 核心思路：把 HAR 的请求级 timing 与 NetLog 的事件级网络状态对齐，
- * 生成 "HAR 看到慢，NetLog 解释为什么慢" 的联合诊断卡片
+ *
+ * 核心思路：
+ * 1. HAR 给出请求级 timing 现象。
+ * 2. NetLog 给出浏览器网络栈事件、错误码、代理、TLS/DNS 证据。
+ * 3. 联合诊断只在同 host 证据能对齐时给出高置信结论，避免全局异常牵连无关请求。
  */
 
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
-import type { AnalysisResult } from '../../parsers/netlog/parser';
+import type { AnalysisResult, URLRequest, FailedDomain, SslIssue } from '../../parsers/netlog/parser';
+import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import type {
   DiagnosticCard,
   DiagnosisSummary,
   CollectionQuality,
 } from './types';
+import { HAR_DIAG_THRESHOLDS } from './harThresholds';
 
 // ========== 对齐逻辑 ==========
 
+interface NetlogRequestRef {
+  request: URLRequest;
+  index: number;
+  host: string;
+  path: string;
+}
+
+interface HostNetlogIndex {
+  requests: NetlogRequestRef[];
+  failedDomains: FailedDomain[];
+  dnsFailures: FailedDomain[];
+  tlsIssues: SslIssue[];
+}
+
+interface AlignmentIndex {
+  byHost: Map<string, HostNetlogIndex>;
+  proxyEventCount: number;
+  proxyHostHints: Set<string>;
+}
+
 interface AlignedEntry {
   harEntry: HarRequestEntry;
-  /** NetLog 中可能关联的 URL_REQUEST 索引列表 */
-  netlogRequestIndices: number[];
   host: string;
+  path: string;
+  netlogRequests: NetlogRequestRef[];
+  hostIndex?: HostNetlogIndex;
+  alignLevel: 'exact-url' | 'same-path' | 'same-host' | 'none';
+  alignScore: number;
   isSlow: boolean;
+}
+
+function normalizeHost(hostOrUrl: string | undefined | null): string {
+  if (!hostOrUrl) return '';
+  try {
+    if (hostOrUrl.startsWith('http://') || hostOrUrl.startsWith('https://')) {
+      return new URL(hostOrUrl).hostname.toLowerCase();
+    }
+  } catch { /* ignore */ }
+  return hostOrUrl
+    .toLowerCase()
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/:\d+$/, '');
+}
+
+function parseUrlParts(url: string): { host: string; path: string } {
+  try {
+    const u = new URL(url);
+    return { host: u.hostname.toLowerCase(), path: `${u.pathname}${u.search}` };
+  } catch {
+    return { host: '', path: '' };
+  }
+}
+
+function isDnsErrorDomain(domain: FailedDomain): boolean {
+  return domain.errorCodes.some(code => classifyNetError(code).catName === 'DNS');
+}
+
+function ensureHostIndex(index: AlignmentIndex, host: string): HostNetlogIndex {
+  const key = host || '(unknown)';
+  let value = index.byHost.get(key);
+  if (!value) {
+    value = { requests: [], failedDomains: [], dnsFailures: [], tlsIssues: [] };
+    index.byHost.set(key, value);
+  }
+  return value;
+}
+
+function buildAlignmentIndex(netlogResult: AnalysisResult): AlignmentIndex {
+  const index: AlignmentIndex = {
+    byHost: new Map(),
+    proxyEventCount: netlogResult.proxyEvents.length,
+    proxyHostHints: new Set(),
+  };
+
+  netlogResult.urlRequests.forEach((request, requestIndex) => {
+    const { host, path } = parseUrlParts(request.url);
+    if (!host) return;
+    ensureHostIndex(index, host).requests.push({ request, index: requestIndex, host, path });
+  });
+
+  netlogResult.failedDomains.forEach(domain => {
+    const host = normalizeHost(domain.domain);
+    if (!host) return;
+    const bucket = ensureHostIndex(index, host);
+    bucket.failedDomains.push(domain);
+    if (isDnsErrorDomain(domain)) bucket.dnsFailures.push(domain);
+  });
+
+  netlogResult.certIssues.forEach(issue => {
+    const host = normalizeHost(issue.host);
+    if (!host || host === 'unknown') return;
+    ensureHostIndex(index, host).tlsIssues.push(issue);
+  });
+
+  netlogResult.proxyEvents.forEach(evt => {
+    const p = evt.params || {};
+    [
+      p.host,
+      p.hostname,
+      p.tunnel_host,
+      p.url,
+      p.proxy_host,
+    ].forEach(value => {
+      const host = normalizeHost(typeof value === 'string' ? value : '');
+      if (host) index.proxyHostHints.add(host);
+    });
+  });
+
+  return index;
 }
 
 function alignHarWithNetlog(
   harResult: HarAnalysisResult,
   netlogResult: AnalysisResult
 ): AlignedEntry[] {
-  const aligned: AlignedEntry[] = [];
+  const index = buildAlignmentIndex(netlogResult);
 
-  for (const harEntry of harResult.entries) {
-    let host = '';
-    try { host = new URL(harEntry.url).hostname; } catch { /* skip */ }
+  return harResult.entries.map(harEntry => {
+    const { host, path } = parseUrlParts(harEntry.url);
+    const hostIndex = host ? index.byHost.get(host) : undefined;
+    const candidates = hostIndex?.requests || [];
 
-    // 在 NetLog URL_REQUEST 中找同 host 的请求
-    const netlogIndices: number[] = [];
-    netlogResult.urlRequests.forEach((r, idx) => {
-      try {
-        const rHost = new URL(r.url).hostname;
-        if (rHost === host) netlogIndices.push(idx);
-      } catch { /* skip */ }
-    });
+    let alignedRequests = candidates;
+    let alignLevel: AlignedEntry['alignLevel'] = candidates.length > 0 ? 'same-host' : 'none';
+    let alignScore = candidates.length > 0 ? 0.55 : 0;
 
-    aligned.push({
+    const exactUrl = candidates.filter(ref => ref.request.url === harEntry.url);
+    if (exactUrl.length > 0) {
+      alignedRequests = exactUrl;
+      alignLevel = 'exact-url';
+      alignScore = 1;
+    } else if (path) {
+      const samePath = candidates.filter(ref => ref.path === path);
+      if (samePath.length > 0) {
+        alignedRequests = samePath;
+        alignLevel = 'same-path';
+        alignScore = 0.8;
+      }
+    }
+
+    return {
       harEntry,
-      netlogRequestIndices: netlogIndices,
       host,
-      isSlow: harEntry.isSlow || harEntry.time >= 1000,
-    });
-  }
+      path,
+      netlogRequests: alignedRequests,
+      hostIndex,
+      alignLevel,
+      alignScore,
+      isSlow: harEntry.isSlow || harEntry.time >= HAR_DIAG_THRESHOLDS.totalSlow,
+    };
+  });
+}
 
-  return aligned;
+function alignLevelText(level: AlignedEntry['alignLevel']): string {
+  switch (level) {
+    case 'exact-url': return 'URL 完全匹配';
+    case 'same-path': return '同 host + path 匹配';
+    case 'same-host': return '同 host 匹配';
+    default: return '未对齐';
+  }
+}
+
+function confidenceFromAlignment(entries: AlignedEntry[], hasDirectEvidence: boolean): DiagnosticCard['confidence'] {
+  if (!hasDirectEvidence) return 'low';
+  const best = Math.max(...entries.map(e => e.alignScore), 0);
+  if (best >= 0.8) return 'high';
+  if (best >= 0.55) return 'medium';
+  return 'low';
+}
+
+function uniqueHosts(entries: AlignedEntry[]): string[] {
+  return [...new Set(entries.map(e => e.host).filter(Boolean))];
+}
+
+function collectRequestIds(entries: AlignedEntry[], limit = 10): number[] {
+  return entries.slice(0, limit).map(e => e.harEntry.id);
+}
+
+function collectEventIdsFromRequests(entries: AlignedEntry[], limit = 10): string[] {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    for (const ref of entry.netlogRequests) {
+      ids.add(String(ref.request.id));
+      if (ids.size >= limit) return Array.from(ids);
+    }
+  }
+  return Array.from(ids);
+}
+
+function buildAlignmentEvidence(entries: AlignedEntry[]) {
+  const counts = entries.reduce<Record<string, number>>((acc, entry) => {
+    acc[alignLevelText(entry.alignLevel)] = (acc[alignLevelText(entry.alignLevel)] || 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).map(([level, count]) => `${level} ${count} 个`).join('，');
 }
 
 // ========== 联合诊断卡片生成 ==========
@@ -60,91 +225,177 @@ export function combinedDiagnosisToCards(
 ): DiagnosticCard[] {
   const cards: DiagnosticCard[] = [];
   const aligned = alignHarWithNetlog(harResult, netlogResult);
-
   const slowAligned = aligned.filter(a => a.isSlow);
   if (slowAligned.length === 0) return cards;
 
-  // 1. HAR 慢 + NetLog 有 DNS 问题
+  const netlogIndex = buildAlignmentIndex(netlogResult);
+
+  // 1. HAR DNS 慢 + 同 host NetLog DNS 失败
   const slowWithDnsIssue = slowAligned.filter(a =>
-    a.harEntry.timings.dns > 200 && netlogResult.failedDomains.length > 0
+    a.harEntry.timings.dns > HAR_DIAG_THRESHOLDS.dnsSlow &&
+    (a.hostIndex?.dnsFailures.length || 0) > 0
   );
   if (slowWithDnsIssue.length > 0) {
-    const hosts = [...new Set(slowWithDnsIssue.map(a => a.host))];
+    const hosts = uniqueHosts(slowWithDnsIssue);
+    const dnsFailures = slowWithDnsIssue.flatMap(a => a.hostIndex?.dnsFailures || []);
+    const confidence = confidenceFromAlignment(slowWithDnsIssue, dnsFailures.length > 0);
     cards.push({
       id: 'combined-dns-slow',
       source: 'combined',
       category: 'dns',
       severity: 'critical',
-      confidence: 'high',
-      title: '联合诊断：DNS 解析慢与 NetLog DNS 失败域吻合',
-      conclusion: `HAR 中 ${slowWithDnsIssue.length} 个慢请求的 DNS 耗时偏高，且 NetLog 检测到 ${netlogResult.failedDomains.length} 个失败域名，高度吻合`,
-      scope: { type: 'multi-domain', summary: `影响 ${hosts.length} 个域名`, affectedDomainCount: hosts.length },
+      confidence,
+      title: '联合诊断：DNS 慢请求与同域名 NetLog DNS 失败吻合',
+      conclusion: `HAR 中 ${slowWithDnsIssue.length} 个慢请求 DNS 耗时超过 ${HAR_DIAG_THRESHOLDS.dnsSlow}ms，且 NetLog 在相同域名检测到 DNS 错误，优先排查 DNS 解析链路`,
+      scope: {
+        type: hosts.length > 1 ? 'multi-domain' : 'single-domain',
+        summary: `影响 ${hosts.length} 个域名`,
+        affectedRequestCount: slowWithDnsIssue.length,
+        affectedDomainCount: hosts.length,
+      },
       evidence: [
-        { label: 'HAR 慢请求数', value: String(slowWithDnsIssue.length), source: 'har' },
-        { label: 'NetLog 失败域名', value: netlogResult.failedDomains.slice(0, 5).map(d => d.domain).join(', '), source: 'netlog' },
-        { label: '涉及域名', value: hosts.slice(0, 5).join(', '), source: 'derived' },
+        { label: 'HAR DNS 慢请求', value: `${slowWithDnsIssue.length} 个`, source: 'har', requestIds: collectRequestIds(slowWithDnsIssue) },
+        { label: 'NetLog DNS 失败域名', value: [...new Set(dnsFailures.map(d => `${d.domain} (${d.errorCodes.join(', ')})`))].slice(0, 5).join('、'), source: 'netlog' },
+        { label: '对齐方式', value: buildAlignmentEvidence(slowWithDnsIssue), source: 'derived' },
+        { label: '涉及域名', value: hosts.slice(0, 5).join('、'), source: 'derived' },
       ],
       actions: [
-        { role: 'user', title: '验证 DNS 解析', detail: '使用 nslookup 验证失败域名在当前网络下是否可解析', command: `nslookup ${netlogResult.failedDomains[0]?.domain || 'example.com'}` },
-        { role: 'it', title: '检查 DNS 服务器配置', detail: '确认当前使用的 DNS 服务器是否正常，必要时切换到公共 DNS' },
+        { role: 'user', title: '验证 DNS 解析', detail: '使用 nslookup 对异常域名做当前网络解析验证', command: `nslookup ${hosts[0] || 'example.com'}` },
+        { role: 'user', title: '切换 DNS 对比', detail: '切换公共 DNS 或手机热点后复现，确认是否为当前解析链路问题' },
+        { role: 'it', title: '检查企业 DNS / PAC', detail: '核对企业 DNS、代理 PAC、VPN 是否接管或污染该域名解析' },
       ],
-      limitations: ['联合诊断基于 host 粒度对齐，不保证 HAR 请求和 NetLog 事件严格 1:1 对应'],
-      relatedRequestIds: slowWithDnsIssue.slice(0, 10).map(a => a.harEntry.id),
-      navigationTarget: { tab: 'requests', errorOnly: true, keyword: 'DNS' },
+      limitations: ['HAR 与 NetLog 时间基准可能不同，当前优先使用 host/URL 证据对齐', `置信度依据：${buildAlignmentEvidence(slowWithDnsIssue)}`],
+      relatedRequestIds: collectRequestIds(slowWithDnsIssue),
+      relatedEventIds: collectEventIdsFromRequests(slowWithDnsIssue),
+      navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithDnsIssue), keyword: hosts[0] },
+      mergedSources: ['har', 'netlog'],
     });
   }
 
-  // 2. HAR 慢 + NetLog 有 Proxy 问题
-  const slowWithProxy = slowAligned.filter(() =>
-    netlogResult.proxyInfo.hasProxy && netlogResult.proxyEvents.length > 0
+  // 2. HAR 慢 + NetLog 代理介入。代理本身是全局配置，但仍要求 HAR 出现代理敏感阶段变慢。
+  const proxySensitiveSlow = slowAligned.filter(a =>
+    netlogResult.proxyInfo.hasProxy &&
+    (
+      a.harEntry.timings.blocked > HAR_DIAG_THRESHOLDS.blockedSlow ||
+      a.harEntry.timings.connect > HAR_DIAG_THRESHOLDS.connectSlow ||
+      a.harEntry.timings.ssl > HAR_DIAG_THRESHOLDS.sslSlow ||
+      a.harEntry.timings.wait > HAR_DIAG_THRESHOLDS.ttfbSlow
+    )
   );
-  if (slowWithProxy.length > 0) {
+  if (proxySensitiveSlow.length > 0 && netlogIndex.proxyEventCount > 0) {
+    const hosts = uniqueHosts(proxySensitiveSlow);
+    const hasHostProxyHint = hosts.some(host => netlogIndex.proxyHostHints.has(host));
     cards.push({
       id: 'combined-proxy-slow',
       source: 'combined',
       category: 'proxy',
       severity: 'warning',
-      confidence: 'medium',
-      title: '联合诊断：慢请求与代理介入吻合',
-      conclusion: `HAR 中有 ${slowWithProxy.length} 个慢请求，且 NetLog 检测到代理介入，代理可能引入额外延迟`,
-      scope: { type: 'global', summary: '代理全局影响' },
+      confidence: hasHostProxyHint ? 'high' : 'medium',
+      title: '联合诊断：慢请求与代理介入存在关联',
+      conclusion: `HAR 中 ${proxySensitiveSlow.length} 个慢请求集中在 blocked/connect/ssl/wait 阶段，NetLog 同时检测到代理配置，代理或 PAC 可能引入排队、建连或隧道延迟`,
+      scope: {
+        type: 'global',
+        summary: '代理可能影响全局请求',
+        affectedRequestCount: proxySensitiveSlow.length,
+        affectedDomainCount: hosts.length,
+      },
       evidence: [
-        { label: 'HAR 慢请求数', value: String(slowWithProxy.length), source: 'har' },
-        { label: 'NetLog 代理事件', value: String(netlogResult.proxyEvents.length), source: 'netlog' },
+        { label: 'HAR 代理敏感慢请求', value: `${proxySensitiveSlow.length} 个`, source: 'har', requestIds: collectRequestIds(proxySensitiveSlow) },
+        { label: 'NetLog 代理事件', value: `${netlogIndex.proxyEventCount} 个`, source: 'netlog' },
         { label: '代理类型', value: netlogResult.proxyInfo.proxyType || '未知', source: 'netlog' },
+        { label: '对齐方式', value: buildAlignmentEvidence(proxySensitiveSlow), source: 'derived' },
       ],
       actions: [
-        { role: 'it', title: '检查代理策略', detail: '确认 PAC、VPN、代理认证和 CONNECT tunnel 是否正常' },
-        { role: 'user', title: '绕过代理测试', detail: '临时关闭代理后重新访问，对比是否仍有慢请求', command: "curl -v --noproxy '*' https://example.com" },
+        { role: 'user', title: '绕过代理测试', detail: '临时关闭代理或切换网络，对比慢请求是否消失', command: "curl -v --noproxy '*' https://example.com" },
+        { role: 'it', title: '检查 PAC / CONNECT 隧道', detail: '确认 PAC 命中规则、代理认证、CONNECT tunnel 和代理服务器负载是否正常' },
       ],
-      limitations: ['代理介入不一定直接导致慢请求，需要结合 connect/ssl timing 综合判断'],
+      limitations: [
+        '代理是全局配置，NetLog 未必能把每个代理事件精确绑定到单个 HAR 请求',
+        hasHostProxyHint ? 'NetLog 代理事件包含相关 host 线索' : '未在代理事件中发现明确 host 线索，因此按中置信度处理',
+      ],
+      relatedRequestIds: collectRequestIds(proxySensitiveSlow),
+      relatedEventIds: collectEventIdsFromRequests(proxySensitiveSlow),
       navigationTarget: { tab: 'events', keyword: 'PROXY' },
+      mergedSources: ['har', 'netlog'],
     });
   }
 
-  // 3. HAR 慢 + NetLog 有 TLS 问题
+  // 3. HAR TLS 慢 + 同 host NetLog TLS/证书异常
   const slowWithTls = slowAligned.filter(a =>
-    (a.harEntry.timings.ssl > 300) && netlogResult.certIssues.length > 0
+    a.harEntry.timings.ssl > HAR_DIAG_THRESHOLDS.sslSlow &&
+    (a.hostIndex?.tlsIssues.length || 0) > 0
   );
   if (slowWithTls.length > 0) {
+    const hosts = uniqueHosts(slowWithTls);
+    const tlsIssues = slowWithTls.flatMap(a => a.hostIndex?.tlsIssues || []);
     cards.push({
       id: 'combined-tls-slow',
       source: 'combined',
       category: 'tls',
       severity: 'warning',
-      confidence: 'high',
-      title: '联合诊断：TLS 握手慢与 NetLog SSL 异常吻合',
-      conclusion: `HAR 中 ${slowWithTls.length} 个请求 TLS 握手耗时偏高，且 NetLog 检测到 ${netlogResult.certIssues.length} 个 SSL 问题`,
-      scope: { type: 'multi-domain', summary: `TLS 握手影响多个域名` },
+      confidence: confidenceFromAlignment(slowWithTls, tlsIssues.length > 0),
+      title: '联合诊断：TLS 握手慢与同域名 SSL 异常吻合',
+      conclusion: `HAR 中 ${slowWithTls.length} 个请求 TLS 阶段超过 ${HAR_DIAG_THRESHOLDS.sslSlow}ms，NetLog 在相同域名检测到 SSL/TLS 异常，建议排查证书链、中间设备或 HTTPS Inspection`,
+      scope: {
+        type: hosts.length > 1 ? 'multi-domain' : 'single-domain',
+        summary: `TLS 握手影响 ${hosts.length} 个域名`,
+        affectedRequestCount: slowWithTls.length,
+        affectedDomainCount: hosts.length,
+      },
       evidence: [
-        { label: 'HAR TLS 慢请求数', value: String(slowWithTls.length), source: 'har' },
-        { label: 'NetLog SSL 问题数', value: String(netlogResult.certIssues.length), source: 'netlog' },
+        { label: 'HAR TLS 慢请求', value: `${slowWithTls.length} 个`, source: 'har', requestIds: collectRequestIds(slowWithTls) },
+        { label: 'NetLog SSL 问题', value: tlsIssues.slice(0, 5).map(i => `${i.host}: ${i.error}`).join('、'), source: 'netlog' },
+        { label: '对齐方式', value: buildAlignmentEvidence(slowWithTls), source: 'derived' },
       ],
       actions: [
-        { role: 'it', title: '检查 TLS 链路', detail: '使用 openssl s_client 验证证书链和协议版本', command: 'openssl s_client -connect example.com:443 -servername example.com' },
+        { role: 'user', title: '检查证书链', detail: '查看浏览器证书详情，确认是否被企业网关或安全软件替换' },
+        { role: 'it', title: '验证 TLS 握手', detail: '使用 openssl 检查目标域名证书链和协议协商', command: `openssl s_client -connect ${hosts[0] || 'example.com'}:443 -servername ${hosts[0] || 'example.com'}` },
       ],
-      limitations: ['TLS 握手慢也可能与服务端 TLS 配置有关，不一定是客户端网络问题'],
-      navigationTarget: { tab: 'events', keyword: 'SSL', errorOnly: true },
+      limitations: ['TLS 慢也可能来自服务端证书链或 OCSP/CRL 查询，不一定完全是客户端网络问题'],
+      relatedRequestIds: collectRequestIds(slowWithTls),
+      relatedEventIds: collectEventIdsFromRequests(slowWithTls),
+      navigationTarget: { tab: 'events', keyword: hosts[0] || 'SSL', errorOnly: true },
+      mergedSources: ['har', 'netlog'],
+    });
+  }
+
+  // 4. 反证/解释：HAR 慢但 NetLog 无同 host 错误，提醒可能偏服务端或采集不匹配。
+  const slowWithoutNetlogCause = slowAligned.filter(a =>
+    a.alignLevel !== 'none' &&
+    a.harEntry.timings.wait > HAR_DIAG_THRESHOLDS.ttfbSlow &&
+    !(a.hostIndex?.failedDomains.length) &&
+    !(a.hostIndex?.tlsIssues.length)
+  );
+  if (slowWithoutNetlogCause.length > 0) {
+    const hosts = uniqueHosts(slowWithoutNetlogCause);
+    cards.push({
+      id: 'combined-server-or-quality',
+      source: 'combined',
+      category: 'server',
+      severity: 'info',
+      confidence: 'medium',
+      title: '联合诊断：HAR TTFB 慢但 NetLog 未发现同域名网络错误',
+      conclusion: `HAR 中 ${slowWithoutNetlogCause.length} 个请求主要慢在 TTFB，NetLog 未发现同域名 DNS/TLS/连接错误，更像服务端处理、回源、CDN 或采集时间不完全重合`,
+      scope: {
+        type: hosts.length > 1 ? 'multi-domain' : 'single-domain',
+        summary: `影响 ${hosts.length} 个域名`,
+        affectedRequestCount: slowWithoutNetlogCause.length,
+        affectedDomainCount: hosts.length,
+      },
+      evidence: [
+        { label: 'HAR TTFB 慢请求', value: `${slowWithoutNetlogCause.length} 个`, source: 'har', requestIds: collectRequestIds(slowWithoutNetlogCause) },
+        { label: 'NetLog 同域名错误', value: '未发现 DNS/TLS/连接错误', source: 'netlog' },
+        { label: '对齐方式', value: buildAlignmentEvidence(slowWithoutNetlogCause), source: 'derived' },
+      ],
+      actions: [
+        { role: 'backend', title: '查询服务端耗时', detail: '结合 x-tt-logid / server-timing 查询网关、应用、数据库和下游依赖耗时' },
+        { role: 'user', title: '补采同次复现日志', detail: '若怀疑采集不匹配，重新同时采集 HAR 与 NetLog 后复现' },
+      ],
+      limitations: ['这是反证型结论：不能证明服务端一定异常，只能说明当前 NetLog 未支持网络层根因'],
+      relatedRequestIds: collectRequestIds(slowWithoutNetlogCause),
+      relatedEventIds: collectEventIdsFromRequests(slowWithoutNetlogCause),
+      navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithoutNetlogCause), keyword: hosts[0] },
+      mergedSources: ['har', 'netlog'],
     });
   }
 
@@ -160,10 +411,11 @@ export function checkCombinedQuality(
   const issues: CollectionQuality['issues'] = [];
   const recommendations: string[] = [];
 
-  // 检查对齐率
   const aligned = alignHarWithNetlog(harResult, netlogResult);
-  const alignedCount = aligned.filter(a => a.netlogRequestIndices.length > 0).length;
+  const alignedCount = aligned.filter(a => a.alignLevel !== 'none').length;
+  const strongAlignedCount = aligned.filter(a => a.alignLevel === 'exact-url' || a.alignLevel === 'same-path').length;
   const alignRate = harResult.totalRequests > 0 ? alignedCount / harResult.totalRequests : 0;
+  const strongAlignRate = harResult.totalRequests > 0 ? strongAlignedCount / harResult.totalRequests : 0;
 
   if (alignRate < 0.3 && harResult.totalRequests > 5) {
     issues.push({
@@ -173,6 +425,16 @@ export function checkCombinedQuality(
       detail: `仅 ${(alignRate * 100).toFixed(0)}% 的 HAR 请求能在 NetLog 中找到同 host 请求，联合诊断可靠性受限`,
     });
     recommendations.push('确保 HAR 和 NetLog 在同一浏览器会话、同一时间段内采集');
+  }
+
+  if (alignRate >= 0.3 && strongAlignRate < 0.1 && harResult.totalRequests > 20) {
+    issues.push({
+      type: 'suspicious_pattern',
+      severity: 'info',
+      message: '精确 URL 对齐较少',
+      detail: `同 host 对齐率为 ${(alignRate * 100).toFixed(0)}%，但 URL/path 强对齐仅 ${(strongAlignRate * 100).toFixed(0)}%，结论会更多依赖 host 级证据`,
+    });
+    recommendations.push('联合诊断中优先采信同 host 且同 URL/path 的证据，host 级结论需人工复核');
   }
 
   if (netlogResult.totalEvents < 50 || harResult.totalRequests < 5) {
@@ -205,5 +467,15 @@ export function buildCombinedDiagnosisSummary(
     cards.some(c => c.severity === 'critical') ? 'critical' :
     cards.some(c => c.severity === 'warning') ? 'warning' : 'info';
 
-  return { cards, quality, overallSeverity };
+  const highConfidenceCount = cards.filter(c => c.confidence === 'high').length;
+  const combinedConfidence: DiagnosisSummary['combinedConfidence'] =
+    !quality.isDiagnosable ? 'low' :
+    highConfidenceCount > 0 ? 'high' :
+    cards.some(c => c.confidence === 'medium') ? 'medium' : 'low';
+
+  const fusionConflicts = quality.issues
+    .filter(issue => issue.severity === 'warning')
+    .map(issue => issue.message);
+
+  return { cards, quality, overallSeverity, combinedConfidence, fusionConflicts };
 }

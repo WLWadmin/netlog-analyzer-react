@@ -292,6 +292,15 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
         </pre>
       )}
     </div>
+  ) : entry.responseBodyOmitted ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>大型响应体已省略</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>
+        {entry.responseBodyOmitReason || '为降低大 HAR 文件的浏览器内存占用，已保留 headers、timing 和核心诊断字段，但未保留完整 body。'}
+        {entry.responseBodyOriginalLength ? ` 原始长度约 ${formatBytes(entry.responseBodyOriginalLength)}。` : ''}
+      </div>
+    </div>
   ) : (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />

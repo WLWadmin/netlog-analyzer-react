@@ -273,6 +273,18 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
             >
               {confidenceLabelMap[card.confidence]}
             </Tag>
+            {card.mergedSources && card.mergedSources.length > 0 && (
+              <Tag
+                style={{
+                  background: 'rgba(14, 165, 233, 0.1)',
+                  color: '#0ea5e9',
+                  border: '1px solid rgba(14, 165, 233, 0.25)',
+                  fontSize: 11,
+                }}
+              >
+                融合 {card.mergedSources.map(s => s === 'har' ? 'HAR' : 'NetLog').join(' + ')}
+              </Tag>
+            )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: 'var(--text-secondary)' }}>{categoryIcon}</span>
@@ -446,6 +458,23 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
                 <span key={i}>
                   {i > 0 && <span style={{ margin: '0 4px' }}>·</span>}
                   {lim}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {card.conflictNotes && card.conflictNotes.length > 0 && (
+        <div style={{ padding: '10px 18px', background: 'rgba(245, 158, 11, 0.06)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            <WarningOutlined style={{ marginTop: 2, color: '#f59e0b', flexShrink: 0 }} />
+            <div style={{ lineHeight: 1.6 }}>
+              <strong style={{ color: 'var(--text-secondary)' }}>证据冲突：</strong>
+              {card.conflictNotes.map((note, i) => (
+                <span key={i}>
+                  {i > 0 && <span style={{ margin: '0 4px' }}>·</span>}
+                  {note}
                 </span>
               ))}
             </div>

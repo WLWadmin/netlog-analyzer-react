@@ -11,23 +11,11 @@ import type {
   HarTiming,
   HarCategory,
 } from './harParser';
-import { formatHarTime, HAR_SLOW_THRESHOLD_MS } from './harParser';
-import { SLOW_REQUEST_MS, MODERATE_REQUEST_MS, SLOW_SSL_MS } from './constants/analysisThresholds';
+import { formatHarTime } from './harParser';
+import { HAR_DIAG_THRESHOLDS } from './diagnosis/shared/harThresholds';
 
-// ========== 阈值常量 ==========
-
-const THRESHOLDS = {
-  dnsSlow: SLOW_SSL_MS,
-  connectSlow: 500,
-  sslSlow: 500,
-  ttfbSlow: 800,
-  receiveSlow: MODERATE_REQUEST_MS,
-  blockedSlow: SLOW_SSL_MS,
-  totalSlow: HAR_SLOW_THRESHOLD_MS,
-  totalVerySlow: SLOW_REQUEST_MS,
-  largeResource: 1024 * 1024,
-  redirectCount: 3,
-};
+// 兼容既有代码变量名，实际阈值统一收口到 HAR_DIAG_THRESHOLDS。
+const THRESHOLDS = HAR_DIAG_THRESHOLDS;
 
 // ========== 类型定义 ==========
 

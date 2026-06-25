@@ -88,6 +88,15 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, activeTab: extern
           style={{ background: 'var(--bg-surface)', borderRadius: 12 }}
         />
       )}
+      {result.bodyRetention.mode === 'optimized' && result.bodyRetention.omittedCount > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message="已启用大 HAR 内存优化"
+          description={`${result.bodyRetention.reason || '部分大型响应体已省略。'} 共省略 ${result.bodyRetention.omittedCount} 个大型响应体，约 ${Math.round(result.bodyRetention.omittedBytes / 1024 / 1024 * 10) / 10}MB；请求、响应头、timing、状态码和诊断字段仍会完整参与分析。`}
+          style={{ background: 'var(--bg-surface)', borderRadius: 12 }}
+        />
+      )}
       <HarSummaryCards
         result={result}
         onFilterFailed={() => jumpToRequests('failed')}

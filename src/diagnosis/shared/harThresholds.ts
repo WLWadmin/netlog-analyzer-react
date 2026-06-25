@@ -17,8 +17,14 @@ export const HAR_DIAG_THRESHOLDS = {
   receiveSlow: 1000,
   /** 浏览器阻塞慢阈值（ms） */
   blockedSlow: 500,
+  /** 总耗时慢请求阈值（ms） */
+  totalSlow: 1000,
+  /** 总耗时严重慢请求阈值（ms） */
+  totalVerySlow: 3000,
   /** 重定向耗时慢阈值（ms） */
   redirectSlow: 500,
+  /** 大资源阈值（bytes） */
+  largeResource: 1024 * 1024,
   /** Cookie 体积过大阈值（bytes） */
   cookieLarge: 2000,
   /** Server-Timing 总耗时慢阈值（ms） */

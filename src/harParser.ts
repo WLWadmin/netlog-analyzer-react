@@ -61,6 +61,9 @@ export interface HarRequestEntry {
   requestHeaders: HarHeader[];
   responseHeaders: HarHeader[];
   responseBody: string;
+  responseBodyOmitted?: boolean;
+  responseBodyOriginalLength?: number;
+  responseBodyOmitReason?: string;
   responseEncoding: string;
   queryString: HarQueryParam[];
   postData?: HarPostData;
@@ -82,6 +85,13 @@ export interface HarAnalysisResult {
   totalTime: number;
   creator: string;
   typeCounts: Record<HarCategory, number>;
+  /** 响应体保留策略，用于解释大 HAR 的内存降峰行为 */
+  bodyRetention: {
+    mode: 'full' | 'optimized';
+    omittedCount: number;
+    omittedBytes: number;
+    reason?: string;
+  };
   /** HAR 修复信息（如果文件经过自动修复） */
   repairInfo?: {
     repaired: boolean;
@@ -96,6 +106,14 @@ export interface HarAnalysisResult {
 
 // 慢请求阈值（毫秒）
 export const HAR_SLOW_THRESHOLD_MS = 1000;
+
+const HAR_BODY_TOTAL_OPTIMIZE_THRESHOLD = 8 * 1024 * 1024;
+const HAR_BODY_KEEP_SMALL_THRESHOLD = 100 * 1024;
+const HAR_BODY_KEEP_JSON_THRESHOLD = 512 * 1024;
+
+interface HarParseOptions {
+  optimizeResponseBodies: boolean;
+}
 
 // 判断是否为 HAR 文件
 export function isHarFile(data: any): boolean {
@@ -203,8 +221,22 @@ function num(v: any): number {
   return isNaN(n) || n < 0 ? 0 : n;
 }
 
+function shouldKeepResponseBody(rawBody: string, mimeType: string, status: number, options: HarParseOptions): boolean {
+  if (!rawBody) return true;
+  if (!options.optimizeResponseBodies) return true;
+
+  const length = rawBody.length;
+  const lowerMime = (mimeType || '').toLowerCase();
+
+  if (length <= HAR_BODY_KEEP_SMALL_THRESHOLD) return true;
+  if (status >= 400 && length <= HAR_BODY_KEEP_JSON_THRESHOLD) return true;
+  if ((lowerMime.includes('json') || lowerMime.includes('xml') || lowerMime.includes('text')) && length <= HAR_BODY_KEEP_JSON_THRESHOLD) return true;
+
+  return false;
+}
+
 // 解析单条 entry
-function parseEntry(entry: any, id: number): HarRequestEntry {
+function parseEntry(entry: any, id: number, options: HarParseOptions): HarRequestEntry {
   const req = entry.request || {};
   const resp = entry.response || {};
   const content = resp.content || {};
@@ -230,6 +262,8 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
   const time = num(entry.time);
   const isFailed = status === 0 || status >= 400;
   const isSlow = time >= HAR_SLOW_THRESHOLD_MS;
+  const rawResponseBody = content.text || '';
+  const keepResponseBody = shouldKeepResponseBody(rawResponseBody, mimeType, status, options);
 
   const serverTiming = parseServerTiming(getHeader(responseHeaders, 'server-timing'));
   const xTtLogid = getHeader(responseHeaders, 'x-tt-logid') || getHeader(requestHeaders, 'x-tt-logid');
@@ -280,7 +314,12 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
     },
     requestHeaders,
     responseHeaders,
-    responseBody: content.text || '',
+    responseBody: keepResponseBody ? rawResponseBody : '',
+    responseBodyOmitted: Boolean(rawResponseBody && !keepResponseBody),
+    responseBodyOriginalLength: rawResponseBody ? rawResponseBody.length : 0,
+    responseBodyOmitReason: rawResponseBody && !keepResponseBody
+      ? '大 HAR 内存优化：已省略大型响应体，保留请求、响应头和 timing 诊断字段'
+      : undefined,
     responseEncoding: content.encoding || '',
     queryString,
     postData,
@@ -296,8 +335,13 @@ function parseEntry(entry: any, id: number): HarRequestEntry {
 export function parseHar(data: any): HarAnalysisResult {
   const log = data.log || {};
   const rawEntries: any[] = Array.isArray(log.entries) ? log.entries : [];
+  const totalResponseBodyChars = rawEntries.reduce((sum, entry) => {
+    const text = entry?.response?.content?.text;
+    return sum + (typeof text === 'string' ? text.length : 0);
+  }, 0);
+  const optimizeResponseBodies = totalResponseBodyChars > HAR_BODY_TOTAL_OPTIMIZE_THRESHOLD;
 
-  const entries = rawEntries.map((e, i) => parseEntry(e, i));
+  const entries = rawEntries.map((e, i) => parseEntry(e, i, { optimizeResponseBodies }));
 
   const typeCounts: Record<HarCategory, number> = {
     xhr: 0, doc: 0, css: 0, js: 0, font: 0, img: 0, media: 0, other: 0,
@@ -307,12 +351,18 @@ export function parseHar(data: any): HarAnalysisResult {
   let slowCount = 0;
   let minStart = Infinity;
   let maxEnd = 0;
+  let omittedCount = 0;
+  let omittedBytes = 0;
 
   for (const e of entries) {
     typeCounts[e.category]++;
     totalSize += e.size;
     if (e.isFailed) failedCount++;
     if (e.isSlow) slowCount++;
+    if (e.responseBodyOmitted) {
+      omittedCount++;
+      omittedBytes += e.responseBodyOriginalLength || 0;
+    }
     if (e.startMs > 0) {
       minStart = Math.min(minStart, e.startMs);
       maxEnd = Math.max(maxEnd, e.startMs + e.time);
@@ -331,6 +381,14 @@ export function parseHar(data: any): HarAnalysisResult {
     totalTime,
     creator,
     typeCounts,
+    bodyRetention: {
+      mode: optimizeResponseBodies ? 'optimized' : 'full',
+      omittedCount,
+      omittedBytes,
+      reason: optimizeResponseBodies
+        ? `响应体总量约 ${formatBytes(totalResponseBodyChars)}，已自动省略大型 body 以降低浏览器内存占用`
+        : undefined,
+    },
   };
 }
 

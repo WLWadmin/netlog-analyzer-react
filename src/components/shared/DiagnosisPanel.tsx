@@ -33,6 +33,8 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showE
   const criticalCount = summary.cards.filter(c => c.severity === 'critical').length;
   const warningCount = summary.cards.filter(c => c.severity === 'warning').length;
   const infoCount = summary.cards.filter(c => c.severity === 'info').length;
+  const confidenceText = summary.combinedConfidence === 'high' ? '高' : summary.combinedConfidence === 'medium' ? '中' : '低';
+  const confidenceColor = summary.combinedConfidence === 'high' ? '#10b981' : summary.combinedConfidence === 'medium' ? '#f59e0b' : '#6b7280';
 
   return (
     <div style={{ padding: '16px 0' }}>
@@ -102,6 +104,19 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showE
             <span style={{ color: '#6b7280', fontWeight: 700, fontSize: 18 }}>{summary.healthScore}</span>
             <span style={{ color: '#6b7280', fontSize: 13, marginLeft: 4 }}>辅助健康分</span>
             <span style={{ color: '#9ca3af', fontSize: 11, marginLeft: 8 }}>（仅供参考，主诊断见上方卡片）</span>
+          </div>
+        )}
+        {summary.combinedConfidence && (
+          <div
+            style={{
+              padding: '8px 16px',
+              background: `${confidenceColor}12`,
+              borderRadius: 8,
+              border: `1px solid ${confidenceColor}33`,
+            }}
+          >
+            <span style={{ color: confidenceColor, fontWeight: 700, fontSize: 18 }}>{confidenceText}</span>
+            <span style={{ color: confidenceColor, fontSize: 13, marginLeft: 4 }}>联合置信度</span>
           </div>
         )}
         </div>
