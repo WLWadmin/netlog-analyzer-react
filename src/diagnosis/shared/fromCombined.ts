@@ -16,6 +16,7 @@ import type {
   CollectionQuality,
 } from './types';
 import { HAR_DIAG_THRESHOLDS } from './harThresholds';
+import { buildTimeAlignmentContext } from './timeAlignment';
 
 // ========== 对齐逻辑 ==========
 
@@ -45,7 +46,7 @@ interface AlignedEntry {
   path: string;
   netlogRequests: NetlogRequestRef[];
   hostIndex?: HostNetlogIndex;
-  alignLevel: 'exact-url' | 'same-path' | 'same-host' | 'none';
+  alignLevel: 'exact-url' | 'same-path' | 'same-host-time' | 'same-host' | 'none';
   alignScore: number;
   isSlow: boolean;
 }
@@ -133,7 +134,8 @@ function buildAlignmentIndex(netlogResult: AnalysisResult): AlignmentIndex {
 
 function alignHarWithNetlog(
   harResult: HarAnalysisResult,
-  netlogResult: AnalysisResult
+  netlogResult: AnalysisResult,
+  timeContext: ReturnType<typeof buildTimeAlignmentContext>
 ): AlignedEntry[] {
   const index = buildAlignmentIndex(netlogResult);
 
@@ -158,6 +160,10 @@ function alignHarWithNetlog(
         alignLevel = 'same-path';
         alignScore = 0.8;
       }
+    } else if (timeContext.enabled) {
+      // 预留：time window 对齐（当前默认禁用）
+      alignLevel = 'same-host-time';
+      alignScore = 0.65;
     }
 
     return {
@@ -177,6 +183,7 @@ function alignLevelText(level: AlignedEntry['alignLevel']): string {
   switch (level) {
     case 'exact-url': return 'URL 完全匹配';
     case 'same-path': return '同 host + path 匹配';
+    case 'same-host-time': return '同 host + 时间窗口匹配';
     case 'same-host': return '同 host 匹配';
     default: return '未对齐';
   }
@@ -224,7 +231,9 @@ export function combinedDiagnosisToCards(
   netlogResult: AnalysisResult
 ): DiagnosticCard[] {
   const cards: DiagnosticCard[] = [];
-  const aligned = alignHarWithNetlog(harResult, netlogResult);
+  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests);
+  const timeLimitation = timeContext.enabled ? undefined : timeContext.reason;
+  const aligned = alignHarWithNetlog(harResult, netlogResult, timeContext);
   const slowAligned = aligned.filter(a => a.isSlow);
   if (slowAligned.length === 0) return cards;
 
@@ -264,7 +273,11 @@ export function combinedDiagnosisToCards(
         { role: 'user', title: '切换 DNS 对比', detail: '切换公共 DNS 或手机热点后复现，确认是否为当前解析链路问题' },
         { role: 'it', title: '检查企业 DNS / PAC', detail: '核对企业 DNS、代理 PAC、VPN 是否接管或污染该域名解析' },
       ],
-      limitations: ['HAR 与 NetLog 时间基准可能不同，当前优先使用 host/URL 证据对齐', `置信度依据：${buildAlignmentEvidence(slowWithDnsIssue)}`],
+      limitations: [
+        'HAR 与 NetLog 时间基准可能不同，当前优先使用 host/URL 证据对齐',
+        `置信度依据：${buildAlignmentEvidence(slowWithDnsIssue)}`,
+        ...(timeLimitation ? [timeLimitation] : []),
+      ],
       relatedRequestIds: collectRequestIds(slowWithDnsIssue),
       relatedEventIds: collectEventIdsFromRequests(slowWithDnsIssue),
       navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithDnsIssue), keyword: hosts[0] },
@@ -312,6 +325,7 @@ export function combinedDiagnosisToCards(
       limitations: [
         '代理是全局配置，NetLog 未必能把每个代理事件精确绑定到单个 HAR 请求',
         hasHostProxyHint ? 'NetLog 代理事件包含相关 host 线索' : '未在代理事件中发现明确 host 线索，因此按中置信度处理',
+        ...(timeLimitation ? [timeLimitation] : []),
       ],
       relatedRequestIds: collectRequestIds(proxySensitiveSlow),
       relatedEventIds: collectEventIdsFromRequests(proxySensitiveSlow),
@@ -351,7 +365,10 @@ export function combinedDiagnosisToCards(
         { role: 'user', title: '检查证书链', detail: '查看浏览器证书详情，确认是否被企业网关或安全软件替换' },
         { role: 'it', title: '验证 TLS 握手', detail: '使用 openssl 检查目标域名证书链和协议协商', command: `openssl s_client -connect ${hosts[0] || 'example.com'}:443 -servername ${hosts[0] || 'example.com'}` },
       ],
-      limitations: ['TLS 慢也可能来自服务端证书链或 OCSP/CRL 查询，不一定完全是客户端网络问题'],
+      limitations: [
+        'TLS 慢也可能来自服务端证书链或 OCSP/CRL 查询，不一定完全是客户端网络问题',
+        ...(timeLimitation ? [timeLimitation] : []),
+      ],
       relatedRequestIds: collectRequestIds(slowWithTls),
       relatedEventIds: collectEventIdsFromRequests(slowWithTls),
       navigationTarget: { tab: 'events', keyword: hosts[0] || 'SSL', errorOnly: true },
@@ -391,7 +408,10 @@ export function combinedDiagnosisToCards(
         { role: 'backend', title: '查询服务端耗时', detail: '结合 x-tt-logid / server-timing 查询网关、应用、数据库和下游依赖耗时' },
         { role: 'user', title: '补采同次复现日志', detail: '若怀疑采集不匹配，重新同时采集 HAR 与 NetLog 后复现' },
       ],
-      limitations: ['这是反证型结论：不能证明服务端一定异常，只能说明当前 NetLog 未支持网络层根因'],
+      limitations: [
+        '这是反证型结论：不能证明服务端一定异常，只能说明当前 NetLog 未支持网络层根因',
+        ...(timeLimitation ? [timeLimitation] : []),
+      ],
       relatedRequestIds: collectRequestIds(slowWithoutNetlogCause),
       relatedEventIds: collectEventIdsFromRequests(slowWithoutNetlogCause),
       navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithoutNetlogCause), keyword: hosts[0] },
@@ -411,7 +431,8 @@ export function checkCombinedQuality(
   const issues: CollectionQuality['issues'] = [];
   const recommendations: string[] = [];
 
-  const aligned = alignHarWithNetlog(harResult, netlogResult);
+  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests);
+  const aligned = alignHarWithNetlog(harResult, netlogResult, timeContext);
   const alignedCount = aligned.filter(a => a.alignLevel !== 'none').length;
   const strongAlignedCount = aligned.filter(a => a.alignLevel === 'exact-url' || a.alignLevel === 'same-path').length;
   const alignRate = harResult.totalRequests > 0 ? alignedCount / harResult.totalRequests : 0;

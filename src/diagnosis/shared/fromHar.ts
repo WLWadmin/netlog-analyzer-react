@@ -508,6 +508,77 @@ export function harDiagnosisToCards(
     });
   }
 
+  // ========== Phase 3 增强：鉴权/权限 与 5xx 错误摘要 ==========
+  const authEntries = entries.filter(e => e.status === 401 || e.status === 403);
+  const proxyAuthEntries = entries.filter(e => e.status === 407);
+  if (authEntries.length > 0 || proxyAuthEntries.length > 0) {
+    const requestIds = [...authEntries, ...proxyAuthEntries].slice(0, 30).map(e => e.id);
+    cards.push({
+      id: generateId('har-auth', cards.length),
+      source: 'har',
+      category: 'security',
+      severity: authEntries.length >= 3 ? 'warning' : 'info',
+      confidence: 'high',
+      title: `鉴权/权限问题 (${authEntries.length + proxyAuthEntries.length} 个)`,
+      conclusion: proxyAuthEntries.length > 0
+        ? `检测到 ${proxyAuthEntries.length} 个 407（Proxy Authentication Required）以及 ${authEntries.length} 个 401/403，请同时检查代理鉴权与业务鉴权`
+        : `检测到 ${authEntries.length} 个 401/403，可能是登录态失效、token 缺失/过期或权限不足`,
+      scope: buildScope(authEntries.length + proxyAuthEntries.length, undefined, 'global'),
+      evidence: [
+        { label: '401/403 数量', value: `${authEntries.length} 个`, source: 'har' },
+        { label: '407 数量', value: `${proxyAuthEntries.length} 个`, source: 'har' },
+        ...[...authEntries, ...proxyAuthEntries].slice(0, 5).map((e, i) => ({
+          label: `样例 ${i + 1}`,
+          value: `${e.status} ${e.method} ${e.url}`,
+          source: 'har' as const,
+          requestIds: [e.id],
+        })),
+      ],
+      actions: [
+        { role: 'user', title: '确认登录态', detail: '检查是否登录、cookie/token 是否过期，必要时重新登录后复现' },
+        { role: 'frontend', title: '检查鉴权头', detail: '确认 Authorization/业务鉴权头是否正确携带（尤其是跨域与重定向场景）' },
+        { role: 'backend', title: '检查权限/签名校验', detail: '核对接口鉴权策略、token 校验、权限系统以及时间偏差（签名过期）' },
+        ...(proxyAuthEntries.length > 0 ? [{ role: 'it' as const, title: '检查代理鉴权', detail: '确认企业代理是否需要认证，浏览器/系统代理配置是否正确' }] : []),
+      ],
+      relatedRequestIds: requestIds,
+      navigationTarget: buildHarNavigationTarget('security', { requestIds, keyword: '401' }),
+      limitations: ['仅根据 HTTP 状态码归类，需结合响应体/错误码以及服务端日志确认根因'],
+    });
+  }
+
+  const serverErrorEntries = entries.filter(e => e.status >= 500 && e.status < 600);
+  if (serverErrorEntries.length > 0) {
+    const requestIds = serverErrorEntries.slice(0, 30).map(e => e.id);
+    const logids = serverErrorEntries.map(e => e.xTtLogid).filter(Boolean).slice(0, 5);
+    cards.push({
+      id: generateId('har-5xx', cards.length),
+      source: 'har',
+      category: 'server',
+      severity: 'critical',
+      confidence: 'high',
+      title: `服务端错误 (5xx) (${serverErrorEntries.length} 个)`,
+      conclusion: `检测到 ${serverErrorEntries.length} 个 5xx 请求，服务端或网关可能异常/过载。建议结合请求标识（如 x-tt-logid）查询服务端日志定位。`,
+      scope: buildScope(serverErrorEntries.length, undefined, 'global'),
+      evidence: [
+        { label: '5xx 请求数量', value: `${serverErrorEntries.length} 个`, source: 'har' },
+        ...(logids.length > 0 ? [{ label: 'x-tt-logid', value: logids.join('、'), source: 'har' as const }] : []),
+        ...serverErrorEntries.slice(0, 5).map((e, i) => ({
+          label: `错误样例 ${i + 1}`,
+          value: `${e.status} ${e.method} ${e.url}`,
+          source: 'har' as const,
+          requestIds: [e.id],
+        })),
+      ],
+      actions: [
+        { role: 'backend', title: '查询服务端日志', detail: '使用 x-tt-logid/trace-id 在网关与应用日志中检索对应请求，查看异常栈与依赖耗时' },
+        { role: 'backend', title: '检查限流/熔断', detail: '确认是否触发限流、熔断、超时与下游依赖异常' },
+      ],
+      relatedRequestIds: requestIds,
+      navigationTarget: buildHarNavigationTarget('server', { requestIds, keyword: '5' }),
+      limitations: ['HAR 只能看到 HTTP 层状态码，无法直接展示服务端内部根因；需要配合日志与链路追踪'],
+    });
+  }
+
   // 4. 问题归因卡片
   diagnosis.attributions.forEach((attr, idx) => {
     cards.push({

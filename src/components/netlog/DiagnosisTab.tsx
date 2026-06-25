@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Card, Alert, Tag, Button } from 'antd';
 import { DownOutlined, UpOutlined, MedicineBoxOutlined } from '@ant-design/icons';
-import { AnalysisResult } from '../../parsers/netlog/parser';
+import { AnalysisResult, ParsedEvent } from '../../parsers/netlog/parser';
 import { generateSuggestions } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
 import { buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
@@ -9,9 +9,10 @@ import DiagnosisPanel from '../shared/DiagnosisPanel';
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
+  events: ParsedEvent[];
 }
 
-const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
+const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
   const groupedIssues = useMemo(() => groupIssues(result.errors, [...result.warnings, ...result.info] as any), [result]);
   const byCategory = useMemo(() => groupByCategory(groupedIssues), [groupedIssues]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
@@ -19,7 +20,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result }) => {
   const suggestions = generateSuggestions(result);
 
   // 统一诊断模型
-  const diagnosisSummary = useMemo(() => buildNetlogDiagnosisSummary(result, suggestions), [result, suggestions]);
+  const diagnosisSummary = useMemo(() => buildNetlogDiagnosisSummary(result, suggestions, events), [result, suggestions, events]);
 
   const INITIAL_SHOW = 10;
   const LOAD_MORE_STEP = 100;

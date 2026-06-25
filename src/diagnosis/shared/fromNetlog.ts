@@ -3,9 +3,10 @@
  * 将 NetLog 分析结果转换为统一 DiagnosticCard 结构
  */
 
-import type { AnalysisResult, FailedDomain, ProxyInfo } from '../../parsers/netlog/parser';
+import type { AnalysisResult, FailedDomain, ProxyInfo, ParsedEvent } from '../../parsers/netlog/parser';
 import type { Suggestion } from '../../parsers/netlog/diagnosis';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
+import { netlogLifecycleToCards } from './fromNetlogLifecycle';
 import type {
   DiagnosticCard,
   DiagnosticCategory,
@@ -447,7 +448,7 @@ function inferRoleFromAction(actionText: string): DiagnosticRole {
 
 // ========== 主转换函数 ==========
 
-export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[]): DiagnosticCard[] {
+export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[], events?: ParsedEvent[]): DiagnosticCard[] {
   const cards = suggestions.map((s, i) => suggestionToCard(s, i, result));
 
   // 添加代理/VPN 环境卡片（如果检测到但未生成）
@@ -735,6 +736,12 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[])
   const tlsCertificateCard = buildTlsCertificateEvidenceCard(result);
   if (tlsCertificateCard && !cards.some(c => c.id.startsWith('netlog-tls-cert-fields'))) {
     cards.push(tlsCertificateCard);
+  }
+
+  // ========== Phase 3 增强：请求生命周期证据 ==========
+  if (events && events.length > 0) {
+    const lifecycleCards = netlogLifecycleToCards(result, events, { maxCards: 5 });
+    lifecycleCards.forEach(c => cards.push(c));
   }
 
   const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
@@ -1208,9 +1215,10 @@ export function checkNetlogQuality(result: AnalysisResult): CollectionQuality {
 
 export function buildNetlogDiagnosisSummary(
   result: AnalysisResult,
-  suggestions: Suggestion[]
+  suggestions: Suggestion[],
+  events?: ParsedEvent[]
 ): DiagnosisSummary {
-  const cards = netlogToCards(result, suggestions);
+  const cards = netlogToCards(result, suggestions, events);
   const quality = checkNetlogQuality(result);
 
   const overallSeverity: DiagnosisSummary['overallSeverity'] =
