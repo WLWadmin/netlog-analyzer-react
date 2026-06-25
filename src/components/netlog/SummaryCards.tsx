@@ -8,23 +8,21 @@ import {
   ClockCircleOutlined,
   RiseOutlined,
 } from '@ant-design/icons';
-import { AnalysisResult } from '../../parsers/netlog/parser';
 import { formatDuration } from '../../parsers/netlog/parser';
 import { SummaryCard } from '../../components/shared/SummaryCard';
+import type { NetlogSummary } from '../../workers/summaryTypes';
 
 interface SummaryCardsProps {
-  result: AnalysisResult;
+  summary: NetlogSummary;
   onNavigate?: (tab: string, search?: string) => void;
 }
 
-const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
-  const completedCount = result.urlRequests.filter(q => q.endTime).length;
-  const failedReqs = result.urlRequests.filter(q => q.status === 'error').length;
-  const durations = result.urlRequests.filter(q => q.duration).map(q => q.duration!);
+const SummaryCards: FC<SummaryCardsProps> = ({ summary, onNavigate }) => {
+  const durations = summary.slowRequestPreviews.filter(q => q.duration).map(q => q.duration!);
   const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
-  const totalDuration = result.timeRange.end - result.timeRange.start;
+  const totalDuration = summary.timeRange.end - summary.timeRange.start;
 
-  const pi = result.proxyInfo;
+  const pi = summary.proxyInfo;
   let proxyLabel = '代理';
   let proxyValue = '无';
   let proxyColor = '#34d399';
@@ -42,8 +40,8 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
   const cards = [
     {
       title: '总事件数',
-      value: result.totalEvents.toLocaleString(),
-      suffix: `来源: ${result.uniqueSources.toLocaleString()}`,
+      value: summary.totalEvents.toLocaleString(),
+      suffix: `来源: ${summary.uniqueSources.toLocaleString()}`,
       color: '#0ea5e9',
       valueColor: undefined,
       icon: <FileTextOutlined />,
@@ -51,10 +49,10 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
     },
     {
       title: 'URL 请求',
-      value: result.urlRequests.length,
-      suffix: `完成: ${completedCount} / 失败: ${failedReqs}`,
+      value: summary.requestCount,
+      suffix: `慢请求预览: ${summary.slowRequestPreviews.length} / 错误: ${summary.issueCounts.error}`,
       color: '#22d3ee',
-      valueColor: failedReqs > 0 ? '#f87171' : undefined,
+      valueColor: summary.issueCounts.error > 0 ? '#f87171' : undefined,
       icon: <LinkOutlined />,
       bgGradient: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.08))',
       onClick: () => onNavigate?.('events', 'URL_REQUEST'),
@@ -70,28 +68,28 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
     },
     {
       title: '错误',
-      value: result.errors.length,
-      suffix: result.errors.length > 0 ? '需要关注' : '无错误',
-      color: result.errors.length > 0 ? '#f87171' : '#34d399',
-      valueColor: result.errors.length > 0 ? '#f87171' : undefined,
+      value: summary.issueCounts.error,
+      suffix: summary.issueCounts.error > 0 ? '需要关注' : '无错误',
+      color: summary.issueCounts.error > 0 ? '#f87171' : '#34d399',
+      valueColor: summary.issueCounts.error > 0 ? '#f87171' : undefined,
       icon: <WarningOutlined />,
-      bgGradient: result.errors.length > 0
+      bgGradient: summary.issueCounts.error > 0
         ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))'
         : 'linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(34, 211, 238, 0.08))',
-      onClick: result.errors.length > 0 ? () => onNavigate?.('events', 'net_error') : undefined,
+      onClick: summary.issueCounts.error > 0 ? () => onNavigate?.('events', 'net_error') : undefined,
     },
     {
       title: '平均耗时',
       value: formatDuration(avgDuration),
-      suffix: `慢请求(>3s): ${result.slowRequests.length}`,
+      suffix: `慢请求预览: ${summary.slowRequestPreviews.length}`,
       color: '#a78bfa',
-      valueColor: result.slowRequests.length > 0 ? '#fb923c' : undefined,
+      valueColor: summary.slowRequestPreviews.length > 0 ? '#fb923c' : undefined,
       icon: <ClockCircleOutlined />,
       bgGradient: 'linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(192, 132, 252, 0.08))',
     },
     {
       title: '峰值并发',
-      value: result.peakConcurrency,
+      value: summary.peakConcurrency,
       suffix: `跨度: ${formatDuration(totalDuration)}`,
       color: '#fb923c',
       valueColor: undefined,

@@ -1,27 +1,9 @@
-/**
- * RawEvidenceExplorer - 原始 JSON 证据浏览器
- * 支持对原始上传文件进行路径搜索和结构探索
- *
- * 性能策略：
- * - 默认在 Worker 中执行深度搜索，避免主线程递归扫描大 JSON
- * - Worker 不可用或失败时降级到主线程搜索（仍限制 maxResults/maxDepth）
- */
-
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Card, Input, Button, Tag, Empty, Tooltip, message } from 'antd';
-import {
-  SearchOutlined,
-  CopyOutlined,
-  FileSearchOutlined,
-} from '@ant-design/icons';
-import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Card, Input, List, Tag, Button, message, Divider, Typography, Spin, Empty } from 'antd';
+import { SearchOutlined, CopyOutlined, FileSearchOutlined } from '@ant-design/icons';
+import type { JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
-import {
-  getRawStructureInWorker,
-  getRawValueInWorker,
-  isWorkerSupported,
-  searchRawJsonInWorker,
-} from '../../workers/workerClient';
+import { getRawStructureInWorker, getRawValueInWorker, isWorkerSupported, searchRawJsonInWorker } from '../../workers/workerClient';
 import { useNavigation } from '../../contexts/NavigationContext';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -33,153 +15,104 @@ import {
 } from '../../constants/analysisThresholds';
 
 interface RawEvidenceExplorerProps {
-  /** 原始 JSON 数据（上传的文件内容） */
-  rawData?: unknown;
   /**
    * rawData 在 Worker 内的缓存 ID
-   * 有该值时，搜索必须走 `rawDataId`（避免 structured clone 大 JSON）
+   * 重要：性能专项要求主线程不持有 rawData，所有查询都通过 rawDataId
    */
-  rawDataId?: string;
+  rawDataId: string;
   /** 文件名 */
   fileName?: string;
 }
 
-const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawDataId, fileName }) => {
+const { Text } = Typography;
+
+const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawDataId, fileName }) => {
+  const [structure, setStructure] = useState<StructureNode[]>([]);
+  const [structureLoading, setStructureLoading] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<JsonPathMatch[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
-  const [workerStructure, setWorkerStructure] = useState<StructureNode[]>([]);
+
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchTaskIdRef = useRef(0);
   const pendingSelectPathRef = useRef<string | null>(null);
+
   const { intent, consumeIntent } = useNavigation();
 
-  useEffect(() => {
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-    };
-  }, []);
-
-  const fallbackStructure = useMemo(
-    () => rawData ? getStructureOverview(rawData, RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH) : [],
-    [rawData]
-  );
-  const structure = rawDataId ? workerStructure : fallbackStructure;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!rawDataId) {
-      setWorkerStructure([]);
+  const loadStructure = useCallback(async () => {
+    if (!rawDataId) return;
+    if (!isWorkerSupported()) {
+      message.warning('当前环境不支持 Worker，原始证据功能不可用');
       return;
     }
-
-    getRawStructureInWorker(rawDataId, {
-      timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-      maxDepth: RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
-    })
-      .then((nextStructure) => {
-        if (!cancelled) setWorkerStructure(nextStructure);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWorkerStructure([]);
-          if (rawData) {
-            message.warning('Worker 结构读取失败，已降级到主线程结构预览');
-          } else {
-            message.error('原始 JSON 结构读取失败，请重新上传文件');
-          }
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [rawDataId, rawData]);
-
-  const readValuePreview = useCallback(async (path: string): Promise<string> => {
-    if (isWorkerSupported() && rawDataId) {
-      const preview = await getRawValueInWorker(rawDataId, path, {
-        timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-        maxChars: RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
-      });
-      return preview.text;
+    setStructureLoading(true);
+    try {
+      const nodes = await getRawStructureInWorker(rawDataId, { maxDepth: RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH, timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS });
+      setStructure(nodes || []);
+    } catch {
+      setStructure([]);
+    } finally {
+      setStructureLoading(false);
     }
+  }, [rawDataId]);
 
-    const value = getValueByPath(rawData, path);
-    const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-    return text.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
-      ? text.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
-      : text;
-  }, [rawData, rawDataId]);
+  useEffect(() => {
+    void loadStructure();
+  }, [loadStructure]);
 
   const handleSearch = useCallback((query: string) => {
+    const q = query.trim();
     setSearchQuery(query);
     if (searchTimer.current) clearTimeout(searchTimer.current);
 
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
     searchTimer.current = setTimeout(() => {
       const taskId = ++searchTaskIdRef.current;
-      const q = query.trim();
+      if (!q) {
+        setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
+      setIsSearching(true);
 
       const run = async () => {
         try {
-          if (isWorkerSupported() && rawDataId) {
-            const results = await searchRawJsonInWorker(rawDataId, q, {
-              timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-              maxResults: RAW_EVIDENCE_SEARCH_MAX_RESULTS,
-              maxDepth: RAW_EVIDENCE_SEARCH_MAX_DEPTH,
-            });
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults(results);
-            setIsSearching(false);
-            return;
-          }
-
-          // Worker 不支持或缺少 rawDataId：降级主线程搜索
-          if (!rawData) {
-            setSearchResults([]);
-            setIsSearching(false);
-            message.error('原始 JSON 未在主线程保留，请重新上传文件后重试');
-            return;
-          }
-          const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
+          const results = await searchRawJsonInWorker(rawDataId, q, {
+            timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+            maxResults: RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+            maxDepth: RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+          });
           if (taskId !== searchTaskIdRef.current) return;
           setSearchResults(results);
           setIsSearching(false);
-        } catch (err) {
-          // Worker 搜索失败：降级主线程搜索（避免功能不可用）
-          try {
-            if (!rawData) {
-              if (taskId !== searchTaskIdRef.current) return;
-              setSearchResults([]);
-              setIsSearching(false);
-              message.error('Worker 搜索失败，请重新上传文件后重试');
-              return;
-            }
-            const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults(results);
-            setIsSearching(false);
-            message.warning('Worker 搜索失败，已降级到主线程搜索（大文件可能卡顿）');
-          } catch {
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults([]);
-            setIsSearching(false);
-            message.error('搜索失败');
-          }
+        } catch {
+          if (taskId !== searchTaskIdRef.current) return;
+          setSearchResults([]);
+          setIsSearching(false);
+          message.error('搜索失败');
         }
       };
-
       void run();
     }, SEARCH_DEBOUNCE_MS);
-  }, [rawData, rawDataId]);
+  }, [rawDataId]);
+
+  const handleSelectPath = useCallback(async (path: string) => {
+    setSelectedPath(path);
+    setExpandedValue('加载中...');
+    try {
+      const value = await getRawValueInWorker(rawDataId, path, {
+        maxChars: RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+        timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+      });
+      const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+      setExpandedValue(text);
+    } catch {
+      setExpandedValue('读取失败');
+    }
+  }, [rawDataId]);
 
   // 消费导航意图：支持从诊断卡一键跳到 raw-evidence，并自动执行搜索
   useEffect(() => {
@@ -192,280 +125,135 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     consumeIntent();
   }, [intent, consumeIntent, handleSearch]);
 
-  // 如果 intent 传入的是一个精确 fieldPath（如 $.log.entries[0].request.url），且搜索结果包含该 path，则自动选中
+  // 如果 intent 传入的是一个精确 fieldPath，且搜索结果包含该 path，则自动选中
   useEffect(() => {
     const wanted = pendingSelectPathRef.current;
     if (!wanted) return;
     const hit = searchResults.find(r => r.path === wanted);
     if (!hit) return;
     pendingSelectPathRef.current = null;
-    setSelectedPath(hit.path);
-    void readValuePreview(hit.path)
-      .then(setExpandedValue)
-      .catch(() => message.error('字段值读取失败'));
-  }, [searchResults, readValuePreview]);
+    void handleSelectPath(hit.path);
+  }, [searchResults, handleSelectPath]);
 
-  const handleCopyPath = async (path: string) => {
-    try {
-      await copyText(path);
-      message.success('路径已复制');
-    } catch {
-      message.error('复制失败');
-    }
-  };
-
-  const handleCopyValue = async (value: unknown) => {
-    try {
-      const text = expandedValue ?? (typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
-      await copyText(text);
-      message.success('值已复制');
-    } catch {
-      message.error('复制失败');
-    }
-  };
-
-  const handleSelectPath = (path: string) => {
-    setSelectedPath(path);
-    setExpandedValue('读取中...');
-    void readValuePreview(path)
-      .then(setExpandedValue)
-      .catch(() => {
-        setExpandedValue(null);
-        message.error('字段值读取失败');
-      });
-  };
-
-  if (!rawData && !rawDataId) {
-    return (
-      <Card>
-        <Empty description="暂无原始数据可浏览" />
-      </Card>
-    );
-  }
+  const structureItems = useMemo(() => structure.slice(0, 200), [structure]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header */}
-      <Card size="small" bodyStyle={{ padding: '12px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <FileSearchOutlined style={{ fontSize: 16, color: '#6366f1' }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-            原始证据浏览器
-          </span>
-          {fileName && (
-            <Tag style={{ margin: 0 }}>{fileName}</Tag>
-          )}
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-            输入字段名或值进行搜索（如 net_error、ERR_、dns、timeout）
-          </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Card
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}
+        bodyStyle={{ padding: 16 }}
+        title={<span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><FileSearchOutlined /> 原始证据{fileName ? `：${fileName}` : ''}</span>}
+        extra={<Button size="small" onClick={() => void loadStructure()}>刷新结构</Button>}
+      >
+        <Input
+          value={searchQuery}
+          onChange={(e) => handleSearch(e.target.value)}
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索 JSON Path / 字段名 / 值片段（Worker 执行）"
+        />
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 12 }}>
+          提示：为避免主线程卡顿，RawEvidence 已强制使用 Worker 查询；返回结果与预览均有上限。
         </div>
       </Card>
 
-      {/* Search */}
-      <Input
-        size="large"
-        prefix={<SearchOutlined />}
-        placeholder="搜索字段名或值... (如: net_error, proxy, certificate, source_dependency)"
-        value={searchQuery}
-        onChange={e => handleSearch(e.target.value)}
-        allowClear
-        style={{ borderRadius: 10 }}
-      />
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, minHeight: 400 }}>
-        {/* Left: Results / Structure */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Card
-          size="small"
-          title={searchQuery ? `搜索结果 (${searchResults.length})` : '文件结构'}
-          bodyStyle={{ padding: 0, maxHeight: 600, overflow: 'auto' }}
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}
+          bodyStyle={{ padding: 12 }}
+          title="结构概览"
         >
-          {searchQuery ? (
-            searchResults.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-                {isSearching ? '搜索中...' : '未找到匹配结果'}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {searchResults.map((match, i) => (
-                  <PathResultItem
-                    key={`${match.path}-${i}`}
-                    match={match}
-                    isSelected={selectedPath === match.path}
-                    onClick={() => handleSelectPath(match.path)}
-                    onCopyPath={() => handleCopyPath(match.path)}
-                  />
-                ))}
-              </div>
-            )
+          {structureLoading ? (
+            <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spin /></div>
+          ) : structureItems.length === 0 ? (
+            <Empty description="无结构数据" />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {structure.map((node, i) => (
-                <StructureItem
-                  key={`${node.path}-${i}`}
-                  node={node}
-                  onClick={() => handleSelectPath(node.path)}
-                  isSelected={selectedPath === node.path}
-                />
-              ))}
-            </div>
+            <List
+              size="small"
+              dataSource={structureItems}
+              renderItem={(n) => (
+                <List.Item
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => void handleSelectPath(n.path)}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <Text code style={{ fontSize: 12 }}>{n.path || '$'}</Text>
+                      <Tag style={{ margin: 0 }}>{n.type}</Tag>
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                      {n.preview}
+                    </div>
+                  </div>
+                </List.Item>
+              )}
+            />
           )}
         </Card>
 
-        {/* Right: Value Preview */}
         <Card
-          size="small"
-          title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>值预览</span>
-              {selectedPath && (
-                <Tag style={{ margin: 0, fontSize: 11, fontFamily: "'SF Mono', monospace" }}>
-                  {selectedPath}
-                </Tag>
-              )}
-            </div>
-          }
-          extra={expandedValue && (
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}
+          bodyStyle={{ padding: 12 }}
+          title="搜索结果 / 字段值"
+          extra={selectedPath ? (
             <Button
               size="small"
               icon={<CopyOutlined />}
-              onClick={() => handleCopyValue(selectedPath && rawData ? getValueByPath(rawData, selectedPath) : null)}
+              onClick={async () => {
+                if (!expandedValue) return;
+                await copyText(expandedValue);
+              }}
             >
-              复制
+              复制值
             </Button>
-          )}
-          bodyStyle={{ padding: 0, maxHeight: 600, overflow: 'auto' }}
+          ) : null}
         >
-          {expandedValue ? (
-            <pre style={{
-              margin: 0,
-              padding: 16,
-              fontSize: 12,
-              fontFamily: "'SF Mono', 'Fira Code', monospace",
-              lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              color: 'var(--text-primary)',
-            }}>
-              {expandedValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
-                ? expandedValue.substring(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n\n... (内容过长，已截断)'
-                : expandedValue}
-            </pre>
-          ) : (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-              点击左侧路径查看对应值
+          {isSearching ? (
+            <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spin /></div>
+          ) : searchQuery.trim() && searchResults.length > 0 ? (
+            <>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
+                命中 {searchResults.length} 条（最多 {RAW_EVIDENCE_SEARCH_MAX_RESULTS} 条）
+              </div>
+              <List
+                size="small"
+                dataSource={searchResults}
+                renderItem={(r) => (
+                  <List.Item style={{ cursor: 'pointer' }} onClick={() => void handleSelectPath(r.path)}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                        <Text code style={{ fontSize: 12 }}>{r.path}</Text>
+                        <Tag style={{ margin: 0 }}>{r.type}</Tag>
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        {(() => {
+                          const s = typeof r.value === 'string' ? r.value : JSON.stringify(r.value);
+                          return s.length > 240 ? `${s.slice(0, 240)}...(截断)` : s;
+                        })()}
+                      </div>
+                    </div>
+                  </List.Item>
+                )}
+              />
+              <Divider style={{ margin: '12px 0' }} />
+            </>
+          ) : selectedPath ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
+              当前字段：<Text code>{selectedPath}</Text>
             </div>
+          ) : (
+            <div style={{ color: 'var(--text-muted)' }}>请选择结构节点或先搜索。</div>
+          )}
+
+          {expandedValue && (
+            <pre style={{ maxHeight: 520, overflow: 'auto', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {expandedValue}
+            </pre>
           )}
         </Card>
       </div>
     </div>
   );
 };
-
-// ============ Sub-components ============
-
-function PathResultItem({
-  match,
-  isSelected,
-  onClick,
-  onCopyPath,
-}: {
-  match: JsonPathMatch;
-  isSelected: boolean;
-  onClick: () => void;
-  onCopyPath: () => void;
-}) {
-  const valuePreview = typeof match.value === 'object'
-    ? JSON.stringify(match.value).substring(0, 60)
-    : String(match.value).substring(0, 60);
-
-  return (
-    <div
-      style={{
-        padding: '8px 12px',
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-        background: isSelected ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
-        transition: 'background 0.15s',
-      }}
-      onClick={onClick}
-      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-elevated)'; }}
-      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{
-          fontSize: 12,
-          fontFamily: "'SF Mono', monospace",
-          color: '#6366f1',
-          flex: 1,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
-          {match.path}
-        </span>
-        <Tag style={{ margin: 0, fontSize: 10 }}>{match.type}</Tag>
-        <Tooltip title="复制路径">
-          <Button
-            type="text"
-            size="small"
-            icon={<CopyOutlined />}
-            onClick={e => { e.stopPropagation(); onCopyPath(); }}
-            style={{ padding: '0 4px' }}
-          />
-        </Tooltip>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {valuePreview}
-      </div>
-    </div>
-  );
-}
-
-function StructureItem({
-  node,
-  onClick,
-  isSelected,
-}: {
-  node: StructureNode;
-  onClick: () => void;
-  isSelected: boolean;
-}) {
-  const indent = node.path ? (node.path.split('.').length - 1) * 16 : 0;
-
-  return (
-    <div
-      style={{
-        padding: '6px 12px',
-        paddingLeft: 12 + indent,
-        borderBottom: '1px solid var(--border-color)',
-        cursor: 'pointer',
-        background: isSelected ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
-        transition: 'background 0.15s',
-      }}
-      onClick={onClick}
-      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-elevated)'; }}
-      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: 'var(--text-primary)',
-        }}>
-          {node.key || '(root)'}
-        </span>
-        <Tag style={{ margin: 0, fontSize: 10 }}>{node.type}</Tag>
-        {node.childCount !== undefined && (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            ({node.childCount} items)
-          </span>
-        )}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {node.preview}
-      </div>
-    </div>
-  );
-}
 
 export default RawEvidenceExplorer;

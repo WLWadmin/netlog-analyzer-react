@@ -75,7 +75,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
           原始证据
         </span>
       ),
-      children: (rawData || rawDataId) ? <RawEvidenceExplorer rawData={rawData} rawDataId={rawDataId} fileName="HAR 原始证据" /> : null,
+      children: rawDataId ? <RawEvidenceExplorer rawDataId={rawDataId} fileName="HAR 原始证据" /> : null,
     },
   ];
 

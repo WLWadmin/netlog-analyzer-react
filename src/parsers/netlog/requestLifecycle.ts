@@ -115,11 +115,11 @@ function ensureUniqueNum(arr: number[], v: number) {
  * 优先使用 sourceGraph.chains（rootId），否则 fallback 到 [requestId]
  */
 export function collectRelatedSourceIds(
-  events: ParsedEvent[],
+  netlogEvents: ParsedEvent[],
   urlRequests: URLRequest[],
   requestId: number
 ): number[] {
-  const graph = buildSourceGraph(events, urlRequests);
+  const graph = buildSourceGraph(netlogEvents, urlRequests);
   return collectRelatedSourceIdsFromGraph(graph, requestId);
 }
 
@@ -130,7 +130,7 @@ export function collectRelatedSourceIdsFromGraph(graph: SourceGraph, requestId: 
 }
 
 export function buildRequestLifecycle(
-  events: ParsedEvent[],
+  netlogEvents: ParsedEvent[],
   urlRequests: URLRequest[],
   request: URLRequest,
   opts?: {
@@ -138,7 +138,7 @@ export function buildRequestLifecycle(
     relatedSourceIds?: number[];
   }
 ): RequestLifecycle {
-  const relatedSourceIds = opts?.relatedSourceIds || collectRelatedSourceIds(events, urlRequests, request.id);
+  const relatedSourceIds = opts?.relatedSourceIds || collectRelatedSourceIds(netlogEvents, urlRequests, request.id);
   const relatedSourceIdSet = new Set<number>(relatedSourceIds);
 
   const stages: Record<LifecycleStageName, LifecycleStageSummary> = {
@@ -157,7 +157,7 @@ export function buildRequestLifecycle(
 
   const relatedSourceTypes: string[] = [];
 
-  for (const evt of events) {
+  for (const evt of netlogEvents) {
     if (!relatedSourceIdSet.has(evt.source.id)) continue;
     ensureUnique(relatedSourceTypes, evt.source.typeName);
 

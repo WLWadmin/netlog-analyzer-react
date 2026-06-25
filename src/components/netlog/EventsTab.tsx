@@ -1,659 +1,288 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
-import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
-import { ParsedEvent } from '../../parsers/netlog/parser';
-import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/evidenceIndex';
-import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Card, Input, Modal, Select, Table, Tag } from 'antd';
+import { CopyOutlined, SearchOutlined } from '@ant-design/icons';
+import { SEARCH_DEBOUNCE_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { getEventDetailInWorker, queryEventsInWorker } from '../../workers/workerClient';
+import type { EventRowPreview, QueryEventsResponsePayload } from '../../workers/queryTypes';
+import { ENABLE_EVENTS_CONTEXT, ENABLE_EVENTS_TIMELINE } from '../../constants/featureFlags';
 
 interface EventsTabProps {
-  events: ParsedEvent[];
+  analysisId: string;
 }
 
-// Extract error info from event params
-const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string; errorText?: string; ip?: string; duration?: string } => {
-  const result: any = { hasError: false };
+const EventsTab: React.FC<EventsTabProps> = ({ analysisId }) => {
+  const { intent, consumeIntent } = useNavigation();
 
-  if (params?.net_error !== undefined && params?.net_error !== 0) {
-    result.hasError = true;
-    result.errorCode = params.net_error.toString();
-    result.errorText = params?.net_error_string || '';
-  }
-
-  if (params?.error !== undefined && params?.error !== 0) {
-    result.hasError = true;
-    result.errorCode = params.error.toString();
-  }
-
-  if (params?.ip_endpoint) {
-    result.ip = params.ip_endpoint;
-  } else if (params?.address) {
-    result.ip = params.address;
-  } else if (params?.peer_address) {
-    result.ip = params.peer_address;
-  }
-
-  if (params?.total_duration_ms !== undefined) {
-    result.duration = params.total_duration_ms + 'ms';
-  } else if (params?.duration_ms !== undefined) {
-    result.duration = params.duration_ms + 'ms';
-  }
-
-  return result;
-};
-
-const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const { intent, consumeIntent } = useNavigation();
 
-  // 当导航意图指向事件列表时，自动应用搜索条件
-  useEffect(() => {
-    if (!intent || intent.tab !== 'events') return;
-    const filters = intent.filters;
+  const [phaseFilter, setPhaseFilter] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState('');
+  const [sourceIdFilter, setSourceIdFilter] = useState('');
+  const [paramFieldFilter, setParamFieldFilter] = useState('');
+  const [errorOnly, setErrorOnly] = useState(false);
 
-    setSearch("");
-    setDebouncedSearch("");
-    setSourceIdFilter("");
-    setSourceFilter("");
-    setPhaseFilter("");
-    setParamFieldFilter("");
-    setPagination(prev => ({ ...prev, current: 1 }));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [total, setTotal] = useState(0);
+  const [data, setData] = useState<EventRowPreview[]>([]);
+  const [facets, setFacets] = useState<QueryEventsResponsePayload['facets'] | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
 
-    let nextSearch = "";
-    if (filters?.errorCode) {
-      nextSearch = `net_error:${filters.errorCode}`;
-    } else if (filters?.eventType) {
-      nextSearch = filters.eventType;
-    } else if (filters?.keyword) {
-      nextSearch = filters.keyword;
-    } else if (filters?.errorOnly) {
-      nextSearch = 'net_error';
-    }
-
-    if (nextSearch) {
-      setSearch(nextSearch);
-      setDebouncedSearch(nextSearch);
-    }
-    if (filters?.sourceId) {
-      setSourceIdFilter(filters.sourceId);
-    }
-    if (filters?.sourceType) {
-      setSourceFilter(filters.sourceType);
-    }
-    if (filters?.phase) {
-      setPhaseFilter(filters.phase);
-    }
-    if (filters?.paramField) {
-      setParamFieldFilter(filters.paramField);
-    }
-    consumeIntent();
-  }, [intent, consumeIntent]);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailText, setDetailText] = useState('');
+  const [detailTitle, setDetailTitle] = useState<string>('');
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       setDebouncedSearch(value);
+      setPage(1);
     }, SEARCH_DEBOUNCE_MS);
   };
-  const [phaseFilter, setPhaseFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [sourceIdFilter, setSourceIdFilter] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalContent, setModalContent] = useState('');
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 100 });
-  const [filtering, setFiltering] = useState(false);
 
-  // 新增：视图模式（列表 / 时间线）
-  const [viewMode, setViewMode] = useState<'list' | 'timeline'>('list');
-  // 新增：参数字段级过滤
-  const [paramFieldFilter, setParamFieldFilter] = useState('');
-  // 新增：上下文窗口
-  const [contextModalOpen, setContextModalOpen] = useState(false);
-  const [contextIndex, setContextIndex] = useState<number>(-1);
-  const [contextWindowSize, setContextWindowSize] = useState(10);
-
-  // 筛选条件变化时短暂显示 loading
+  // 消费导航意图
   useEffect(() => {
-    setFiltering(true);
-    const timer = setTimeout(() => setFiltering(false), FILTER_SPINNER_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+    if (!intent || intent.tab !== 'events') return;
+    const f = intent.filters;
+    setSearch('');
+    setDebouncedSearch('');
+    setPhaseFilter('');
+    setSourceTypeFilter('');
+    setSourceIdFilter('');
+    setParamFieldFilter('');
+    setErrorOnly(false);
+    setPage(1);
 
-  // 构建事件索引（O(n)，仅在 events 变化时重建）
-  const eventIndex = useMemo(() => buildEventIndex(events), [events]);
-
-  // 提取所有参数字段名
-  const paramFields = useMemo(() => ['', ...eventIndex.paramFields], [eventIndex]);
-
-  const filtered = useMemo(() => {
-    const normalizedSearch = debouncedSearch.toLowerCase();
-    return queryIndex(eventIndex, {
-      sourceId: sourceIdFilter || undefined,
-      sourceType: sourceFilter || undefined,
-      phase: phaseFilter || undefined,
-      paramField: paramFieldFilter || undefined,
-      search: normalizedSearch || undefined,
-    });
-  }, [eventIndex, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
-
-  const phases = useMemo(() => eventIndex.phases, [eventIndex]);
-  const sourceTypes = useMemo(() => eventIndex.sourceTypes, [eventIndex]);
-
-  // Extract top-level event types for better navigation
-  const mainEventTypes = useMemo(() => [...new Set(events.map(e => {
-    const name = e.typeName;
-    if (name.startsWith('URL_REQUEST')) return 'URL_REQUEST';
-    if (name.startsWith('HTTP_STREAM')) return 'HTTP_STREAM';
-    if (name.startsWith('HTTP_TRANSACTION')) return 'HTTP_TRANSACTION';
-    if (name.startsWith('SOCKET')) return 'SOCKET';
-    if (name.startsWith('DNS')) return 'DNS';
-    if (name.startsWith('PROXY')) return 'PROXY';
-    if (name.startsWith('SSL')) return 'SSL';
-    if (name.startsWith('QUIC')) return 'QUIC';
-    if (name.startsWith('TCP')) return 'TCP';
-    return 'OTHER';
-  }))].sort(), [events]);
-
-  // Quick filter for error events
-  const filterByError = () => {
-    setSearch('net_error');
-    setDebouncedSearch('net_error');
-  };
-
-  const handleCopyModalContent = async () => {
-    try {
-      await copyText(modalContent);
-      message.success('JSON 已复制');
-    } catch {
-      message.error('复制失败，请手动选择内容复制');
+    if (f?.keyword) {
+      setSearch(f.keyword);
+      setDebouncedSearch(f.keyword);
     }
-  };
+    if (f?.sourceId) setSourceIdFilter(String(f.sourceId));
+    if (f?.sourceType) setSourceTypeFilter(String(f.sourceType));
+    if (f?.phase) setPhaseFilter(String(f.phase));
+    if (f?.paramField) setParamFieldFilter(String(f.paramField));
+    if (f?.errorOnly) setErrorOnly(true);
+    if (f?.errorCode) {
+      setErrorOnly(true);
+      setSearch(String(f.errorCode));
+      setDebouncedSearch(String(f.errorCode));
+    }
+    consumeIntent();
+  }, [intent, consumeIntent]);
 
-  // 上下文窗口数据
-  const contextEvents = useMemo(() => {
-    if (contextIndex < 0) return [];
-    const start = Math.max(0, contextIndex - contextWindowSize);
-    const end = Math.min(events.length, contextIndex + contextWindowSize + 1);
-    return events.slice(start, end).map((e, i) => ({ ...e, relativeIndex: start + i }));
-  }, [contextIndex, contextWindowSize, events]);
+  const currentFilters = useMemo(() => ({
+    keyword: debouncedSearch || undefined,
+    phase: phaseFilter || undefined,
+    sourceType: sourceTypeFilter || undefined,
+    sourceId: sourceIdFilter || undefined,
+    paramField: paramFieldFilter || undefined,
+    errorOnly: errorOnly || undefined,
+  }), [debouncedSearch, phaseFilter, sourceTypeFilter, sourceIdFilter, paramFieldFilter, errorOnly]);
 
-  const openContext = (index: number) => {
-    setContextIndex(index);
-    setContextModalOpen(true);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setLoading(true);
+      try {
+        const res = await queryEventsInWorker({
+          analysisId,
+          page,
+          pageSize,
+          filters: currentFilters,
+        } as any);
+        if (cancelled) return;
+        setData(res.items);
+        setFacets(res.facets);
+        setTotal(res.total);
+      } catch {
+        if (cancelled) return;
+        setData([]);
+        setTotal(0);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [analysisId, page, pageSize, currentFilters]);
 
   const columns = [
-    { title: '时间', dataIndex: 'time', key: 'time', width: 90, render: (t: number) => <span style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 12, color: 'var(--text-muted)' }}>{t.toFixed(0)}</span> },
-    { title: '阶段', dataIndex: 'phaseName', key: 'phase', width: 80, render: (p: string) => (
-      <Tag color={p === 'BEGIN' ? 'green' : p === 'END' ? 'blue' : 'default'} style={{ fontSize: 11 }}>{p}</Tag>
-    )},
-    { title: '事件类型', dataIndex: 'typeName', key: 'type', width: 220, render: (t: string) => (
-      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t}</span>
-    )},
-    { title: '来源类型', dataIndex: 'source', key: 'source', width: 120, render: (s: any) => (
-      <Tooltip title={s.typeName} placement="top">
-        <span style={{ display: 'inline-block', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <Tag color="cyan" style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.typeName}</Tag>
-        </span>
-      </Tooltip>
-    )},
-    { title: '来源ID', dataIndex: 'source', key: 'sourceId', width: 80, render: (s: any) => (
-      <span style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 12, color: 'var(--text-muted)' }}>{s.id}</span>
-    )},
-    { title: '错误/状态', dataIndex: 'params', key: 'error', width: 140, render: (p: any) => {
-      const errorInfo = extractErrorInfo(p);
-      if (!errorInfo.hasError) {
-        return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>-</span>;
-      }
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Tag color="red" style={{ fontSize: 11, margin: 0 }}>
-            {errorInfo.errorCode} {errorInfo.errorText}
-          </Tag>
-          {errorInfo.duration && (
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>耗时: {errorInfo.duration}</span>
-          )}
-          {errorInfo.ip && (
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>IP: {errorInfo.ip}</span>
-          )}
-        </div>
-      );
-    }},
-    { title: '参数', key: 'params', width: 200, render: (_: unknown, row: IndexedEvent) => {
-      const paramsPreview = row.paramsPreview || '-';
-      return (
-        <Tooltip
-          title={
-            <div style={{ maxHeight: 300, overflow: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {JSON.stringify(row.params || {}, null, 2)}
-              </pre>
-            </div>
-          }
-          placement="left"
-          overlayStyle={{ maxWidth: 500 }}
-        >
-          <span
-            style={{
-              fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-              fontSize: 13,
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'inline-block',
-              maxWidth: 180,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            onClick={() => {
-              setModalContent(JSON.stringify(row.params || {}, null, 2));
-              setModalOpen(true);
-            }}
-          >
-            {paramsPreview}
-          </span>
-        </Tooltip>
-      );
-    }},
     {
-      title: '上下文',
-      key: 'context',
-      width: 80,
-      align: 'center' as const,
-      render: (_: unknown, row: IndexedEvent, index: number) => (
+      title: '时间',
+      dataIndex: 'time',
+      width: 100,
+      render: (v: string) => <span style={{ fontFamily: 'var(--font-mono)' }}>{v}</span>,
+    },
+    {
+      title: 'Source',
+      key: 'source',
+      width: 180,
+      render: (_: unknown, row: EventRowPreview) => (
+        <span style={{ fontFamily: 'var(--font-mono)' }}>
+          {row.sourceType || '-'}#{row.sourceId ?? '-'}
+        </span>
+      ),
+    },
+    {
+      title: 'Type',
+      dataIndex: 'typeName',
+      ellipsis: true,
+      render: (v: string) => <Tag color="blue" style={{ margin: 0 }}>{v}</Tag>,
+    },
+    {
+      title: 'Phase',
+      dataIndex: 'phase',
+      width: 120,
+      render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag>,
+    },
+    {
+      title: 'Error',
+      dataIndex: 'errorCode',
+      width: 100,
+      render: (v: string) => v ? <Tag color="red" style={{ margin: 0 }}>{v}</Tag> : <span style={{ color: 'var(--text-muted)' }}>-</span>,
+    },
+    {
+      title: 'URL',
+      dataIndex: 'url',
+      ellipsis: true,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_: unknown, row: EventRowPreview) => (
         <Button
           size="small"
-          type="link"
-          style={{ fontSize: 12, padding: 0 }}
-          onClick={() => openContext(row.originalIndex)}
+          icon={<CopyOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            void copyText(JSON.stringify(row.shortParams || {}, null, 2));
+          }}
         >
-          <FieldTimeOutlined /> 前后
+          复制参数
         </Button>
       ),
     },
   ];
 
-  // Source ID 聚合时间线数据
-  const timelineData = useMemo(() => {
-    const groups = new Map<number, ParsedEvent[]>();
-    for (const e of filtered) {
-      const list = groups.get(e.source.id) || [];
-      list.push(e);
-      groups.set(e.source.id, list);
-    }
-    const sortedGroups = Array.from(groups.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([sourceId, evs]) => ({
-        sourceId,
-        sourceType: evs[0]?.source.typeName || 'Unknown',
-        events: evs.sort((a, b) => a.time - b.time),
-        count: evs.length,
-        hasError: evs.some(e => {
-          const info = extractErrorInfo(e.params);
-          return info.hasError;
-        }),
-      }));
-    return sortedGroups;
-  }, [filtered]);
-
-  const limitedTimelineData = useMemo(() => {
-    return timelineData
-      .slice(0, MAX_TIMELINE_GROUPS)
-      .map(g => ({
-        ...g,
-        totalEvents: g.events.length,
-        events: g.events.slice(0, MAX_TIMELINE_EVENTS_PER_GROUP),
-      }));
-  }, [timelineData]) as Array<{
-    sourceId: number;
-    sourceType: string;
-    events: ParsedEvent[];
-    count: number;
-    hasError: boolean;
-    totalEvents?: number;
-  }>;
-
   return (
-    <Card
-      title={
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <UnorderedListOutlined /> 全部事件 ({events.length.toLocaleString()})
-        </span>
-      }
-      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-    >
-      {/* Source ID Filter - Prominent exact match */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FilterOutlined style={{ color: 'var(--accent-blue)', fontSize: 14 }} />
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>来源ID精确筛选:</span>
-        </div>
-        <div style={{ position: 'relative', width: 320 }}>
-          <Input
-            placeholder="输入来源ID精确匹配..."
-            value={sourceIdFilter}
-            onChange={e => {
-              setSourceIdFilter(e.target.value);
-              setPagination({ ...pagination, current: 1 });
-            }}
-            style={{
-              width: '100%',
-              background: 'var(--bg-base)',
-              borderColor: 'var(--border-color)',
-              color: 'var(--text-primary)',
-            }}
-          />
-        </div>
-        {sourceIdFilter && (
-          <Tag color="blue" style={{ fontSize: 12 }}>
-            来源ID: {sourceIdFilter} ({filtered.length} 条)
-          </Tag>
-        )}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {(ENABLE_EVENTS_TIMELINE || ENABLE_EVENTS_CONTEXT) ? null : (
+        <Alert
+          type="info"
+          showIcon
+          message="性能模式已启用"
+          description="事件列表已切换为 Worker 分页查询；时间线视图/上下文窗口/全量 params 搜索默认关闭（可通过 feature flag 恢复）。"
+        />
+      )}
 
-      {/* General Search & Filters */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ position: 'relative', width: 320 }}>
-          <SearchOutlined style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 1, fontSize: 14 }} />
+      <Card
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}
+        bodyStyle={{ padding: 16 }}
+      >
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input
-            placeholder="搜索事件类型、参数内容..."
             value={search}
-            onChange={e => handleSearchChange(e.target.value)}
-            disabled={!!sourceIdFilter}
-            style={{
-              width: '100%',
-              paddingLeft: 36,
-              background: 'var(--bg-base)',
-              borderColor: 'var(--border-color)',
-              color: 'var(--text-primary)',
-              opacity: sourceIdFilter ? 0.5 : 1,
-            }}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="搜索：type/source/phase/error/url（轻量匹配）"
+            style={{ width: 360 }}
           />
-        </div>
-        <Select
-          placeholder="阶段筛选"
-          value={phaseFilter || undefined}
-          onChange={setPhaseFilter}
-          disabled={!!sourceIdFilter}
-          allowClear
-          style={{ width: 140, opacity: sourceIdFilter ? 0.5 : 1 }}
-          options={phases.map(p => ({ label: p, value: p }))}
-        />
-        <Select
-          placeholder="来源类型筛选"
-          value={sourceFilter || undefined}
-          onChange={setSourceFilter}
-          disabled={!!sourceIdFilter}
-          allowClear
-          style={{ width: 200, opacity: sourceIdFilter ? 0.5 : 1 }}
-          options={sourceTypes.map(s => ({ label: s, value: s }))}
-        />
-        <Select
-          placeholder="参数字段筛选"
-          value={paramFieldFilter || undefined}
-          onChange={setParamFieldFilter}
-          disabled={!!sourceIdFilter}
-          allowClear
-          style={{ width: 180, opacity: sourceIdFilter ? 0.5 : 1 }}
-          options={paramFields.map(f => ({ label: f || '全部字段', value: f }))}
-          showSearch
-        />
-        <Button
-          icon={<BugOutlined />}
-          onClick={filterByError}
-          disabled={!!sourceIdFilter}
-          style={{ opacity: sourceIdFilter ? 0.5 : 1 }}
-        >
-          只看错误
-        </Button>
-      </div>
-
-      {/* View Mode Toggle */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>视图模式:</span>
-        <Tag
-          color={viewMode === 'list' ? 'blue' : 'default'}
-          style={{ cursor: 'pointer', fontSize: 12 }}
-          onClick={() => setViewMode('list')}
-        >
-          <UnorderedListOutlined /> 列表
-        </Tag>
-        <Tag
-          color={viewMode === 'timeline' ? 'blue' : 'default'}
-          style={{ cursor: 'pointer', fontSize: 12 }}
-          onClick={() => setViewMode('timeline')}
-        >
-          <ClockCircleOutlined /> 时间线
-        </Tag>
-      </div>
-
-      {/* Quick event type tags */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>快速筛选事件大类:</span>
-        {mainEventTypes.map(type => (
-          <Tag
-            key={type}
-            color={search === type ? 'blue' : 'default'}
-            className="event-filter-tag"
-            style={{ cursor: 'pointer', fontSize: 12 }}
-            onClick={() => {
-              if (sourceIdFilter) return;
-              const next = search === type ? '' : type;
-              setSearch(next);
-              setDebouncedSearch(next);
-            }}
-          >
-            {type}
-          </Tag>
-        ))}
-      </div>
-
-      <Spin spinning={filtering} tip="筛选中..." size="small">
-        {viewMode === 'list' ? (
-          <Table
-            dataSource={filtered}
-            columns={columns}
-            rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
-            pagination={false}
-            virtual
-            scroll={{ y: 600 }}
-            size="small"
-          />
-        ) : (
-          <div style={{ maxHeight: 600, overflow: 'auto', padding: '8px 0' }}>
-            {timelineData.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 24px' }}>
-                <FilterOutlined style={{ fontSize: 32, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-                <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>数据量过大，请先通过 Source ID 或事件类型筛选后再查看时间线</div>
-              </div>
-            ) : (
-              <>
-                {timelineData.length > MAX_TIMELINE_GROUPS && (
-                  <Alert
-                    type="warning"
-                    message={`时间线数据量过大（${timelineData.length} 个分组），仅展示前 ${MAX_TIMELINE_GROUPS} 个分组。建议使用筛选条件缩小范围。`}
-                    style={{ marginBottom: 16 }}
-                  />
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                  {limitedTimelineData.map(group => (
-                  <Card
-                    key={group.sourceId}
-                    size="small"
-                    style={{
-                      background: 'var(--bg-surface)',
-                      borderColor: group.hasError ? 'rgba(255, 77, 79, 0.2)' : 'var(--border-color)',
-                      borderLeft: group.hasError ? '3px solid #ff4d4f' : 'none',
-                    }}
-                    title={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Tag color="cyan">{group.sourceType}</Tag>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)' }}>
-                          Source ID: {group.sourceId}
-                        </span>
-                        <Tag style={{ fontSize: 11, margin: 0 }}>{group.count} 个事件</Tag>
-                        {group.hasError && <Tag color="error" style={{ fontSize: 11, margin: 0 }}>含错误</Tag>}
-                      </div>
-                    }
-                  >
-                    <Timeline mode="left" style={{ marginTop: 8 }}>
-                      {group.events.map((ev, i) => {
-                        const errInfo = extractErrorInfo(ev.params);
-                        return (
-                          <Timeline.Item
-                            key={i}
-                            color={errInfo.hasError ? 'red' : ev.phaseName === 'BEGIN' ? 'green' : ev.phaseName === 'END' ? 'blue' : 'gray'}
-                            label={
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-                                {ev.time.toFixed(0)}ms
-                              </span>
-                            }
-                          >
-                            <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>
-                              {ev.typeName}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                              {ev.phaseName}
-                              {errInfo.hasError && (
-                                <span style={{ color: '#ff4d4f', marginLeft: 8 }}>
-                                  {errInfo.errorCode} {errInfo.errorText}
-                                </span>
-                              )}
-                            </div>
-                          </Timeline.Item>
-                        );
-                      })}
-                    </Timeline>
-                    {group.totalEvents !== undefined && group.totalEvents > group.events.length && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 8px 24px' }}>
-                        还有 {group.totalEvents - group.events.length} 条事件未显示，请使用筛选条件缩小范围
-                      </div>
-                    )}
-                  </Card>
-                ))}
-              </div>
-              </>
-            )}
-          </div>
-        )}
-      </Spin>
-
-      {/* 事件参数详情弹窗 */}
-      <Modal
-        open={modalOpen}
-        title="事件参数详情"
-        onCancel={() => setModalOpen(false)}
-        footer={[
-          <Button key="close" onClick={() => setModalOpen(false)}>关闭</Button>,
-          <Button key="copy" type="primary" onClick={handleCopyModalContent}>复制 JSON</Button>,
-        ]}
-        width={700}
-        styles={{ body: { maxHeight: 500, overflow: 'auto' } }}
-      >
-        <pre style={{ margin: 0, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-          {modalContent}
-        </pre>
-      </Modal>
-
-      {/* 上下文窗口弹窗 */}
-      <Modal
-        open={contextModalOpen}
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FieldTimeOutlined style={{ color: 'var(--accent-blue)' }} />
-            <span>事件上下文窗口</span>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              (前后 {contextWindowSize} 条，共 {contextEvents.length} 条)
-            </span>
-          </div>
-        }
-        onCancel={() => setContextModalOpen(false)}
-        footer={[
-          <Button key="close" onClick={() => setContextModalOpen(false)}>关闭</Button>,
-        ]}
-        width={800}
-        styles={{ body: { maxHeight: 600, overflow: 'auto', background: 'var(--bg-elevated)' } }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>窗口大小:</span>
           <Select
-            value={contextWindowSize}
-            onChange={setContextWindowSize}
-            size="small"
-            style={{ width: 100 }}
+            value={phaseFilter || undefined}
+            onChange={(v) => { setPhaseFilter(v || ''); setPage(1); }}
+            style={{ width: 160 }}
+            allowClear
+            placeholder="Phase"
+            options={(facets?.phases || []).map(p => ({ value: p, label: p }))}
+          />
+          <Select
+            value={sourceTypeFilter || undefined}
+            onChange={(v) => { setSourceTypeFilter(v || ''); setPage(1); }}
+            style={{ width: 180 }}
+            allowClear
+            placeholder="SourceType"
+            options={(facets?.sourceTypes || []).map(s => ({ value: s, label: s }))}
+          />
+          <Input
+            value={sourceIdFilter}
+            onChange={(e) => { setSourceIdFilter(e.target.value); setPage(1); }}
+            allowClear
+            placeholder="sourceId"
+            style={{ width: 120 }}
+          />
+          <Input
+            value={paramFieldFilter}
+            onChange={(e) => { setParamFieldFilter(e.target.value); setPage(1); }}
+            allowClear
+            placeholder="paramField（仅存在性过滤）"
+            style={{ width: 190 }}
+          />
+          <Select
+            value={errorOnly ? 'error' : 'all'}
+            onChange={(v) => { setErrorOnly(v === 'error'); setPage(1); }}
+            style={{ width: 110 }}
             options={[
-              { value: 5, label: '5 条' },
-              { value: 10, label: '10 条' },
-              { value: 20, label: '20 条' },
-              { value: 50, label: '50 条' },
+              { value: 'all', label: '全部' },
+              { value: 'error', label: '仅错误' },
             ]}
           />
         </div>
-        <Timeline mode="left">
-          {contextEvents.map((ev, i) => {
-            const isCenter = ev.relativeIndex === contextIndex;
-            const errInfo = extractErrorInfo(ev.params);
-            return (
-              <Timeline.Item
-                key={i}
-                color={isCenter ? 'blue' : errInfo.hasError ? 'red' : ev.phaseName === 'BEGIN' ? 'green' : ev.phaseName === 'END' ? 'blue' : 'gray'}
-                label={
-                  <span style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    color: isCenter ? 'var(--accent-blue)' : 'var(--text-muted)',
-                    fontWeight: isCenter ? 700 : 400,
-                  }}>
-                    {ev.time.toFixed(0)}ms
-                  </span>
-                }
-              >
-                <div style={{
-                  padding: '8px 12px',
-                  background: isCenter ? 'rgba(74, 158, 255, 0.06)' : 'transparent',
-                  borderRadius: 6,
-                  border: isCenter ? '1px solid rgba(74, 158, 255, 0.2)' : 'none',
-                }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>
-                    {ev.typeName}
-                    {isCenter && <Tag color="blue" style={{ fontSize: 10, marginLeft: 8, margin: 0 }}>当前位置</Tag>}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {ev.phaseName} · {ev.source.typeName} · Source ID: {ev.source.id}
-                    {errInfo.hasError && (
-                      <span style={{ color: '#ff4d4f', marginLeft: 8 }}>
-                        {errInfo.errorCode} {errInfo.errorText}
-                      </span>
-                    )}
-                  </div>
-                  {ev.params && Object.keys(ev.params).length > 0 && (
-                    <pre style={{
-                      margin: '6px 0 0 0',
-                      padding: 6,
-                      background: 'var(--bg-base)',
-                      borderRadius: 4,
-                      fontSize: 10,
-                      lineHeight: 1.4,
-                      color: 'var(--text-muted)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      maxHeight: 80,
-                      overflow: 'auto',
-                    }}>
-                      {JSON.stringify(ev.params, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              </Timeline.Item>
-            );
+      </Card>
+
+      <Card
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}
+        bodyStyle={{ padding: 0 }}
+      >
+        <Table
+          rowKey="eventKey"
+          size="small"
+          columns={columns as any}
+          loading={loading}
+          dataSource={data}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            onChange: (current, ps) => { setPage(current); setPageSize(ps); },
+          }}
+          onRow={(row) => ({
+            onClick: async () => {
+              setDetailOpen(true);
+              setDetailTitle(`${row.typeName} (${row.sourceType}#${row.sourceId})`);
+              setDetailText('加载中...');
+              try {
+                const res = await getEventDetailInWorker({ analysisId, eventKey: row.eventKey, maxParamChars: 5000 } as any);
+                setDetailText(res.paramsPreview || '');
+              } catch {
+                setDetailText('加载失败');
+              }
+            },
           })}
-        </Timeline>
+        />
+      </Card>
+
+      <Modal
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        onOk={() => setDetailOpen(false)}
+        okText="关闭"
+        cancelButtonProps={{ style: { display: 'none' } }}
+        title={detailTitle}
+        width={980}
+      >
+        <pre style={{ margin: 0, maxHeight: 520, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {detailText}
+        </pre>
       </Modal>
-    </Card>
+    </div>
   );
 };
 

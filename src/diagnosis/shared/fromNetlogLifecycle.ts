@@ -117,19 +117,19 @@ function hostFromUrl(url: string): string {
 
 export function netlogLifecycleToCards(
   result: AnalysisResult,
-  events: ParsedEvent[],
+  netlogEvents: ParsedEvent[],
   opts?: { maxCards?: number }
 ): DiagnosticCard[] {
   const maxCards = opts?.maxCards ?? 5;
   const candidates = (result.slowRequests || []).slice(0, maxCards);
   if (candidates.length === 0) return [];
 
-  const graph = buildSourceGraph(events, result.urlRequests);
+  const graph = buildSourceGraph(netlogEvents, result.urlRequests);
 
   const cards: DiagnosticCard[] = [];
   for (const req of candidates) {
     const relatedSourceIds = collectRelatedSourceIdsFromGraph(graph, req.id);
-    const lifecycle = buildRequestLifecycle(events, result.urlRequests, req, { relatedSourceIds });
+    const lifecycle = buildRequestLifecycle(netlogEvents, result.urlRequests, req, { relatedSourceIds });
 
     const dominantTimelineStage = (() => {
       const tl = req.timeline || {};

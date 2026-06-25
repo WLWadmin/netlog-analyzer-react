@@ -4,8 +4,6 @@
  */
 
 import type { WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './protocols';
-import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
-import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
@@ -14,6 +12,16 @@ import {
   RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
   RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
 } from '../constants/analysisThresholds';
+import type { HarSummary, NetlogSummary } from './summaryTypes';
+import type {
+  GetEventDetailResponsePayload,
+  GetRequestDetailResponsePayload,
+  GetSourceChainDetailResponsePayload,
+  QueryDiagnosisSummaryResponsePayload,
+  QueryEventsResponsePayload,
+  QueryRequestPageResponsePayload,
+  QuerySourceChainsResponsePayload,
+} from './queryTypes';
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
@@ -106,16 +114,18 @@ function nextId(): string {
 // ============ Public API ============
 
 export interface NetlogParseResult {
-  events: ParsedEvent[];
-  result: AnalysisResult;
-  rawData?: unknown;
+  analysisId: string;
+  summary: NetlogSummary;
+  eventCount: number;
+  requestCount: number;
   rawDataId?: string;
   duration: number;
 }
 
 export interface HarParseResult {
-  result: HarAnalysisResult;
-  rawData?: unknown;
+  analysisId: string;
+  summary: HarSummary;
+  requestCount: number;
   rawDataId?: string;
   duration: number;
 }
@@ -167,6 +177,25 @@ export async function releaseRawDataInWorker(
   const response = await sendToWorker(
     {
       type: 'release-raw-data',
+      id,
+      payload,
+    },
+    options
+  );
+  return Boolean(response.payload);
+}
+
+/**
+ * 释放 Worker 内缓存的 analysis（以及其关联的 rawDataId）
+ */
+export async function releaseAnalysisInWorker(
+  payload: { analysisId?: string; all?: boolean },
+  options?: WorkerClientOptions
+): Promise<boolean> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'release-analysis',
       id,
       payload,
     },
@@ -234,9 +263,10 @@ export async function parseNetlogInWorker(
     options
   );
   return {
-    events: response.events as ParsedEvent[],
-    result: response.payload as AnalysisResult,
-    rawData: response.rawPayload,
+    analysisId: String(response.analysisId),
+    summary: response.summary as NetlogSummary,
+    eventCount: Number(response.eventCount || 0),
+    requestCount: Number(response.requestCount || 0),
     rawDataId: response.rawDataId,
     duration: response.duration,
   };
@@ -256,11 +286,106 @@ export async function parseHarInWorker(
     options
   );
   return {
-    result: response.payload as HarAnalysisResult,
-    rawData: response.rawPayload,
+    analysisId: String(response.analysisId),
+    summary: response.summary as HarSummary,
+    requestCount: Number(response.requestCount || 0),
     rawDataId: response.rawDataId,
     duration: response.duration,
   };
+}
+
+export async function queryEventsInWorker(
+  payload: {
+    analysisId: string;
+    page: number;
+    pageSize: number;
+    filters?: {
+      sourceId?: string;
+      sourceType?: string;
+      phase?: string;
+      errorCode?: string;
+      errorOnly?: boolean;
+      keyword?: string;
+      paramField?: string;
+    };
+  },
+  options?: WorkerClientOptions
+): Promise<QueryEventsResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'query-events', id, payload } as any, options);
+  return response.payload as QueryEventsResponsePayload;
+}
+
+export async function getEventDetailInWorker(
+  payload: { analysisId: string; eventKey: string; maxParamChars?: number },
+  options?: WorkerClientOptions
+): Promise<GetEventDetailResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'get-event-detail', id, payload } as any, options);
+  return response.payload as GetEventDetailResponsePayload;
+}
+
+export async function querySourceChainsInWorker(
+  payload: {
+    analysisId: string;
+    page: number;
+    pageSize: number;
+    filters?: { keyword?: string; mode?: 'all' | 'error' | 'slow' };
+  },
+  options?: WorkerClientOptions
+): Promise<QuerySourceChainsResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'query-source-chains', id, payload } as any, options);
+  return response.payload as QuerySourceChainsResponsePayload;
+}
+
+export async function getSourceChainDetailInWorker(
+  payload: { analysisId: string; rootId: number },
+  options?: WorkerClientOptions
+): Promise<GetSourceChainDetailResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'get-source-chain-detail', id, payload } as any, options);
+  return response.payload as GetSourceChainDetailResponsePayload;
+}
+
+export async function queryRequestPageInWorker(
+  payload: {
+    analysisId: string;
+    page: number;
+    pageSize: number;
+    filters?: {
+      keyword?: string;
+      host?: string;
+      status?: 'all' | 'success' | 'error';
+      errorCode?: string;
+      protocol?: string;
+      slowOnly?: boolean;
+      errorOnly?: boolean;
+    };
+  },
+  options?: WorkerClientOptions
+): Promise<QueryRequestPageResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'query-request-page', id, payload } as any, options);
+  return response.payload as QueryRequestPageResponsePayload;
+}
+
+export async function getRequestDetailInWorker(
+  payload: { analysisId: string; requestId: number; maxEvents?: number },
+  options?: WorkerClientOptions
+): Promise<GetRequestDetailResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'get-request-detail', id, payload } as any, options);
+  return response.payload as GetRequestDetailResponsePayload;
+}
+
+export async function queryDiagnosisSummaryInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<QueryDiagnosisSummaryResponsePayload> {
+  const id = nextId();
+  const response = await sendToWorker({ type: 'query-diagnosis-summary', id, payload } as any, options);
+  return response.payload as QueryDiagnosisSummaryResponsePayload;
 }
 
 /**

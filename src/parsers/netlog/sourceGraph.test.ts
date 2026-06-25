@@ -27,7 +27,7 @@ describe('sourceGraph', () => {
       },
     ];
 
-    const events: ParsedEvent[] = [
+    const netlogEvents: ParsedEvent[] = [
       evt({
         time: 100,
         typeName: 'URL_REQUEST_START_JOB',
@@ -48,7 +48,7 @@ describe('sourceGraph', () => {
       }),
     ];
 
-    const graph = buildSourceGraph(events, urlRequests);
+    const graph = buildSourceGraph(netlogEvents, urlRequests);
     expect(graph.roots).toEqual([1]);
     const chain = graph.chains.find(c => c.rootId === 1);
     expect(chain).toBeTruthy();
@@ -56,4 +56,3 @@ describe('sourceGraph', () => {
     expect(chain!.hasError).toBe(true);
   });
 });
-
