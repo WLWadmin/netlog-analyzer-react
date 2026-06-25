@@ -247,6 +247,123 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
   return actions;
 }
 
+function addHarConfidenceFactors(card: DiagnosticCard, harResult: HarAnalysisResult): DiagnosticCard {
+  const positives = [] as NonNullable<DiagnosticCard['confidenceFactors']>;
+  const negatives = [] as NonNullable<DiagnosticCard['confidenceFactors']>;
+
+  if (card.evidence.length >= 2) {
+    positives.push({ label: '证据链完整', impact: 'positive', detail: `包含 ${card.evidence.length} 条 HAR/推导证据` });
+  }
+  if (card.relatedRequestIds && card.relatedRequestIds.length > 0) {
+    positives.push({ label: '请求级定位', impact: 'positive', detail: `已关联 ${card.relatedRequestIds.length} 个 HAR 请求` });
+  }
+  if (card.category === 'server' && harResult.entries.some(e => e.serverTiming.length > 0)) {
+    positives.push({ label: 'Server-Timing', impact: 'positive', detail: 'HAR 中存在 Server-Timing，可辅助定位服务端阶段' });
+  }
+  if (card.category === 'tls' && harResult.entries.some(e => e.timings.ssl > 0)) {
+    positives.push({ label: 'TLS timing', impact: 'positive', detail: 'HAR 记录了 SSL/TLS timing，可量化握手耗时' });
+  }
+  if (card.category === 'dns' && harResult.entries.some(e => e.timings.dns > 0)) {
+    positives.push({ label: 'DNS timing', impact: 'positive', detail: 'HAR 记录了 DNS timing，可量化解析耗时' });
+  }
+
+  const entriesWithMissingTimings = harResult.entries.filter(e => {
+    const t = e.timings;
+    return t.dns <= 0 && t.connect <= 0 && t.ssl <= 0 && t.wait <= 0;
+  });
+  if (entriesWithMissingTimings.length > harResult.entries.length * 0.3) {
+    negatives.push({ label: 'timing 缺失', impact: 'negative', detail: `${entriesWithMissingTimings.length} 个请求缺少关键 timing，阶段判断可能不完整` });
+  }
+  if (card.category === 'connect' || card.category === 'tls' || card.category === 'dns') {
+    negatives.push({ label: 'HAR 层级限制', impact: 'negative', detail: 'HAR 只能看到 HTTP 层表现，底层 NetError 需补充 NetLog 验证' });
+  }
+  if (harResult.repairInfo?.repaired) {
+    negatives.push({ label: 'HAR 已修复', impact: 'negative', detail: `自动修复恢复 ${harResult.repairInfo.recoveredEntries}/${harResult.repairInfo.totalEntries} 条 entry` });
+  }
+
+  const score = positives.length * 2 - negatives.length;
+  return {
+    ...card,
+    confidence: score >= 4 ? 'high' : score >= 1 ? card.confidence : 'low',
+    confidenceFactors: [...(card.confidenceFactors || []), ...positives, ...negatives].slice(0, 6),
+  };
+}
+
+function buildThirdPartyConcentrationCard(entries: HarRequestEntry[]): DiagnosticCard | null {
+  const thirdPartyEntries = entries.filter(entry => {
+    const host = entry.domain || '';
+    const isStatic = ['js', 'css', 'img', 'font', 'media'].includes(entry.category);
+    const looksThirdParty = /(analytics|adservice|doubleclick|googletag|facebook|sentry|cdn|tracker|beacon|collect|monitor|sdk)/i.test(host + entry.url);
+    return looksThirdParty || (isStatic && !host.includes('localhost'));
+  });
+  if (entries.length < 20 || thirdPartyEntries.length < Math.max(8, entries.length * 0.35)) return null;
+
+  const totalSize = thirdPartyEntries.reduce((sum, entry) => sum + entry.size, 0);
+  const totalTime = thirdPartyEntries.reduce((sum, entry) => sum + entry.time, 0);
+  const slowCount = thirdPartyEntries.filter(entry => entry.isSlow).length;
+  const domains = Array.from(new Set(thirdPartyEntries.map(entry => entry.domain).filter(Boolean))).slice(0, 8);
+  const relatedRequestIds = thirdPartyEntries.slice(0, 30).map(entry => entry.id);
+
+  return {
+    id: generateId('har-third-party', 0),
+    source: 'har',
+    category: 'performance',
+    severity: slowCount > 5 || totalSize > 5 * 1024 * 1024 ? 'warning' : 'info',
+    confidence: 'medium',
+    confidenceFactors: [
+      { label: '第三方请求占比', impact: 'positive', detail: `${thirdPartyEntries.length}/${entries.length} 个请求疑似第三方或静态依赖` },
+      ...(slowCount > 0 ? [{ label: '慢第三方请求', impact: 'positive' as const, detail: `${slowCount} 个第三方请求超过慢请求阈值` }] : []),
+    ],
+    title: `第三方/静态依赖占比较高 (${thirdPartyEntries.length} 个请求)`,
+    conclusion: `疑似第三方或静态依赖请求占比较高，总传输 ${(totalSize / 1024 / 1024).toFixed(1)}MB，总耗时 ${totalTime.toFixed(0)}ms；如果问题只在异常环境出现，应优先确认 SDK、CDN 或埋点资源是否阻塞关键链路`,
+    scope: buildScope(thirdPartyEntries.length, domains.length, domains.length > 1 ? 'multi-domain' : 'global'),
+    evidence: [
+      { label: '请求占比', value: `${thirdPartyEntries.length}/${entries.length}`, source: 'derived', requestIds: relatedRequestIds },
+      { label: '总传输体积', value: `${(totalSize / 1024 / 1024).toFixed(1)} MB`, source: 'har' },
+      { label: '涉及域名', value: domains.join('、') || '未知', source: 'derived' },
+    ],
+    actions: [
+      { role: 'frontend', title: '拆分非关键第三方依赖', detail: '将非首屏必要的 SDK、埋点、广告、监控资源延后加载或异步加载' },
+      { role: 'backend', title: '核查 CDN 命中与资源压缩', detail: '确认静态资源 CDN 命中率、压缩策略、缓存头与跨区域节点状态' },
+    ],
+    relatedRequestIds,
+    navigationTarget: buildHarNavigationTarget('performance', { requestIds: relatedRequestIds }),
+  };
+}
+
+function buildLargePayloadCard(entries: HarRequestEntry[]): DiagnosticCard | null {
+  const largeEntries = entries.filter(entry => entry.size > 1024 * 1024 || entry.contentSize > 2 * 1024 * 1024);
+  if (largeEntries.length === 0) return null;
+
+  const relatedRequestIds = largeEntries.slice(0, 20).map(entry => entry.id);
+  const totalBytes = largeEntries.reduce((sum, entry) => sum + Math.max(entry.size, entry.contentSize), 0);
+  return {
+    id: generateId('har-large-payload', 0),
+    source: 'har',
+    category: 'performance',
+    severity: largeEntries.length >= 5 || totalBytes > 10 * 1024 * 1024 ? 'warning' : 'info',
+    confidence: 'high',
+    confidenceFactors: [
+      { label: '传输体积直接证据', impact: 'positive', detail: `${largeEntries.length} 个请求超过大资源阈值` },
+    ],
+    title: `大体积响应资源 (${largeEntries.length} 个)`,
+    conclusion: `${largeEntries.length} 个请求响应体或传输体积较大，总体积 ${(totalBytes / 1024 / 1024).toFixed(1)}MB，可能拉长下载阶段并放大弱网影响`,
+    scope: buildScope(largeEntries.length, Array.from(new Set(largeEntries.map(e => e.domain).filter(Boolean))).length, 'global'),
+    evidence: largeEntries.slice(0, 6).map((entry, i) => ({
+      label: `大资源 ${i + 1}`,
+      value: `${entry.name} · transfer ${(entry.size / 1024 / 1024).toFixed(2)}MB · content ${(entry.contentSize / 1024 / 1024).toFixed(2)}MB`,
+      source: 'har' as const,
+      requestIds: [entry.id],
+    })),
+    actions: [
+      { role: 'frontend', title: '拆分与懒加载大资源', detail: '对 JS/CSS/图片/媒体资源做代码分割、懒加载、图片格式优化和按需加载' },
+      { role: 'backend', title: '开启压缩与缓存', detail: '对文本类资源开启 gzip/br，并确保静态资源具备长期缓存策略' },
+    ],
+    relatedRequestIds,
+    navigationTarget: buildHarNavigationTarget('performance', { requestIds: relatedRequestIds }),
+  };
+}
+
 // ========== 主转换函数 ==========
 
 export function harDiagnosisToCards(
@@ -835,11 +952,19 @@ export function harDiagnosisToCards(
     });
   }
 
+  const thirdPartyCard = buildThirdPartyConcentrationCard(entries);
+  if (thirdPartyCard) cards.push(thirdPartyCard);
+
+  const largePayloadCard = buildLargePayloadCard(entries);
+  if (largePayloadCard) cards.push(largePayloadCard);
+
+  const enrichedCards = cards.map(card => addHarConfidenceFactors(card, harResult));
+
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
-  cards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  enrichedCards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-  return cards;
+  return enrichedCards;
 }
 
 // ========== 采集质量检测 ==========
