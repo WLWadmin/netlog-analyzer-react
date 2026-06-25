@@ -7,8 +7,13 @@ import type { WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './pro
 import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
-import type { JsonPathMatch } from '../parsers/shared/rawJsonPath';
-import { RAW_EVIDENCE_SEARCH_MAX_DEPTH, RAW_EVIDENCE_SEARCH_MAX_RESULTS } from '../constants/analysisThresholds';
+import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
+import {
+  RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+  RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+  RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
+  RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+} from '../constants/analysisThresholds';
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
@@ -120,6 +125,11 @@ export interface LogParseResult {
   duration: number;
 }
 
+export interface RawValuePreview {
+  text: string;
+  truncated: boolean;
+}
+
 /**
  * 在 Worker 中搜索原始 JSON path（供 RawEvidenceExplorer 使用）
  */
@@ -163,6 +173,52 @@ export async function releaseRawDataInWorker(
     options
   );
   return Boolean(response.payload);
+}
+
+/**
+ * 从 Worker 内 rawData 缓存读取结构概览。
+ */
+export async function getRawStructureInWorker(
+  rawDataId: string,
+  options?: WorkerClientOptions & { maxDepth?: number }
+): Promise<StructureNode[]> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-raw-structure',
+      id,
+      payload: {
+        rawDataId,
+        maxDepth: options?.maxDepth ?? RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
+      },
+    },
+    options
+  );
+  return response.payload as StructureNode[];
+}
+
+/**
+ * 从 Worker 内 rawData 缓存读取字段值预览，避免把大对象 clone 回主线程。
+ */
+export async function getRawValueInWorker(
+  rawDataId: string,
+  path: string,
+  options?: WorkerClientOptions & { maxChars?: number }
+): Promise<RawValuePreview> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-raw-value',
+      id,
+      payload: {
+        rawDataId,
+        path,
+        maxChars: options?.maxChars ?? RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+      },
+    },
+    options
+  );
+  return response.payload as RawValuePreview;
 }
 
 /**

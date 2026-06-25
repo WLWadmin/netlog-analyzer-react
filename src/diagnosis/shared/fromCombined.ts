@@ -153,17 +153,18 @@ function alignHarWithNetlog(
       alignedRequests = exactUrl;
       alignLevel = 'exact-url';
       alignScore = 1;
-    } else if (path) {
+    } else {
       const samePath = candidates.filter(ref => ref.path === path);
       if (samePath.length > 0) {
         alignedRequests = samePath;
         alignLevel = 'same-path';
         alignScore = 0.8;
+      } else if (timeContext.enabled && candidates.length > 0) {
+        // 预留：time window 对齐（当前默认禁用）。
+        // 注意该分支必须放在 same-path 未命中之后，否则有 path 的 URL 永远走不到时间窗口兜底。
+        alignLevel = 'same-host-time';
+        alignScore = 0.65;
       }
-    } else if (timeContext.enabled) {
-      // 预留：time window 对齐（当前默认禁用）
-      alignLevel = 'same-host-time';
-      alignScore = 0.65;
     }
 
     return {

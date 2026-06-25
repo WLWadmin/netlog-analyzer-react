@@ -44,19 +44,40 @@ export interface ReleaseRawDataRequest {
   };
 }
 
+export interface GetRawStructureRequest {
+  type: 'get-raw-structure';
+  id: string;
+  payload: {
+    rawDataId: string;
+    maxDepth?: number;
+  };
+}
+
+export interface GetRawValueRequest {
+  type: 'get-raw-value';
+  id: string;
+  payload: {
+    rawDataId: string;
+    path: string;
+    maxChars?: number;
+  };
+}
+
 export type WorkerRequest =
   | ParseNetlogRequest
   | ParseHarRequest
   | ParseLogRequest
   | SearchRawJsonRequest
-  | ReleaseRawDataRequest;
+  | ReleaseRawDataRequest
+  | GetRawStructureRequest
+  | GetRawValueRequest;
 
 // ============ Response Messages (Worker → Main) ============
 
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

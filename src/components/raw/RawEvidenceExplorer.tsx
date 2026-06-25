@@ -16,7 +16,12 @@ import {
 } from '@ant-design/icons';
 import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
-import { isWorkerSupported, searchRawJsonInWorker } from '../../workers/workerClient';
+import {
+  getRawStructureInWorker,
+  getRawValueInWorker,
+  isWorkerSupported,
+  searchRawJsonInWorker,
+} from '../../workers/workerClient';
 import { useNavigation } from '../../contexts/NavigationContext';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -29,7 +34,7 @@ import {
 
 interface RawEvidenceExplorerProps {
   /** 原始 JSON 数据（上传的文件内容） */
-  rawData: unknown;
+  rawData?: unknown;
   /**
    * rawData 在 Worker 内的缓存 ID
    * 有该值时，搜索必须走 `rawDataId`（避免 structured clone 大 JSON）
@@ -45,6 +50,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
+  const [workerStructure, setWorkerStructure] = useState<StructureNode[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchTaskIdRef = useRef(0);
   const pendingSelectPathRef = useRef<string | null>(null);
@@ -56,7 +62,57 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     };
   }, []);
 
-  const structure = useMemo(() => getStructureOverview(rawData, RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH), [rawData]);
+  const fallbackStructure = useMemo(
+    () => rawData ? getStructureOverview(rawData, RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH) : [],
+    [rawData]
+  );
+  const structure = rawDataId ? workerStructure : fallbackStructure;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!rawDataId) {
+      setWorkerStructure([]);
+      return;
+    }
+
+    getRawStructureInWorker(rawDataId, {
+      timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+      maxDepth: RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
+    })
+      .then((nextStructure) => {
+        if (!cancelled) setWorkerStructure(nextStructure);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWorkerStructure([]);
+          if (rawData) {
+            message.warning('Worker 结构读取失败，已降级到主线程结构预览');
+          } else {
+            message.error('原始 JSON 结构读取失败，请重新上传文件');
+          }
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawDataId, rawData]);
+
+  const readValuePreview = useCallback(async (path: string): Promise<string> => {
+    if (isWorkerSupported() && rawDataId) {
+      const preview = await getRawValueInWorker(rawDataId, path, {
+        timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+        maxChars: RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+      });
+      return preview.text;
+    }
+
+    const value = getValueByPath(rawData, path);
+    const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+    return text.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
+      ? text.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
+      : text;
+  }, [rawData, rawDataId]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -87,6 +143,12 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
           }
 
           // Worker 不支持或缺少 rawDataId：降级主线程搜索
+          if (!rawData) {
+            setSearchResults([]);
+            setIsSearching(false);
+            message.error('原始 JSON 未在主线程保留，请重新上传文件后重试');
+            return;
+          }
           const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
           if (taskId !== searchTaskIdRef.current) return;
           setSearchResults(results);
@@ -94,6 +156,13 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         } catch (err) {
           // Worker 搜索失败：降级主线程搜索（避免功能不可用）
           try {
+            if (!rawData) {
+              if (taskId !== searchTaskIdRef.current) return;
+              setSearchResults([]);
+              setIsSearching(false);
+              message.error('Worker 搜索失败，请重新上传文件后重试');
+              return;
+            }
             const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
             if (taskId !== searchTaskIdRef.current) return;
             setSearchResults(results);
@@ -131,14 +200,10 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     if (!hit) return;
     pendingSelectPathRef.current = null;
     setSelectedPath(hit.path);
-    const value = getValueByPath(rawData, hit.path);
-    const stringValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-    setExpandedValue(
-      stringValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
-        ? stringValue.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
-        : stringValue
-    );
-  }, [searchResults, rawData]);
+    void readValuePreview(hit.path)
+      .then(setExpandedValue)
+      .catch(() => message.error('字段值读取失败'));
+  }, [searchResults, readValuePreview]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -151,7 +216,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
 
   const handleCopyValue = async (value: unknown) => {
     try {
-      const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+      const text = expandedValue ?? (typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
       await copyText(text);
       message.success('值已复制');
     } catch {
@@ -161,16 +226,16 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
 
   const handleSelectPath = (path: string) => {
     setSelectedPath(path);
-    const value = getValueByPath(rawData, path);
-    const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-    setExpandedValue(
-      text.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
-        ? text.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
-        : text
-    );
+    setExpandedValue('读取中...');
+    void readValuePreview(path)
+      .then(setExpandedValue)
+      .catch(() => {
+        setExpandedValue(null);
+        message.error('字段值读取失败');
+      });
   };
 
-  if (!rawData) {
+  if (!rawData && !rawDataId) {
     return (
       <Card>
         <Empty description="暂无原始数据可浏览" />
@@ -263,7 +328,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
             <Button
               size="small"
               icon={<CopyOutlined />}
-              onClick={() => handleCopyValue(selectedPath ? getValueByPath(rawData, selectedPath) : null)}
+              onClick={() => handleCopyValue(selectedPath && rawData ? getValueByPath(rawData, selectedPath) : null)}
             >
               复制
             </Button>

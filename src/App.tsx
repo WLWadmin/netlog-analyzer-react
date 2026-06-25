@@ -538,7 +538,7 @@ const AppContent: React.FC = () => {
     {
       key: 'raw-evidence',
       label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始证据</span>,
-      children: rawUploadDataByType.netlog ? (
+      children: (rawUploadDataByType.netlog || rawDataIdByType.netlog) ? (
         <Suspense fallback={<LazyFallback text="正在加载原始证据模块..." />}>
           <RawEvidenceExplorer rawData={rawUploadDataByType.netlog} rawDataId={rawDataIdByType.netlog} fileName="NetLog 原始证据" />
         </Suspense>

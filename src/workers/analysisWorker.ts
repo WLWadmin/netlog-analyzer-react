@@ -9,8 +9,13 @@ import { parseLog } from '../parsers/netlog/parser';
 import { parseHar } from '../harParser';
 import { parseLogFile } from '../logParser';
 import { parseHarWithRepair } from '../utils/harRepair';
-import { searchJsonPaths } from '../parsers/shared/rawJsonPath';
-import { RAW_EVIDENCE_SEARCH_MAX_DEPTH, RAW_EVIDENCE_SEARCH_MAX_RESULTS } from '../constants/analysisThresholds';
+import { getStructureOverview, getValueByPath, searchJsonPaths } from '../parsers/shared/rawJsonPath';
+import {
+  RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+  RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+  RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
+  RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+} from '../constants/analysisThresholds';
 import type { WorkerRequest, WorkerResponse } from './protocols';
 
 /* eslint-disable no-restricted-globals */
@@ -31,6 +36,28 @@ function sendResponse(response: WorkerResponse) {
 
 function sendProgress(id: string, phase: string, percent?: number) {
   sendResponse({ type: 'progress', id, phase, percent });
+}
+
+function getStoredRawData(id: string): unknown {
+  if (!rawDataStore.has(id)) {
+    throw new Error('Raw data not found or released');
+  }
+  return rawDataStore.get(id);
+}
+
+function stringifyPreview(value: unknown, maxChars: number): { text: string; truncated: boolean } {
+  const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+  if (text.length <= maxChars) return { text, truncated: false };
+  return { text: `${text.slice(0, maxChars)}\n...(内容过长已截断)`, truncated: true };
+}
+
+function compactSearchMatchValue(value: unknown): unknown {
+  if (Array.isArray(value)) return `Array(${value.length})`;
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return `{${keys.slice(0, 8).join(', ')}${keys.length > 8 ? ', ...' : ''}}`;
+  }
+  return value;
 }
 
 ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
@@ -54,7 +81,6 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           resultType: 'netlog',
           payload: result,
           events,
-          rawPayload: rawData,
           rawDataId,
           duration,
         });
@@ -82,7 +108,6 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'har',
           payload: harResult,
-          rawPayload: rawData,
           rawDataId,
           duration,
         });
@@ -106,27 +131,58 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       case 'search-raw-json': {
         const query = msg.payload?.query || '';
         sendProgress(msg.id, '正在搜索原始 JSON...', 10);
-        const rawData = rawDataStore.get(msg.payload.rawDataId);
-        if (!rawData) {
-          sendResponse({
-            type: 'error',
-            id: msg.id,
-            error: 'Raw data not found or released',
-          });
-          break;
-        }
+        const rawData = getStoredRawData(msg.payload.rawDataId);
         const matches = searchJsonPaths(
           rawData,
           query,
           msg.payload?.maxResults ?? RAW_EVIDENCE_SEARCH_MAX_RESULTS,
           msg.payload?.maxDepth ?? RAW_EVIDENCE_SEARCH_MAX_DEPTH
-        );
+        ).map(match => ({
+          ...match,
+          value: compactSearchMatchValue(match.value),
+        }));
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
           id: msg.id,
           resultType: 'raw-search',
           payload: matches,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-raw-structure': {
+        sendProgress(msg.id, '正在读取原始 JSON 结构...', 10);
+        const rawData = getStoredRawData(msg.payload.rawDataId);
+        const structure = getStructureOverview(
+          rawData,
+          msg.payload.maxDepth ?? RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH
+        );
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'raw-structure',
+          payload: structure,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-raw-value': {
+        sendProgress(msg.id, '正在读取原始 JSON 字段...', 10);
+        const rawData = getStoredRawData(msg.payload.rawDataId);
+        const value = getValueByPath(rawData, msg.payload.path);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'raw-value',
+          payload: stringifyPreview(
+            value,
+            msg.payload.maxChars ?? RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
+          ),
           duration,
         });
         break;
