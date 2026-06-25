@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
+import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/evidenceIndex';
 import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
@@ -14,20 +15,17 @@ interface EventsTabProps {
 const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string; errorText?: string; ip?: string; duration?: string } => {
   const result: any = { hasError: false };
 
-  // Check for net_error - 0 means OK (no error), only show non-zero values
   if (params?.net_error !== undefined && params?.net_error !== 0) {
     result.hasError = true;
     result.errorCode = params.net_error.toString();
     result.errorText = params?.net_error_string || '';
   }
 
-  // Check for error in params - 0 means OK
   if (params?.error !== undefined && params?.error !== 0) {
     result.hasError = true;
     result.errorCode = params.error.toString();
   }
 
-  // Extract IP info
   if (params?.ip_endpoint) {
     result.ip = params.ip_endpoint;
   } else if (params?.address) {
@@ -36,7 +34,6 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
     result.ip = params.peer_address;
   }
 
-  // Extract duration info
   if (params?.total_duration_ms !== undefined) {
     result.duration = params.total_duration_ms + 'ms';
   } else if (params?.duration_ms !== undefined) {
@@ -45,12 +42,6 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
 
   return result;
 };
-
-interface EventTableRow extends ParsedEvent {
-  searchText: string;
-  paramsPreview: string;
-  originalIndex: number;
-}
 
 const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   const [search, setSearch] = useState('');
@@ -132,73 +123,25 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     return () => clearTimeout(timer);
   }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
-  const eventRows = useMemo<EventTableRow[]>(() => {
-    return events.map((e, originalIndex) => {
-      // 只索引关键字段，params 做 shallow 索引（只取第一层值）
-      const paramsShallow = e.params ? Object.entries(e.params).map(([k, v]) => `${k}:${v}`).join(' ') : '';
-      return {
-        ...e,
-        originalIndex,
-        paramsPreview: paramsShallow.substring(0, 50),
-        searchText: `${e.typeName} ${e.source.typeName} ${e.source.id} ${e.time} ${paramsShallow}`.toLowerCase(),
-      };
-    });
-  }, [events]);
+  // 构建事件索引（O(n)，仅在 events 变化时重建）
+  const eventIndex = useMemo(() => buildEventIndex(events), [events]);
 
   // 提取所有参数字段名
-  const paramFields = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of events) {
-      if (e.params && typeof e.params === 'object') {
-        Object.keys(e.params).forEach(k => set.add(k));
-      }
-    }
-    return ['', ...Array.from(set).sort()];
-  }, [events]);
+  const paramFields = useMemo(() => ['', ...eventIndex.paramFields], [eventIndex]);
 
   const filtered = useMemo(() => {
     const normalizedSearch = debouncedSearch.toLowerCase();
-    return eventRows
-      .filter(e => {
-      // Source ID exact match takes priority
-      if (sourceIdFilter) {
-        return e.source.id.toString() === sourceIdFilter;
-      }
-
-      // Phase filter must always be respected
-      if (phaseFilter && e.phaseName !== phaseFilter) {
-        return false;
-      }
-
-      // Source type filter must always be respected
-      if (sourceFilter && e.source.typeName !== sourceFilter) {
-        return false;
-      }
-
-      // Param field filter
-      if (paramFieldFilter) {
-        if (!e.params || !(paramFieldFilter in e.params)) return false;
-      }
-
-      // When searching for "net_error", use special error-only filter
-      if (normalizedSearch === 'net_error') {
-        return e.params?.net_error !== undefined && e.params?.net_error !== 0;
-      }
-
-      // 支持 "net_error:-105" 精确匹配语法
-      if (normalizedSearch.startsWith('net_error:')) {
-        const targetCode = normalizedSearch.replace('net_error:', '');
-        return e.params?.net_error !== undefined
-          && e.params?.net_error !== 0
-          && e.params?.net_error.toString() === targetCode;
-      }
-
-      return !normalizedSearch || e.searchText.includes(normalizedSearch);
+    return queryIndex(eventIndex, {
+      sourceId: sourceIdFilter || undefined,
+      sourceType: sourceFilter || undefined,
+      phase: phaseFilter || undefined,
+      paramField: paramFieldFilter || undefined,
+      search: normalizedSearch || undefined,
     });
-  }, [eventRows, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+  }, [eventIndex, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
-  const phases = useMemo(() => [...new Set(events.map(e => e.phaseName))], [events]);
-  const sourceTypes = useMemo(() => [...new Set(events.map(e => e.source.typeName))], [events]);
+  const phases = useMemo(() => eventIndex.phases, [eventIndex]);
+  const sourceTypes = useMemo(() => eventIndex.sourceTypes, [eventIndex]);
 
   // Extract top-level event types for better navigation
   const mainEventTypes = useMemo(() => [...new Set(events.map(e => {
@@ -280,7 +223,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         </div>
       );
     }},
-    { title: '参数', key: 'params', width: 200, render: (_: unknown, row: EventTableRow) => {
+    { title: '参数', key: 'params', width: 200, render: (_: unknown, row: IndexedEvent) => {
       const paramsPreview = row.paramsPreview || '-';
       return (
         <Tooltip
@@ -321,7 +264,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       key: 'context',
       width: 80,
       align: 'center' as const,
-      render: (_: unknown, row: EventTableRow, index: number) => (
+      render: (_: unknown, row: IndexedEvent, index: number) => (
         <Button
           size="small"
           type="link"
