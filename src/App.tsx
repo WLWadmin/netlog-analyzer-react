@@ -125,10 +125,19 @@ const AppContent: React.FC = () => {
   }, []);
 
   const loadTaskIdRef = useRef(0);
+  const activeLoadCountRef = useRef(0);
   const useWorker = isWorkerSupported();
+
+  const finishLoad = () => {
+    activeLoadCountRef.current = Math.max(0, activeLoadCountRef.current - 1);
+    if (activeLoadCountRef.current === 0) {
+      setLoading(false);
+    }
+  };
 
   const handleFileLoaded = async (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
     const taskId = ++loadTaskIdRef.current;
+    activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
 
@@ -150,14 +159,17 @@ const AppContent: React.FC = () => {
         } else {
           logAnalysis = parseLogFile(data);
         }
-        if (taskId !== loadTaskIdRef.current) return;
+        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+          finishLoad();
+          return;
+        }
         setLogResult(logAnalysis);
         setFileType('log');
         const defaultTab = VALID_TABS['log'][0];
         setActiveTab(defaultTab);
         window.location.hash = buildHash('log', defaultTab);
         setHasData(true);
-        setLoading(false);
+        finishLoad();
         message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
         return;
       }
@@ -174,7 +186,10 @@ const AppContent: React.FC = () => {
           harAnalysis = parseHar(data);
           if (repairInfo) harAnalysis.repairInfo = repairInfo;
         }
-        if (taskId !== loadTaskIdRef.current) return;
+        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+          finishLoad();
+          return;
+        }
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
 
@@ -183,7 +198,7 @@ const AppContent: React.FC = () => {
           setActiveTab('combined');
           window.location.hash = buildHash('netlog', 'combined');
           setHasData(true);
-          setLoading(false);
+          finishLoad();
           message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
           return;
         }
@@ -193,7 +208,7 @@ const AppContent: React.FC = () => {
         setActiveTab(defaultTab);
         window.location.hash = buildHash('har', defaultTab);
         setHasData(true);
-        setLoading(false);
+        finishLoad();
         message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
         return;
       }
@@ -212,7 +227,10 @@ const AppContent: React.FC = () => {
         parsedEvents = syncResult.events;
         analysisResult = syncResult.result;
       }
-      if (taskId !== loadTaskIdRef.current) return;
+      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+        finishLoad();
+        return;
+      }
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
@@ -222,7 +240,7 @@ const AppContent: React.FC = () => {
         setActiveTab('combined');
         window.location.hash = buildHash('netlog', 'combined');
         setHasData(true);
-        setLoading(false);
+        finishLoad();
         message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
         return;
       }
@@ -232,11 +250,14 @@ const AppContent: React.FC = () => {
       setActiveTab(defaultTab);
       window.location.hash = buildHash('netlog', defaultTab);
       setHasData(true);
-      setLoading(false);
+      finishLoad();
       message.success(`成功解析 ${parsedEvents.length} 个事件`);
     } catch (err) {
-      if (taskId !== loadTaskIdRef.current) return;
-      setLoading(false);
+      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+        finishLoad();
+        return;
+      }
+      finishLoad();
       message.error('解析失败: ' + (err as Error).message);
     }
   };
@@ -247,13 +268,14 @@ const AppContent: React.FC = () => {
     isTextLog = false,
     repairInfo?: HarAnalysisResult['repairInfo']
   ) => {
+    activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在解析追加文件...');
 
     try {
       if (isTextLog && typeof data === 'string') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-        setLoading(false);
+        finishLoad();
         return;
       }
 
@@ -285,7 +307,7 @@ const AppContent: React.FC = () => {
         }
 
         setHasData(true);
-        setLoading(false);
+        finishLoad();
         return;
       }
 
@@ -320,9 +342,9 @@ const AppContent: React.FC = () => {
       }
 
       setHasData(true);
-      setLoading(false);
+      finishLoad();
     } catch (err) {
-      setLoading(false);
+      finishLoad();
       message.error('追加文件解析失败: ' + (err as Error).message);
     }
   };
@@ -334,6 +356,7 @@ const AppContent: React.FC = () => {
     setHarResult(null);
     setLogResult(null);
     setRawUploadData(null);
+    activeLoadCountRef.current = 0;
     resultRef.current = null;
     harResultRef.current = null;
     setFileType('netlog');

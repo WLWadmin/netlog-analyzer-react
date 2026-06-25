@@ -332,6 +332,31 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
           <strong style={{ color: 'var(--text-primary)' }}>诊断结论：</strong>
           {card.conclusion}
         </div>
+        {card.confidenceFactors && card.confidenceFactors.length > 0 && (
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-surface)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+              置信度依据
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {card.confidenceFactors.map((factor, i) => (
+                <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <Tag
+                    style={{
+                      marginRight: 6,
+                      fontSize: 10,
+                      border: 'none',
+                      background: factor.impact === 'positive' ? 'rgba(16, 185, 129, 0.12)' : factor.impact === 'negative' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(107, 114, 128, 0.12)',
+                      color: factor.impact === 'positive' ? '#059669' : factor.impact === 'negative' ? '#dc2626' : '#6b7280',
+                    }}
+                  >
+                    {factor.impact === 'positive' ? '+证据' : factor.impact === 'negative' ? '-限制' : '参考'}
+                  </Tag>
+                  <strong style={{ color: 'var(--text-secondary)' }}>{factor.label}：</strong>{factor.detail}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 证据链 */}

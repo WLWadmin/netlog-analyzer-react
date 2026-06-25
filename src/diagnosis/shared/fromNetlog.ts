@@ -11,6 +11,7 @@ import type {
   DiagnosticCategory,
   DiagnosticEvidence,
   DiagnosticAction,
+  DiagnosticConfidenceFactor,
   DiagnosticScope,
   DiagnosticRole,
   CollectionQuality,
@@ -58,6 +59,145 @@ function buildScope(
     summary: `影响 ${affectedCount} 个请求`,
     affectedRequestCount: affectedCount,
   };
+}
+
+function formatNetlogTime(time: number): string {
+  if (!Number.isFinite(time)) return '未知时间';
+  if (time > 1_000_000_000_000) return new Date(time).toLocaleString();
+  return `${time.toFixed(0)}ms`;
+}
+
+function compactValue(value: unknown, maxLength = 120): string {
+  if (value === undefined || value === null || value === '') return '未记录';
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
+function addUniqueEvidence(target: DiagnosticEvidence[], evidence: DiagnosticEvidence) {
+  if (!target.some(ev => ev.label === evidence.label && ev.value === evidence.value)) {
+    target.push(evidence);
+  }
+}
+
+function addConfidenceDetails(
+  card: DiagnosticCard,
+  positives: DiagnosticConfidenceFactor[],
+  negatives: DiagnosticConfidenceFactor[] = [],
+  neutrals: DiagnosticConfidenceFactor[] = []
+): DiagnosticCard {
+  const score = positives.length * 2 + neutrals.length - negatives.length * 2;
+  const confidence: DiagnosticCard['confidence'] = score >= 4 ? 'high' : score >= 1 ? 'medium' : 'low';
+  return {
+    ...card,
+    confidence,
+    confidenceFactors: [...positives, ...negatives, ...neutrals].slice(0, 6),
+  };
+}
+
+function hostFromUrl(url: string): string {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
+function extractCertDetails(params: Record<string, any>): string[] {
+  const fields: [string, unknown][] = [
+    ['subject', params.subject || params.cert_subject || params.server_cert_subject],
+    ['common_name', params.common_name || params.cert_common_name || params.server_cert_common_name],
+    ['san', params.san || params.subject_alt_names || params.dns_names],
+    ['issuer', params.issuer || params.cert_issuer || params.issuer_common_name],
+    ['valid_from', params.valid_from || params.not_before],
+    ['valid_to', params.valid_to || params.not_after || params.valid_expiry],
+    ['cert_status', params.cert_status || params.cert_status_flags],
+    ['verify_result', params.verify_result || params.cert_verify_result],
+  ];
+  return fields
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${compactValue(value, 80)}`)
+    .slice(0, 6);
+}
+
+function findEventsAround(result: AnalysisResult, time: number, windowMs = 3000) {
+  const all = [
+    ...result.networkChanges.map(e => ({ kind: '网络切换', event: e })),
+    ...result.proxyEvents.map(e => ({ kind: '代理决策', event: e })),
+    ...result.cacheEvents.map(e => ({ kind: '缓存事件', event: e })),
+    ...result.sslEvents.map(e => ({ kind: 'TLS 事件', event: e })),
+    ...result.quicEvents.map(e => ({ kind: 'QUIC 事件', event: e })),
+    ...result.http2Events.map(e => ({ kind: 'HTTP/2 事件', event: e })),
+  ];
+  return all
+    .map(item => ({ ...item, delta: Math.abs(item.event.time - time) }))
+    .filter(item => item.delta <= windowMs)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 8);
+}
+
+function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult): DiagnosticCard {
+  const evidence = [...card.evidence];
+  const positives: DiagnosticConfidenceFactor[] = [];
+  const negatives: DiagnosticConfidenceFactor[] = [];
+  const neutrals: DiagnosticConfidenceFactor[] = [];
+
+  if (evidence.length > 0) {
+    positives.push({ label: '结构化证据', impact: 'positive', detail: `卡片包含 ${evidence.length} 条 NetLog/推导证据` });
+  }
+  if (card.relatedRequestIds && card.relatedRequestIds.length > 0) {
+    positives.push({ label: '请求关联', impact: 'positive', detail: `已定位 ${card.relatedRequestIds.length} 个相关 URL_REQUEST` });
+  }
+
+  if (card.category === 'dns' && result.dnsEvents.length > 0) {
+    positives.push({ label: 'DNS 事件佐证', impact: 'positive', detail: `采集到 ${result.dnsEvents.length} 条 DNS/HostResolver 事件` });
+  }
+  if (card.category === 'tls' && result.sslEvents.length > 0) {
+    positives.push({ label: 'TLS 事件佐证', impact: 'positive', detail: `采集到 ${result.sslEvents.length} 条 SSL/TLS 事件` });
+  }
+  if (card.category === 'proxy' && (result.proxyEvents.length > 0 || result.proxyInfo.hasProxy)) {
+    positives.push({ label: '代理链路佐证', impact: 'positive', detail: `代理事件 ${result.proxyEvents.length} 条，代理配置=${result.proxyInfo.hasProxy ? '已识别' : '未识别'}` });
+  }
+
+  if (card.category === 'tls' && result.sslEvents.length === 0) {
+    negatives.push({ label: 'TLS 采集不足', impact: 'negative', detail: 'HTTPS 请求存在但缺少 SSL/TLS 事件，证书判断可能不完整' });
+  }
+  if (card.category === 'dns' && result.dnsEvents.length === 0) {
+    negatives.push({ label: 'DNS 采集不足', impact: 'negative', detail: '缺少 DNS/HostResolver 事件，无法完整还原解析链路' });
+  }
+  if (card.category === 'proxy' && result.proxyEvents.length === 0) {
+    negatives.push({ label: '代理事件不足', impact: 'negative', detail: '缺少代理解析过程事件，只能依据配置或请求现象推断' });
+  }
+
+  const relatedTimes = new Set<number>();
+  (card.relatedRequestIds || []).forEach(id => {
+    const req = result.urlRequests.find(r => r.id === id);
+    if (req) relatedTimes.add(req.startTime);
+  });
+  (card.relatedEventIds || []).forEach(id => {
+    const numeric = Number(id);
+    const evt = result.sslEvents.concat(result.proxyEvents, result.cacheEvents, result.networkChanges, result.quicEvents, result.http2Events)
+      .find(e => e.source.id === numeric);
+    if (evt) relatedTimes.add(evt.time);
+  });
+
+  const correlations = Array.from(relatedTimes)
+    .flatMap(time => findEventsAround(result, time, 3000).map(item => ({ ...item, anchorTime: time })))
+    .slice(0, 5);
+  if (correlations.length > 0) {
+    positives.push({ label: '时间相关性', impact: 'positive', detail: `相关请求 ±3s 内发现 ${correlations.length} 条网络/代理/TLS/协议事件` });
+    addUniqueEvidence(evidence, {
+      label: '时间窗口相关事件',
+      value: correlations.map(c => `${formatNetlogTime(c.anchorTime)} 附近 ${c.kind}:${c.event.typeName} (Δ${c.delta.toFixed(0)}ms)`).join('；'),
+      source: 'derived',
+      detail: '用于区分单点请求失败与网络状态、代理、TLS、协议层事件的同步波动',
+    });
+  }
+
+  if (!card.relatedRequestIds?.length && !card.relatedEventIds?.length && evidence.length <= 1) {
+    negatives.push({ label: '定位粒度不足', impact: 'negative', detail: '尚未关联到具体请求或事件，建议打开原始证据继续核验' });
+  }
+
+  const next = addConfidenceDetails({ ...card, evidence }, result.totalEvents < 50 ? positives : positives, result.totalEvents < 50
+    ? [...negatives, { label: '采集样本偏少', impact: 'negative', detail: `仅 ${result.totalEvents} 条事件，根因置信度会下降` }]
+    : negatives, neutrals);
+
+  return next;
 }
 
 // ========== 从 Suggestion 构建 Card ==========
@@ -574,11 +714,279 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[])
     });
   }
 
+  // ========== P1 增强：时间相关性 + 决策链路 ==========
+  cards.push(...buildTemporalCorrelationCards(result));
+
+  const cacheDecisionCard = buildCacheDecisionCard(result);
+  if (cacheDecisionCard && !cards.some(c => c.id.startsWith('netlog-cache-decision'))) {
+    cards.push(cacheDecisionCard);
+  }
+
+  const proxyDecisionCard = buildProxyDecisionCard(result);
+  if (proxyDecisionCard && !cards.some(c => c.id.startsWith('netlog-proxy-decision'))) {
+    cards.push(proxyDecisionCard);
+  }
+
+  const protocolDecisionCard = buildProtocolDecisionCard(result);
+  if (protocolDecisionCard && !cards.some(c => c.id.startsWith('netlog-protocol-decision'))) {
+    cards.push(protocolDecisionCard);
+  }
+
+  const tlsCertificateCard = buildTlsCertificateEvidenceCard(result);
+  if (tlsCertificateCard && !cards.some(c => c.id.startsWith('netlog-tls-cert-fields'))) {
+    cards.push(tlsCertificateCard);
+  }
+
+  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
+
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
-  cards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  enrichedCards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-  return cards;
+  return enrichedCards;
+}
+
+function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[] {
+  const failuresWithContext = result.connectionFailures
+    .map(failure => ({ failure, context: findEventsAround(result, failure.time, 3000) }))
+    .filter(item => item.context.length > 0);
+
+  if (failuresWithContext.length < 2) return [];
+
+  const relatedRequestIds = failuresWithContext
+    .flatMap(item => result.urlRequests.filter(r => r.url === item.failure.url).map(r => r.id))
+    .slice(0, 30);
+  const kindCounts = failuresWithContext.reduce<Record<string, number>>((acc, item) => {
+    item.context.forEach(ctx => { acc[ctx.kind] = (acc[ctx.kind] || 0) + 1; });
+    return acc;
+  }, {});
+  const dominantKind = Object.entries(kindCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '网络上下文';
+
+  return [addConfidenceDetails({
+    id: generateId('netlog-time-correlation', 0),
+    source: 'netlog',
+    category: dominantKind.includes('代理') ? 'proxy' : dominantKind.includes('TLS') ? 'tls' : dominantKind.includes('缓存') ? 'cache' : dominantKind.includes('HTTP') || dominantKind.includes('QUIC') ? 'protocol' : 'network-change',
+    severity: failuresWithContext.length >= 5 ? 'warning' : 'info',
+    confidence: 'medium',
+    title: `异常时间窗口相关性 (${failuresWithContext.length} 个失败点)`,
+    conclusion: `${failuresWithContext.length} 个连接失败在 ±3s 内伴随 ${dominantKind} 等底层事件，问题更可能来自同一时间窗口内的网络状态/代理/TLS/协议变化，而不是孤立 URL 问题`,
+    scope: buildScope(failuresWithContext.length, new Set(failuresWithContext.map(item => hostFromUrl(item.failure.url)).filter(Boolean)).size, 'global'),
+    evidence: failuresWithContext.slice(0, 6).map((item, i) => ({
+      label: `相关失败 ${i + 1}`,
+      value: `${hostFromUrl(item.failure.url) || item.failure.url} · 错误 ${item.failure.error} · ${item.context.map(ctx => `${ctx.kind}/${ctx.event.typeName}(Δ${ctx.delta.toFixed(0)}ms)`).join('、')}`,
+      source: 'derived' as const,
+      requestIds: result.urlRequests.filter(r => r.url === item.failure.url).map(r => r.id),
+    })),
+    actions: [
+      {
+        role: 'it',
+        title: '按时间窗口排查网络/代理变更',
+        detail: '优先核对失败发生时段内是否存在网络切换、代理策略更新、VPN 重连或 TLS 拦截策略变更',
+      },
+      {
+        role: 'user',
+        title: '复现时保持网络环境稳定',
+        detail: '重新采集时避免 Wi-Fi/有线/VPN 切换，以确认失败是否仍在同一时间窗口聚集',
+      },
+    ],
+    relatedRequestIds: relatedRequestIds.length > 0 ? relatedRequestIds : undefined,
+    navigationTarget: { tab: 'events', keyword: 'net_error', errorOnly: true },
+  }, [
+    { label: '时间聚集', impact: 'positive', detail: `${failuresWithContext.length} 个失败点存在 ±3s 上下文事件` },
+    { label: '跨层佐证', impact: 'positive', detail: Object.entries(kindCounts).map(([k, v]) => `${k} ${v}`).join('，') },
+  ], relatedRequestIds.length === 0 ? [{ label: '请求映射不足', impact: 'negative', detail: '部分失败未映射到 URL_REQUEST，只能从时间维度推断' }] : [])];
+}
+
+function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
+  if (result.cacheEvents.length === 0) return null;
+
+  const cacheText = result.cacheEvents.map(e => `${e.typeName} ${JSON.stringify(e.params || {})}`.toLowerCase());
+  const hitCount = cacheText.filter(t => t.includes('hit')).length;
+  const missCount = cacheText.filter(t => t.includes('miss') || t.includes('create') || t.includes('doom')).length;
+  const errorCount = result.cacheEvents.filter(e => e.params?.net_error !== undefined && e.params.net_error !== 0).length;
+
+  return addConfidenceDetails({
+    id: generateId('netlog-cache-decision', 0),
+    source: 'netlog',
+    category: 'cache',
+    severity: errorCount > 0 || result.slowRequests.length > 0 ? 'warning' : 'info',
+    confidence: 'medium',
+    title: `缓存决策链路 (${result.cacheEvents.length} 条事件)`,
+    conclusion: `NetLog 记录到 ${result.cacheEvents.length} 条缓存相关事件，命中线索 ${hitCount} 条、未命中/重建线索 ${missCount} 条、错误线索 ${errorCount} 条，可用于判断慢请求是否受缓存重建或缓存绕过影响`,
+    scope: buildScope(result.cacheEvents.length, undefined, 'global'),
+    evidence: result.cacheEvents.slice(0, 6).map((e, i) => ({
+      label: `缓存事件 ${i + 1}`,
+      value: `${formatNetlogTime(e.time)} · ${e.typeName} · source#${e.source.id}`,
+      source: 'netlog' as const,
+      fieldPath: `events[source.id=${e.source.id}].params`,
+      detail: Object.keys(e.params || {}).slice(0, 8).join(', ') || '无 params 字段',
+      eventIds: [String(e.source.id)],
+    })),
+    actions: [
+      {
+        role: 'frontend',
+        title: '核对缓存策略与资源版本',
+        detail: '检查 Cache-Control、ETag、Service Worker、资源 hash 是否导致频繁绕过缓存或缓存重建',
+      },
+      {
+        role: 'backend',
+        title: '确认静态资源缓存头',
+        detail: '对静态资源设置稳定的 max-age/immutable，对接口响应避免错误缓存',
+      },
+    ],
+    relatedEventIds: result.cacheEvents.slice(0, 20).map(e => String(e.source.id)),
+    navigationTarget: { tab: 'events', keyword: 'cache' },
+  }, [
+    { label: '缓存事件', impact: 'positive', detail: `采集到 ${result.cacheEvents.length} 条缓存事件` },
+    ...(errorCount > 0 ? [{ label: '缓存错误', impact: 'positive' as const, detail: `${errorCount} 条缓存事件包含 net_error` }] : []),
+  ]);
+}
+
+function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
+  if (result.proxyEvents.length === 0 && !result.proxyInfo.hasProxy) return null;
+
+  const relatedFailures = result.connectionFailures.filter(failure =>
+    result.proxyEvents.some(evt => Math.abs(evt.time - failure.time) <= 3000)
+  );
+
+  return addConfidenceDetails({
+    id: generateId('netlog-proxy-decision', 0),
+    source: 'netlog',
+    category: 'proxy',
+    severity: relatedFailures.length > 0 ? 'warning' : 'info',
+    confidence: 'medium',
+    title: `代理决策链路 (${result.proxyEvents.length} 条事件)`,
+    conclusion: result.proxyInfo.hasProxy
+      ? `当前存在代理配置（${result.proxyInfo.proxyType || '未知模式'}），并采集到 ${result.proxyEvents.length} 条代理决策事件；如失败与这些事件时间接近，应优先排查 PAC、代理可达性和 VPN 策略`
+      : `采集到 ${result.proxyEvents.length} 条代理相关事件，但未解析出稳定代理配置，建议进一步核验代理自动探测和 PAC 解析结果`,
+    scope: buildScope(Math.max(result.proxyEvents.length, relatedFailures.length || 1), undefined, 'global'),
+    evidence: [
+      { label: '代理模式', value: result.proxyInfo.proxyType || '未识别', source: 'netlog' as const },
+      ...(result.proxyInfo.proxyList.length > 0 ? [{ label: '代理列表', value: result.proxyInfo.proxyList.slice(0, 5).join(', '), source: 'netlog' as const }] : []),
+      ...(result.proxyInfo.pacUrl ? [{ label: 'PAC 地址', value: result.proxyInfo.pacUrl, source: 'netlog' as const }] : []),
+      ...result.proxyEvents.slice(0, 5).map((e, i) => ({
+        label: `代理事件 ${i + 1}`,
+        value: `${formatNetlogTime(e.time)} · ${e.typeName} · source#${e.source.id}`,
+        source: 'netlog' as const,
+        detail: Object.keys(e.params || {}).slice(0, 8).join(', ') || '无 params 字段',
+        eventIds: [String(e.source.id)],
+      })),
+    ],
+    actions: [
+      {
+        role: 'it',
+        title: '核验 PAC 与代理服务器',
+        detail: '检查 PAC 返回结果、代理服务器健康状态、认证策略和目标域名分流规则',
+      },
+      {
+        role: 'user',
+        title: '对比代理开关状态',
+        detail: '在符合安全策略的前提下，对比开启/关闭代理或 VPN 后同一 URL 的访问结果',
+      },
+    ],
+    relatedRequestIds: relatedFailures.flatMap(f => result.urlRequests.filter(r => r.url === f.url).map(r => r.id)).slice(0, 20),
+    relatedEventIds: result.proxyEvents.slice(0, 20).map(e => String(e.source.id)),
+    navigationTarget: { tab: 'events', keyword: 'proxy' },
+  }, [
+    ...(result.proxyInfo.hasProxy ? [{ label: '代理配置', impact: 'positive' as const, detail: '已解析到有效代理配置' }] : []),
+    ...(result.proxyEvents.length > 0 ? [{ label: '代理事件', impact: 'positive' as const, detail: `采集到 ${result.proxyEvents.length} 条代理相关事件` }] : []),
+    ...(relatedFailures.length > 0 ? [{ label: '失败时间相关', impact: 'positive' as const, detail: `${relatedFailures.length} 个连接失败靠近代理事件` }] : []),
+  ], result.proxyEvents.length === 0 ? [{ label: '缺少过程事件', impact: 'negative', detail: '仅能依据代理配置判断，缺少代理解析过程' }] : []);
+}
+
+function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | null {
+  if (result.http2Events.length === 0 && result.quicEvents.length === 0 && Object.keys(result.protocols).length === 0) return null;
+
+  const protocolSummary = Object.entries(result.protocols)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => `${name}:${count}`)
+    .join('，') || '请求未记录明确协议';
+  const protocolErrors = [...result.http2Events, ...result.quicEvents].filter(e =>
+    e.params?.net_error !== undefined && e.params.net_error !== 0
+  );
+  const goawayEvents = result.http2Events.filter(e => e.typeName.includes('GOAWAY'));
+
+  return addConfidenceDetails({
+    id: generateId('netlog-protocol-decision', 0),
+    source: 'netlog',
+    category: 'protocol',
+    severity: protocolErrors.length > 0 || goawayEvents.length > 0 ? 'warning' : 'info',
+    confidence: 'medium',
+    title: '协议选择与降级线索',
+    conclusion: `协议分布为 ${protocolSummary}；HTTP/2 事件 ${result.http2Events.length} 条，QUIC 事件 ${result.quicEvents.length} 条，协议错误 ${protocolErrors.length} 条，可用于判断是否存在 H2/QUIC 降级、GOAWAY 或代理阻断`,
+    scope: buildScope(result.urlRequests.length || result.http2Events.length + result.quicEvents.length, undefined, 'global'),
+    evidence: [
+      { label: '协议分布', value: protocolSummary, source: 'netlog' as const },
+      { label: 'HTTP/2 事件', value: `${result.http2Events.length} 条，GOAWAY ${goawayEvents.length} 条`, source: 'netlog' as const },
+      { label: 'QUIC 事件', value: `${result.quicEvents.length} 条`, source: 'netlog' as const },
+      ...(result.proxyInfo.hasProxy ? [{ label: '代理影响', value: '检测到代理/VPN，可能影响 QUIC 或 HTTP/2 协议协商', source: 'derived' as const }] : []),
+      ...protocolErrors.slice(0, 4).map((e, i) => ({
+        label: `协议错误 ${i + 1}`,
+        value: `${formatNetlogTime(e.time)} · ${e.typeName} · net_error=${e.params.net_error}`,
+        source: 'netlog' as const,
+        eventIds: [String(e.source.id)],
+      })),
+    ],
+    actions: [
+      {
+        role: 'backend',
+        title: '核对 ALPN 与 HTTP/2/3 配置',
+        detail: '检查服务端 ALPN、TLS 配置、HTTP/2 GOAWAY 原因和 QUIC/UDP 443 可达性',
+      },
+      {
+        role: 'it',
+        title: '核对代理对协议的影响',
+        detail: '企业代理或 VPN 可能阻断 QUIC/UDP 或终止 TLS，导致协议回退到 HTTP/1.1',
+      },
+    ],
+    relatedEventIds: [...result.http2Events, ...result.quicEvents].slice(0, 20).map(e => String(e.source.id)),
+    navigationTarget: { tab: 'ssl-protocol', keyword: 'protocol' },
+  }, [
+    { label: '协议事件', impact: 'positive', detail: `HTTP/2 ${result.http2Events.length} 条，QUIC ${result.quicEvents.length} 条` },
+    ...(Object.keys(result.protocols).length > 0 ? [{ label: '请求协议分布', impact: 'positive' as const, detail: protocolSummary }] : []),
+    ...(protocolErrors.length > 0 ? [{ label: '协议错误', impact: 'positive' as const, detail: `${protocolErrors.length} 条协议事件包含 net_error` }] : []),
+  ]);
+}
+
+function buildTlsCertificateEvidenceCard(result: AnalysisResult): DiagnosticCard | null {
+  if (result.certIssues.length === 0) return null;
+
+  const detailedIssues = result.certIssues
+    .map(issue => ({ issue, details: extractCertDetails(issue.event.params || {}) }))
+    .filter(item => item.details.length > 0);
+
+  if (detailedIssues.length === 0) return null;
+
+  const hosts = Array.from(new Set(result.certIssues.map(issue => issue.host).filter(Boolean)));
+  return addConfidenceDetails({
+    id: generateId('netlog-tls-cert-fields', 0),
+    source: 'netlog',
+    category: 'tls',
+    severity: result.certIssues.some(issue => issue.category === 'cert') ? 'warning' : 'info',
+    confidence: 'medium',
+    title: `TLS 证书字段证据 (${detailedIssues.length} 条)`,
+    conclusion: `NetLog 中有 ${detailedIssues.length} 条 TLS/证书异常携带证书字段，可进一步核验证书主体、SAN、颁发者、有效期和验证状态`,
+    scope: buildScope(result.certIssues.length, hosts.length || undefined, hosts.length > 1 ? 'multi-domain' : 'single-domain'),
+    evidence: detailedIssues.slice(0, 6).map((item, i) => ({
+      label: `证书字段 ${i + 1}`,
+      value: `${item.issue.host || '未知主机'} · 错误 ${item.issue.error} · ${item.details.join('；')}`,
+      source: 'netlog' as const,
+      fieldPath: `events[source.id=${item.issue.event.source.id}].params`,
+      eventIds: [String(item.issue.event.source.id)],
+    })),
+    actions: [
+      {
+        role: 'backend',
+        title: '核验证书链与域名匹配',
+        detail: '对照证书 subject/SAN、issuer、有效期和浏览器错误码，确认服务器证书链是否完整且覆盖访问域名',
+      },
+    ],
+    relatedEventIds: detailedIssues.slice(0, 20).map(item => String(item.issue.event.source.id)),
+    navigationTarget: { tab: 'ssl-protocol', keyword: 'certificate' },
+  }, [
+    { label: '证书字段', impact: 'positive', detail: `${detailedIssues.length} 条异常包含可读证书字段` },
+    { label: 'TLS 异常', impact: 'positive', detail: `总计 ${result.certIssues.length} 条证书/TLS 异常` },
+  ]);
 }
 
 function buildProxyCard(proxyInfo: ProxyInfo, result: AnalysisResult): DiagnosticCard {
