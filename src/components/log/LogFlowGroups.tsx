@@ -10,7 +10,6 @@ import {
 } from '@ant-design/icons';
 import { formatDuration } from '../../utils/format';
 import type { LogFlowGroup, LogEntry } from '../../logParser';
-import { getErrorDiagnosis } from '../../logConstants';
 import { MAX_GROUP_ENTRY_PREVIEW, LOG_FLOW_INITIAL_COUNT, LOG_FLOW_LOAD_STEP } from '../../constants/analysisThresholds';
 import useLoadMore from '../../hooks/useLoadMore';
 
@@ -68,9 +67,6 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
 
   const renderStep = (entry: LogEntry) => {
     const isError = entry.status === 'Error';
-    const diagnosis = isError && entry.statusCode
-      ? getErrorDiagnosis(entry.statusCode, entry.domain)
-      : null;
 
     return (
       <div key={entry.id} className="log-flow-step">
@@ -120,12 +116,6 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
                 </Descriptions.Item>
               )}
             </Descriptions>
-
-            {diagnosis && (
-              <div className="log-flow-diagnosis">
-                <strong>排查建议：</strong>{diagnosis.suggestion}
-              </div>
-            )}
 
             {Object.keys(entry.headers).length > 0 && (
               <div className="log-flow-detail-section">
@@ -411,15 +401,6 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
         }
         .log-flow-detail-desc {
           margin-bottom: 12px;
-        }
-        .log-flow-diagnosis {
-          padding: 8px 12px;
-          background: rgba(255, 77, 79, 0.05);
-          border-radius: 6px;
-          margin-bottom: 12px;
-          font-size: 12px;
-          color: #ff4d4f;
-          line-height: 1.6;
         }
         .log-flow-detail-section {
           margin-bottom: 12px;

@@ -36,6 +36,12 @@ export const MAX_TIMELINE_EVENTS_PER_GROUP = 20;
 /** 单个 LogFlowGroup 展开后最大 entry 预览数 */
 export const MAX_GROUP_ENTRY_PREVIEW = 100;
 
+/** Source 依赖链路慢链路阈值（毫秒） */
+export const SOURCE_CHAIN_SLOW_MS = 3000;
+
+/** Source 依赖链路列表最大预览数 */
+export const SOURCE_CHAIN_PREVIEW_COUNT = 50;
+
 // ---- 加载更多（Load More）初始值与步长 ----
 
 /** NetLog 瀑布流初始展示条数 */

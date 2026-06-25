@@ -12,7 +12,8 @@ interface CombinedDiagnosisTabProps {
   onUploadMissingFile?: (
     data: unknown,
     isTextLog?: boolean,
-    repairInfo?: HarAnalysisResult['repairInfo']
+    repairInfo?: HarAnalysisResult['repairInfo'],
+    fileTypeHint?: 'netlog' | 'har' | 'log'
   ) => void;
 }
 

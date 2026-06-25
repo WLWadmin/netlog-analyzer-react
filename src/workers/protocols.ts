@@ -8,13 +8,13 @@
 export interface ParseNetlogRequest {
   type: 'parse-netlog';
   id: string;
-  payload: unknown; // raw JSON data
+  payload: string | unknown; // raw file text or parsed JSON data
 }
 
 export interface ParseHarRequest {
   type: 'parse-har';
   id: string;
-  payload: unknown; // raw HAR JSON
+  payload: string | unknown; // raw HAR text or parsed HAR JSON
   repairInfo?: unknown;
 }
 
@@ -34,6 +34,7 @@ export interface WorkerSuccessResponse {
   resultType: 'netlog' | 'har' | 'log';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
+  rawPayload?: unknown; // Parsed original JSON for raw evidence explorer
   duration: number; // parsing time in ms
 }
 

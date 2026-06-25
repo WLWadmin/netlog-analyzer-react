@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, message, Progress, Modal, Button, notification } from 'antd';
+import { Upload, message, Progress, Button, notification } from 'antd';
 import {
   CloudUploadOutlined,
   FileTextOutlined,
   LoadingOutlined,
   ThunderboltOutlined,
   SafetyOutlined,
-  ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { parseHarWithRepair, HarRepairResult } from '../../utils/harRepair';
+import type { HarRepairResult } from '../../utils/harRepair';
 
 const { Dragger } = Upload;
 
@@ -22,7 +21,12 @@ function formatFileSize(size: number): string {
 }
 
 interface UploadZoneProps {
-  onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: HarRepairResult) => void;
+  onFileLoaded: (
+    data: unknown,
+    isTextLog?: boolean,
+    repairInfo?: HarRepairResult,
+    fileTypeHint?: 'netlog' | 'har' | 'log'
+  ) => void | Promise<void>;
   /** 紧凑模式：只显示一个小按钮，不显示全屏拖拽区域 */
   compact?: boolean;
   /** 是否允许多文件上传 */
@@ -68,74 +72,19 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
   ) => {
     try {
       if (isTextLog) {
-        onFileLoaded(content, true);
+        await onFileLoaded(content, true, undefined, 'log');
         onSuccess?.('ok');
         return;
       }
 
       if (fileName.endsWith('.har')) {
-        let repairInfo: HarRepairResult | null = null;
-        try {
-          const result = parseHarWithRepair(content);
-          if (!result.repaired) {
-            onFileLoaded(result.data, false, undefined);
-            onSuccess?.('ok');
-            return;
-          }
-          repairInfo = result;
-        } catch (err) {
-          Modal.error({
-            title: '无法自动修复',
-            icon: <ExclamationCircleOutlined />,
-            content: (
-              <div style={{ lineHeight: 1.6 }}>
-                <p>很抱歉，该 HAR 文件损坏严重，无法自动修复。</p>
-                <pre style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8, background: 'var(--bg-base)', padding: 8, borderRadius: 6 }}>
-                  {(err as Error).message}
-                </pre>
-              </div>
-            ),
-            okText: '知道了',
-          });
-          return;
-        }
-
-        if (repairInfo) {
-          Modal.confirm({
-            title: '检测到 HAR 文件损坏',
-            icon: <ExclamationCircleOutlined />,
-            content: (
-              <div style={{ lineHeight: 1.6 }}>
-                <p>是否使用修复结果继续解析？</p>
-                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-                  <div>恢复率：{repairInfo.recoveryRate}%</div>
-                  <div>已恢复 {repairInfo.recoveredEntries}/{repairInfo.totalEntries} 条请求</div>
-                  {repairInfo.droppedEntries > 0 && (
-                    <div style={{ color: '#f87171' }}>丢弃了 {repairInfo.droppedEntries} 条损坏请求</div>
-                  )}
-                </div>
-                <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>
-                  注意：修复后可能存在请求丢失或数据不准确的情况。
-                </p>
-              </div>
-            ),
-            okText: '使用修复结果',
-            cancelText: '取消',
-            onOk: () => {
-              onFileLoaded(repairInfo!.data, false, repairInfo || undefined);
-              onSuccess?.('ok');
-            },
-            onCancel: () => {
-              message.error('已取消修复，文件未解析');
-            },
-          });
-        }
+        await onFileLoaded(content, false, undefined, 'har');
+        onSuccess?.('ok');
         return;
       }
 
-      // .json 文件（NetLog）：不自动修复，直接解析
-      const json = JSON.parse(content);
-      onFileLoaded(json, false, undefined);
+      // .json 文件（NetLog）：交给 Worker 解析，避免大文件 JSON.parse 阻塞主线程
+      await onFileLoaded(content, false, undefined, 'netlog');
       onSuccess?.('ok');
     } catch (err) {
       const msg = (err as Error).message;

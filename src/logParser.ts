@@ -3,7 +3,7 @@
  * 采用配置驱动的方式解析日志，新增格式只需添加配置，无需修改解析引擎代码
  */
 
-import { getFriendlyName, getErrorDiagnosis, getUnknownErrorSuggestion, DURATION_RANGES } from './logConstants';
+import { getFriendlyName, DURATION_RANGES } from './logConstants';
 
 // ============ 类型定义 ============
 
@@ -54,8 +54,7 @@ export interface LogStats {
 export interface LogInsight {
   summary: string;
   severity: 'success' | 'warning' | 'error';
-  suggestion: string;
-  diagnosis?: string;
+  detail: string;
 }
 
 export interface LogAnalysisResult {
@@ -691,61 +690,13 @@ class GoServiceLogParser implements LogParserStrategy {
       return {
         summary: `所有请求均成功完成，共 ${stats.total} 个请求`,
         severity: 'success',
-        suggestion: '迁移顺利完成，无需进一步操作',
+        detail: '当前视图仅基于日志文本统计成功、失败、耗时和分布情况。',
       };
     }
 
     const errorEntries = entries.filter(e => e.status === "Error");
-    const firstError = errorEntries[0];
     const errorCodes = [...new Set(errorEntries.map(e => e.statusCode).filter(code => code !== undefined))];
     const errorDomains = [...new Set(errorEntries.map(e => e.domain).filter(Boolean))];
-    const singleErrorDomain = errorDomains.length === 1 ? errorDomains[0] : null;
-
-    if (errorCodes.length === 1 && errorCodes[0]) {
-      const code = errorCodes[0];
-      if (singleErrorDomain) {
-        const diagnosis = getErrorDiagnosis(code, singleErrorDomain);
-        if (diagnosis) {
-          return {
-            summary: `${firstError.friendlyName}持续被拒 (${code}${firstError.statusText ? ` ${firstError.statusText}` : ""})，共 ${stats.error} 次失败`,
-            severity: "error",
-            suggestion: diagnosis.suggestion,
-            diagnosis: diagnosis.description,
-          };
-        }
-      }
-
-      const fallbackSummary = errorDomains.length > 1 ? `多个域名持续失败 (${code})，共 ${stats.error} 次失败，涉及 ${errorDomains.length} 个域名` : `${firstError.friendlyName}持续被拒 (${code}${firstError.statusText ? ` ${firstError.statusText}` : ""})，共 ${stats.error} 次失败`;
-      return {
-        summary: fallbackSummary,
-        severity: "error",
-        suggestion: getUnknownErrorSuggestion(),
-      };
-    }
-
-    const errorTexts = [...new Set(errorEntries.map(e => e.statusText).filter((text): text is string => Boolean(text)))];
-    if (errorTexts.length === 1 && errorTexts[0] && !errorCodes.length) {
-      const text = errorTexts[0];
-      const domainStr = singleErrorDomain ? ` (${singleErrorDomain})` : "";
-      if (singleErrorDomain) {
-        const diagnosis = this.getDiagnosisByText(text, singleErrorDomain);
-        if (diagnosis) {
-          return {
-            summary: `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`,
-            severity: "error",
-            suggestion: diagnosis.suggestion,
-            diagnosis: diagnosis.description,
-          };
-        }
-      }
-
-      const fallbackSummary = errorDomains.length > 1 ? `多个域名持续失败 (${text})，共 ${stats.error} 次失败，涉及 ${errorDomains.length} 个域名` : `${firstError.friendlyName}持续失败 (${text})${domainStr}，共 ${stats.error} 次失败`;
-      return {
-        summary: fallbackSummary,
-        severity: "error",
-        suggestion: getUnknownErrorSuggestion(),
-      };
-    }
 
     const domainCounts = new Map<string, number>();
     for (const e of errorEntries) {
@@ -755,69 +706,37 @@ class GoServiceLogParser implements LogParserStrategy {
     }
     const topErrorDomain = Array.from(domainCounts.entries()).sort((a, b) => b[1] - a[1])[0];
 
-    if (topErrorDomain && topErrorDomain[1] >= stats.error * 0.5) {
-      const domainEntry = errorEntries.find(e => e.domain === topErrorDomain[0]);
-      if (domainEntry?.statusCode) {
-        const diagnosis = getErrorDiagnosis(domainEntry.statusCode, domainEntry.domain);
-        if (diagnosis) {
-          return {
-            summary: `${domainEntry.domain} 请求频繁失败 (${domainEntry.statusCode})，共 ${topErrorDomain[1]} 次`,
-            severity: 'error',
-            suggestion: diagnosis.suggestion,
-            diagnosis: diagnosis.description,
-          };
-        }
-      }
-    }
-
     if (errorCodes.length > 1) {
       return {
-        summary: `共发现 ${errorCodes.length} 种不同类型的错误，建议逐一排查`,
+        summary: `共发现 ${errorCodes.length} 种不同状态码，失败 ${stats.error} 次`,
         severity: 'warning',
-        suggestion: getUnknownErrorSuggestion(),
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
+      };
+    }
+
+    if (errorCodes.length === 1 && errorCodes[0]) {
+      const code = errorCodes[0];
+      return {
+        summary: `状态码 ${code} 出现 ${stats.error} 次失败`,
+        severity: stats.successRate < 80 ? 'error' : 'warning',
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
+      };
+    }
+
+    const errorTexts = [...new Set(errorEntries.map(e => e.statusText).filter((text): text is string => Boolean(text)))];
+    if (errorTexts.length === 1 && errorTexts[0]) {
+      return {
+        summary: `错误文本 “${errorTexts[0]}” 出现 ${stats.error} 次`,
+        severity: stats.successRate < 80 ? 'error' : 'warning',
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
       };
     }
 
     return {
-      summary: `检测到 ${stats.error} 次请求失败，具体原因无法自动判断`,
-      severity: 'error',
-      suggestion: getUnknownErrorSuggestion(),
+      summary: `检测到 ${stats.error} 次失败记录`,
+      severity: stats.successRate < 80 ? 'error' : 'warning',
+      detail: `当前仅展示日志中的状态、域名、耗时和原始内容，不基于 log 文件做网络原因诊断。`,
     };
-  }
-
-  private getDiagnosisByText(statusText: string, domain: string): { description: string; suggestion: string } | null {
-    const text = statusText.toLowerCase();
-    if (text.includes('forbidden')) {
-      if (domain.includes('feishu') || domain.includes('lark')) {
-        return {
-          description: '飞书应用权限不足',
-          suggestion: '建议检查飞书应用权限配置，确认已申请相关 API 权限，或联系飞书客服',
-        };
-      }
-      if (domain.includes('weixin') || domain.includes('qq.com')) {
-        return {
-          description: '微盘风控限流',
-          suggestion: '单个用户每天约 200 次导出/下载限制，建议拆分迁移任务或次日重试，或联系企业微信服务同学解除限流',
-        };
-      }
-      return {
-        description: '权限不足或访问被拒绝',
-        suggestion: '建议检查相关权限配置，或联系客服或工作人员协助排查',
-      };
-    }
-    if (text.includes('unauthorized') || text.includes('unauthenticated')) {
-      return { description: '未授权访问', suggestion: '检查认证信息是否有效，或重新登录后重试' };
-    }
-    if (text.includes('not found')) {
-      return { description: '请求的资源不存在', suggestion: '检查请求地址是否正确，或确认资源是否已被删除' };
-    }
-    if (text.includes('too many') || text.includes('rate limit')) {
-      return { description: '请求频率过高', suggestion: '降低并发请求数，或联系服务提供方调整限流策略' };
-    }
-    if (text.includes('timeout') || text.includes('timed out')) {
-      return { description: '请求超时', suggestion: '检查网络状况或稍后重试' };
-    }
-    return null;
   }
 }
 

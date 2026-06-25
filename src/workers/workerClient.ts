@@ -101,11 +101,13 @@ function nextId(): string {
 export interface NetlogParseResult {
   events: ParsedEvent[];
   result: AnalysisResult;
+  rawData?: unknown;
   duration: number;
 }
 
 export interface HarParseResult {
   result: HarAnalysisResult;
+  rawData?: unknown;
   duration: number;
 }
 
@@ -118,7 +120,7 @@ export interface LogParseResult {
  * 在 Worker 中解析 NetLog JSON
  */
 export async function parseNetlogInWorker(
-  data: unknown,
+  data: string | unknown,
   options?: WorkerClientOptions
 ): Promise<NetlogParseResult> {
   const id = nextId();
@@ -129,6 +131,7 @@ export async function parseNetlogInWorker(
   return {
     events: response.events as ParsedEvent[],
     result: response.payload as AnalysisResult,
+    rawData: response.rawPayload,
     duration: response.duration,
   };
 }
@@ -137,7 +140,7 @@ export async function parseNetlogInWorker(
  * 在 Worker 中解析 HAR JSON
  */
 export async function parseHarInWorker(
-  data: unknown,
+  data: string | unknown,
   repairInfo?: unknown,
   options?: WorkerClientOptions
 ): Promise<HarParseResult> {
@@ -148,6 +151,7 @@ export async function parseHarInWorker(
   );
   return {
     result: response.payload as HarAnalysisResult,
+    rawData: response.rawPayload,
     duration: response.duration,
   };
 }

@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { Tabs, Alert } from 'antd';
-import { UnorderedListOutlined, MedicineBoxOutlined, ToolOutlined } from '@ant-design/icons';
+import { UnorderedListOutlined, MedicineBoxOutlined, ToolOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
 import HarRequestTable, { StatusFilter } from './HarRequestTable';
 import HarSummaryDiagnosis from './HarSummaryDiagnosis';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
+import RawEvidenceExplorer from '../raw/RawEvidenceExplorer';
 
 interface HarResultPageProps {
   result: HarAnalysisResult;
+  rawData?: unknown;
   /** 外层控制的 activeTab，由 App hash 路由驱动 */
   activeTab?: string;
   /** tab 切换回调，用于同步 hash */
@@ -16,7 +18,7 @@ interface HarResultPageProps {
 }
 
 // HAR 解析结果整体页面（汇总卡片 + 请求列表 / 汇总诊断 两个 Tab）
-const HarResultPage: React.FC<HarResultPageProps> = ({ result, activeTab: externalActiveTab, onTabChange }) => {
+const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveKey, setInternalActiveKey] = useState('requests');
   const activeKey = externalActiveTab || internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -63,6 +65,16 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, activeTab: extern
         </span>
       ),
       children: <HarSummaryDiagnosis result={result} />,
+    },
+    {
+      key: 'raw-evidence',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <FileSearchOutlined />
+          原始证据
+        </span>
+      ),
+      children: rawData ? <RawEvidenceExplorer rawData={rawData} /> : null,
     },
   ];
 

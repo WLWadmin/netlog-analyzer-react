@@ -13,7 +13,7 @@ interface LogInsightBannerProps {
 }
 
 const LogInsightBanner: React.FC<LogInsightBannerProps> = ({ insight }) => {
-  const { summary, severity, suggestion, diagnosis } = insight;
+  const { summary, severity, detail } = insight;
 
   const config = {
     success: {
@@ -63,16 +63,9 @@ const LogInsightBanner: React.FC<LogInsightBannerProps> = ({ insight }) => {
           </Tag>
         </div>
 
-        {diagnosis && (
-          <div className="log-insight-diagnosis">
-            <InfoCircleOutlined style={{ color: style.color, flexShrink: 0 }} />
-            <span>诊断：{diagnosis}</span>
-          </div>
-        )}
-
-        <div className="log-insight-suggestion" style={{ color: style.color }}>
+        <div className="log-insight-detail" style={{ color: style.color }}>
           <InfoCircleOutlined style={{ flexShrink: 0 }} />
-          <span>建议：{suggestion}</span>
+          <span>{detail}</span>
         </div>
       </div>
 
@@ -122,16 +115,7 @@ const LogInsightBanner: React.FC<LogInsightBannerProps> = ({ insight }) => {
           line-height: 22px !important;
           border-radius: 6px !important;
         }
-        .log-insight-diagnosis {
-          font-size: 13px;
-          color: var(--text-secondary);
-          margin-bottom: 8px;
-          line-height: 1.7;
-          display: flex;
-          align-items: flex-start;
-          gap: 6px;
-        }
-        .log-insight-suggestion {
+        .log-insight-detail {
           font-size: 13px;
           font-weight: 500;
           line-height: 1.7;

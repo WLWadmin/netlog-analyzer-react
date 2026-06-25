@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import type { ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import { buildSourceGraph, SourceChain, SourceNode } from '../../parsers/netlog/sourceGraph';
+import { SOURCE_CHAIN_PREVIEW_COUNT, SOURCE_CHAIN_SLOW_MS } from '../../constants/analysisThresholds';
 
 interface SourceChainViewerProps {
   events: ParsedEvent[];
@@ -48,7 +49,7 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
     if (filterType === 'error') {
       chains = chains.filter(c => c.hasError);
     } else if (filterType === 'slow') {
-      chains = chains.filter(c => c.duration > 3000);
+      chains = chains.filter(c => c.duration > SOURCE_CHAIN_SLOW_MS);
     }
 
     if (search) {
@@ -110,7 +111,7 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
             options={[
               { value: 'all', label: '全部链路' },
               { value: 'error', label: '仅错误链路' },
-              { value: 'slow', label: '慢请求 (>3s)' },
+              { value: 'slow', label: `慢请求 (>${SOURCE_CHAIN_SLOW_MS / 1000}s)` },
             ]}
           />
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -121,7 +122,7 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
 
       {/* Chain List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {filteredChains.slice(0, 50).map((chain) => (
+        {filteredChains.slice(0, SOURCE_CHAIN_PREVIEW_COUNT).map((chain) => (
           <ChainCard
             key={chain.rootId}
             chain={chain}
@@ -130,9 +131,9 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
             onNavigateToSource={onNavigateToSource}
           />
         ))}
-        {filteredChains.length > 50 && (
+        {filteredChains.length > SOURCE_CHAIN_PREVIEW_COUNT && (
           <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)', fontSize: 13 }}>
-            仅显示前 50 条链路（共 {filteredChains.length} 条）
+            仅显示前 {SOURCE_CHAIN_PREVIEW_COUNT} 条链路（共 {filteredChains.length} 条）
           </div>
         )}
       </div>

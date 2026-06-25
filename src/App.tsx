@@ -57,8 +57,8 @@ const { Header, Content } = Layout;
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
   netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'source-chain', 'ssl-protocol', 'performance', 'raw-evidence', 'baseline'],
-  har: ['requests', 'diagnosis'],
-  log: ['overview', 'flows', 'diagnosis', 'performance', 'raw'],
+  har: ['requests', 'diagnosis', 'raw-evidence'],
+  log: ['overview', 'flows', 'performance', 'raw'],
 };
 
 function parseHash(hash: string): { fileType?: string; tab?: string } {
@@ -135,18 +135,18 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleFileLoaded = async (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
+  const handleFileLoaded = async (
+    data: unknown,
+    isTextLog = false,
+    repairInfo?: HarAnalysisResult['repairInfo'],
+    fileTypeHint?: 'netlog' | 'har' | 'log'
+  ) => {
     const taskId = ++loadTaskIdRef.current;
     activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
 
     try {
-      // 保存原始数据用于 Raw Evidence Explorer
-      if (!isTextLog) {
-        setRawUploadData(data);
-      }
-
       // 自动识别文件类型
       if (isTextLog && typeof data === 'string') {
         setLoadingText('正在解析日志文件...');
@@ -174,16 +174,21 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      if (isHarFile(data)) {
+      const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));
+      if (shouldParseHar) {
         setLoadingText('正在分析 HAR 请求...');
         let harAnalysis;
+        let harRawData: unknown = typeof data === 'string' ? undefined : data;
         if (useWorker) {
-          const { result } = await parseHarInWorker(data, repairInfo, {
+          const { result, rawData } = await parseHarInWorker(data, repairInfo, {
             onProgress: (phase) => setLoadingText(phase),
           });
           harAnalysis = result;
+          harRawData = rawData;
         } else {
-          harAnalysis = parseHar(data);
+          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+          harRawData = parsedData;
+          harAnalysis = parseHar(parsedData);
           if (repairInfo) harAnalysis.repairInfo = repairInfo;
         }
         if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
@@ -192,6 +197,7 @@ const AppContent: React.FC = () => {
         }
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
+        setRawUploadData(harRawData);
 
         if (resultRef.current) {
           setFileType('netlog');
@@ -216,14 +222,18 @@ const AppContent: React.FC = () => {
       setLoadingText('正在分析 NetLog 事件...');
       let parsedEvents: ParsedEvent[];
       let analysisResult: AnalysisResult;
+      let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
       if (useWorker) {
         const workerResult = await parseNetlogInWorker(data, {
           onProgress: (phase) => setLoadingText(phase),
         });
         parsedEvents = workerResult.events;
         analysisResult = workerResult.result;
+        netlogRawData = workerResult.rawData;
       } else {
-        const syncResult = parseLog(data);
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        netlogRawData = parsedData;
+        const syncResult = parseLog(parsedData);
         parsedEvents = syncResult.events;
         analysisResult = syncResult.result;
       }
@@ -234,6 +244,7 @@ const AppContent: React.FC = () => {
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
+      setRawUploadData(netlogRawData);
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -266,7 +277,8 @@ const AppContent: React.FC = () => {
   const handleSecondaryFileLoaded = async (
     data: unknown,
     isTextLog = false,
-    repairInfo?: HarAnalysisResult['repairInfo']
+    repairInfo?: HarAnalysisResult['repairInfo'],
+    fileTypeHint?: 'netlog' | 'har' | 'log'
   ) => {
     activeLoadCountRef.current += 1;
     setLoading(true);
@@ -279,20 +291,26 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      if (isHarFile(data)) {
+      const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));
+      if (shouldParseHar) {
         let harAnalysis;
+        let harRawData: unknown = typeof data === 'string' ? undefined : data;
         if (useWorker) {
-          const { result } = await parseHarInWorker(data, repairInfo, {
+          const { result, rawData } = await parseHarInWorker(data, repairInfo, {
             onProgress: (phase) => setLoadingText(phase),
           });
           harAnalysis = result;
+          harRawData = rawData;
         } else {
-          harAnalysis = parseHar(data);
+          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+          harRawData = parsedData;
+          harAnalysis = parseHar(parsedData);
           if (repairInfo) harAnalysis.repairInfo = repairInfo;
         }
 
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
+        setRawUploadData(harRawData);
 
         if (resultRef.current) {
           setFileType('netlog');
@@ -313,14 +331,18 @@ const AppContent: React.FC = () => {
 
       let parsedEvents: ParsedEvent[];
       let analysisResult: AnalysisResult;
+      let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
       if (useWorker) {
         const workerResult = await parseNetlogInWorker(data, {
           onProgress: (phase) => setLoadingText(phase),
         });
         parsedEvents = workerResult.events;
         analysisResult = workerResult.result;
+        netlogRawData = workerResult.rawData;
       } else {
-        const syncResult = parseLog(data);
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        netlogRawData = parsedData;
+        const syncResult = parseLog(parsedData);
         parsedEvents = syncResult.events;
         analysisResult = syncResult.result;
       }
@@ -328,6 +350,7 @@ const AppContent: React.FC = () => {
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
+      setRawUploadData(netlogRawData);
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -758,6 +781,7 @@ const AppContent: React.FC = () => {
           <div style={{ padding: '24px 28px' }}>
             <HarResultPage
               result={harResult}
+              rawData={rawUploadData}
               activeTab={activeTab}
               onTabChange={(key) => {
                 setActiveTab(key);

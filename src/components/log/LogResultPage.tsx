@@ -4,7 +4,6 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   BranchesOutlined,
-  MedicineBoxOutlined,
 } from '@ant-design/icons';
 import type { LogAnalysisResult } from '../../logParser';
 import { TOP_PREVIEW_COUNT } from '../../constants/analysisThresholds';
@@ -13,7 +12,6 @@ import LogSummaryCards from './LogSummaryCards';
 import LogStatsCharts from './LogStatsCharts';
 import LogFlowGroups from './LogFlowGroups';
 import LogRawList from './LogRawList';
-import LogDiagnosisTab from './LogDiagnosisTab';
 import LogPerformanceTab from './LogPerformanceTab';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 
@@ -96,16 +94,6 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
           <LogFlowGroups groups={groups} filterErrorOnly={filterErrorOnly} />
         </div>
       ),
-    },
-    {
-      key: 'diagnosis',
-      label: (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <MedicineBoxOutlined />
-          错误诊断
-        </span>
-      ),
-      children: <LogDiagnosisTab result={result} />,
     },
     {
       key: 'performance',
