@@ -1,11 +1,12 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert } from 'antd';
+import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert, Pagination } from 'antd';
 import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/evidenceIndex';
 import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { measurePerf } from '../../utils/perfMark';
 
 interface EventsTabProps {
   events: ParsedEvent[];
@@ -123,8 +124,16 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
     return () => clearTimeout(timer);
   }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
+  useEffect(() => {
+    setPagination(prev => (prev.current === 1 ? prev : { ...prev, current: 1 }));
+  }, [debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+
   // 构建事件索引（O(n)，仅在 events 变化时重建）
-  const eventIndex = useMemo(() => buildEventIndex(events), [events]);
+  const eventIndex = useMemo(
+    // 历史瓶颈回归指标：防止事件索引再次膨胀。
+    () => measurePerf('Events/buildEventIndex', () => buildEventIndex(events)),
+    [events]
+  );
 
   // 提取所有参数字段名
   const paramFields = useMemo(() => ['', ...eventIndex.paramFields], [eventIndex]);
@@ -139,6 +148,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
       search: normalizedSearch || undefined,
     });
   }, [eventIndex, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
+
+  const pagedFiltered = useMemo(() => {
+    const current = pagination.current || 1;
+    const pageSize = pagination.pageSize || 100;
+    const start = (current - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, pagination]);
 
   const phases = useMemo(() => eventIndex.phases, [eventIndex]);
   const sourceTypes = useMemo(() => eventIndex.sourceTypes, [eventIndex]);
@@ -279,13 +295,15 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
   // Source ID 聚合时间线数据
   const timelineData = useMemo(() => {
+    if (viewMode !== 'timeline') return [];
+
     const groups = new Map<number, ParsedEvent[]>();
     for (const e of filtered) {
       const list = groups.get(e.source.id) || [];
       list.push(e);
       groups.set(e.source.id, list);
     }
-    const sortedGroups = Array.from(groups.entries())
+    return Array.from(groups.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([sourceId, evs]) => ({
         sourceId,
@@ -297,8 +315,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
           return info.hasError;
         }),
       }));
-    return sortedGroups;
-  }, [filtered]);
+  }, [viewMode, filtered]);
 
   const limitedTimelineData = useMemo(() => {
     return timelineData
@@ -360,7 +377,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         <div style={{ position: 'relative', width: 320 }}>
           <SearchOutlined style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 1, fontSize: 14 }} />
           <Input
-            placeholder="搜索事件类型、参数内容..."
+            placeholder="默认搜索事件类型、source、phase、URL、host、method、net_error"
             value={search}
             onChange={e => handleSearchChange(e.target.value)}
             disabled={!!sourceIdFilter}
@@ -412,6 +429,10 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         </Button>
       </div>
 
+      <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+        默认搜索覆盖常见字段；全量 params 搜索后续通过高级搜索或 Worker 搜索提供。
+      </div>
+
       {/* View Mode Toggle */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>视图模式:</span>
@@ -454,15 +475,26 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
       <Spin spinning={filtering} tip="筛选中..." size="small">
         {viewMode === 'list' ? (
-          <Table
-            dataSource={filtered}
-            columns={columns}
-            rowKey={(record, index) => `${record.source.id}-${record.type}-${index}`}
-            pagination={false}
-            virtual
-            scroll={{ y: 600 }}
-            size="small"
-          />
+          <>
+            <Table
+              dataSource={pagedFiltered}
+              columns={columns}
+              rowKey={(record) => `${record.originalIndex}-${record.source.id}-${record.type}`}
+              pagination={false}
+              virtual
+              scroll={{ y: 600 }}
+              size="small"
+            />
+            <Pagination
+              current={pagination.current}
+              pageSize={pagination.pageSize}
+              total={filtered.length}
+              showSizeChanger
+              pageSizeOptions={[50, 100, 200, 500]}
+              onChange={(current, pageSize) => setPagination({ current, pageSize })}
+              style={{ marginTop: 12, textAlign: 'right' }}
+            />
+          </>
         ) : (
           <div style={{ maxHeight: 600, overflow: 'auto', padding: '8px 0' }}>
             {timelineData.length === 0 ? (

@@ -6,6 +6,7 @@ import { generateSuggestions } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, IssueAlert } from '../../components/shared/IssueDisplay';
 import { buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
+import { measurePerf } from '../../utils/perfMark';
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
@@ -17,10 +18,17 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
   const byCategory = useMemo(() => groupByCategory(groupedIssues), [groupedIssues]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [loadedCategories, setLoadedCategories] = useState<Map<string, number>>(new Map());
-  const suggestions = generateSuggestions(result);
+  const suggestions = useMemo(() => generateSuggestions(result), [result]);
 
   // 统一诊断模型
-  const diagnosisSummary = useMemo(() => buildNetlogDiagnosisSummary(result, suggestions, events), [result, suggestions, events]);
+  const diagnosisSummary = useMemo(
+    () =>
+      // 核心回归指标：用于观察定因诊断总体是否再次退化。
+      measurePerf('Diagnosis/buildNetlogDiagnosisSummary/total', () =>
+        buildNetlogDiagnosisSummary(result, suggestions, events, { measure: measurePerf })
+      ),
+    [result, suggestions, events]
+  );
 
   const INITIAL_SHOW = 10;
   const LOAD_MORE_STEP = 100;

@@ -241,16 +241,6 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
   const hasQuic = result.quicEvents.length > 0;
   const health = useMemo(() => assessProtocolHealth(result), [result]);
 
-  if (!hasHttp2 && !hasQuic) {
-    return (
-      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-        <ApiOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到HTTP/2或QUIC协议事件</div>
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>当前日志中所有请求使用HTTP/1.1协议</div>
-      </div>
-    );
-  }
-
   const h2Sessions = new Set(result.http2Events.filter(e => e.source.typeName === 'HTTP2_SESSION').map(e => e.source.id));
   const h2Streams = new Set(result.http2Events.filter(e => e.source.typeName === 'HTTP2_STREAM').map(e => e.source.id));
   const h2Errors = result.http2Events.filter(isHttp2Goaway);
@@ -267,19 +257,23 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: '数量', dataIndex: 'count', key: 'count' },
   ];
 
-  const h2TypeData = Object.entries(
-    result.http2Events.reduce((acc, e) => {
-      acc[e.typeName] = (acc[e.typeName] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>)
-  ).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  const h2TypeData = useMemo(() =>
+    Object.entries(
+      result.http2Events.reduce((acc, e) => {
+        acc[e.typeName] = (acc[e.typeName] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
+    ).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+  , [result.http2Events]);
 
-  const quicTypeData = Object.entries(
-    result.quicEvents.reduce((acc, e) => {
-      acc[e.typeName] = (acc[e.typeName] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>)
-  ).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  const quicTypeData = useMemo(() =>
+    Object.entries(
+      result.quicEvents.reduce((acc, e) => {
+        acc[e.typeName] = (acc[e.typeName] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
+    ).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+  , [result.quicEvents]);
 
   // GOAWAY detail data
   const goawayEvents = result.http2Events.filter(isHttp2Goaway);
@@ -289,19 +283,22 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: 'Last Stream ID', dataIndex: 'lastStreamId', key: 'lastStreamId', width: 120 },
     { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
   ];
-  const goawayData = goawayEvents.map(e => {
-    const getGoawayErrorCode = (ev: any): string | null => {
-      const code = ev.params?.error_code ?? ev.params?.status;
-      if (code === undefined || code === null || code === '') return null;
-      return String(code);
-    };
-    return {
-      direction: isHttp2GoawaySend(e) ? '发送' : '接收',
-      errorCode: getGoawayErrorCode(e) || '-',
-      lastStreamId: String(e.params.last_stream_id || '-'),
-      time: e.time.toFixed(2) + 'ms',
-    };
-  });
+  const goawayData = useMemo(() =>
+    goawayEvents.map((e, index) => {
+      const getGoawayErrorCode = (ev: any): string | null => {
+        const code = ev.params?.error_code ?? ev.params?.status;
+        if (code === undefined || code === null || code === '') return null;
+        return String(code);
+      };
+      return {
+        id: `${e.source.id}-${e.typeName}-${e.phaseName}-${e.time}-${index}`,
+        direction: isHttp2GoawaySend(e) ? '发送' : '接收',
+        errorCode: getGoawayErrorCode(e) || '-',
+        lastStreamId: String(e.params.last_stream_id || '-'),
+        time: e.time.toFixed(2) + 'ms',
+      };
+    })
+  , [goawayEvents]);
 
   // QUIC error detail data
   const quicErrorColumns = [
@@ -309,11 +306,24 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: '来源', dataIndex: 'source', key: 'source', width: 200 },
     { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
   ];
-  const quicErrorData = quicErrors.slice(0, 50).map(e => ({
-    errorCode: String(e.params.error_code || e.params.net_error),
-    source: e.source.typeName,
-    time: e.time.toFixed(2) + 'ms',
-  }));
+  const quicErrorData = useMemo(() =>
+    quicErrors.slice(0, 50).map((e, index) => ({
+      id: `${e.source.id}-${e.typeName}-${e.phaseName}-${e.time}-${index}`,
+      errorCode: String(e.params.error_code || e.params.net_error),
+      source: e.source.typeName,
+      time: e.time.toFixed(2) + 'ms',
+    }))
+  , [quicErrors]);
+
+  if (!hasHttp2 && !hasQuic) {
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <ApiOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到HTTP/2或QUIC协议事件</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>当前日志中所有请求使用HTTP/1.1协议</div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -341,7 +351,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
           {goawayData.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <h4 style={{ fontSize: 13, color: '#f87171', marginBottom: 8 }}>GOAWAY 帧详情</h4>
-              <Table dataSource={goawayData} columns={goawayColumns} rowKey={(r) => `${r.direction}-${r.time}`} pagination={false} size="small" scroll={{ y: 200 }} />
+              <Table dataSource={goawayData} columns={goawayColumns} rowKey="id" pagination={false} size="small" scroll={{ y: 200 }} />
             </div>
           )}
 
@@ -379,7 +389,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
           {quicErrorData.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <h4 style={{ fontSize: 13, color: '#f87171', marginBottom: 8 }}>QUIC 错误详情（前 50 条）</h4>
-              <Table dataSource={quicErrorData} columns={quicErrorColumns} rowKey={(r) => `${r.errorCode}-${r.time}`} pagination={false} size="small" scroll={{ y: 200 }} />
+              <Table dataSource={quicErrorData} columns={quicErrorColumns} rowKey="id" pagination={false} size="small" scroll={{ y: 200 }} />
             </div>
           )}
 

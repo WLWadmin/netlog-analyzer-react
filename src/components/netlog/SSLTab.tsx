@@ -285,41 +285,53 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
 const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
   const health = useMemo(() => assessSSLHealth(result), [result]);
 
-  if (result.sslEvents.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-        <SafetyCertificateOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到SSL/TLS事件</div>
-        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>NetLog中未包含SSL/TLS握手记录</div>
-      </div>
-    );
-  }
+  const { versions, ciphers, unknownTlsVersionEventCount, hostData } = useMemo(() => {
+    const versionsMap: Record<string, number> = {};
+    const ciphersMap: Record<string, number> = {};
+    const sslHosts: Record<string, { events: any[]; errors: any[] }> = {};
+    let unknownCount = 0;
 
-  // Version distribution
-  const versions: Record<string, number> = {};
-  const ciphers: Record<string, number> = {};
-  const sslHosts: Record<string, { events: any[]; errors: any[] }> = {};
-  let unknownTlsVersionEventCount = 0;
+    for (const evt of result.sslEvents) {
+      const ver = getTlsVersionFromParams(evt.params);
 
-  for (const evt of result.sslEvents) {
-    const ver = getTlsVersionFromParams(evt.params);
+      if (ver) {
+        versionsMap[ver] = (versionsMap[ver] || 0) + 1;
+      } else {
+        unknownCount += 1;
+      }
 
-    if (ver) {
-      versions[ver] = (versions[ver] || 0) + 1;
-    } else {
-      unknownTlsVersionEventCount += 1;
+      const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
+      if (cipher !== 'unknown') ciphersMap[cipher] = (ciphersMap[cipher] || 0) + 1;
+
+      const host = evt.params.host || evt.params.server_info || 'unknown';
+      if (!sslHosts[host]) sslHosts[host] = { events: [], errors: [] };
+      sslHosts[host].events.push(evt);
+      if (evt.params.net_error || evt.params.error_code) {
+        sslHosts[host].errors.push(evt.params.net_error || evt.params.error_code);
+      }
     }
 
-    const cipher = evt.params.cipher_suite || evt.params.cipher || 'unknown';
-    if (cipher !== 'unknown') ciphers[cipher] = (ciphers[cipher] || 0) + 1;
+    const nextHostData = Object.entries(sslHosts).map(([host, info]) => {
+      const last = info.events[info.events.length - 1];
+      return {
+        host,
+        version: getTlsVersionFromParams(last.params) || '-',
+        cipher: last.params.cipher_suite || last.params.cipher || '-',
+        count: info.events.length,
+        hasError: info.errors.length > 0,
+      };
+    }).sort((a, b) => {
+      if (a.hasError !== b.hasError) return a.hasError ? -1 : 1;
+      return b.count - a.count;
+    });
 
-    const host = evt.params.host || evt.params.server_info || 'unknown';
-    if (!sslHosts[host]) sslHosts[host] = { events: [], errors: [] };
-    sslHosts[host].events.push(evt);
-    if (evt.params.net_error || evt.params.error_code) {
-      sslHosts[host].errors.push(evt.params.net_error || evt.params.error_code);
-    }
-  }
+    return {
+      versions: versionsMap,
+      ciphers: ciphersMap,
+      unknownTlsVersionEventCount: unknownCount,
+      hostData: nextHostData,
+    };
+  }, [result.sslEvents]);
 
   const hostColumns = [
     { title: '主机', dataIndex: 'host', key: 'host', ellipsis: true },
@@ -332,20 +344,49 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
     { title: '状态', dataIndex: 'hasError', key: 'status', width: 80, render: (e: boolean) => <StatusTag status={e ? 'error' : 'success'}>{e ? '失败' : '成功'}</StatusTag> },
   ];
 
-  const hostData = Object.entries(sslHosts).map(([host, info]) => {
-    const last = info.events[info.events.length - 1];
+  const timingData = useMemo(() => {
+    const sslTimings = result.urlRequests
+      .filter(r => r.timeline.ssl && r.timeline.ssl.duration > 0)
+      .map(r => ({ duration: r.timeline.ssl!.duration, host: r.url }));
+
+    const buckets = [
+      { label: '<50ms', min: 0, max: 50, color: '#34d399' },
+      { label: '50-100ms', min: 50, max: 100, color: '#a3e635' },
+      { label: '100-300ms', min: 100, max: 300, color: '#fbbf24' },
+      { label: '300-1000ms', min: SLOW_SSL_MS, max: VERY_SLOW_SSL_MS, color: '#fb923c' },
+      { label: '>1000ms', min: VERY_SLOW_SSL_MS, max: Infinity, color: '#f87171' },
+    ];
+
+    const chartData = buckets.map(b => ({
+      name: b.label,
+      count: sslTimings.filter(t => t.duration >= b.min && t.duration < b.max).length,
+      fill: b.color,
+    }));
+
+    const durations = sslTimings.map(t => t.duration).sort((a, b) => a - b);
+    const avgDuration = durations.length > 0 ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
+    const p90Index = Math.ceil(durations.length * 0.9) - 1;
+    const p90Duration = durations[Math.min(Math.max(p90Index, 0), durations.length - 1)] || 0;
+    const maxDuration = durations[durations.length - 1] || 0;
+
     return {
-      host,
-      version: getTlsVersionFromParams(last.params) || '-',
-      cipher: last.params.cipher_suite || last.params.cipher || '-',
-      count: info.events.length,
-      hasError: info.errors.length > 0,
+      sslTimings,
+      chartData,
+      avgDuration,
+      p90Duration,
+      maxDuration,
     };
-  }).sort((a, b) => {
-    // Sort: errors first, then by count desc
-    if (a.hasError !== b.hasError) return a.hasError ? -1 : 1;
-    return b.count - a.count;
-  });
+  }, [result.urlRequests]);
+
+  if (result.sslEvents.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <SafetyCertificateOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>未检测到SSL/TLS事件</div>
+        <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>NetLog中未包含SSL/TLS握手记录</div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -423,37 +464,10 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
       )}
 
       {/* SSL Handshake Duration Distribution */}
-      {(() => {
-        const sslTimings = result.urlRequests
-          .filter(r => r.timeline.ssl && r.timeline.ssl.duration > 0)
-          .map(r => ({ duration: r.timeline.ssl!.duration, host: r.url }));
-
-        if (sslTimings.length === 0) return null;
-
-        const buckets = [
-          { label: '<50ms', min: 0, max: 50, color: '#34d399' },
-          { label: '50-100ms', min: 50, max: 100, color: '#a3e635' },
-          { label: '100-300ms', min: 100, max: 300, color: '#fbbf24' },
-          { label: '300-1000ms', min: SLOW_SSL_MS, max: VERY_SLOW_SSL_MS, color: '#fb923c' },
-          { label: '>1000ms', min: VERY_SLOW_SSL_MS, max: Infinity, color: '#f87171' },
-        ];
-
-        const chartData = buckets.map(b => ({
-          name: b.label,
-          count: sslTimings.filter(t => t.duration >= b.min && t.duration < b.max).length,
-          fill: b.color,
-        }));
-
-        const durations = sslTimings.map(t => t.duration).sort((a, b) => a - b);
-        const avgDuration = durations.reduce((s, d) => s + d, 0) / durations.length;
-        const p90Index = Math.ceil(durations.length * 0.9) - 1;
-        const p90Duration = durations[Math.min(p90Index, durations.length - 1)];
-        const maxDuration = durations[durations.length - 1];
-
-        return (
+      {timingData.sslTimings.length > 0 && (
           <Card title={<span><BarChartOutlined /> SSL 握手耗时分布</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 70, right: 20, top: 5, bottom: 5 }}>
+              <BarChart data={timingData.chartData} layout="vertical" margin={{ left: 70, right: 20, top: 5, bottom: 5 }}>
                 <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} width={65} />
                 <Tooltip
@@ -462,20 +476,19 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
                   formatter={(value: any) => [`${value} 个请求`, '数量']}
                 />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                  {chartData.map((entry) => (
+                  {timingData.chartData.map((entry) => (
                     <Cell key={entry.name} fill={entry.fill} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
             <div style={{ display: 'flex', gap: 24, marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-              <span>平均耗时: <strong style={{ color: 'var(--text-primary)' }}>{avgDuration.toFixed(0)}ms</strong></span>
-              <span>P90: <strong style={{ color: 'var(--text-primary)' }}>{p90Duration.toFixed(0)}ms</strong></span>
-              <span>最大耗时: <strong style={{ color: 'var(--text-primary)' }}>{maxDuration.toFixed(0)}ms</strong></span>
+              <span>平均耗时: <strong style={{ color: 'var(--text-primary)' }}>{timingData.avgDuration.toFixed(0)}ms</strong></span>
+              <span>P90: <strong style={{ color: 'var(--text-primary)' }}>{timingData.p90Duration.toFixed(0)}ms</strong></span>
+              <span>最大耗时: <strong style={{ color: 'var(--text-primary)' }}>{timingData.maxDuration.toFixed(0)}ms</strong></span>
             </div>
           </Card>
-        );
-      })()}
+      )}
 
       {/* SSL Connection Details by Host */}
       <Card title={<span><GlobalOutlined /> SSL 连接详情（按主机）</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>

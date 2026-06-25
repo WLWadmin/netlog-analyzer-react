@@ -33,6 +33,10 @@ const PHASE_NAMES: Record<string, string> = {
 
 const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
+function buildRequestVisualKey(req: URLRequest, index?: number) {
+  return `${req.id}-${req.startTime}-${req.endTime || req.startTime + (req.duration || 0)}-${index ?? 0}`;
+}
+
 // 提取为独立组件，避免每次渲染重复计算 phaseChartData
 const PhaseChart: React.FC<{ phaseStats: Record<string, number[]> }> = ({ phaseStats }) => {
   const phaseChartData = useMemo(() => {
@@ -58,7 +62,7 @@ const PhaseChart: React.FC<{ phaseStats: Record<string, number[]> }> = ({ phaseS
         />
         <Bar dataKey="avg" radius={[0, 4, 4, 0]} barSize={24}>
           {phaseChartData.map((entry, index) => (
-            <Cell key={index} fill={entry.fill} />
+            <Cell key={`${entry.name}-${index}`} fill={entry.fill} />
           ))}
         </Bar>
       </BarChart>
@@ -246,7 +250,6 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
   // ===== 请求耗时时间线：散点数据 & 吞吐量数据 =====
   const { scatterData, throughputData, timeMode, minStartTime } = useMemo(() => {
-    // 散点数据：成功 / 失败分组（保留原始时间）
     const successPts: { startTime: number; duration: number; originalTime: number }[] = [];
     const failedPts: { startTime: number; duration: number; originalTime: number }[] = [];
     for (const req of completedReqs) {
@@ -258,7 +261,6 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       }
     }
 
-    // 检测时间范围，自动决定是否使用相对时间
     const allStartTimes = completedReqs.map(r => r.startTime);
     const minTime = allStartTimes.length > 0 ? Math.min(...allStartTimes) : 0;
     const maxTime = allStartTimes.length > 0 ? Math.max(...allStartTimes) : 0;
@@ -267,7 +269,6 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     const autoMode: 'relative' | 'absolute' =
       hasCompletedReqs && timeRange < 5000 ? 'relative' : 'absolute';
 
-    // 吞吐量：按 1 秒桶聚合
     const bucketMap = new Map<number, number>();
     for (const req of completedReqs) {
       const bucket = Math.floor(req.startTime / 1000);
@@ -302,9 +303,12 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   }, [scatterData, effectiveMode, minStartTime]);
 
   // Waterfall chart data: top 30 requests by duration
-  const waterfallReqs = [...completedReqs]
-    .sort((a, b) => (b.duration || 0) - (a.duration || 0))
-    .slice(0, TOP_WATERFALL_COUNT);
+  const waterfallReqs = useMemo(() => {
+    return [...completedReqs]
+      .sort((a, b) => (b.duration || 0) - (a.duration || 0))
+      .slice(0, TOP_WATERFALL_COUNT)
+      .map((req, index) => ({ ...req, visualKey: buildRequestVisualKey(req, index) }));
+  }, [completedReqs]);
   let wfMinStart = Infinity;
   let wfMaxEnd = 0;
   for (const req of waterfallReqs) {
@@ -313,6 +317,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
     if (end > wfMaxEnd) wfMaxEnd = end;
   }
   const wfRange = wfMaxEnd - wfMinStart || 1;
+
+  const slowRequestsWithKeys = useMemo(() => {
+    return result.slowRequests.map((record, index) => ({
+      ...record,
+      visualKey: buildRequestVisualKey(record, index),
+    }));
+  }, [result.slowRequests]);
 
   const hostColumns: ColumnsType<HostPerf> = [
     { title: '域名', dataIndex: 'host', key: 'host', ellipsis: true },
@@ -385,10 +396,10 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         if (phases.length === 0) return <span style={{ color: 'var(--text-muted)' }}>无阶段数据</span>;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {phases.map(([phase, info]: [string, any]) => {
+            {phases.map(([phase, info]: [string, any], phaseIndex) => {
               const pct = (info.duration / total) * 100;
               return (
-                <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div key={`${record.id}-${phase}-${phaseIndex}-${info.start}-${info.end}-table`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {PHASE_NAMES[phase]}
                   </span>
@@ -709,7 +720,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             const width = ((req.duration || 0) / wfRange) * 100;
             return (
               <div
-                key={req.id}
+                key={req.visualKey || buildRequestVisualKey(req, i)}
                 className="waterfall-row"
                 style={{
                   display: 'flex',
@@ -749,13 +760,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                     }}
                   />
                   {/* Phase breakdown */}
-                  {Object.entries(req.timeline).map(([phase, info]) => {
+                  {Object.entries(req.timeline).map(([phase, info], phaseIndex) => {
                     if (!info) return null;
                     const pLeft = ((info.start - wfMinStart) / wfRange) * 100;
                     const pWidth = ((info.end - info.start) / wfRange) * 100;
                     return (
                       <div
-                        key={phase}
+                        key={`${req.id}-${phase}-${phaseIndex}-${info.start}-${info.end}`}
                         style={{
                           position: 'absolute',
                           left: `${pLeft}%`,
@@ -790,7 +801,14 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
 
       {result.slowRequests.length > 0 && (
         <Card title={<span><ClockCircleOutlined /> 慢请求详情 (&gt;3s)</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
-          <Table dataSource={result.slowRequests} columns={slowColumns as any} rowKey="id" pagination={false} size="small" scroll={{ x: 800, y: 400 }} />
+          <Table
+            dataSource={slowRequestsWithKeys}
+            columns={slowColumns as any}
+            rowKey="visualKey"
+            pagination={false}
+            size="small"
+            scroll={{ x: 800, y: 400 }}
+          />
         </Card>
       )}
 
@@ -823,12 +841,12 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             </Descriptions>
 
             <h4 style={{ color: 'var(--text-primary)', marginBottom: 12, fontSize: 14 }}>各阶段耗时分解</h4>
-            {Object.entries(selectedReq.timeline).map(([phase, info]: [string, any]) => {
+            {Object.entries(selectedReq.timeline).map(([phase, info]: [string, any], phaseIndex) => {
               if (!info) return null;
               const total = selectedReq.duration || 1;
               const pct = (info.duration / total) * 100;
               return (
-                <div key={phase} style={{ marginBottom: 10 }}>
+                <div key={`${selectedReq.id}-${phase}-${phaseIndex}-${info.start}-${info.end}-detail`} style={{ marginBottom: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{PHASE_NAMES[phase]}</span>
                     <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
@@ -853,7 +871,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
             <div style={{ marginTop: 20, padding: 12, background: 'var(--bg-base)', borderRadius: 8 }}>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>时间线视图</div>
               <div style={{ position: 'relative', height: 32, background: 'var(--bg-surface)', borderRadius: 4 }}>
-                {Object.entries(selectedReq.timeline).map(([phase, info]: [string, any]) => {
+                {Object.entries(selectedReq.timeline).map(([phase, info]: [string, any], phaseIndex) => {
                   if (!info) return null;
                   const reqStart = selectedReq.startTime;
                   const reqEnd = selectedReq.endTime || reqStart + (selectedReq.duration || 0);
@@ -862,7 +880,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                   const width = ((info.end - info.start) / range) * 100;
                   return (
                     <div
-                      key={phase}
+                      key={`${selectedReq.id}-${phase}-${phaseIndex}-${info.start}-${info.end}-timeline`}
                       style={{
                         position: 'absolute',
                         left: `${left}%`,

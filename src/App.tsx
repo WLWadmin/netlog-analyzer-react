@@ -435,6 +435,11 @@ const AppContent: React.FC = () => {
     window.location.hash = '';
   };
 
+  const handleNetlogTabChange = (key: string) => {
+    setActiveTab(key);
+    window.location.hash = buildHash(fileType, key);
+  };
+
 
 
   const handleExport = () => {
@@ -901,10 +906,7 @@ const AppContent: React.FC = () => {
             >
               <Tabs
                 activeKey={activeTab}
-                onChange={(key) => {
-                  setActiveTab(key);
-                  window.location.hash = buildHash(fileType, key);
-                }}
+                onChange={handleNetlogTabChange}
                 items={tabItems}
                 type="card"
                 style={{

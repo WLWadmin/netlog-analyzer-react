@@ -237,10 +237,14 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
     .map(([name, count]) => ({ name, count }));
 
   // Top slow requests
-  const topRequests = result.urlRequests
-    .filter(q => q.duration)
-    .sort((a, b) => (b.duration || 0) - (a.duration || 0))
-    .slice(0, TOP_REQUESTS_COUNT);
+  const topRequests = useMemo(() =>
+    result.urlRequests
+      .filter(q => q.duration)
+      .sort((a, b) => (b.duration || 0) - (a.duration || 0))
+      .slice(0, TOP_REQUESTS_COUNT)
+  , [result.urlRequests]);
+
+  const domainFailures = useMemo(() => result.failedDomains, [result.failedDomains]);
 
   const requestColumns: any[] = [
     { title: 'URL', dataIndex: 'url', key: 'url', render: (url: string) => (
@@ -373,10 +377,10 @@ const OverviewTab: React.FC<OverviewTabProps> = ({ result }) => {
       </Card>
 
       {/* Failed Domains */}
-      {result.failedDomains.length > 0 && (
+      {domainFailures.length > 0 && (
         <Card title={<span><CloseCircleOutlined /> 网络报错域名与 IP 列表</span>} style={{ marginBottom: 16, background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}>
           <Table
-            dataSource={result.failedDomains}
+            dataSource={domainFailures}
             columns={failedDomainColumns}
             rowKey="domain"
             pagination={false}

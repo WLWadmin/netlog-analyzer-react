@@ -129,6 +129,21 @@ export function collectRelatedSourceIdsFromGraph(graph: SourceGraph, requestId: 
   return [requestId];
 }
 
+export function buildEventsBySourceId(events: ParsedEvent[]): Map<number, ParsedEvent[]> {
+  const map = new Map<number, ParsedEvent[]>();
+
+  for (const evt of events) {
+    const list = map.get(evt.source.id);
+    if (list) {
+      list.push(evt);
+    } else {
+      map.set(evt.source.id, [evt]);
+    }
+  }
+
+  return map;
+}
+
 export function buildRequestLifecycle(
   events: ParsedEvent[],
   urlRequests: URLRequest[],
@@ -136,10 +151,17 @@ export function buildRequestLifecycle(
   opts?: {
     /** 由调用方传入，避免重复 buildSourceGraph */
     relatedSourceIds?: number[];
+    /** 由调用方传入，避免为每个请求重复扫描全量 events */
+    eventsBySourceId?: Map<number, ParsedEvent[]>;
   }
 ): RequestLifecycle {
   const relatedSourceIds = opts?.relatedSourceIds || collectRelatedSourceIds(events, urlRequests, request.id);
   const relatedSourceIdSet = new Set<number>(relatedSourceIds);
+  // 当前生命周期统计只依赖 min/max/count/sourceTypes，不依赖原始事件顺序；
+  // 因此这里允许按 relatedSourceIds 拼接候选事件，避免为每个请求重复扫描全量 events。
+  const candidateEvents = opts?.eventsBySourceId
+    ? relatedSourceIds.flatMap((sourceId) => opts.eventsBySourceId?.get(sourceId) || [])
+    : events.filter((evt) => relatedSourceIdSet.has(evt.source.id));
 
   const stages: Record<LifecycleStageName, LifecycleStageSummary> = {
     dns: initStage('dns'),
@@ -157,8 +179,7 @@ export function buildRequestLifecycle(
 
   const relatedSourceTypes: string[] = [];
 
-  for (const evt of events) {
-    if (!relatedSourceIdSet.has(evt.source.id)) continue;
+  for (const evt of candidateEvents) {
     ensureUnique(relatedSourceTypes, evt.source.typeName);
 
     const name = classifyStage(evt);

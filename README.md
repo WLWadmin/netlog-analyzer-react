@@ -41,7 +41,7 @@
 - **一键复制能力**：请求列表的 Domain / Remote Address 列、详情页的关键诊断字段均支持一键复制。
 - **详情面板文本截断与 Hover 提示**：超长 URL、header value、query string、params 等自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip。
 - **使用说明引导**：首页提供 HAR、NetLog 和 Go 日志文件获取教程链接，帮助新用户快速上手。
-- **模块化可视化界面**：通过总览、定因诊断、联合诊断、事件列表、SSL/TLS、协议分析、性能分析等 Tab 展示不同排查视角。
+- **模块化可视化界面**：通过总览、请求瀑布、定因诊断、联合诊断、事件列表、源链路、SSL/TLS、协议分析、性能分析、原始证据、A-B 对比等 Tab 展示不同排查视角。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown / JSON / CSV 三种格式的分析报告（NetLog 模式）。
 - **更稳健的基础交互 Hook**：键盘导航会自动避开 `input` / `textarea` / `contenteditable` 编辑场景，响应式断点在挂载后立即同步，减少误触和首屏状态偏差。
@@ -99,11 +99,10 @@
 
 **NetLog 文件**解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
 
-1. **总览**：先看整体错误、失败域名、协议分布和关键异常。
-2. **定因诊断**：查看自动生成的根因建议和下一步排查动作。
-3. **联合诊断**：如果已上传 HAR，查看 HAR + NetLog 跨源对齐诊断；否则可通过此 Tab 追加上传 HAR。
-4. **事件列表**：必要时回到原始事件级别核对细节。
-5. **SSL/TLS、协议分析、性能分析**：针对证书、HTTP/2、QUIC、耗时分布等方向深入定位。
+1. **总览 / 请求瀑布**：先看整体错误、失败域名、慢请求和关键异常。
+2. **定因诊断 / 联合诊断**：查看自动生成的根因建议，以及与 HAR 的交叉证据；如果尚未上传 HAR，也可以在联合诊断页追加上传。
+3. **事件列表 / 源链路 / 原始证据**：必要时回到事件级、source 依赖链或原始 JSON 证据核对细节。
+4. **SSL/TLS、协议分析、性能分析、A-B 对比**：针对证书、HTTP/2、QUIC、耗时分布和版本差异进一步定位。
 
 **HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求列表」与「汇总诊断」两个 Tab，详见下文「HAR 解析模块说明」。
 
@@ -232,6 +231,54 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - **phases/sourceTypes 缓存**：使用 `useMemo` 缓存去重后的阶段列表和 Source 类型列表，避免每次渲染重复计算。
 
 当自动诊断结论需要人工复核时，可以回到该模块查看原始证据。
+
+### 源链路页：`SourceChainViewer`
+
+对应文件：`src/components/netlog/SourceChainViewer.tsx`
+
+源链路页用于查看 NetLog 中 `source_dependency` 关系组成的依赖链，帮助理解一个失败请求背后还牵涉了哪些底层 source，包括：
+
+- 从 URL 请求向下追踪 DNS、Socket、SSL、HTTP/2、QUIC 等相关 source。
+- 支持按耗时、host、source 类型查看慢链路和异常链路。
+- 提供链路长度、节点类型和耗时分布等结构化信息。
+- 支持与事件列表联动，便于从链路节点回跳到具体事件证据。
+
+适合排查“请求表面失败，但真正问题发生在底层依赖 source”的场景。
+
+### 原始证据页：`RawEvidenceExplorer`
+
+对应文件：`src/components/raw/RawEvidenceExplorer.tsx`
+
+原始证据页用于浏览上传文件的原始 JSON / 结构化数据，适合作为最终证据核对入口，包括：
+
+- 展示原始结构概览，支持按 path 展开查看。
+- 支持关键词搜索 path 和字段值。
+- 支持读取任意 path 的原始值预览。
+- 大文件场景下优先通过 Worker 执行结构分析、path 搜索和值读取，减少主线程卡顿。
+
+NetLog 和 HAR 结果页都可以进入该模块，用于回看原始输入数据。
+
+### 联合诊断页：`CombinedDiagnosisTab`
+
+对应文件：`src/components/shared/CombinedDiagnosisTab.tsx`
+
+联合诊断页用于把 NetLog 与 HAR 的分析结果放在一起交叉验证，包括：
+
+- 以 NetLog 网络层证据为主，结合 HAR 请求视角补充上下文。
+- 在缺少 HAR 时提示追加上传同次复现文件。
+- 用统一诊断面板展示联合结论，减少在多个结果页之间来回切换。
+
+适合排查“同一次复现既有浏览器网络层日志，也有页面请求层日志”的问题。
+
+### A-B 对比页：`BaselineCompareTab`
+
+对应文件：`src/components/shared/BaselineCompareTab.tsx`
+
+A-B 对比页用于人工记录和对照两次分析结果的差异，当前提供轻量级的手工对比能力：
+
+- 填写基线版本和对照版本说明。
+- 记录现象、差异点和结论。
+- 适合作为复现前后、优化前后或不同环境之间的差异备注页。
 
 ### SSL/TLS 分析页：`SSLTab`
 
@@ -464,18 +511,22 @@ NetLog / HAR / Go Log 文件
   → UploadZone 本地读取（支持多文件同时上传）
   → App.handleFileLoaded（自动识别类型 + 竞态保护）
   ├─ NetLog：parsers/netlog/parser.parseLog → AnalysisResult
-  │    → SummaryCards / OverviewTab / DiagnosisTab / CombinedDiagnosisTab / EventsTab / SSLTab / ProtocolTab / PerformanceTab
-  │    → NetLogRequestList（useLoadMore 瀑布流分页）
+  │    → SummaryCards / OverviewTab / NetLogRequestList / DiagnosisTab / CombinedDiagnosisTab
+  │    → EventsTab / SourceChainViewer / SSLTab / ProtocolTab / PerformanceTab
+  │    → RawEvidenceExplorer / BaselineCompareTab
+  │    → diagnosis.shared.fromNetlog / fromNetlogLifecycle 生成诊断模型
+  │    → workers/analysisWorker + workerClient 支撑大文件原始证据查询
+  │    → parsers/netlog/sourceGraphCache + requestLifecycle 做链路/生命周期加速
   │    → diagnosis.exportReport 导出报告
-  │    → 联合诊断：diagnosis/fromCombined.ts → 对齐 HAR + NetLog → 联合诊断卡片
+  │    → diagnosis/fromCombined 对齐 HAR + NetLog 生成联合诊断卡片
   ├─ HAR：harParser.parseHar → HarAnalysisResult
-  │    → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis）
-  │    → harDiagnosis.diagnoseHar → HarDiagnosisResult（单次遍历计算）
+  │    → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis / RawEvidenceExplorer）
+  │    → harDiagnosis.ts 生成汇总诊断
   │    → 损坏时：harRepair.parseHarWithRepair → 自动修复 → 用户确认 → 解析
   │    → 联合诊断：追加 NetLog 后进入 NetLog 页面 CombinedDiagnosisTab
   └─ Go Log：logParser.parseLogFile → LogAnalysisResult
-       → LogResultPage（LogInsightBanner / LogSummaryCards / LogStatsCharts / LogFlowGroups / LogRawList）
-       → LogFlowGroups / LogRawList 均使用 useLoadMore 分页
+       → LogResultPage（LogInsightBanner / LogSummaryCards / LogStatsCharts / LogFlowGroups / LogRawList / LogPerformanceTab）
+       → exportLogEntries 导出日志结果
 ```
 
 ### 解析引擎：`src/parsers/netlog/parser.ts`
@@ -590,93 +641,115 @@ NetLog / HAR / Go Log 文件
 
 ```
 src/
-├── App.tsx                    # 主应用入口，自动识别文件类型并路由
-├── index.tsx                  # React 渲染入口
-├── index.css                  # 全局样式与主题变量
-├── theme.tsx                  # 主题上下文（浅色/深色切换）
-├── harParser.ts               # HAR 文件解析引擎
-├── harDiagnosis.ts            # HAR 汇总诊断计算层（单次遍历 + O(N) 统计）
-├── logParser.ts               # Go 服务日志解析引擎（配置化）
-├── logConstants.ts            # Go 日志解析常量与工具函数
-├── react-app-env.d.ts         # React 类型声明
-├── utils/
-│   ├── copyText.ts            # 通用复制工具（clipboard + 降级方案）
-│   ├── format.ts             # 格式化工具（耗时、字节等）
-│   └── harRepair.ts           # HAR 文件损坏自动修复引擎
+├── App.tsx                          # 主应用入口，负责文件识别、Tab 路由、状态编排
+├── index.tsx                        # React 渲染入口
+├── index.css                        # 全局样式与主题变量
+├── theme.tsx                        # 浅色 / 深色主题上下文
+├── harParser.ts                     # HAR 文件解析引擎
+├── harDiagnosis.ts                  # HAR 汇总诊断计算层
+├── logParser.ts                     # Go 服务日志解析引擎
+├── logConstants.ts                  # Go 日志解析常量与辅助函数
+├── react-app-env.d.ts               # React 类型声明
 ├── components/
-│   ├── har/                   # HAR 结果页面组件
-│   │   ├── HarResultPage.tsx  # HAR 结果页容器（支持外层 activeTab）
-│   │   ├── HarRequestTable.tsx # 请求列表（antd 分页）
-│   │   ├── HarRequestDetail.tsx # 请求详情抽屉（内含 TruncatedText 组件）
-│   │   ├── HarSummaryCards.tsx  # 汇总卡片
-│   │   ├── HarSummaryDiagnosis.tsx # 汇总诊断（健康评分/网络阶段/HTTP状态/慢请求/域名IP/资源/缓存/安全/归因/建议）
-│   │   ├── HarTimingChart.tsx    # 各阶段耗时瀑布图（CHART_COLORS.phases）
-│   │   └── CopyText.tsx          # 文本 + 一键复制组件
-│   ├── log/                   # Go 服务日志结果页面组件
-│   │   ├── LogResultPage.tsx  # 日志结果页容器（支持外层 activeTab）
-│   │   ├── LogInsightBanner.tsx # 核心发现 Banner
-│   │   ├── LogSummaryCards.tsx  # 摘要卡片
-│   │   ├── LogStatsCharts.tsx   # 统计图表
-│   │   ├── LogFlowGroups.tsx    # 操作流程分组（useLoadMore + MAX_GROUP_ENTRY_PREVIEW）
-│   │   ├── LogRawList.tsx       # 原始日志列表（useLoadMore + 分层搜索）
-│   │   ├── LogDiagnosisTab.tsx  # 错误诊断 Tab
-│   │   └── LogPerformanceTab.tsx # 性能分析 Tab
-│   ├── netlog/                # NetLog 结果页面组件
-│   │   ├── UploadZone.tsx     # 文件上传区（支持拖拽 + 多文件 + HAR 损坏修复）
-│   │   ├── SummaryCards.tsx   # 摘要卡片
-│   │   ├── OverviewTab.tsx   # 总览页（CHART_COLORS 语义化颜色）
-│   │   ├── DiagnosisTab.tsx   # 定因诊断页（统一诊断卡片）
-│   │   ├── EventsTab.tsx     # 事件列表（useMemo 缓存 + 参数懒计算）
-│   │   ├── SSLTab.tsx        # SSL/TLS 分析页
-│   │   ├── ProtocolTab.tsx   # 协议分析页
-│   │   ├── PerformanceTab.tsx # 性能分析页（PhaseChart useMemo 缓存）
-│   │   └── NetLogRequestList.tsx # 请求瀑布流（useLoadMore + resetDeps）
-│   └── shared/                # 共享组件
-│       ├── DiagnosisPanel.tsx     # 统一诊断卡片容器
-│       ├── DiagnosticCard.tsx     # 统一诊断卡片（结论/证据/动作/命令/跳转）
-│       ├── ExportSummaryButton.tsx # 脱敏导出按钮
-│       ├── CombinedDiagnosisTab.tsx # 联合诊断 Tab（HAR + NetLog 对齐）
-│       ├── BaselineCompareTab.tsx   # A-B 对比 Tab（正常/异常 HAR 对比）
-│       ├── HealthAssessmentCard.tsx # 健康评估卡片
-│       ├── IssueDisplay.tsx   # 问题/告警/信息聚合展示
-│       ├── SummaryCard.tsx    # 通用摘要卡片
-│       ├── StatusTag.tsx     # 语义化状态标签
-│       ├── AnimatedNumber.tsx # 数值递增动效
-│       ├── ErrorBoundary.tsx  # 全局错误边界
-│       ├── LoadingOverlay.tsx # 全屏加载遮罩（支持动态 phase/message）
-│       └── AnalysisDisclaimer.tsx # 统一免责声明（netlog/har/log 三变体）
-├── constants/                 # 全局常量
-│   ├── tagConfig.ts           # Tag 语义化配置 + HTTP 状态码自动映射
-│   ├── chartColors.ts         # 图表配色常量（semantic/phases/primary）
-│   ├── iconMapping.ts         # Emoji → Icon 映射 + FINDING_COLORS 颜色映射
-│   ├── analysisThresholds.ts  # 分析阈值常量（慢请求/Top N/时间线/加载步长/防抖）
-│   └── harThresholds.ts       # HAR 诊断阈值（慢请求/证据关联/严重度分级）
-├── hooks/                     # 自定义 Hooks
-│   ├── useAnimatedNumber.ts   # 数值动效 Hook
-│   ├── useKeyboardNavigation.ts # 键盘导航 Hook（自动避开 input/textarea/contenteditable）
-│   ├── useMediaQuery.ts       # 响应式媒体查询 Hook（挂载后立即同步真实 matches）
-│   └── useLoadMore.ts         # 加载更多 Hook（支持 resetDeps 自动重置）
-├── contexts/                  # React Context
-│   └── NavigationContext.tsx  # 跨 Tab 导航上下文（intent 机制）
-├── parsers/                   # 解析引擎
-│   └── netlog/
-│       ├── index.ts           # 统一导出（parser + diagnosis + constants + errorClassifier）
-│       ├── parser.ts          # NetLog JSON 解析引擎（含 DNS 信息提取、IP 严格校验、协议推断）
-│       ├── diagnosis.ts       # 诊断建议与报告生成
-│       ├── errorClassifier.ts # 错误码分类器（net_error → DNS/证书/代理/网络等类别）
-│       └── constants.ts       # 事件类型/错误码常量映射
-└── diagnosis/                 # 统一诊断模型
-    └── shared/
-        ├── types.ts           # 诊断类型定义（DiagnosticCard / DiagnosisSummary 等）
-        ├── fromHar.ts         # HAR → DiagnosticCard 转换
-        ├── fromNetlog.ts      # NetLog → DiagnosticCard 转换
-        ├── fromCombined.ts    # HAR + NetLog 联合诊断
-        ├── baselineComparator.ts # HAR A-B 对比
-        ├── navigation.ts      # 统一证据跳转规则
-        ├── commandLibrary.ts  # 自助命令库
-        ├── maskedExport.ts    # 脱敏导出逻辑
-        ├── harThresholds.ts   # HAR 诊断阈值常量
-        └── index.ts           # 统一导出
+│   ├── har/                         # HAR 结果页组件
+│   │   ├── HarResultPage.tsx
+│   │   ├── HarRequestTable.tsx
+│   │   ├── HarRequestDetail.tsx
+│   │   ├── HarSummaryCards.tsx
+│   │   ├── HarSummaryDiagnosis.tsx
+│   │   ├── HarTimingChart.tsx
+│   │   └── CopyText.tsx
+│   ├── log/                         # Go 服务日志结果页组件
+│   │   ├── LogResultPage.tsx
+│   │   ├── LogInsightBanner.tsx
+│   │   ├── LogSummaryCards.tsx
+│   │   ├── LogStatsCharts.tsx
+│   │   ├── LogFlowGroups.tsx
+│   │   ├── LogRawList.tsx
+│   │   ├── LogRawContextModal.tsx
+│   │   ├── LogPerformanceTab.tsx
+│   │   ├── HighlightedText.tsx
+│   │   └── exportLogEntries.ts
+│   ├── netlog/                      # NetLog 结果页组件
+│   │   ├── UploadZone.tsx
+│   │   ├── SummaryCards.tsx
+│   │   ├── OverviewTab.tsx
+│   │   ├── NetLogRequestList.tsx
+│   │   ├── DiagnosisTab.tsx
+│   │   ├── EventsTab.tsx
+│   │   ├── SourceChainViewer.tsx
+│   │   ├── SSLTab.tsx
+│   │   ├── ProtocolTab.tsx
+│   │   └── PerformanceTab.tsx
+│   ├── raw/
+│   │   └── RawEvidenceExplorer.tsx  # 原始 JSON 证据浏览器
+│   └── shared/                      # 共享组件与联合分析视图
+│       ├── CombinedDiagnosisTab.tsx
+│       ├── BaselineCompareTab.tsx
+│       ├── CollectionQualityAlert.tsx
+│       ├── DiagnosisPanel.tsx
+│       ├── DiagnosticCard.tsx
+│       ├── ExportSummaryButton.tsx
+│       ├── AnalysisDisclaimer.tsx
+│       ├── LoadingOverlay.tsx
+│       ├── ErrorBoundary.tsx
+│       ├── HealthAssessmentCard.tsx
+│       ├── IssueDisplay.tsx
+│       ├── SummaryCard.tsx
+│       ├── StatusTag.tsx
+│       └── AnimatedNumber.tsx
+├── constants/
+│   ├── analysisThresholds.ts
+│   ├── chartColors.ts
+│   ├── iconMapping.ts
+│   └── tagConfig.ts
+├── contexts/
+│   └── NavigationContext.tsx        # 跨 Tab 导航与筛选联动
+├── diagnosis/
+│   └── shared/                      # 诊断模型拼装、导航、导出、对比
+│       ├── fromNetlog.ts
+│       ├── fromNetlogLifecycle.ts
+│       ├── fromHar.ts
+│       ├── fromCombined.ts
+│       ├── baselineComparator.ts
+│       ├── evidenceNavigation.ts
+│       ├── maskedExport.ts
+│       ├── navigation.ts
+│       ├── commandLibrary.ts
+│       ├── timeAlignment.ts
+│       ├── harThresholds.ts
+│       ├── types.ts
+│       └── index.ts
+├── hooks/
+│   ├── useAnimatedNumber.ts
+│   ├── useKeyboardNavigation.ts
+│   ├── useLoadMore.ts
+│   └── useMediaQuery.ts
+├── parsers/
+│   ├── netlog/
+│   │   ├── parser.ts
+│   │   ├── diagnosis.ts
+│   │   ├── errorClassifier.ts
+│   │   ├── requestLifecycle.ts
+│   │   ├── sourceGraph.ts
+│   │   ├── sourceGraphCache.ts
+│   │   ├── constants.ts
+│   │   ├── index.ts
+│   │   └── sourceGraph.test.ts
+│   └── shared/
+│       ├── evidenceIndex.ts
+│       ├── rawJsonPath.ts
+│       ├── rawJsonPath.test.ts
+│       └── typeGuards.ts
+├── utils/
+│   ├── copyText.ts
+│   ├── format.ts
+│   ├── harRepair.ts
+│   └── perfMark.ts
+└── workers/
+    ├── analysisWorker.ts
+    ├── workerClient.ts
+    └── protocols.ts
 ```
 
 ## 数据结构概览

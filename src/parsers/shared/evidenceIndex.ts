@@ -61,9 +61,6 @@ export function buildEventIndex(events: ParsedEvent[]): EventIndex {
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
     const params = e.params;
-    const paramsShallow = params
-      ? Object.entries(params).map(([k, v]) => `${k}:${v}`).join(' ')
-      : '';
 
     const hasNetError = params?.net_error !== undefined && params?.net_error !== 0;
     const netErrorCode = hasNetError ? Number(params.net_error) : undefined;
@@ -71,8 +68,10 @@ export function buildEventIndex(events: ParsedEvent[]): EventIndex {
     rows[i] = {
       ...e,
       originalIndex: i,
-      paramsPreview: paramsShallow.substring(0, 50),
-      searchText: `${e.typeName} ${e.source.typeName} ${e.source.id} ${e.time} ${paramsShallow}`.toLowerCase(),
+      paramsPreview: buildParamsPreview(params),
+      // 默认轻量索引只覆盖常见字段，不再默认做任意 params 全文搜索。
+      // 全量 params 搜索后续通过高级搜索或 Worker 搜索恢复。
+      searchText: buildLightSearchText(e),
       hasNetError,
       netErrorCode,
     };
@@ -206,7 +205,39 @@ export function queryIndex(
   }
 
   // 无任何过滤
-  return index.rows.slice();
+  return index.rows;
+}
+
+function buildParamsPreview(params: unknown): string {
+  if (!params || typeof params !== 'object') return '';
+  return Object.entries(params as Record<string, unknown>)
+    .slice(0, 8)
+    .map(([key, value]) => `${key}:${String(value).slice(0, 80)}`)
+    .join(' ')
+    .slice(0, 120);
+}
+
+function buildLightSearchText(event: ParsedEvent): string {
+  const params = event.params || {};
+  return [
+    event.typeName,
+    event.source.typeName,
+    event.source.id,
+    event.phaseName,
+    params.net_error,
+    params.net_error_string,
+    params.error,
+    params.error_code,
+    params.url,
+    params.host,
+    params.method,
+    params.ip_endpoint,
+    params.address,
+    params.peer_address,
+  ]
+    .filter(value => value !== undefined && value !== null)
+    .join(' ')
+    .toLowerCase();
 }
 
 /** 对已按索引排列的候选列表应用维度过滤 */

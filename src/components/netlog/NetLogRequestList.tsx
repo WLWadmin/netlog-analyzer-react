@@ -25,6 +25,10 @@ const PHASE_NAMES: Record<string, string> = {
 
 const PHASE_COLORS: Record<string, string> = CHART_COLORS.phases;
 
+function buildRequestVisualKey(req: URLRequest, index?: number) {
+  return `${req.id}-${req.startTime}-${req.endTime || req.startTime + (req.duration || 0)}-${index ?? 0}`;
+}
+
 const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -78,10 +82,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
   // 按开始时间排序的请求列表（预计算 host 避免重复 new URL()）
   const sortedRequests = useMemo(() => {
-    return [...result.urlRequests].sort((a, b) => a.startTime - b.startTime).map(r => {
+    return [...result.urlRequests].sort((a, b) => a.startTime - b.startTime).map((r, index) => {
       let host = '';
       try { host = new URL(r.url).host; } catch { /* ignore */ }
-      return { ...r, host };
+      return { ...r, host, visualKey: buildRequestVisualKey(r, index) };
     });
   }, [result.urlRequests]);
 
@@ -345,7 +349,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             <div style={{ flex: 1, position: 'relative', height: 24 }}>
               {timeTicks.map((t, i) => (
                 <div
-                  key={i}
+                  key={`tick-${i}-${t.toFixed(2)}`}
                   style={{
                     position: 'absolute',
                     left: `${((t - timeRange.min) / totalDuration) * 100}%`,
@@ -379,7 +383,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
             return (
               <div
-                key={req.id}
+                key={buildRequestVisualKey(req, idx)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -423,13 +427,13 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
                     }}
                   />
                   {/* 各阶段分解 */}
-                  {Object.entries(req.timeline).map(([phase, info]: [string, any]) => {
+                  {Object.entries(req.timeline).map(([phase, info]: [string, any], phaseIndex) => {
                     if (!info) return null;
                     const pLeft = ((info.start - timeRange.min) / totalDuration) * 100;
                     const pWidth = ((info.end - info.start) / totalDuration) * 100;
                     return (
                       <AntTooltip
-                        key={phase}
+                        key={`${req.id}-${phase}-${phaseIndex}-${info.start}-${info.end}`}
                         title={`${PHASE_NAMES[phase]}: ${formatDuration(info.duration)}`}
                       >
                         <div
@@ -581,7 +585,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
         <Table<URLRequest>
           columns={columns}
           dataSource={filteredRequests}
-          rowKey="id"
+          rowKey="visualKey"
           size="small"
           virtual
           scroll={{ x: 900, y: 600 }}
@@ -641,11 +645,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {Object.entries(detailReq.timeline)
                     .filter(([, info]) => info)
-                    .map(([phase, info]: [string, any]) => {
+                    .map(([phase, info]: [string, any], phaseIndex) => {
                       const total = detailReq.duration || 1;
                       const pct = (info.duration / total) * 100;
                       return (
-                        <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div key={`${detailReq.id}-${phase}-${phaseIndex}-${info.start}-${info.end}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 48, textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {PHASE_NAMES[phase]}
                           </span>

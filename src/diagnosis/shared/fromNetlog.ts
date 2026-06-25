@@ -3,10 +3,11 @@
  * 将 NetLog 分析结果转换为统一 DiagnosticCard 结构
  */
 
-import type { AnalysisResult, FailedDomain, ProxyInfo, ParsedEvent } from '../../parsers/netlog/parser';
+import type { AnalysisResult, FailedDomain, ProxyInfo, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { Suggestion } from '../../parsers/netlog/diagnosis';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import { netlogLifecycleToCards } from './fromNetlogLifecycle';
+import { getCachedEventsBySourceId, getCachedSourceGraph } from '../../parsers/netlog/sourceGraphCache';
 import type {
   DiagnosticCard,
   DiagnosticCategory,
@@ -18,6 +19,42 @@ import type {
   CollectionQuality,
   DiagnosisSummary,
 } from './types';
+
+interface DiagnosisMeasure {
+  <T>(label: string, fn: () => T): T;
+}
+
+interface DiagnosisBuildOptions {
+  measure?: DiagnosisMeasure;
+}
+
+const identityMeasure: DiagnosisMeasure = (_label, fn) => fn();
+
+type ContextEventKind = '网络切换' | '代理决策' | '缓存事件' | 'TLS 事件' | 'QUIC 事件' | 'HTTP/2 事件';
+
+interface ContextEventItem {
+  kind: ContextEventKind;
+  event: ParsedEvent;
+  time: number;
+}
+
+interface ContextEventWithDelta extends ContextEventItem {
+  delta: number;
+}
+
+interface ContextEventIndex {
+  items: ContextEventItem[];
+  times: number[];
+}
+
+interface RequestLookup {
+  byId: Map<number, URLRequest>;
+  idsByUrl: Map<string, number[]>;
+}
+
+const contextEventIndexCache = new WeakMap<AnalysisResult, ContextEventIndex>();
+const requestLookupCache = new WeakMap<AnalysisResult, RequestLookup>();
+const eventBySourceIdCache = new WeakMap<AnalysisResult, Map<number, ParsedEvent>>();
 
 function generateId(prefix: string, index: number): string {
   return `${prefix}-${index}-${Date.now().toString(36)}`;
@@ -116,18 +153,98 @@ function extractCertDetails(params: Record<string, any>): string[] {
     .slice(0, 6);
 }
 
-function findEventsAround(result: AnalysisResult, time: number, windowMs = 3000) {
-  const all = [
-    ...result.networkChanges.map(e => ({ kind: '网络切换', event: e })),
-    ...result.proxyEvents.map(e => ({ kind: '代理决策', event: e })),
-    ...result.cacheEvents.map(e => ({ kind: '缓存事件', event: e })),
-    ...result.sslEvents.map(e => ({ kind: 'TLS 事件', event: e })),
-    ...result.quicEvents.map(e => ({ kind: 'QUIC 事件', event: e })),
-    ...result.http2Events.map(e => ({ kind: 'HTTP/2 事件', event: e })),
-  ];
-  return all
-    .map(item => ({ ...item, delta: Math.abs(item.event.time - time) }))
-    .filter(item => item.delta <= windowMs)
+function getContextEventIndex(result: AnalysisResult): ContextEventIndex {
+  const cached = contextEventIndexCache.get(result);
+  if (cached) return cached;
+
+  const items: ContextEventItem[] = [
+    ...result.networkChanges.map(event => ({ kind: '网络切换' as const, event, time: event.time })),
+    ...result.proxyEvents.map(event => ({ kind: '代理决策' as const, event, time: event.time })),
+    ...result.cacheEvents.map(event => ({ kind: '缓存事件' as const, event, time: event.time })),
+    ...result.sslEvents.map(event => ({ kind: 'TLS 事件' as const, event, time: event.time })),
+    ...result.quicEvents.map(event => ({ kind: 'QUIC 事件' as const, event, time: event.time })),
+    ...result.http2Events.map(event => ({ kind: 'HTTP/2 事件' as const, event, time: event.time })),
+  ]
+    .filter(item => Number.isFinite(item.time))
+    .sort((a, b) => a.time - b.time);
+
+  const index = {
+    items,
+    times: items.map(item => item.time),
+  };
+  contextEventIndexCache.set(result, index);
+  return index;
+}
+
+function lowerBound(values: number[], target: number): number {
+  let left = 0;
+  let right = values.length;
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    if (values[mid] < target) left = mid + 1;
+    else right = mid;
+  }
+  return left;
+}
+
+function upperBound(values: number[], target: number): number {
+  let left = 0;
+  let right = values.length;
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    if (values[mid] <= target) left = mid + 1;
+    else right = mid;
+  }
+  return left;
+}
+
+function getRequestLookup(result: AnalysisResult): RequestLookup {
+  const cached = requestLookupCache.get(result);
+  if (cached) return cached;
+
+  const byId = new Map<number, URLRequest>();
+  const idsByUrl = new Map<string, number[]>();
+
+  result.urlRequests.forEach(request => {
+    byId.set(request.id, request);
+    const ids = idsByUrl.get(request.url);
+    if (ids) ids.push(request.id);
+    else idsByUrl.set(request.url, [request.id]);
+  });
+
+  const lookup = { byId, idsByUrl };
+  requestLookupCache.set(result, lookup);
+  return lookup;
+}
+
+function getEventBySourceId(result: AnalysisResult): Map<number, ParsedEvent> {
+  const cached = eventBySourceIdCache.get(result);
+  if (cached) return cached;
+
+  const map = new Map<number, ParsedEvent>();
+  getContextEventIndex(result).items.forEach(item => {
+    if (!map.has(item.event.source.id)) {
+      map.set(item.event.source.id, item.event);
+    }
+  });
+
+  eventBySourceIdCache.set(result, map);
+  return map;
+}
+
+function findEventsAround(result: AnalysisResult, time: number, windowMs = 3000): ContextEventWithDelta[] {
+  const index = getContextEventIndex(result);
+  if (index.items.length === 0) return [];
+
+  const start = lowerBound(index.times, time - windowMs);
+  const end = upperBound(index.times, time + windowMs);
+
+  return index.items
+    .slice(start, end)
+    .map(item => ({
+      ...item,
+      delta: Math.abs(item.time - time),
+    }))
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 8);
 }
@@ -137,6 +254,8 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
   const positives: DiagnosticConfidenceFactor[] = [];
   const negatives: DiagnosticConfidenceFactor[] = [];
   const neutrals: DiagnosticConfidenceFactor[] = [];
+  const requestLookup = getRequestLookup(result);
+  const eventBySourceId = getEventBySourceId(result);
 
   if (evidence.length > 0) {
     positives.push({ label: '结构化证据', impact: 'positive', detail: `卡片包含 ${evidence.length} 条 NetLog/推导证据` });
@@ -167,13 +286,12 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
 
   const relatedTimes = new Set<number>();
   (card.relatedRequestIds || []).forEach(id => {
-    const req = result.urlRequests.find(r => r.id === id);
+    const req = requestLookup.byId.get(id);
     if (req) relatedTimes.add(req.startTime);
   });
   (card.relatedEventIds || []).forEach(id => {
     const numeric = Number(id);
-    const evt = result.sslEvents.concat(result.proxyEvents, result.cacheEvents, result.networkChanges, result.quicEvents, result.http2Events)
-      .find(e => e.source.id === numeric);
+    const evt = eventBySourceId.get(numeric);
     if (evt) relatedTimes.add(evt.time);
   });
 
@@ -448,12 +566,19 @@ function inferRoleFromAction(actionText: string): DiagnosticRole {
 
 // ========== 主转换函数 ==========
 
-export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[], events?: ParsedEvent[]): DiagnosticCard[] {
+export function netlogToCards(
+  result: AnalysisResult,
+  suggestions: Suggestion[],
+  events?: ParsedEvent[],
+  opts?: DiagnosisBuildOptions
+): DiagnosticCard[] {
+  const measure: DiagnosisMeasure = opts?.measure ?? identityMeasure;
   const cards = suggestions.map((s, i) => suggestionToCard(s, i, result));
 
   // 添加代理/VPN 环境卡片（如果检测到但未生成）
   if (result.proxyInfo.hasProxy && !cards.some(c => c.category === 'proxy')) {
-    cards.push(buildProxyCard(result.proxyInfo, result));
+    const proxyCard = buildProxyCard(result.proxyInfo, result);
+    cards.push(proxyCard);
   }
 
   // 添加 DNS 劫持卡片（如果检测到但未生成）
@@ -461,7 +586,8 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[],
     d.ips.some(ip => ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1')
   );
   if (hijackedDomains.length > 0 && !cards.some(c => c.title.includes('劫持'))) {
-    cards.push(buildDnsHijackCard(hijackedDomains));
+    const dnsHijackCard = buildDnsHijackCard(hijackedDomains);
+    cards.push(dnsHijackCard);
   }
 
   // ========== 批次 C 增强：DNS 解析诊断卡片 ==========
@@ -716,7 +842,10 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[],
   }
 
   // ========== P1 增强：时间相关性 + 决策链路 ==========
-  cards.push(...buildTemporalCorrelationCards(result));
+  // 历史主瓶颈回归指标：用于观察时间相关性构建是否再次膨胀。
+  cards.push(...measure('Diagnosis/netlogToCards/buildTemporalCorrelationCards', () =>
+    buildTemporalCorrelationCards(result)
+  ));
 
   const cacheDecisionCard = buildCacheDecisionCard(result);
   if (cacheDecisionCard && !cards.some(c => c.id.startsWith('netlog-cache-decision'))) {
@@ -740,11 +869,21 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[],
 
   // ========== Phase 3 增强：请求生命周期证据 ==========
   if (events && events.length > 0) {
-    const lifecycleCards = netlogLifecycleToCards(result, events, { maxCards: 5 });
+    const graph = getCachedSourceGraph(events, result.urlRequests);
+    const eventsBySourceId = getCachedEventsBySourceId(events);
+    const lifecycleCards = netlogLifecycleToCards(result, events, {
+      maxCards: 5,
+      graph,
+      eventsBySourceId,
+      measure: identityMeasure,
+    });
     lifecycleCards.forEach(c => cards.push(c));
   }
 
-  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
+  // 历史次瓶颈回归指标：用于观察诊断证据补全是否再次退化。
+  const enrichedCards = measure('Diagnosis/netlogToCards/enrichCardWithP1EvidenceBatch', () =>
+    cards.map(card => enrichCardWithP1Evidence(card, result))
+  );
 
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
@@ -754,6 +893,7 @@ export function netlogToCards(result: AnalysisResult, suggestions: Suggestion[],
 }
 
 function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[] {
+  const requestLookup = getRequestLookup(result);
   const failuresWithContext = result.connectionFailures
     .map(failure => ({ failure, context: findEventsAround(result, failure.time, 3000) }))
     .filter(item => item.context.length > 0);
@@ -761,7 +901,7 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
   if (failuresWithContext.length < 2) return [];
 
   const relatedRequestIds = failuresWithContext
-    .flatMap(item => result.urlRequests.filter(r => r.url === item.failure.url).map(r => r.id))
+    .flatMap(item => requestLookup.idsByUrl.get(item.failure.url) || [])
     .slice(0, 30);
   const kindCounts = failuresWithContext.reduce<Record<string, number>>((acc, item) => {
     item.context.forEach(ctx => { acc[ctx.kind] = (acc[ctx.kind] || 0) + 1; });
@@ -782,7 +922,7 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
       label: `相关失败 ${i + 1}`,
       value: `${hostFromUrl(item.failure.url) || item.failure.url} · 错误 ${item.failure.error} · ${item.context.map(ctx => `${ctx.kind}/${ctx.event.typeName}(Δ${ctx.delta.toFixed(0)}ms)`).join('、')}`,
       source: 'derived' as const,
-      requestIds: result.urlRequests.filter(r => r.url === item.failure.url).map(r => r.id),
+      requestIds: requestLookup.idsByUrl.get(item.failure.url) || [],
     })),
     actions: [
       {
@@ -1216,14 +1356,16 @@ export function checkNetlogQuality(result: AnalysisResult): CollectionQuality {
 export function buildNetlogDiagnosisSummary(
   result: AnalysisResult,
   suggestions: Suggestion[],
-  events?: ParsedEvent[]
+  events?: ParsedEvent[],
+  opts?: DiagnosisBuildOptions
 ): DiagnosisSummary {
-  const cards = netlogToCards(result, suggestions, events);
+  const cards = netlogToCards(result, suggestions, events, opts);
   const quality = checkNetlogQuality(result);
 
-  const overallSeverity: DiagnosisSummary['overallSeverity'] =
+  const overallSeverity = (
     cards.some(c => c.severity === 'critical') ? 'critical' :
-    cards.some(c => c.severity === 'warning') ? 'warning' : 'info';
+    cards.some(c => c.severity === 'warning') ? 'warning' : 'info'
+  ) as DiagnosisSummary['overallSeverity'];
 
   return {
     cards,

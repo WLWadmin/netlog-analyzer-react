@@ -9,7 +9,14 @@
 import type { AnalysisResult, URLRequest, ParsedEvent } from '../../parsers/netlog/parser';
 import type { DiagnosticCard, DiagnosticCategory, DiagnosticEvidence, DiagnosticAction } from './types';
 import { buildRequestLifecycle, getDominantStage, LifecycleStageName, collectRelatedSourceIdsFromGraph } from '../../parsers/netlog/requestLifecycle';
-import { buildSourceGraph } from '../../parsers/netlog/sourceGraph';
+import type { SourceGraph } from '../../parsers/netlog/sourceGraph';
+import { getCachedEventsBySourceId, getCachedSourceGraph } from '../../parsers/netlog/sourceGraphCache';
+
+interface LifecycleMeasure {
+  <T>(label: string, fn: () => T): T;
+}
+
+const identityMeasure: LifecycleMeasure = (_label, fn) => fn();
 
 function generateId(prefix: string, seed: string | number) {
   return `${prefix}-${seed}-${Date.now().toString(36)}`;
@@ -118,73 +125,91 @@ function hostFromUrl(url: string): string {
 export function netlogLifecycleToCards(
   result: AnalysisResult,
   events: ParsedEvent[],
-  opts?: { maxCards?: number }
+  opts?: {
+    maxCards?: number;
+    graph?: SourceGraph;
+    eventsBySourceId?: Map<number, ParsedEvent[]>;
+    measure?: LifecycleMeasure;
+  }
 ): DiagnosticCard[] {
   const maxCards = opts?.maxCards ?? 5;
   const candidates = (result.slowRequests || []).slice(0, maxCards);
   if (candidates.length === 0) return [];
 
-  const graph = buildSourceGraph(events, result.urlRequests);
+  const measure: LifecycleMeasure = opts?.measure ?? identityMeasure;
+  const graph = opts?.graph || getCachedSourceGraph(events, result.urlRequests);
+  const eventsBySourceId = opts?.eventsBySourceId || getCachedEventsBySourceId(events);
 
-  const cards: DiagnosticCard[] = [];
-  for (const req of candidates) {
-    const relatedSourceIds = collectRelatedSourceIdsFromGraph(graph, req.id);
-    const lifecycle = buildRequestLifecycle(events, result.urlRequests, req, { relatedSourceIds });
+  return measure('Diagnosis/lifecycle/netlogLifecycleToCards', () => {
+    const cards: DiagnosticCard[] = [];
+    for (const req of candidates) {
+      const relatedSourceIds = collectRelatedSourceIdsFromGraph(graph, req.id);
+      const lifecycle = measure(`Diagnosis/lifecycle/buildRequestLifecycle/${req.id}`, () =>
+        buildRequestLifecycle(events, result.urlRequests, req, {
+          relatedSourceIds,
+          eventsBySourceId,
+        })
+      );
 
-    const dominantTimelineStage = (() => {
-      const tl = req.timeline || {};
-      const stageList: Array<[LifecycleStageName, number | undefined]> = [
-        ['dns', tl.dns?.duration],
-        ['tcp', tl.connect?.duration],
-        ['tls', tl.ssl?.duration],
-        ['request', tl.send?.duration],
-        ['response', tl.wait?.duration],
-        ['response', tl.download?.duration],
+      const dominantTimelineStage = (() => {
+        const tl = req.timeline || {};
+        const stageList: Array<[LifecycleStageName, number | undefined]> = [
+          ['dns', tl.dns?.duration],
+          ['tcp', tl.connect?.duration],
+          ['tls', tl.ssl?.duration],
+          ['request', tl.send?.duration],
+          ['response', tl.wait?.duration],
+          ['response', tl.download?.duration],
+        ];
+        const filtered = stageList.filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && (v as number) > 0) as Array<[LifecycleStageName, number]>;
+        if (filtered.length === 0) return null;
+        filtered.sort((a, b) => b[1] - a[1]);
+        return { stage: filtered[0][0], duration: filtered[0][1] };
+      })();
+
+      const dominantLifecycleStage = dominantTimelineStage || (() => {
+        const dominant = getDominantStage(lifecycle);
+        return dominant ? { stage: dominant.name, duration: dominant.duration || 0 } : null;
+      })();
+      const dominantStage = dominantLifecycleStage?.stage || 'unknown';
+      const dominantDuration = dominantLifecycleStage?.duration || 0;
+
+      const host = hostFromUrl(req.url);
+      const category = stageToCategory(dominantStage);
+      const evidence: DiagnosticEvidence[] = [
+        { label: 'URL', value: req.url, source: 'netlog' },
+        { label: '总耗时', value: `${(req.duration || 0).toFixed(0)}ms`, source: 'netlog' },
+        { label: '主要阶段', value: `${stageLabel(dominantStage)}（约 ${dominantDuration.toFixed(0)}ms）`, source: 'derived' },
+        ...buildStageBreakdownEvidence(req),
+        {
+          label: 'source 链路',
+          value: lifecycle.relatedSourceTypes.slice(0, 8).join(' → ') || '未记录',
+          source: 'derived',
+          detail: `涉及 ${lifecycle.relatedSourceIds.length} 个 source`,
+        },
       ];
-      const filtered = stageList.filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && (v as number) > 0) as Array<[LifecycleStageName, number]>;
-      if (filtered.length === 0) return null;
-      filtered.sort((a, b) => b[1] - a[1]);
-      return { stage: filtered[0][0], duration: filtered[0][1] };
-    })();
 
-    const dominantStage = dominantTimelineStage?.stage || getDominantStage(lifecycle)?.name || 'unknown';
-    const dominantDuration = dominantTimelineStage?.duration || getDominantStage(lifecycle)?.duration || 0;
+      cards.push({
+        id: generateId('netlog-lifecycle', req.id),
+        source: 'netlog',
+        category,
+        severity: req.error ? 'warning' : 'info',
+        confidence: 'medium',
+        title: `请求生命周期：${stageLabel(dominantStage)} 阶段耗时偏高`,
+        conclusion: `${stageLabel(dominantStage)} 阶段耗时占比偏高，建议优先围绕该阶段补充证据与排查。该结论为启发式推断，需结合事件列表进一步确认。`,
+        scope: { type: 'single-request', summary: '影响 1 个请求', affectedRequestCount: 1 },
+        evidence,
+        actions: buildActionsForStage(dominantStage, host),
+        limitations: [
+          '生命周期分段为启发式规则，可能需要结合事件列表人工复核',
+          '生命周期基于 source_dependency 关系追踪；如果 NetLog 缺失依赖边，底层证据可能不完整',
+        ],
+        relatedRequestIds: [req.id],
+        relatedEventIds: lifecycle.relatedSourceIds.slice(0, 15).map(String),
+        navigationTarget: { tab: 'requests', requestIds: [req.id], keyword: host },
+      });
+    }
 
-    const host = hostFromUrl(req.url);
-    const category = stageToCategory(dominantStage);
-    const evidence: DiagnosticEvidence[] = [
-      { label: 'URL', value: req.url, source: 'netlog' },
-      { label: '总耗时', value: `${(req.duration || 0).toFixed(0)}ms`, source: 'netlog' },
-      { label: '主要阶段', value: `${stageLabel(dominantStage)}（约 ${dominantDuration.toFixed(0)}ms）`, source: 'derived' },
-      ...buildStageBreakdownEvidence(req),
-      {
-        label: 'source 链路',
-        value: lifecycle.relatedSourceTypes.slice(0, 8).join(' → ') || '未记录',
-        source: 'derived',
-        detail: `涉及 ${lifecycle.relatedSourceIds.length} 个 source`,
-      },
-    ];
-
-    cards.push({
-      id: generateId('netlog-lifecycle', req.id),
-      source: 'netlog',
-      category,
-      severity: req.error ? 'warning' : 'info',
-      confidence: 'medium',
-      title: `请求生命周期：${stageLabel(dominantStage)} 阶段耗时偏高`,
-      conclusion: `${stageLabel(dominantStage)} 阶段耗时占比偏高，建议优先围绕该阶段补充证据与排查。该结论为启发式推断，需结合事件列表进一步确认。`,
-      scope: { type: 'single-request', summary: '影响 1 个请求', affectedRequestCount: 1 },
-      evidence,
-      actions: buildActionsForStage(dominantStage, host),
-      limitations: [
-        '生命周期分段为启发式规则，可能需要结合事件列表人工复核',
-        '生命周期基于 source_dependency 关系追踪；如果 NetLog 缺失依赖边，底层证据可能不完整',
-      ],
-      relatedRequestIds: [req.id],
-      relatedEventIds: lifecycle.relatedSourceIds.slice(0, 15).map(String),
-      navigationTarget: { tab: 'requests', requestIds: [req.id], keyword: host },
-    });
-  }
-
-  return cards;
+    return cards;
+  });
 }
