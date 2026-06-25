@@ -56,7 +56,7 @@ const { Header, Content } = Layout;
 
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
-  netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'source-chain', 'ssl-protocol', 'performance', 'raw-evidence'],
+  netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'source-chain', 'ssl-protocol', 'performance', 'raw-evidence', 'baseline'],
   har: ['requests', 'diagnosis'],
   log: ['overview', 'flows', 'diagnosis', 'performance', 'raw'],
 };
