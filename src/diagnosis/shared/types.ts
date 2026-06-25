@@ -68,8 +68,16 @@ export interface DiagnosticAction {
   nextIfFailed?: string;
 }
 
+export type DiagnosticConfidenceLevel = 'high' | 'medium' | 'low';
+
+export interface DiagnosticConfidenceFactor {
+  label: string;
+  impact: 'positive' | 'negative' | 'neutral';
+  detail: string;
+}
+
 export interface DiagnosticNavigationTarget {
-  tab: 'overview' | 'requests' | 'performance' | 'ssl' | 'protocol' | 'diagnosis' | 'events';
+  tab: 'overview' | 'requests' | 'performance' | 'ssl' | 'protocol' | 'ssl-protocol' | 'diagnosis' | 'combined' | 'events' | 'source-chain' | 'raw-evidence';
   keyword?: string;
   errorCode?: string;
   errorOnly?: boolean;
@@ -82,7 +90,8 @@ export interface DiagnosticCard {
   source: DiagnosticSource;
   category: DiagnosticCategory;
   severity: 'critical' | 'warning' | 'info';
-  confidence: 'high' | 'medium' | 'low';
+  confidence: DiagnosticConfidenceLevel;
+  confidenceFactors?: DiagnosticConfidenceFactor[];
   title: string;
   conclusion: string;
   scope: DiagnosticScope;
