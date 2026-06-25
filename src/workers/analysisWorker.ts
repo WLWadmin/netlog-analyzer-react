@@ -9,10 +9,21 @@ import { parseLog } from '../parsers/netlog/parser';
 import { parseHar } from '../harParser';
 import { parseLogFile } from '../logParser';
 import { parseHarWithRepair } from '../utils/harRepair';
+import { searchJsonPaths } from '../parsers/shared/rawJsonPath';
+import { RAW_EVIDENCE_SEARCH_MAX_DEPTH, RAW_EVIDENCE_SEARCH_MAX_RESULTS } from '../constants/analysisThresholds';
 import type { WorkerRequest, WorkerResponse } from './protocols';
 
 /* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
+
+// Worker 内缓存解析后的 rawData，避免 raw 搜索时反复 structured clone 大 JSON
+const rawDataStore = new Map<string, unknown>();
+
+function keepRawData(kind: 'har' | 'netlog', rawData: unknown): string {
+  const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  rawDataStore.set(id, rawData);
+  return id;
+}
 
 function sendResponse(response: WorkerResponse) {
   ctx.postMessage(response);
@@ -35,6 +46,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           : msg.payload;
         sendProgress(msg.id, '正在分析 NetLog 事件...', 40);
         const { events, result } = parseLog(rawData);
+        const rawDataId = keepRawData('netlog', rawData);
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
@@ -43,6 +55,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           payload: result,
           events,
           rawPayload: rawData,
+          rawDataId,
           duration,
         });
         break;
@@ -62,6 +75,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
         if (repairInfo) {
           harResult.repairInfo = repairInfo as any;
         }
+        const rawDataId = keepRawData('har', rawData);
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
@@ -69,6 +83,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           resultType: 'har',
           payload: harResult,
           rawPayload: rawData,
+          rawDataId,
           duration,
         });
         break;
@@ -83,6 +98,52 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'log',
           payload: logResult,
+          duration,
+        });
+        break;
+      }
+
+      case 'search-raw-json': {
+        const query = msg.payload?.query || '';
+        sendProgress(msg.id, '正在搜索原始 JSON...', 10);
+        const rawData = rawDataStore.get(msg.payload.rawDataId);
+        if (!rawData) {
+          sendResponse({
+            type: 'error',
+            id: msg.id,
+            error: 'Raw data not found or released',
+          });
+          break;
+        }
+        const matches = searchJsonPaths(
+          rawData,
+          query,
+          msg.payload?.maxResults ?? RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+          msg.payload?.maxDepth ?? RAW_EVIDENCE_SEARCH_MAX_DEPTH
+        );
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'raw-search',
+          payload: matches,
+          duration,
+        });
+        break;
+      }
+
+      case 'release-raw-data': {
+        if (msg.payload?.all) {
+          rawDataStore.clear();
+        } else if (msg.payload?.rawDataId) {
+          rawDataStore.delete(msg.payload.rawDataId);
+        }
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'raw-release',
+          payload: true,
           duration,
         });
         break;

@@ -60,6 +60,10 @@ export interface NavigationScrollTo {
 export interface NavigationIntent {
   /** 目标 tab key */
   tab: string;
+  /** 目标文件类型（用于 HAR / NetLog 间避免跳错） */
+  fileType?: 'har' | 'netlog' | 'log';
+  /** 证据来源（联合诊断时用于区分证据来自 HAR 还是 NetLog） */
+  evidenceSource?: 'har' | 'netlog';
   /** 跳转来源描述 */
   source?: string;
   /** 跳转原因描述 */

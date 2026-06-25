@@ -24,17 +24,44 @@ export interface ParseLogRequest {
   payload: string; // raw text content
 }
 
-export type WorkerRequest = ParseNetlogRequest | ParseHarRequest | ParseLogRequest;
+export interface SearchRawJsonRequest {
+  type: 'search-raw-json';
+  id: string;
+  payload: {
+    rawDataId: string;
+    query: string;
+    maxResults?: number;
+    maxDepth?: number;
+  };
+}
+
+export interface ReleaseRawDataRequest {
+  type: 'release-raw-data';
+  id: string;
+  payload: {
+    rawDataId?: string;
+    all?: boolean;
+  };
+}
+
+export type WorkerRequest =
+  | ParseNetlogRequest
+  | ParseHarRequest
+  | ParseLogRequest
+  | SearchRawJsonRequest
+  | ReleaseRawDataRequest;
 
 // ============ Response Messages (Worker → Main) ============
 
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer
+  /** rawPayload 在 Worker 内部的缓存 ID，用于后续 raw 搜索避免 structured clone 大 JSON */
+  rawDataId?: string;
   duration: number; // parsing time in ms
 }
 

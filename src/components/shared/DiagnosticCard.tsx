@@ -32,6 +32,7 @@ import type { TroubleshootingCommand } from '../../diagnosis/shared/commandLibra
 import { useNavigation } from '../../contexts/NavigationContext';
 import { getCommandsForCategory } from '../../diagnosis/shared/commandLibrary';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
+import { buildEvidenceNavigationTargets } from '../../diagnosis/shared/evidenceNavigation';
 
 interface DiagnosticCardProps {
   card: DiagnosticCardType;
@@ -144,84 +145,9 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
   };
 
   /**
-   * 计算该卡片是否具备可导航能力
-   * 优先级：navigationTarget > relatedRequestIds > relatedEventIds
+   * 证据跳转入口（可多入口）
    */
-  const canNavigate = useMemo(() => {
-    if (card.navigationTarget) return true;
-    if (card.relatedRequestIds && card.relatedRequestIds.length > 0) return true;
-    if (card.relatedEventIds && card.relatedEventIds.length > 0) return true;
-    return false;
-  }, [card.navigationTarget, card.relatedRequestIds, card.relatedEventIds]);
-
-  /**
-   * 构建最终的导航意图
-   * 模式 B：优先使用 navigationTarget，否则用 relatedRequestIds / relatedEventIds 构造 fallback
-   */
-  const buildNavigationIntent = useMemo(() => {
-    // 模式 A：已有完整 navigationTarget
-    if (card.navigationTarget) {
-      const { tab, keyword, errorCode, errorOnly, requestIds, eventIds } = card.navigationTarget;
-      return {
-        tab,
-        filters: {
-          ...(keyword && { keyword }),
-          ...(errorCode && { errorCode }),
-          ...(errorOnly && { errorOnly }),
-          ...(requestIds?.length === 1 && { requestId: requestIds[0] }),
-        },
-        highlight: {
-          ...(requestIds && { requestIds }),
-          ...(eventIds && { sourceIds: eventIds.map(Number) }),
-        },
-      };
-    }
-
-    // 模式 B fallback：根据 source 类型和关联数据自动推断目标 tab
-    if (card.source === 'har' && card.relatedRequestIds && card.relatedRequestIds.length > 0) {
-      return {
-        tab: 'requests',
-        filters: {
-          ...(card.relatedRequestIds.length === 1 && { requestId: card.relatedRequestIds[0] }),
-        },
-        highlight: { requestIds: card.relatedRequestIds },
-      };
-    }
-
-    if (card.source === 'netlog' && card.relatedRequestIds && card.relatedRequestIds.length > 0) {
-      return {
-        tab: 'requests',
-        filters: {
-          ...(card.relatedRequestIds.length === 1 && { requestId: card.relatedRequestIds[0] }),
-        },
-        highlight: { requestIds: card.relatedRequestIds },
-      };
-    }
-
-    if (card.source === 'netlog' && card.relatedEventIds && card.relatedEventIds.length > 0) {
-      return {
-        tab: 'events',
-        filters: {
-          ...(card.relatedEventIds.length === 1 && { sourceId: card.relatedEventIds[0] }),
-        },
-        highlight: { sourceIds: card.relatedEventIds.map(Number) },
-      };
-    }
-
-    return null;
-  }, [card]);
-
-  const handleNavigate = () => {
-    const intent = buildNavigationIntent;
-    if (!intent) return;
-    navigateTo({
-      tab: intent.tab,
-      filters: intent.filters,
-      highlight: intent.highlight,
-      source: '诊断卡片',
-      reason: `查看「${card.title}」相关证据`,
-    });
-  };
+  const evidenceTargets = useMemo(() => buildEvidenceNavigationTargets(card), [card]);
 
   return (
     <Card
@@ -300,11 +226,18 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {canNavigate && (
+          {evidenceTargets.map((t, idx) => (
             <Button
+              key={`${t.kind}-${idx}`}
               size="small"
               icon={<EyeOutlined />}
-              onClick={handleNavigate}
+              onClick={() => {
+                navigateTo({
+                  ...t.intent,
+                  source: '诊断卡片',
+                  reason: `查看「${card.title}」相关证据：${t.label}`,
+                });
+              }}
               style={{
                 background: config.color + '15',
                 borderColor: config.color + '40',
@@ -312,9 +245,9 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
                 fontSize: 12,
               }}
             >
-              查看证据
+              {t.label}
             </Button>
-          )}
+          ))}
           <Button
             size="small"
             icon={<DownloadOutlined />}

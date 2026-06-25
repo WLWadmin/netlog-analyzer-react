@@ -11,6 +11,7 @@ import RawEvidenceExplorer from '../raw/RawEvidenceExplorer';
 interface HarResultPageProps {
   result: HarAnalysisResult;
   rawData?: unknown;
+  rawDataId?: string;
   /** 外层控制的 activeTab，由 App hash 路由驱动 */
   activeTab?: string;
   /** tab 切换回调，用于同步 hash */
@@ -18,7 +19,7 @@ interface HarResultPageProps {
 }
 
 // HAR 解析结果整体页面（汇总卡片 + 请求列表 / 汇总诊断 两个 Tab）
-const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, activeTab: externalActiveTab, onTabChange }) => {
+const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveKey, setInternalActiveKey] = useState('requests');
   const activeKey = externalActiveTab || internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -74,7 +75,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, activeTa
           原始证据
         </span>
       ),
-      children: rawData ? <RawEvidenceExplorer rawData={rawData} /> : null,
+      children: rawData ? <RawEvidenceExplorer rawData={rawData} rawDataId={rawDataId} fileName="HAR 原始证据" /> : null,
     },
   ];
 

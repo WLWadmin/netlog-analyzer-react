@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Layout, Tabs, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
@@ -30,6 +30,7 @@ import {
   parseNetlogInWorker,
   parseHarInWorker,
   parseLogInWorker,
+  releaseRawDataInWorker,
 } from './workers/workerClient';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
@@ -43,16 +44,24 @@ import DiagnosisTab from './components/netlog/DiagnosisTab';
 import EventsTab from './components/netlog/EventsTab';
 import SourceChainViewer from './components/netlog/SourceChainViewer';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
-import HarResultPage from './components/har/HarResultPage';
-import LogResultPage from './components/log/LogResultPage';
 import CombinedDiagnosisTab from './components/shared/CombinedDiagnosisTab';
 import BaselineCompareTab from './components/shared/BaselineCompareTab';
-import RawEvidenceExplorer from './components/raw/RawEvidenceExplorer';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 
 const { Header, Content } = Layout;
+
+// 页面级懒加载：减少首包体积（重型模块拆分）
+const HarResultPage = lazy(() => import('./components/har/HarResultPage'));
+const LogResultPage = lazy(() => import('./components/log/LogResultPage'));
+const RawEvidenceExplorer = lazy(() => import('./components/raw/RawEvidenceExplorer'));
+
+const LazyFallback: React.FC<{ text?: string }> = ({ text = '正在加载模块...' }) => (
+  <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+    {text}
+  </div>
+);
 
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
@@ -80,7 +89,8 @@ const AppContent: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
-  const [rawUploadData, setRawUploadData] = useState<unknown>(null);
+  const [rawUploadDataByType, setRawUploadDataByType] = useState<{ har?: unknown; netlog?: unknown; log?: unknown }>({});
+  const [rawDataIdByType, setRawDataIdByType] = useState<{ har?: string; netlog?: string }>({});
   const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
@@ -111,10 +121,24 @@ const AppContent: React.FC = () => {
   // 监听导航意图，自动切换 tab
   useEffect(() => {
     if (!intent) return;
+    const nextFileType =
+      intent.fileType && intent.fileType in VALID_TABS
+        ? (intent.fileType as 'netlog' | 'har' | 'log')
+        : fileType;
+    if (nextFileType !== fileType) {
+      setFileType(nextFileType);
+    }
     setActiveTab(intent.tab);
-    window.location.hash = buildHash(fileType, intent.tab);
+    window.location.hash = buildHash(nextFileType, intent.tab);
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
   }, [intent, fileType]);
+
+  const rememberRawData = (type: 'har' | 'netlog' | 'log', rawData?: unknown, rawDataId?: string) => {
+    setRawUploadDataByType((prev) => ({ ...prev, [type]: rawData }));
+    if (type === 'har' || type === 'netlog') {
+      setRawDataIdByType((prev) => ({ ...prev, [type]: rawDataId }));
+    }
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -179,12 +203,14 @@ const AppContent: React.FC = () => {
         setLoadingText('正在分析 HAR 请求...');
         let harAnalysis;
         let harRawData: unknown = typeof data === 'string' ? undefined : data;
+        let harRawDataId: string | undefined = undefined;
         if (useWorker) {
-          const { result, rawData } = await parseHarInWorker(data, repairInfo, {
+          const { result, rawData, rawDataId } = await parseHarInWorker(data, repairInfo, {
             onProgress: (phase) => setLoadingText(phase),
           });
           harAnalysis = result;
           harRawData = rawData;
+          harRawDataId = rawDataId;
         } else {
           const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
           harRawData = parsedData;
@@ -197,7 +223,10 @@ const AppContent: React.FC = () => {
         }
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
-        setRawUploadData(harRawData);
+        if (useWorker && harRawDataId && rawDataIdByType.har && rawDataIdByType.har !== harRawDataId) {
+          void releaseRawDataInWorker({ rawDataId: rawDataIdByType.har });
+        }
+        rememberRawData('har', harRawData, harRawDataId);
 
         if (resultRef.current) {
           setFileType('netlog');
@@ -223,6 +252,7 @@ const AppContent: React.FC = () => {
       let parsedEvents: ParsedEvent[];
       let analysisResult: AnalysisResult;
       let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
+      let netlogRawDataId: string | undefined = undefined;
       if (useWorker) {
         const workerResult = await parseNetlogInWorker(data, {
           onProgress: (phase) => setLoadingText(phase),
@@ -230,6 +260,7 @@ const AppContent: React.FC = () => {
         parsedEvents = workerResult.events;
         analysisResult = workerResult.result;
         netlogRawData = workerResult.rawData;
+        netlogRawDataId = workerResult.rawDataId;
       } else {
         const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
         netlogRawData = parsedData;
@@ -244,7 +275,10 @@ const AppContent: React.FC = () => {
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
-      setRawUploadData(netlogRawData);
+      if (useWorker && netlogRawDataId && rawDataIdByType.netlog && rawDataIdByType.netlog !== netlogRawDataId) {
+        void releaseRawDataInWorker({ rawDataId: rawDataIdByType.netlog });
+      }
+      rememberRawData('netlog', netlogRawData, netlogRawDataId);
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -295,12 +329,14 @@ const AppContent: React.FC = () => {
       if (shouldParseHar) {
         let harAnalysis;
         let harRawData: unknown = typeof data === 'string' ? undefined : data;
+        let harRawDataId: string | undefined = undefined;
         if (useWorker) {
-          const { result, rawData } = await parseHarInWorker(data, repairInfo, {
+          const { result, rawData, rawDataId } = await parseHarInWorker(data, repairInfo, {
             onProgress: (phase) => setLoadingText(phase),
           });
           harAnalysis = result;
           harRawData = rawData;
+          harRawDataId = rawDataId;
         } else {
           const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
           harRawData = parsedData;
@@ -310,7 +346,10 @@ const AppContent: React.FC = () => {
 
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
-        setRawUploadData(harRawData);
+        if (useWorker && harRawDataId && rawDataIdByType.har && rawDataIdByType.har !== harRawDataId) {
+          void releaseRawDataInWorker({ rawDataId: rawDataIdByType.har });
+        }
+        rememberRawData('har', harRawData, harRawDataId);
 
         if (resultRef.current) {
           setFileType('netlog');
@@ -332,6 +371,7 @@ const AppContent: React.FC = () => {
       let parsedEvents: ParsedEvent[];
       let analysisResult: AnalysisResult;
       let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
+      let netlogRawDataId: string | undefined = undefined;
       if (useWorker) {
         const workerResult = await parseNetlogInWorker(data, {
           onProgress: (phase) => setLoadingText(phase),
@@ -339,6 +379,7 @@ const AppContent: React.FC = () => {
         parsedEvents = workerResult.events;
         analysisResult = workerResult.result;
         netlogRawData = workerResult.rawData;
+        netlogRawDataId = workerResult.rawDataId;
       } else {
         const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
         netlogRawData = parsedData;
@@ -350,7 +391,10 @@ const AppContent: React.FC = () => {
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
-      setRawUploadData(netlogRawData);
+      if (useWorker && netlogRawDataId && rawDataIdByType.netlog && rawDataIdByType.netlog !== netlogRawDataId) {
+        void releaseRawDataInWorker({ rawDataId: rawDataIdByType.netlog });
+      }
+      rememberRawData('netlog', netlogRawData, netlogRawDataId);
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -378,7 +422,11 @@ const AppContent: React.FC = () => {
     setResult(null);
     setHarResult(null);
     setLogResult(null);
-    setRawUploadData(null);
+    setRawUploadDataByType({});
+    setRawDataIdByType({});
+    if (useWorker) {
+      void releaseRawDataInWorker({ all: true });
+    }
     activeLoadCountRef.current = 0;
     resultRef.current = null;
     harResultRef.current = null;
@@ -461,7 +509,7 @@ const AppContent: React.FC = () => {
   const tabItems = [
     { key: 'overview', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DashboardOutlined />总览</span>, children: result ? <OverviewTab result={result} /> : null },
     { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />请求瀑布</span>, children: result ? <NetLogRequestList result={result} /> : null },
-    { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} /> : null },
+    { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} events={events} /> : null },
     { key: 'combined', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />联合诊断</span>, children: result ? (
       <CombinedDiagnosisTab harResult={harResult} netlogResult={result} onUploadMissingFile={handleSecondaryFileLoaded} />
     ) : null },
@@ -487,7 +535,15 @@ const AppContent: React.FC = () => {
       </div>
     ) : null },
     { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
-    { key: 'raw-evidence', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始证据</span>, children: rawUploadData ? <RawEvidenceExplorer rawData={rawUploadData} /> : null },
+    {
+      key: 'raw-evidence',
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始证据</span>,
+      children: rawUploadDataByType.netlog ? (
+        <Suspense fallback={<LazyFallback text="正在加载原始证据模块..." />}>
+          <RawEvidenceExplorer rawData={rawUploadDataByType.netlog} rawDataId={rawDataIdByType.netlog} fileName="NetLog 原始证据" />
+        </Suspense>
+      ) : null,
+    },
     { key: 'baseline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileTextOutlined />A-B 对比</span>, children: <BaselineCompareTab /> },
   ];
 
@@ -779,15 +835,18 @@ const AppContent: React.FC = () => {
           </div>
         ) : fileType === 'har' && harResult ? (
           <div style={{ padding: '24px 28px' }}>
-            <HarResultPage
-              result={harResult}
-              rawData={rawUploadData}
-              activeTab={activeTab}
-              onTabChange={(key) => {
-                setActiveTab(key);
-                window.location.hash = buildHash(fileType, key);
-              }}
-            />
+            <Suspense fallback={<LazyFallback text="正在加载 HAR 页面..." />}>
+              <HarResultPage
+                result={harResult}
+                rawData={rawUploadDataByType.har}
+                rawDataId={rawDataIdByType.har}
+                activeTab={activeTab}
+                onTabChange={(key) => {
+                  setActiveTab(key);
+                  window.location.hash = buildHash(fileType, key);
+                }}
+              />
+            </Suspense>
             {/* 追加 NetLog，进入联合诊断 */}
             {!result && (
               <div style={{ marginTop: 24, padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
@@ -804,14 +863,16 @@ const AppContent: React.FC = () => {
           </div>
         ) : fileType === 'log' && logResult ? (
           <div style={{ padding: '24px 28px' }}>
-            <LogResultPage
-              result={logResult}
-              activeTab={activeTab}
-              onTabChange={(key) => {
-                setActiveTab(key);
-                window.location.hash = buildHash(fileType, key);
-              }}
-            />
+            <Suspense fallback={<LazyFallback text="正在加载日志页面..." />}>
+              <LogResultPage
+                result={logResult}
+                activeTab={activeTab}
+                onTabChange={(key) => {
+                  setActiveTab(key);
+                  window.location.hash = buildHash(fileType, key);
+                }}
+              />
+            </Suspense>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>

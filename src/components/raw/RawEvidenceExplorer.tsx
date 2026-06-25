@@ -1,9 +1,13 @@
 /**
  * RawEvidenceExplorer - 原始 JSON 证据浏览器
  * 支持对原始上传文件进行路径搜索和结构探索
+ *
+ * 性能策略：
+ * - 默认在 Worker 中执行深度搜索，避免主线程递归扫描大 JSON
+ * - Worker 不可用或失败时降级到主线程搜索（仍限制 maxResults/maxDepth）
  */
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, Input, Button, Tag, Empty, Tooltip, message } from 'antd';
 import {
   SearchOutlined,
@@ -12,23 +16,47 @@ import {
 } from '@ant-design/icons';
 import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
+import { isWorkerSupported, searchRawJsonInWorker } from '../../workers/workerClient';
+import { useNavigation } from '../../contexts/NavigationContext';
+import {
+  RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+  RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+  RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
+  RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+  RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+  SEARCH_DEBOUNCE_MS,
+} from '../../constants/analysisThresholds';
 
 interface RawEvidenceExplorerProps {
   /** 原始 JSON 数据（上传的文件内容） */
   rawData: unknown;
+  /**
+   * rawData 在 Worker 内的缓存 ID
+   * 有该值时，搜索必须走 `rawDataId`（避免 structured clone 大 JSON）
+   */
+  rawDataId?: string;
   /** 文件名 */
   fileName?: string;
 }
 
-const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, fileName }) => {
+const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawDataId, fileName }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<JsonPathMatch[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const searchTaskIdRef = useRef(0);
+  const pendingSelectPathRef = useRef<string | null>(null);
+  const { intent, consumeIntent } = useNavigation();
 
-  const structure = useMemo(() => getStructureOverview(rawData, 2), [rawData]);
+  useEffect(() => {
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, []);
+
+  const structure = useMemo(() => getStructureOverview(rawData, RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH), [rawData]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -41,11 +69,76 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, file
 
     setIsSearching(true);
     searchTimer.current = setTimeout(() => {
-      const results = searchJsonPaths(rawData, query.trim(), 200, 8);
-      setSearchResults(results);
-      setIsSearching(false);
-    }, 300);
-  }, [rawData]);
+      const taskId = ++searchTaskIdRef.current;
+      const q = query.trim();
+
+      const run = async () => {
+        try {
+          if (isWorkerSupported() && rawDataId) {
+            const results = await searchRawJsonInWorker(rawDataId, q, {
+              timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
+              maxResults: RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+              maxDepth: RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+            });
+            if (taskId !== searchTaskIdRef.current) return;
+            setSearchResults(results);
+            setIsSearching(false);
+            return;
+          }
+
+          // Worker 不支持或缺少 rawDataId：降级主线程搜索
+          const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
+          if (taskId !== searchTaskIdRef.current) return;
+          setSearchResults(results);
+          setIsSearching(false);
+        } catch (err) {
+          // Worker 搜索失败：降级主线程搜索（避免功能不可用）
+          try {
+            const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
+            if (taskId !== searchTaskIdRef.current) return;
+            setSearchResults(results);
+            setIsSearching(false);
+            message.warning('Worker 搜索失败，已降级到主线程搜索（大文件可能卡顿）');
+          } catch {
+            if (taskId !== searchTaskIdRef.current) return;
+            setSearchResults([]);
+            setIsSearching(false);
+            message.error('搜索失败');
+          }
+        }
+      };
+
+      void run();
+    }, SEARCH_DEBOUNCE_MS);
+  }, [rawData, rawDataId]);
+
+  // 消费导航意图：支持从诊断卡一键跳到 raw-evidence，并自动执行搜索
+  useEffect(() => {
+    if (!intent || intent.tab !== 'raw-evidence') return;
+    const q = intent.filters?.paramField || intent.filters?.keyword || '';
+    if (q) {
+      pendingSelectPathRef.current = q;
+      handleSearch(q);
+    }
+    consumeIntent();
+  }, [intent, consumeIntent, handleSearch]);
+
+  // 如果 intent 传入的是一个精确 fieldPath（如 $.log.entries[0].request.url），且搜索结果包含该 path，则自动选中
+  useEffect(() => {
+    const wanted = pendingSelectPathRef.current;
+    if (!wanted) return;
+    const hit = searchResults.find(r => r.path === wanted);
+    if (!hit) return;
+    pendingSelectPathRef.current = null;
+    setSelectedPath(hit.path);
+    const value = getValueByPath(rawData, hit.path);
+    const stringValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+    setExpandedValue(
+      stringValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
+        ? stringValue.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
+        : stringValue
+    );
+  }, [searchResults, rawData]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -69,7 +162,12 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, file
   const handleSelectPath = (path: string) => {
     setSelectedPath(path);
     const value = getValueByPath(rawData, path);
-    setExpandedValue(JSON.stringify(value, null, 2));
+    const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+    setExpandedValue(
+      text.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
+        ? text.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
+        : text
+    );
   };
 
   if (!rawData) {
@@ -183,8 +281,8 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, file
               wordBreak: 'break-all',
               color: 'var(--text-primary)',
             }}>
-              {expandedValue.length > 50000
-                ? expandedValue.substring(0, 50000) + '\n\n... (内容过长，已截断)'
+              {expandedValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
+                ? expandedValue.substring(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n\n... (内容过长，已截断)'
                 : expandedValue}
             </pre>
           ) : (

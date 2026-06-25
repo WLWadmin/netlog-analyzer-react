@@ -69,3 +69,20 @@ export const SEARCH_DEBOUNCE_MS = 250;
 
 /** 筛选 loading 最小展示时间（毫秒），低于此值不显示 spinner */
 export const FILTER_SPINNER_DELAY_MS = 80;
+
+// ---- Raw Evidence（原始证据）----
+
+/** Raw JSON path 搜索最大返回数量 */
+export const RAW_EVIDENCE_SEARCH_MAX_RESULTS = 200;
+
+/** Raw JSON path 搜索最大深度 */
+export const RAW_EVIDENCE_SEARCH_MAX_DEPTH = 8;
+
+/** RawEvidenceExplorer 默认结构概览最大深度 */
+export const RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH = 2;
+
+/** 原始值/JSON 预览最大字符数（超过会截断） */
+export const RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS = 50_000;
+
+/** Worker raw 搜索超时（毫秒） */
+export const RAW_EVIDENCE_WORKER_TIMEOUT_MS = 60_000;

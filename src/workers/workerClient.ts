@@ -7,6 +7,8 @@ import type { WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './pro
 import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
+import type { JsonPathMatch } from '../parsers/shared/rawJsonPath';
+import { RAW_EVIDENCE_SEARCH_MAX_DEPTH, RAW_EVIDENCE_SEARCH_MAX_RESULTS } from '../constants/analysisThresholds';
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
@@ -102,18 +104,65 @@ export interface NetlogParseResult {
   events: ParsedEvent[];
   result: AnalysisResult;
   rawData?: unknown;
+  rawDataId?: string;
   duration: number;
 }
 
 export interface HarParseResult {
   result: HarAnalysisResult;
   rawData?: unknown;
+  rawDataId?: string;
   duration: number;
 }
 
 export interface LogParseResult {
   result: LogAnalysisResult;
   duration: number;
+}
+
+/**
+ * 在 Worker 中搜索原始 JSON path（供 RawEvidenceExplorer 使用）
+ */
+export async function searchRawJsonInWorker(
+  rawDataId: string,
+  query: string,
+  options?: WorkerClientOptions & { maxResults?: number; maxDepth?: number }
+): Promise<JsonPathMatch[]> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'search-raw-json',
+      id,
+      payload: {
+        rawDataId,
+        query,
+        maxResults: options?.maxResults ?? RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+        maxDepth: options?.maxDepth ?? RAW_EVIDENCE_SEARCH_MAX_DEPTH,
+      },
+    },
+    options
+  );
+
+  return response.payload as JsonPathMatch[];
+}
+
+/**
+ * 释放 Worker 内缓存的 rawData（避免长期占用内存）
+ */
+export async function releaseRawDataInWorker(
+  payload: { rawDataId?: string; all?: boolean },
+  options?: WorkerClientOptions
+): Promise<boolean> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'release-raw-data',
+      id,
+      payload,
+    },
+    options
+  );
+  return Boolean(response.payload);
 }
 
 /**
@@ -132,6 +181,7 @@ export async function parseNetlogInWorker(
     events: response.events as ParsedEvent[],
     result: response.payload as AnalysisResult,
     rawData: response.rawPayload,
+    rawDataId: response.rawDataId,
     duration: response.duration,
   };
 }
@@ -152,6 +202,7 @@ export async function parseHarInWorker(
   return {
     result: response.payload as HarAnalysisResult,
     rawData: response.rawPayload,
+    rawDataId: response.rawDataId,
     duration: response.duration,
   };
 }
