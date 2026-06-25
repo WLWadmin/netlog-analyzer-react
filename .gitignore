@@ -46,3 +46,7 @@ public/test.har
 fix_combined_upload_and_dedup.patch
 *.json
 *.har
+netlog-analyzer-p0-p3-export.zip
+.gitignore
+netlog-analyzer-p0-p3.patch
+netlog-analyzer-p0-p3.bundle
