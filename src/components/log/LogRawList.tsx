@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, Input, Select, Tag, DatePicker, Button } from 'antd';
+import { Card, Input, Select, Tag, DatePicker, Button, message } from 'antd';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import {
@@ -14,6 +14,9 @@ import { formatDuration } from '../../utils/format';
 import type { LogEntry } from '../../logParser';
 import { LOG_RAW_INITIAL_COUNT, LOG_RAW_LOAD_STEP, SEARCH_DEBOUNCE_MS } from '../../constants/analysisThresholds';
 import useLoadMore from '../../hooks/useLoadMore';
+import HighlightedText from './HighlightedText';
+import LogRawContextModal from './LogRawContextModal';
+import { exportLogEntriesAsJson, exportLogEntriesAsText } from './exportLogEntries';
 
 interface LogRawListProps {
   entries: LogEntry[];
@@ -27,6 +30,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
+  const [contextEntryId, setContextEntryId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchText(searchText), SEARCH_DEBOUNCE_MS);
@@ -112,6 +116,25 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         border: '1px solid var(--border-color)',
         borderRadius: 12,
       }}
+      extra={
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            onClick={() => exportLogEntriesAsText(filteredEntries, 'log-filtered')}
+            disabled={filteredEntries.length === 0}
+          >
+            导出 TXT
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            onClick={() => exportLogEntriesAsJson(filteredEntries, 'log-filtered')}
+            disabled={filteredEntries.length === 0}
+          >
+            导出 JSON
+          </Button>
+        </div>
+      }
     >
       {/* 筛选栏 */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -229,7 +252,10 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                   }}
                   title={entry.url}
                 >
-                  {entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
+                  <HighlightedText
+                    text={entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
+                    keyword={debouncedSearchText}
+                  />
                 </span>
                 {entry.statusCode !== undefined && (
                   <Tag
@@ -254,8 +280,29 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                     background: 'var(--bg-base)',
                   }}
                 >
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600 }}>
-                    原始日志行
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600 }}>
+                      原始日志行
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <Button size="small" onClick={(e) => { e.stopPropagation(); setContextEntryId(entry.id); }}>
+                        查看上下文
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await navigator.clipboard.writeText(entry.rawLine);
+                            message.success('已复制原始行');
+                          } catch {
+                            message.error('复制失败');
+                          }
+                        }}
+                      >
+                        复制原始行
+                      </Button>
+                    </div>
                   </div>
                   <pre
                     style={{
@@ -272,7 +319,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                       wordBreak: 'break-all',
                     }}
                   >
-                    {entry.rawLine}
+                    <HighlightedText text={entry.rawLine} keyword={debouncedSearchText} />
                   </pre>
 
                   {Object.keys(entry.headers).length > 0 && (
@@ -345,6 +392,14 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
           </button>
         </div>
       )}
+
+      <LogRawContextModal
+        open={Boolean(contextEntryId)}
+        onClose={() => setContextEntryId(null)}
+        entries={entries}
+        centerEntryId={contextEntryId}
+        keyword={debouncedSearchText}
+      />
     </Card>
   );
 };

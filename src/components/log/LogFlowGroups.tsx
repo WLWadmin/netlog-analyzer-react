@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Tag, Descriptions, Select } from 'antd';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Tag, Descriptions, Select, Input, Button } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -10,23 +10,90 @@ import {
 } from '@ant-design/icons';
 import { formatDuration } from '../../utils/format';
 import type { LogFlowGroup, LogEntry } from '../../logParser';
-import { MAX_GROUP_ENTRY_PREVIEW, LOG_FLOW_INITIAL_COUNT, LOG_FLOW_LOAD_STEP } from '../../constants/analysisThresholds';
+import { MAX_GROUP_ENTRY_PREVIEW, LOG_FLOW_INITIAL_COUNT, LOG_FLOW_LOAD_STEP, SEARCH_DEBOUNCE_MS } from '../../constants/analysisThresholds';
 import useLoadMore from '../../hooks/useLoadMore';
+import HighlightedText from './HighlightedText';
+import LogRawContextModal from './LogRawContextModal';
 
 interface LogFlowGroupsProps {
   groups: LogFlowGroup[];
+  allEntries: LogEntry[];
   filterErrorOnly?: boolean;
 }
 
 type SortMode = 'default' | 'errorFirst' | 'slowest' | 'mostRequests';
 
-const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }) => {
+type StatusFilter = 'all' | 'success' | 'error';
+
+const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filterErrorOnly }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showDetailEntry, setShowDetailEntry] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
+  const [keyword, setKeyword] = useState('');
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  const [worker, setWorker] = useState<string>('all');
+  const [level, setLevel] = useState<string>('all');
+  const [status, setStatus] = useState<StatusFilter>('all');
+  const [contextEntryId, setContextEntryId] = useState<string | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => setDebouncedKeyword(keyword.trim()), SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [keyword]);
+
+  const filterOptions = useMemo(() => {
+    const workerSet = new Set<string>();
+    const levelSet = new Set<string>();
+    groups.forEach(g => {
+      g.entries.forEach(e => {
+        if (e.worker) workerSet.add(e.worker);
+        if (e.level) levelSet.add(e.level);
+      });
+    });
+    return {
+      workers: Array.from(workerSet).sort(),
+      levels: Array.from(levelSet).sort(),
+    };
+  }, [groups]);
+
+  const filteredGroups = useMemo(() => {
+    const kw = debouncedKeyword.toLowerCase();
+    const matchEntry = (e: LogEntry) => {
+      if (worker !== 'all' && e.worker !== worker) return false;
+      if (level !== 'all' && e.level !== level) return false;
+      if (status === 'error' && e.status !== 'Error') return false;
+      if (status === 'success' && e.status === 'Error') return false;
+      if (!kw) return true;
+      const hay = `${e.rawLine} ${e.url} ${e.friendlyName} ${e.statusText ?? ''} ${e.method} ${e.domain} ${e.path} ${e.worker} ${e.level}`.toLowerCase();
+      return hay.includes(kw);
+    };
+
+    const mapped = groups.map(g => {
+      const entries = g.entries.filter(matchEntry);
+      const errorCount = entries.filter(e => e.status === 'Error').length;
+      const successCount = entries.length - errorCount;
+      const hasError = errorCount > 0;
+      return {
+        ...g,
+        entries,
+        errorCount,
+        successCount,
+        hasError,
+        // summary 用于 header 折叠预览：优先显示匹配后的前几条
+        summary: entries.slice(0, 3).map(e => e.friendlyName).join(' → ') || g.summary,
+      };
+    }).filter(g => g.entries.length > 0);
+
+    const afterErrorOnly = filterErrorOnly ? mapped.filter(g => g.hasError) : mapped;
+    return afterErrorOnly;
+  }, [groups, debouncedKeyword, worker, level, status, filterErrorOnly]);
 
   const sortedGroups = useMemo(() => {
-    const base = filterErrorOnly ? groups.filter(g => g.hasError) : [...groups];
+    const base = [...filteredGroups];
     switch (sortMode) {
       case 'errorFirst':
         return base.sort((a, b) => {
@@ -46,7 +113,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
       default:
         return base;
     }
-  }, [groups, filterErrorOnly, sortMode]);
+  }, [filteredGroups, sortMode]);
 
   const { visibleItems: visibleGroups, hasMore, loadMore, remainingCount } = useLoadMore<LogFlowGroup>({
     items: sortedGroups,
@@ -75,7 +142,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
             {isError ? <CloseCircleOutlined /> : <CheckCircleOutlined />}
           </span>
           <span className={`log-flow-step-name${isError ? ' log-flow-step-name--error' : ''}`}>
-            {entry.friendlyName}
+            <HighlightedText text={entry.friendlyName} keyword={debouncedKeyword} />
           </span>
           <code style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             {entry.id}
@@ -89,9 +156,18 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           </span>
           {isError && entry.statusText && (
             <Tag className="log-flow-step-status" color="error">
-              {entry.statusText}
+              <HighlightedText text={entry.statusText} keyword={debouncedKeyword} />
             </Tag>
           )}
+          <button
+            className="log-flow-step-detail-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setContextEntryId(entry.id);
+            }}
+          >
+            <FileTextOutlined /> 上下文
+          </button>
           <button
             className="log-flow-step-detail-btn"
             onClick={(e) => {
@@ -106,7 +182,9 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
         {showDetailEntry === entry.id && (
           <div className="log-flow-step-detail">
             <Descriptions column={1} className="log-flow-detail-desc">
-              <Descriptions.Item label="URL">{entry.url}</Descriptions.Item>
+              <Descriptions.Item label="URL">
+                <HighlightedText text={entry.url} keyword={debouncedKeyword} />
+              </Descriptions.Item>
               <Descriptions.Item label="时间">{entry.timestamp}</Descriptions.Item>
               <Descriptions.Item label="Worker">{entry.worker}</Descriptions.Item>
               <Descriptions.Item label="耗时">{entry.durationText}</Descriptions.Item>
@@ -140,7 +218,60 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
 
   return (
     <div className="log-flow-groups">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜索（URL / 名称 / 原始行）"
+            allowClear
+            size="small"
+            style={{ width: 260 }}
+          />
+          <Select
+            value={worker}
+            onChange={setWorker}
+            size="small"
+            style={{ width: 140 }}
+            options={[
+              { value: 'all', label: '全部 Worker' },
+              ...filterOptions.workers.map(w => ({ value: w, label: w })),
+            ]}
+          />
+          <Select
+            value={level}
+            onChange={setLevel}
+            size="small"
+            style={{ width: 120 }}
+            options={[
+              { value: 'all', label: '全部级别' },
+              ...filterOptions.levels.map(l => ({ value: l, label: l })),
+            ]}
+          />
+          <Select
+            value={status}
+            onChange={(v) => setStatus(v as StatusFilter)}
+            size="small"
+            style={{ width: 110 }}
+            options={[
+              { value: 'all', label: '全部状态' },
+              { value: 'success', label: '仅成功' },
+              { value: 'error', label: '仅失败' },
+            ]}
+          />
+          <Button
+            size="small"
+            onClick={() => {
+              setKeyword('');
+              setWorker('all');
+              setLevel('all');
+              setStatus('all');
+            }}
+          >
+            清空
+          </Button>
+        </div>
+
         <Select
           value={sortMode}
           onChange={setSortMode}
@@ -178,6 +309,11 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
                     </span>
                   )}
                 </div>
+                {(debouncedKeyword || worker !== 'all' || level !== 'all' || status !== 'all') && (
+                  <Tag style={{ margin: 0 }} color="blue">
+                    匹配 {group.entries.length} 条
+                  </Tag>
+                )}
                 {group.hasError && (
                   <Tag color="error" className="log-flow-group-error-tag">失败</Tag>
                 )}
@@ -226,6 +362,14 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, filterErrorOnly }
           </button>
         </div>
       )}
+
+      <LogRawContextModal
+        open={Boolean(contextEntryId)}
+        onClose={() => setContextEntryId(null)}
+        entries={allEntries}
+        centerEntryId={contextEntryId}
+        keyword={debouncedKeyword}
+      />
 
       <style>{`
         .log-flow-groups {

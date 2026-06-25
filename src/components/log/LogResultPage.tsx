@@ -64,7 +64,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
                 </Button>
               )}
             </div>
-            <LogFlowGroups groups={groups.slice(0, TOP_PREVIEW_COUNT)} />
+            <LogFlowGroups groups={groups.slice(0, TOP_PREVIEW_COUNT)} allEntries={entries} />
           </div>
         </div>
       ),
@@ -91,7 +91,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
               {filterErrorOnly ? '显示全部' : '仅显示失败'}
             </button>
           </div>
-          <LogFlowGroups groups={groups} filterErrorOnly={filterErrorOnly} />
+          <LogFlowGroups groups={groups} allEntries={entries} filterErrorOnly={filterErrorOnly} />
         </div>
       ),
     },
