@@ -18,11 +18,19 @@ import {
   CloudUploadOutlined,
   CodeOutlined,
   DownOutlined,
+  ApartmentOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 
 import { parseLog, ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
 import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
 import { parseLogFile, LogAnalysisResult } from './logParser';
+import {
+  isWorkerSupported,
+  parseNetlogInWorker,
+  parseHarInWorker,
+  parseLogInWorker,
+} from './workers/workerClient';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
@@ -33,11 +41,13 @@ import SSLTab from './components/netlog/SSLTab';
 import ProtocolTab from './components/netlog/ProtocolTab';
 import DiagnosisTab from './components/netlog/DiagnosisTab';
 import EventsTab from './components/netlog/EventsTab';
+import SourceChainViewer from './components/netlog/SourceChainViewer';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
 import HarResultPage from './components/har/HarResultPage';
 import LogResultPage from './components/log/LogResultPage';
 import CombinedDiagnosisTab from './components/shared/CombinedDiagnosisTab';
 import BaselineCompareTab from './components/shared/BaselineCompareTab';
+import RawEvidenceExplorer from './components/raw/RawEvidenceExplorer';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
@@ -46,7 +56,7 @@ const { Header, Content } = Layout;
 
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
-  netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'ssl-protocol', 'performance'],
+  netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'source-chain', 'ssl-protocol', 'performance', 'raw-evidence'],
   har: ['requests', 'diagnosis'],
   log: ['overview', 'flows', 'diagnosis', 'performance', 'raw'],
 };
@@ -70,6 +80,7 @@ const AppContent: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
+  const [rawUploadData, setRawUploadData] = useState<unknown>(null);
   const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
@@ -114,92 +125,124 @@ const AppContent: React.FC = () => {
   }, []);
 
   const loadTaskIdRef = useRef(0);
+  const useWorker = isWorkerSupported();
 
-  const handleFileLoaded = (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
+  const handleFileLoaded = async (data: unknown, isTextLog = false, repairInfo?: HarAnalysisResult['repairInfo']) => {
     const taskId = ++loadTaskIdRef.current;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
-    setTimeout(() => {
-      // 如果 taskId 不匹配，说明已有新文件加载任务，丢弃旧任务结果
-      if (taskId !== loadTaskIdRef.current) return;
-      try {
-        // 自动识别文件类型
-        if (isTextLog && typeof data === 'string') {
-          // .log 文本日志文件
-          const logAnalysis = parseLogFile(data);
-          setLogResult(logAnalysis);
-          setFileType('log');
-          const defaultTab = VALID_TABS['log'][0];
-          setActiveTab(defaultTab);
-          window.location.hash = buildHash('log', defaultTab);
-          setHasData(true);
-          setLoading(false);
-          message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
-          return;
+
+    try {
+      // 保存原始数据用于 Raw Evidence Explorer
+      if (!isTextLog) {
+        setRawUploadData(data);
+      }
+
+      // 自动识别文件类型
+      if (isTextLog && typeof data === 'string') {
+        setLoadingText('正在解析日志文件...');
+        let logAnalysis;
+        if (useWorker) {
+          const { result } = await parseLogInWorker(data, {
+            onProgress: (phase) => setLoadingText(phase),
+          });
+          logAnalysis = result;
+        } else {
+          logAnalysis = parseLogFile(data);
         }
+        if (taskId !== loadTaskIdRef.current) return;
+        setLogResult(logAnalysis);
+        setFileType('log');
+        const defaultTab = VALID_TABS['log'][0];
+        setActiveTab(defaultTab);
+        window.location.hash = buildHash('log', defaultTab);
+        setHasData(true);
+        setLoading(false);
+        message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
+        return;
+      }
 
-        if (isHarFile(data)) {
-          setLoadingText('正在分析 HAR 请求...');
-          const harAnalysis = parseHar(data);
-          if (repairInfo) {
-            harAnalysis.repairInfo = repairInfo;
-          }
-          setHarResult(harAnalysis);
-          harResultRef.current = harAnalysis;
-
-          // 使用 ref 判断是否有 NetLog 数据（避免 state 异步问题）
-          if (resultRef.current) {
-            setFileType('netlog');
-            setActiveTab('combined');
-            window.location.hash = buildHash('netlog', 'combined');
-            setHasData(true);
-            setLoading(false);
-            message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
-            return;
-          }
-
-          setFileType('har');
-          const defaultTab = VALID_TABS['har'][0];
-          setActiveTab(defaultTab);
-          window.location.hash = buildHash('har', defaultTab);
-          setHasData(true);
-          setLoading(false);
-          message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
-          return;
+      if (isHarFile(data)) {
+        setLoadingText('正在分析 HAR 请求...');
+        let harAnalysis;
+        if (useWorker) {
+          const { result } = await parseHarInWorker(data, repairInfo, {
+            onProgress: (phase) => setLoadingText(phase),
+          });
+          harAnalysis = result;
+        } else {
+          harAnalysis = parseHar(data);
+          if (repairInfo) harAnalysis.repairInfo = repairInfo;
         }
-        setLoadingText('正在分析 NetLog 事件...');
-        const { events: parsedEvents, result: analysisResult } = parseLog(data);
-        setEvents(parsedEvents);
-        setResult(analysisResult);
-        resultRef.current = analysisResult;
+        if (taskId !== loadTaskIdRef.current) return;
+        setHarResult(harAnalysis);
+        harResultRef.current = harAnalysis;
 
-        // 使用 ref 判断是否有 HAR 数据（避免 state 异步问题）
-        if (harResultRef.current) {
+        if (resultRef.current) {
           setFileType('netlog');
           setActiveTab('combined');
           window.location.hash = buildHash('netlog', 'combined');
           setHasData(true);
           setLoading(false);
-          message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
+          message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
           return;
         }
 
-        setFileType('netlog');
-        const defaultTab = VALID_TABS['netlog'][0];
+        setFileType('har');
+        const defaultTab = VALID_TABS['har'][0];
         setActiveTab(defaultTab);
-        window.location.hash = buildHash('netlog', defaultTab);
+        window.location.hash = buildHash('har', defaultTab);
         setHasData(true);
         setLoading(false);
-        message.success(`成功解析 ${parsedEvents.length} 个事件`);
-      } catch (err) {
-        setLoading(false);
-        message.error('解析失败: ' + (err as Error).message);
+        message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
+        return;
       }
-    }, 100);
+
+      setLoadingText('正在分析 NetLog 事件...');
+      let parsedEvents: ParsedEvent[];
+      let analysisResult: AnalysisResult;
+      if (useWorker) {
+        const workerResult = await parseNetlogInWorker(data, {
+          onProgress: (phase) => setLoadingText(phase),
+        });
+        parsedEvents = workerResult.events;
+        analysisResult = workerResult.result;
+      } else {
+        const syncResult = parseLog(data);
+        parsedEvents = syncResult.events;
+        analysisResult = syncResult.result;
+      }
+      if (taskId !== loadTaskIdRef.current) return;
+      setEvents(parsedEvents);
+      setResult(analysisResult);
+      resultRef.current = analysisResult;
+
+      if (harResultRef.current) {
+        setFileType('netlog');
+        setActiveTab('combined');
+        window.location.hash = buildHash('netlog', 'combined');
+        setHasData(true);
+        setLoading(false);
+        message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
+        return;
+      }
+
+      setFileType('netlog');
+      const defaultTab = VALID_TABS['netlog'][0];
+      setActiveTab(defaultTab);
+      window.location.hash = buildHash('netlog', defaultTab);
+      setHasData(true);
+      setLoading(false);
+      message.success(`成功解析 ${parsedEvents.length} 个事件`);
+    } catch (err) {
+      if (taskId !== loadTaskIdRef.current) return;
+      setLoading(false);
+      message.error('解析失败: ' + (err as Error).message);
+    }
   };
 
   // 追加上传：支持在已有数据基础上追加另一类型文件
-  const handleSecondaryFileLoaded = (
+  const handleSecondaryFileLoaded = async (
     data: unknown,
     isTextLog = false,
     repairInfo?: HarAnalysisResult['repairInfo']
@@ -207,63 +250,81 @@ const AppContent: React.FC = () => {
     setLoading(true);
     setLoadingText('正在解析追加文件...');
 
-    setTimeout(() => {
-      try {
-        if (isTextLog && typeof data === 'string') {
-          message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-          setLoading(false);
-          return;
-        }
+    try {
+      if (isTextLog && typeof data === 'string') {
+        message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
+        setLoading(false);
+        return;
+      }
 
-        if (isHarFile(data)) {
-          const harAnalysis = parseHar(data);
+      if (isHarFile(data)) {
+        let harAnalysis;
+        if (useWorker) {
+          const { result } = await parseHarInWorker(data, repairInfo, {
+            onProgress: (phase) => setLoadingText(phase),
+          });
+          harAnalysis = result;
+        } else {
+          harAnalysis = parseHar(data);
           if (repairInfo) harAnalysis.repairInfo = repairInfo;
-
-          setHarResult(harAnalysis);
-          harResultRef.current = harAnalysis;
-
-          if (resultRef.current) {
-            setFileType('netlog');
-            setActiveTab('combined');
-            window.location.hash = buildHash('netlog', 'combined');
-            message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
-          } else {
-            setFileType('har');
-            setActiveTab('requests');
-            window.location.hash = buildHash('har', 'requests');
-            message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求）`);
-          }
-
-          setHasData(true);
-          setLoading(false);
-          return;
         }
 
-        const { events: parsedEvents, result: analysisResult } = parseLog(data);
+        setHarResult(harAnalysis);
+        harResultRef.current = harAnalysis;
 
-        setEvents(parsedEvents);
-        setResult(analysisResult);
-        resultRef.current = analysisResult;
-
-        if (harResultRef.current) {
+        if (resultRef.current) {
           setFileType('netlog');
           setActiveTab('combined');
           window.location.hash = buildHash('netlog', 'combined');
-          message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
+          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
         } else {
-          setFileType('netlog');
-          setActiveTab('overview');
-          window.location.hash = buildHash('netlog', 'overview');
-          message.success(`追加 NetLog 成功（${parsedEvents.length} 事件）`);
+          setFileType('har');
+          setActiveTab('requests');
+          window.location.hash = buildHash('har', 'requests');
+          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求）`);
         }
 
         setHasData(true);
         setLoading(false);
-      } catch (err) {
-        setLoading(false);
-        message.error('追加文件解析失败: ' + (err as Error).message);
+        return;
       }
-    }, 100);
+
+      let parsedEvents: ParsedEvent[];
+      let analysisResult: AnalysisResult;
+      if (useWorker) {
+        const workerResult = await parseNetlogInWorker(data, {
+          onProgress: (phase) => setLoadingText(phase),
+        });
+        parsedEvents = workerResult.events;
+        analysisResult = workerResult.result;
+      } else {
+        const syncResult = parseLog(data);
+        parsedEvents = syncResult.events;
+        analysisResult = syncResult.result;
+      }
+
+      setEvents(parsedEvents);
+      setResult(analysisResult);
+      resultRef.current = analysisResult;
+
+      if (harResultRef.current) {
+        setFileType('netlog');
+        setActiveTab('combined');
+        window.location.hash = buildHash('netlog', 'combined');
+        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
+      } else {
+        setFileType('netlog');
+        setActiveTab('overview');
+        window.location.hash = buildHash('netlog', 'overview');
+        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件）`);
+      }
+
+      setHasData(true);
+      setLoading(false);
+    } catch (err) {
+      setLoading(false);
+      message.error('追加文件解析失败: ' + (err as Error).message);
+    }
   };
 
   const handleReset = () => {
@@ -272,6 +333,7 @@ const AppContent: React.FC = () => {
     setResult(null);
     setHarResult(null);
     setLogResult(null);
+    setRawUploadData(null);
     resultRef.current = null;
     harResultRef.current = null;
     setFileType('netlog');
@@ -358,6 +420,20 @@ const AppContent: React.FC = () => {
       <CombinedDiagnosisTab harResult={harResult} netlogResult={result} onUploadMissingFile={handleSecondaryFileLoaded} />
     ) : null },
     { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} /> },
+    { key: 'source-chain', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ApartmentOutlined />源链路</span>, children: result ? (
+      <SourceChainViewer
+        events={events}
+        urlRequests={result.urlRequests}
+        onNavigateToSource={(sourceId) => {
+          navigateTo({
+            tab: 'events',
+            filters: { sourceId: String(sourceId) },
+            source: '源链路',
+            reason: '查看 source 事件',
+          });
+        }}
+      />
+    ) : null },
     { key: 'ssl-protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />安全与协议</span>, children: result ? (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         <SSLTab result={result} />
@@ -365,6 +441,7 @@ const AppContent: React.FC = () => {
       </div>
     ) : null },
     { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
+    { key: 'raw-evidence', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始证据</span>, children: rawUploadData ? <RawEvidenceExplorer rawData={rawUploadData} /> : null },
     { key: 'baseline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileTextOutlined />A-B 对比</span>, children: <BaselineCompareTab /> },
   ];
 
