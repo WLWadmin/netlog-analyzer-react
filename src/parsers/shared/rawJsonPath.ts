@@ -4,6 +4,9 @@
  * 用于 Raw Evidence Explorer 组件
  */
 
+import { RAW_EVIDENCE_SEARCH_MAX_DEPTH, RAW_EVIDENCE_SEARCH_MAX_RESULTS } from '../../constants/analysisThresholds';
+import { isRecord } from './typeGuards';
+
 export interface JsonPathMatch {
   /** 完整的 JSON 路径（如 "events[123].params.net_error"） */
   path: string;
@@ -25,8 +28,8 @@ export interface JsonPathMatch {
 export function searchJsonPaths(
   data: unknown,
   keyword: string,
-  maxResults = 200,
-  maxDepth = 10
+  maxResults = RAW_EVIDENCE_SEARCH_MAX_RESULTS,
+  maxDepth = RAW_EVIDENCE_SEARCH_MAX_DEPTH
 ): JsonPathMatch[] {
   const results: JsonPathMatch[] = [];
   const lower = keyword.toLowerCase();
@@ -51,11 +54,11 @@ export function searchJsonPaths(
       return;
     }
 
-    if (typeof obj === 'object') {
-      for (const key of Object.keys(obj as Record<string, unknown>)) {
+    if (isRecord(obj)) {
+      for (const key of Object.keys(obj)) {
         if (results.length >= maxResults) break;
         const childPath = path ? `${path}.${key}` : key;
-        const val = (obj as Record<string, unknown>)[key];
+        const val = obj[key];
 
         // 路径名匹配
         if (key.toLowerCase().includes(lower)) {
@@ -149,8 +152,8 @@ export function getStructureOverview(data: unknown, maxDepth = 2): StructureNode
       return;
     }
 
-    if (typeof obj === 'object') {
-      const keys = Object.keys(obj as Record<string, unknown>);
+    if (isRecord(obj)) {
+      const keys = Object.keys(obj);
       nodes.push({
         path,
         key: path.split('.').pop() || 'root',
@@ -161,7 +164,7 @@ export function getStructureOverview(data: unknown, maxDepth = 2): StructureNode
       if (depth < maxDepth) {
         for (const key of keys) {
           const childPath = path ? `${path}.${key}` : key;
-          walk((obj as Record<string, unknown>)[key], childPath, depth + 1);
+          walk(obj[key], childPath, depth + 1);
         }
       }
       return;

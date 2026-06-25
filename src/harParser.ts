@@ -242,8 +242,12 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const content = resp.content || {};
   const t = entry.timings || {};
 
-  const requestHeaders: HarHeader[] = (req.headers || []).map((h: any) => ({ name: h.name, value: h.value }));
-  const responseHeaders: HarHeader[] = (resp.headers || []).map((h: any) => ({ name: h.name, value: h.value }));
+  const requestHeaders: HarHeader[] = Array.isArray(req.headers)
+    ? req.headers.map((h: any) => ({ name: String(h?.name || ''), value: String(h?.value || '') }))
+    : [];
+  const responseHeaders: HarHeader[] = Array.isArray(resp.headers)
+    ? resp.headers.map((h: any) => ({ name: String(h?.name || ''), value: String(h?.value || '') }))
+    : [];
 
   const mimeType = content.mimeType || '';
   const rawType = entry._resourceType || (req.method === 'OPTIONS' ? 'preflight' : '');
@@ -272,16 +276,20 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const remoteAddress = entry.serverIPAddress || '';
   const connectionId = entry.connection ? String(entry.connection) : '';
   // 提取 queryString 和 postData
-  const queryString: HarQueryParam[] = (req.queryString || []).map((q: any) => ({
-    name: q.name || '',
-    value: q.value || '',
-  }));
+  const queryString: HarQueryParam[] = Array.isArray(req.queryString)
+    ? req.queryString.map((q: any) => ({
+      name: String(q?.name || ''),
+      value: String(q?.value || ''),
+    }))
+    : [];
 
   const postDataRaw = req.postData || {};
   const postData: HarPostData | undefined = postDataRaw.text || postDataRaw.params ? {
-    mimeType: postDataRaw.mimeType || '',
-    text: postDataRaw.text || '',
-    params: (postDataRaw.params || []).map((p: any) => ({ name: p.name || '', value: p.value || '' })),
+    mimeType: String(postDataRaw.mimeType || ''),
+    text: String(postDataRaw.text || ''),
+    params: Array.isArray(postDataRaw.params)
+      ? postDataRaw.params.map((p: any) => ({ name: String(p?.name || ''), value: String(p?.value || '') }))
+      : undefined,
   } : undefined;
 
   return {
