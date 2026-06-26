@@ -349,7 +349,7 @@ function isValidIpv6(value: string): boolean {
   });
 }
 
-function isIpLike(value: unknown): value is string {
+function isIpLike(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   return isValidIpv4(value) || isValidIpv6(value);
 }
@@ -357,6 +357,67 @@ function isIpLike(value: unknown): value is string {
 function normalizeIp(value: string): string {
   return stripIpWrapper(value);
 }
+
+const DNS_SERVER_KEYS = new Set([
+  'nameservers',
+  'nameserver',
+  'nameserveraddresses',
+  'nameserveraddress',
+  'nameserverips',
+  'nameserverip',
+  'dnsservers',
+  'dnsserver',
+  'dnsserveraddresses',
+  'dnsserveraddress',
+  'dnsserverips',
+  'dnsserverip',
+  'resolverservers',
+  'resolvernameservers',
+  'systemdnsservers',
+  'systemnameservers',
+  'configurednameservers',
+  'effectivenameservers',
+  'dohservers',
+  'dnsoverhttpsservers',
+  'securednsservers',
+]);
+
+const DNS_CONFIG_CONTAINER_KEYS = new Set([
+  'dnsconfig',
+  'dnsconfiguration',
+  'dnsconfigs',
+  'hostresolverconfig',
+  'hostresolverinfo',
+  'hostresolverinformation',
+  'resolverconfig',
+  'resolverinformation',
+  'networkconfig',
+  'networkconfiguration',
+  'securednsconfig',
+  'securednsconfiguration',
+  'dohconfig',
+  'dnsoverhttpsconfig',
+]);
+
+const DNS_ANSWER_KEYS = new Set([
+  'address',
+  'addresses',
+  'addresslist',
+  'addresslists',
+  'ip',
+  'ips',
+  'ipaddress',
+  'ipaddresses',
+  'endpoint',
+  'endpoints',
+  'ipendpoint',
+  'ipendpoints',
+  'endpointresult',
+  'endpointresults',
+  'hostresolverendpointresults',
+  'results',
+  'result',
+]);
 
 function extractIpsFromValue(value: unknown): string[] {
   const ips = new Set<string>();
@@ -391,16 +452,91 @@ function extractIpsFromValue(value: unknown): string[] {
   return Array.from(ips);
 }
 
+function normalizeHostCandidate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return new URL(trimmed).hostname;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (/^[a-z0-9.-]+:\d+$/i.test(trimmed)) {
+    return trimmed.replace(/:\d+$/, '');
+  }
+
+  if (isIpLike(trimmed)) return null;
+
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed) || trimmed.includes('.')) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+function findHostLikeValue(value: unknown, depth = 0): string | null {
+  if (!value || depth > 4) return null;
+
+  if (typeof value === 'string') {
+    return normalizeHostCandidate(value);
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = findHostLikeValue(item, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+
+    for (const [key, child] of entries) {
+      const normalized = normalizeKey(key);
+      if (
+        normalized.includes('host') ||
+        normalized.includes('hostname') ||
+        normalized.includes('query') ||
+        normalized.includes('domain') ||
+        normalized.includes('name')
+      ) {
+        const hit = findHostLikeValue(child, depth + 1);
+        if (hit) return hit;
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractHostFromParams(params: any): string | null {
-  return (
-    params?.host ||
-    params?.hostname ||
-    params?.host_name ||
-    params?.domain ||
-    params?.query ||
-    params?.url ||
-    null
-  );
+  const candidates = [
+    params?.host,
+    params?.hostname,
+    params?.host_name,
+    params?.domain,
+    params?.query,
+    params?.dns_query,
+    params?.dns_query_name,
+    params?.request_hostname,
+    params?.requested_hostname,
+    params?.url,
+    params?.host_port_pair?.host,
+    params?.host_resolver_request?.host,
+    params?.resolve_host_request?.host,
+  ];
+
+  for (const candidate of candidates) {
+    const host = normalizeHostCandidate(candidate);
+    if (host) return host;
+  }
+
+  return findHostLikeValue(params);
 }
 
 function normalizeHost(hostOrUrl: string | null): string | null {
@@ -453,28 +589,92 @@ function normalizeKey(key: string): string {
 }
 
 function isDnsServerConfigKey(key: string): boolean {
-  const normalized = normalizeKey(key);
-  return [
-    'nameservers',
-    'nameserver',
-    'dnsservers',
-    'dnsserver',
-    'nameserveraddresses',
-    'dnsserveraddresses',
-    'resolverservers',
-    'resolvernameservers',
-  ].includes(normalized);
+  return DNS_SERVER_KEYS.has(normalizeKey(key));
 }
 
 function isDnsConfigContainerKey(key: string): boolean {
-  const normalized = normalizeKey(key);
-  return [
-    'dnsconfig',
-    'dnsconfiguration',
-    'resolverconfig',
-    'hostresolverconfig',
-    'networkconfig',
-  ].includes(normalized);
+  return DNS_CONFIG_CONTAINER_KEYS.has(normalizeKey(key));
+}
+
+function extractDnsAnswerIps(params: unknown): string[] {
+  const ips = new Set<string>();
+
+  const collect = (value: unknown, depth = 0) => {
+    if (!value || depth > 6) return;
+
+    if (typeof value === 'string') {
+      if (isIpLike(value)) ips.add(normalizeIp(value));
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(item => collect(item, depth + 1));
+      return;
+    }
+
+    if (typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        const normalized = normalizeKey(key);
+        if (DNS_ANSWER_KEYS.has(normalized)) {
+          collect(child, depth + 1);
+          continue;
+        }
+
+        if (
+          normalized.includes('address') ||
+          normalized.includes('endpoint') ||
+          normalized === 'ip' ||
+          normalized === 'ips'
+        ) {
+          collect(child, depth + 1);
+          continue;
+        }
+
+        if (Array.isArray(child) || typeof child === 'object') {
+          collect(child, depth + 1);
+        }
+      }
+    }
+  };
+
+  collect(params);
+  return Array.from(ips);
+}
+
+function isDnsRelatedEvent(evt: ParsedEvent): boolean {
+  const tn = evt.typeName || '';
+  const stn = evt.source?.typeName || '';
+
+  return (
+    stn.includes('HOST_RESOLVER') ||
+    stn.includes('DNS') ||
+    tn.includes('HOST_RESOLVER') ||
+    tn.includes('DNS') ||
+    tn.includes('SECURE_DNS') ||
+    tn.includes('DOH')
+  );
+}
+
+function collectDnsCacheEntries(polledData: any): any[] {
+  const entries: any[] = [];
+  const candidates = [
+    polledData?.dns_cache,
+    polledData?.dnsCache,
+    polledData?.host_resolver_cache,
+    polledData?.hostResolverCache,
+    polledData?.hostResolverInfo?.cache,
+    polledData?.host_resolver_info?.cache,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      entries.push(...candidate);
+    } else if (candidate && typeof candidate === 'object') {
+      entries.push(...Object.values(candidate as Record<string, unknown>));
+    }
+  }
+
+  return entries;
 }
 
 function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) {
@@ -550,13 +750,10 @@ function parsePolledData(polledData: any, r: AnalysisResult) {
   parseDnsServersFromPolledData(r, polledData);
 
   // DNS cache info
-  if (polledData.dns_cache) {
-    for (const entry of polledData.dns_cache) {
-      if (entry.hostname) {
-        const ips = extractIpsFromValue(entry);
-        addDnsRecord(r, entry.hostname, ips, 'dns_cache');
-      }
-    }
+  for (const entry of collectDnsCacheEntries(polledData)) {
+    const host = extractHostFromParams(entry);
+    const ips = extractDnsAnswerIps(entry);
+    addDnsRecord(r, host, ips, 'dns_cache');
   }
 
   // Network info
@@ -830,16 +1027,10 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   }
 
   // ---- DNS events ----
-  if (
-    stn === "HOST_RESOLVER_IMPL_JOB" ||
-    stn === "HOST_RESOLVER_MANAGER_JOB" ||
-    stn === "HOST_RESOLVER" ||
-    tn.includes("DNS_") ||
-    tn.includes("HOST_RESOLVER")
-  ) {
+  if (isDnsRelatedEvent(evt)) {
     r.dnsEvents.push(evt);
     const host = extractHostFromParams(p);
-    const ips = extractIpsFromValue(p);
+    const ips = extractDnsAnswerIps(p);
     addDnsRecord(r, host, ips, "dns_event", evt.time);
   }
 

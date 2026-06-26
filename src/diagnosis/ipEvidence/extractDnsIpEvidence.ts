@@ -164,7 +164,8 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
 function buildSummary(
   dnsServers: DnsServerEvidence[],
   dnsAnswers: DnsAnswerEvidence[],
-  items: IpEvidenceItem[]
+  items: IpEvidenceItem[],
+  options?: { dnsEventCount?: number }
 ): DnsIpEvidenceSummary {
   const copyableIps = Array.from(new Set([
     ...items.map(item => item.ip),
@@ -175,6 +176,7 @@ function buildSummary(
   return {
     dnsServers,
     dnsAnswers,
+    dnsEventCount: options?.dnsEventCount,
     failedOrSlowIps: items,
     cipSipRows: buildRows(items),
     copyableIps,
@@ -227,7 +229,7 @@ export function extractDnsIpEvidenceFromHar(result: HarAnalysisResult): DnsIpEvi
     });
   }
 
-  return buildSummary([], [], Array.from(itemMap.values()));
+  return buildSummary([], [], Array.from(itemMap.values()), { dnsEventCount: 0 });
 }
 
 export function extractDnsIpEvidenceFromNetlog(result: AnalysisResult): DnsIpEvidenceSummary {
@@ -318,5 +320,7 @@ export function extractDnsIpEvidenceFromNetlog(result: AnalysisResult): DnsIpEvi
     }
   }
 
-  return buildSummary(dnsServers, dnsAnswers, Array.from(itemMap.values()));
+  return buildSummary(dnsServers, dnsAnswers, Array.from(itemMap.values()), {
+    dnsEventCount: result.dnsEvents?.length || 0,
+  });
 }

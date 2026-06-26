@@ -89,6 +89,7 @@ export interface DnsAnswerEvidence {
 export interface DnsIpEvidenceSummary {
   dnsServers: DnsServerEvidence[];
   dnsAnswers: DnsAnswerEvidence[];
+  dnsEventCount?: number;
   failedOrSlowIps: IpEvidenceItem[];
   cipSipRows: CipSipEvidenceRow[];
   copyableIps: string[];

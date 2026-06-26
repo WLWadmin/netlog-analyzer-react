@@ -34,7 +34,7 @@
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
 - **最终诊断摘要**：在 HAR、NetLog、HAR + NetLog 联合诊断顶部生成面向普通用户的收敛摘要，优先展示统一行动清单和缺失信息，再展示关键结论与完整专家报告。
 - **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
-- **DNS 与 CIP/SIP 定位证据**：HAR / NetLog 诊断页在最终诊断摘要后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP；同域名同 CIP/SIP 自动去重并保留最长耗时前三个代表请求，支持分开复制 CIP / SIP 给用户或网络团队自查，前端不联网查询 IP 归属，也不会外发公网 IP。
+- **DNS 与 CIP/SIP 定位证据**：HAR / NetLog 诊断页在最终诊断摘要后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP；同域名同 CIP/SIP 自动去重并保留最长耗时前三个代表请求。DNS answer 的解析 IP 默认只展示前 3 个示例和总数，点击后按网段分组展开完整 IP，并支持分开复制 CIP / SIP 或复制某个域名的全部解析 IP；前端不联网查询 IP 归属，也不会外发公网 IP。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。
@@ -174,7 +174,7 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - 错误、告警、提示信息的聚合展示，使用 `CHART_COLORS.semantic` 语义化颜色（error 红 / warning 黄 / success 绿）。
 - 请求 Top 列表和失败域名列表。
 - 协议分布柱状图使用 `CHART_COLORS.primary` 调色板，代理信息、系统信息等整体画像。
-- **DNS 信息展示**：独立展示 DNS Server IP（从 `polledData` 白名单配置字段提取，最多展示 6 个，超过时显示异常数量告警）和域名解析 IP（从 DNS 事件和 `dns_cache` 提取，最多展示 20 个域名，每个域名最多 5 个 IP），支持多 IP 合并展示、来源标注（`dns_cache` / `dns_event`）和隐藏计数，异常 IP（127.0.0.1 / 0.0.0.0 / ::1）红色高亮并触发劫持检测告警。
+- **DNS 信息展示**：独立展示 DNS Server IP 和域名解析 IP。DNS answer 列默认只展示少量示例 IP 与总数，点击后按网段分组查看完整解析结果，并支持复制全部解析 IP；异常 IP（127.0.0.1 / 0.0.0.0 / ::1）仍会高亮并参与劫持检测告警。
 - 对重复错误和大量问题做分组、折叠和"加载更多"，避免大日志页面过载。
 
 适合用来快速回答"这份日志主要问题在哪里"。
@@ -191,7 +191,7 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - **缺失信息收集**：“还缺什么信息”模块包含常规网络排查信息收集步骤，例如客户端 IP / DNS 出口、打不开或请求慢的 URL 域名、DNS / IP 连通性 / 丢包率 / 路由信息、上网方式 / 环境信息，以及 Wireshark `.pcapng` 抓包文件。
 - **首次进入非阻塞**：进入 Tab 后先渲染 loading，再异步生成诊断摘要、诊断卡片和旧版详细问题列表，大文件下不会把点击切换阻塞在同步 render 路径中。
 - **诊断卡片分批展示**：首屏先展示前一批诊断卡片，用户可继续加载更多，诊断内容不减少。
-- **DNS 与 CIP/SIP 定位证据**：从 `dnsServers`、`dnsRecords`、`URLRequest.remoteIp`、`resolvedIp`、`failedDomains` 和 socket 参数提取 DNS、CIP、SIP 证据；DNS server 和 DNS answer 优先展示，失败/慢请求按域名 + CIP/SIP 去重并保留最长耗时前三个代表请求，支持分开复制 CIP / SIP 后自查归属。
+- **DNS 与 CIP/SIP 定位证据**：从 `dnsServers`、`dnsRecords`、`URLRequest.remoteIp`、`resolvedIp`、`failedDomains` 和 socket 参数提取 DNS、CIP、SIP 证据；DNS server 和 DNS answer 优先展示，失败/慢请求按域名 + CIP/SIP 去重并保留最长耗时前三个代表请求。DNS answer 默认只展示前 3 个示例 IP 和总数，点击后按网段分组展开，并支持复制全部解析 IP。
 - 按类别聚合错误、告警和信息项。
 - 每条建议底部提供"查看证据"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。跳转规则统一收口到 `navigation.ts`（`buildHarNavigationTarget` / `buildNetlogNavigationTarget`），页面组件不再根据 title/icon 自行推断。
 - **自助命令库**：诊断卡片内嵌排查命令区块，按类别推荐命令（`nslookup`、`curl`、`openssl` 等），支持一键复制，包含平台标注、预期结果和失败后续指引。
@@ -557,7 +557,7 @@ NetLog / HAR / Go Log 文件
   - 缓存事件
   - 网络变更事件
 - 构建 URL 请求的阶段时间线：DNS、连接、SSL、发送、等待、下载。
-- **DNS 信息提取**：从 `polledData` 白名单配置字段（`nameservers` / `dns_servers` 等，仅在 `dns_config` / `resolver_config` 等容器内）提取 DNS Server IP（`dnsServers`），从 DNS 事件（`HOST_RESOLVER` / `HOST_RESOLVER_IMPL_JOB` / `HOST_RESOLVER_MANAGER_JOB`）和 `dns_cache` 提取域名解析 IP（`dnsRecords`），支持多 IP 合并、IPv4/IPv6 地址识别和端口剥离。IP 验证使用严格校验（`isValidIpv4` / `isValidIpv6`）：IPv4 每段 0-255，IPv6 必须含 `:` 且最多 8 段，支持 `::` 压缩和 IPv4-mapped 地址，防止纯十六进制字符串被误判为 IP。DNS 解析工具函数包括 `extractIpsFromValue`（递归提取对象/数组中的 IP）、`extractHostFromParams`（从事件参数提取 host）、`normalizeHost`（URL 转 hostname）、`addDnsRecord`（合并同一域名多 IP 并回填 `hosts` 兼容）、`addDnsServers`（带 `isIpLike` 守卫的去重添加）。
+- **DNS 信息提取**：从 `polledData` 的 DNS 配置白名单容器中提取 DNS Server IP（`dnsServers`），兼容 `hostResolverInfo` / `host_resolver_info`、`dnsConfig` / `secureDnsConfig`、`nameServers` / `name_servers`、`dns_over_https_servers` / `dohServers` 等字段；从 DNS 事件和 DNS cache 提取域名解析 IP（`dnsRecords`），兼容 `DNS_TRANSACTION`、`HOST_RESOLVER`、`SECURE_DNS`、`DOH` 相关事件以及 `dnsCache` / `hostResolverCache` / `hostResolverInfo.cache` 形态，支持 `address_list`、`addresses`、`ip_addresses`、`endpoint_results`、`host_resolver_endpoint_results` 等字段。IP 验证使用严格校验（`isValidIpv4` / `isValidIpv6`）：IPv4 每段 0-255，IPv6 必须含 `:` 且最多 8 段，支持 `::` 压缩和 IPv4-mapped 地址，防止纯十六进制字符串被误判为 IP；同时保持强语义边界，避免把普通 socket / 业务连接 IP 误识别为 DNS server。
 - **协议推断**：根据关联事件（QUIC / HTTP2 / SSL）为每个 URLRequest 推断 `protocol` 字段（HTTP/1.1 / HTTP/2 / QUIC）。
 - 提取响应头中的 IP 线索，例如 `x-response-cinfo`、`x-tt-cip`、`x-lsc-source-ip`、`x-response-sinfo`。
 - 识别失败请求、失败域名、错误码、慢请求、证书问题、代理 / VPN 线索等。

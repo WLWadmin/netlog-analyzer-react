@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Alert, Button, Card, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Popover, Space, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -46,6 +46,105 @@ function ipTags(ips: string[]) {
   );
 }
 
+function getIpSegment(ip: string): string {
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    return parts.length === 4 ? `${parts.slice(0, 3).join('.')}.*` : 'IPv4';
+  }
+
+  if (ip.includes(':')) {
+    const parts = ip.split(':').filter(Boolean);
+    return parts.length > 0 ? `${parts.slice(0, 4).join(':')}::/64` : 'IPv6';
+  }
+
+  return '其他';
+}
+
+function groupIpsBySegment(ips: string[]) {
+  const groups = new Map<string, string[]>();
+  for (const ip of ips) {
+    const segment = getIpSegment(ip);
+    const next = groups.get(segment) || [];
+    next.push(ip);
+    groups.set(segment, next);
+  }
+
+  return Array.from(groups.entries())
+    .map(([segment, groupIps]) => ({ segment, ips: groupIps }))
+    .sort((a, b) => b.ips.length - a.ips.length || a.segment.localeCompare(b.segment));
+}
+
+function compactDnsAnswerIps(ips: string[]) {
+  if (!ips.length) return <Typography.Text type="secondary">-</Typography.Text>;
+
+  const previewIps = ips.slice(0, 3);
+  const hiddenCount = Math.max(ips.length - previewIps.length, 0);
+  const groups = groupIpsBySegment(ips);
+
+  const content = (
+    <div style={{ width: 420, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ marginBottom: 10, color: 'var(--text-secondary)', fontSize: 12 }}>
+        共 {ips.length} 个解析 IP，按网段归类展示
+      </div>
+      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+        {groups.map(group => (
+          <div key={group.segment}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <Typography.Text strong style={{ fontSize: 12 }}>{group.segment}</Typography.Text>
+              <Tag style={{ margin: 0 }}>{group.ips.length} 个</Tag>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+              {group.ips.map(ip => (
+                <span
+                  key={ip}
+                  style={{
+                    fontFamily: "'SF Mono', 'Fira Code', monospace",
+                    fontSize: 12,
+                    color: 'var(--text-primary)',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '3px 7px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={ip}
+                >
+                  {ip}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Space>
+    </div>
+  );
+
+  return (
+    <Space size={6} wrap>
+      {previewIps.map(ip => (
+        <Tag
+          key={ip}
+          style={{
+            fontFamily: "'SF Mono', 'Fira Code', monospace",
+            marginInlineEnd: 0,
+            borderRadius: 999,
+            background: 'rgba(15, 23, 42, 0.04)',
+          }}
+        >
+          {ip}
+        </Tag>
+      ))}
+      <Popover trigger="click" placement="bottomLeft" title="解析 IP 网段分布" content={content}>
+        <Button size="small" type="link" style={{ padding: 0, height: 22 }}>
+          共 {ips.length} 个{hiddenCount > 0 ? `，+${hiddenCount}` : ''}
+        </Button>
+      </Popover>
+    </Space>
+  );
+}
+
 function copyRowText(row: CipSipEvidenceRow): string {
   return [
     `域名: ${row.host}`,
@@ -56,6 +155,11 @@ function copyRowText(row: CipSipEvidenceRow): string {
 }
 
 const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }) => {
+  const dnsServerEmptyText = '未解析到 DNS server 配置。部分 NetLog 导出不包含 DNS 配置字段，或当前解析器未识别该 Chrome 版本字段。';
+  const dnsAnswerEmptyText = summary.dnsEventCount && summary.dnsEventCount > 0
+    ? '检测到 DNS/HOST_RESOLVER 事件，但未能从事件参数中解析出域名和 IP。建议查看原始证据并反馈相关 params 字段。'
+    : '未解析到 DNS answer。请在原始证据中搜索 HOST_RESOLVER、DNS_TRANSACTION、address_list、endpoint_results，确认文件是否包含解析结果。';
+
   const dnsServerColumns = useMemo<ColumnsType<DnsServerEvidence>>(() => [
     {
       title: 'DNS 服务器',
@@ -79,14 +183,24 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
   ], []);
 
   const dnsAnswerColumns = useMemo<ColumnsType<DnsAnswerEvidence>>(() => [
-    { title: '域名', dataIndex: 'host', key: 'host', ellipsis: true },
+    { title: '域名', dataIndex: 'host', key: 'host', ellipsis: true, width: 260 },
     {
       title: '解析 IP',
       dataIndex: 'ips',
       key: 'ips',
-      render: ipTags,
+      render: compactDnsAnswerIps,
     },
     { title: '来源', dataIndex: 'source', key: 'source', width: 130 },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_, row) => (
+        <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(row.ips.join('\n'), '解析 IP')}>
+          复制全部
+        </Button>
+      ),
+    },
   ], []);
 
   const cipSipColumns = useMemo<ColumnsType<CipSipEvidenceRow>>(() => [
@@ -218,7 +332,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             dataSource={summary.dnsServers}
             pagination={false}
             scroll={{ x: 960 }}
-            locale={{ emptyText: '未在文件中发现 DNS server 记录' }}
+            locale={{ emptyText: dnsServerEmptyText }}
             style={{ marginBottom: 14 }}
           />
           <Table
@@ -228,7 +342,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             dataSource={summary.dnsAnswers}
             pagination={{ pageSize: 5, showSizeChanger: false }}
             scroll={{ x: 900 }}
-            locale={{ emptyText: '未在文件中发现 DNS answer 记录' }}
+            locale={{ emptyText: dnsAnswerEmptyText }}
           />
         </div>
 
