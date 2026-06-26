@@ -19,6 +19,27 @@ interface LegacyDiagnosisData {
   categories: Record<string, { errors: number; warnings: number; info: number }>;
 }
 
+const DIAGNOSIS_TIMING_DEBUG_KEY = 'diagnosis_debug_timing';
+
+function isDiagnosisTimingDebugEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(DIAGNOSIS_TIMING_DEBUG_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function recordDiagnosisTiming(
+  enabled: boolean,
+  rows: { stage: string; durationMs: number }[],
+  stage: string,
+  start: number,
+  end: number = performance.now()
+) {
+  if (!enabled) return;
+  rows.push({ stage, durationMs: Math.round((end - start) * 10) / 10 });
+}
+
 function buildLegacyDiagnosisData(result: AnalysisResult): LegacyDiagnosisData {
   const groupedIssues = groupIssues(result.errors, [...result.warnings, ...result.info] as any);
   const byCategory = groupByCategory(groupedIssues);
@@ -50,6 +71,9 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const debugTiming = isDiagnosisTimingDebugEnabled();
+    const timingRows: { stage: string; durationMs: number }[] = [];
+    const effectStart = performance.now();
     setDiagnosisLoading(true);
     setDiagnosisSummary(undefined);
     setLegacyData(undefined);
@@ -57,14 +81,35 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
     setLoadedCategories(new Map());
 
     const timer = window.setTimeout(() => {
+      const handlerStart = performance.now();
+      recordDiagnosisTiming(debugTiming, timingRows, 'effect -> setTimeout', effectStart, handlerStart);
+
+      const suggestionsStart = performance.now();
       const suggestions = generateSuggestions(result);
+      recordDiagnosisTiming(debugTiming, timingRows, 'generateSuggestions', suggestionsStart);
+
+      const summaryStart = performance.now();
       const nextSummary = buildNetlogDiagnosisSummary(result, suggestions, events);
+      recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart);
+
+      const legacyStart = performance.now();
       const nextLegacyData = buildLegacyDiagnosisData(result);
+      recordDiagnosisTiming(debugTiming, timingRows, 'buildLegacyDiagnosisData', legacyStart);
 
       if (cancelled) return;
+      const setStateStart = performance.now();
       setDiagnosisSummary(nextSummary);
       setLegacyData(nextLegacyData);
       setDiagnosisLoading(false);
+      recordDiagnosisTiming(debugTiming, timingRows, 'setState dispatch', setStateStart);
+      recordDiagnosisTiming(debugTiming, timingRows, 'setTimeout handler total', handlerStart);
+
+      if (debugTiming) {
+        console.groupCollapsed('[diagnosis timing] DiagnosisTab first-build');
+        console.table(timingRows);
+        console.info('[diagnosis timing] cards:', nextSummary.cards.length, 'legacy issues:', nextLegacyData.groupedIssues.length);
+        console.groupEnd();
+      }
     }, 0);
 
     return () => {
