@@ -18,7 +18,6 @@ import type { ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import { SourceChain, SourceNode } from '../../parsers/netlog/sourceGraph';
 import { getCachedSourceGraph } from '../../parsers/netlog/sourceGraphCache';
 import { SOURCE_CHAIN_PREVIEW_COUNT, SOURCE_CHAIN_SLOW_MS } from '../../constants/analysisThresholds';
-import { measurePerf } from '../../utils/perfMark';
 
 interface SourceChainViewerProps {
   events: ParsedEvent[];
@@ -44,11 +43,7 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
   const [expandedChain, setExpandedChain] = useState<number | null>(null);
 
   const graph = useMemo(
-    () =>
-      // 回归指标：用于确认 sourceGraph 缓存仍然命中，避免重复建图。
-      measurePerf('SourceChain/getCachedSourceGraph', () =>
-        getCachedSourceGraph(events, urlRequests)
-      ),
+    () => getCachedSourceGraph(events, urlRequests),
     [events, urlRequests]
   );
 

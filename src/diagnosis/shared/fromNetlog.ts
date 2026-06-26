@@ -20,16 +20,6 @@ import type {
   DiagnosisSummary,
 } from './types';
 
-interface DiagnosisMeasure {
-  <T>(label: string, fn: () => T): T;
-}
-
-interface DiagnosisBuildOptions {
-  measure?: DiagnosisMeasure;
-}
-
-const identityMeasure: DiagnosisMeasure = (_label, fn) => fn();
-
 type ContextEventKind = '网络切换' | '代理决策' | '缓存事件' | 'TLS 事件' | 'QUIC 事件' | 'HTTP/2 事件';
 
 interface ContextEventItem {
@@ -569,10 +559,8 @@ function inferRoleFromAction(actionText: string): DiagnosticRole {
 export function netlogToCards(
   result: AnalysisResult,
   suggestions: Suggestion[],
-  events?: ParsedEvent[],
-  opts?: DiagnosisBuildOptions
+  events?: ParsedEvent[]
 ): DiagnosticCard[] {
-  const measure: DiagnosisMeasure = opts?.measure ?? identityMeasure;
   const cards = suggestions.map((s, i) => suggestionToCard(s, i, result));
 
   // 添加代理/VPN 环境卡片（如果检测到但未生成）
@@ -843,9 +831,7 @@ export function netlogToCards(
 
   // ========== P1 增强：时间相关性 + 决策链路 ==========
   // 历史主瓶颈回归指标：用于观察时间相关性构建是否再次膨胀。
-  cards.push(...measure('Diagnosis/netlogToCards/buildTemporalCorrelationCards', () =>
-    buildTemporalCorrelationCards(result)
-  ));
+  cards.push(...buildTemporalCorrelationCards(result));
 
   const cacheDecisionCard = buildCacheDecisionCard(result);
   if (cacheDecisionCard && !cards.some(c => c.id.startsWith('netlog-cache-decision'))) {
@@ -875,15 +861,12 @@ export function netlogToCards(
       maxCards: 5,
       graph,
       eventsBySourceId,
-      measure: identityMeasure,
     });
     lifecycleCards.forEach(c => cards.push(c));
   }
 
   // 历史次瓶颈回归指标：用于观察诊断证据补全是否再次退化。
-  const enrichedCards = measure('Diagnosis/netlogToCards/enrichCardWithP1EvidenceBatch', () =>
-    cards.map(card => enrichCardWithP1Evidence(card, result))
-  );
+  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
 
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
@@ -1356,10 +1339,9 @@ export function checkNetlogQuality(result: AnalysisResult): CollectionQuality {
 export function buildNetlogDiagnosisSummary(
   result: AnalysisResult,
   suggestions: Suggestion[],
-  events?: ParsedEvent[],
-  opts?: DiagnosisBuildOptions
+  events?: ParsedEvent[]
 ): DiagnosisSummary {
-  const cards = netlogToCards(result, suggestions, events, opts);
+  const cards = netlogToCards(result, suggestions, events);
   const quality = checkNetlogQuality(result);
 
   const overallSeverity = (

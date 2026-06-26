@@ -1,5 +1,5 @@
-import React from 'react';
-import { Empty, Spin } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Button, Empty, Spin } from 'antd';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import DiagnosticCard from './DiagnosticCard';
 import CollectionQualityAlert from './CollectionQualityAlert';
@@ -9,9 +9,23 @@ interface DiagnosisPanelProps {
   summary?: DiagnosisSummary;
   loading?: boolean;
   showExport?: boolean;
+  initialCardCount?: number;
+  cardLoadStep?: number;
 }
 
-const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showExport = true }) => {
+const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({
+  summary,
+  loading,
+  showExport = true,
+  initialCardCount,
+  cardLoadStep,
+}) => {
+  const [visibleCardCount, setVisibleCardCount] = useState(initialCardCount ?? Number.POSITIVE_INFINITY);
+
+  useEffect(() => {
+    setVisibleCardCount(initialCardCount ?? Number.POSITIVE_INFINITY);
+  }, [summary, initialCardCount]);
+
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
@@ -36,6 +50,10 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showE
   const infoCount = summary.cards.filter(c => c.severity === 'info').length;
   const confidenceText = summary.combinedConfidence === 'high' ? '高' : summary.combinedConfidence === 'medium' ? '中' : '低';
   const confidenceColor = summary.combinedConfidence === 'high' ? '#10b981' : summary.combinedConfidence === 'medium' ? '#f59e0b' : '#6b7280';
+  const nextVisibleCount = Math.min(visibleCardCount, summary.cards.length);
+  const visibleCards = summary.cards.slice(0, nextVisibleCount);
+  const remainingCardCount = summary.cards.length - nextVisibleCount;
+  const shouldBatchCards = initialCardCount !== undefined && cardLoadStep !== undefined && remainingCardCount > 0;
 
   return (
     <div style={{ padding: '16px 0' }}>
@@ -128,9 +146,20 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showE
 
       {/* 诊断卡片列表 */}
       <div>
-        {summary.cards.map((card, index) => (
+        {visibleCards.map((card, index) => (
           <DiagnosticCard key={card.id} card={card} index={index} />
         ))}
+        {shouldBatchCards && (
+          <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+            <Button
+              type="link"
+              onClick={() => setVisibleCardCount(prev => Math.min(prev + cardLoadStep, summary.cards.length))}
+              style={{ color: '#0ea5e9', fontSize: 13 }}
+            >
+              加载更多诊断卡片（剩余 {remainingCardCount} 张）
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

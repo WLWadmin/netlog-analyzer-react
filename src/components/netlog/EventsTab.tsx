@@ -6,7 +6,6 @@ import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/
 import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
-import { measurePerf } from '../../utils/perfMark';
 
 interface EventsTabProps {
   events: ParsedEvent[];
@@ -130,8 +129,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
 
   // 构建事件索引（O(n)，仅在 events 变化时重建）
   const eventIndex = useMemo(
-    // 历史瓶颈回归指标：防止事件索引再次膨胀。
-    () => measurePerf('Events/buildEventIndex', () => buildEventIndex(events)),
+    () => buildEventIndex(events),
     [events]
   );
 
