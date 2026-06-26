@@ -22,6 +22,7 @@ import type {
 interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
   onShowExpertDetails?: () => void;
+  hideReferenceConclusions?: boolean;
 }
 
 const kindConfig: Record<FinalConclusionKind, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -112,7 +113,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
   return lines.join('\n');
 }
 
-const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary, onShowExpertDetails }) => {
+const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary, onShowExpertDetails, hideReferenceConclusions = false }) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
 
   const copyableText = useMemo(() => finalSummary ? buildCopyText(finalSummary) : '', [finalSummary]);
@@ -176,34 +177,71 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary,
         <MissingInfoPanel items={finalSummary.missingInfo} />
       </div>
 
-      <div style={{ marginTop: 16, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <InfoCircleOutlined style={{ color: '#0284c7' }} />
-        <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>关键结论（定位参考）</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>用于说明判断依据，优先按上方行动清单操作</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {finalSummary.headline.map(conclusion => (
-          <ConclusionCard
-            key={conclusion.id}
-            conclusion={conclusion}
-            expanded={expandedConclusionIds.includes(conclusion.id)}
-            onToggle={() => {
-              setExpandedConclusionIds(prev =>
-                prev.includes(conclusion.id)
-                  ? prev.filter(id => id !== conclusion.id)
-                  : [...prev, conclusion.id]
-              );
-            }}
-          />
-        ))}
-      </div>
-
-      {finalSummary.rootCauseClusters.length > 0 && (
-        <RootCauseClusterPanel clusters={finalSummary.rootCauseClusters.slice(0, 6)} />
+      {!hideReferenceConclusions && (
+        <ReferenceConclusionContent
+          finalSummary={finalSummary}
+          expandedConclusionIds={expandedConclusionIds}
+          setExpandedConclusionIds={setExpandedConclusionIds}
+        />
       )}
     </Card>
   );
 };
+
+export const FinalDiagnosisReferencePanel: React.FC<{ finalSummary?: FinalDiagnosisSummary }> = ({ finalSummary }) => {
+  const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
+
+  if (!finalSummary || finalSummary.headline.length === 0) return null;
+
+  return (
+    <Card
+      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', marginBottom: 16 }}
+      styles={{ body: { padding: 18 } }}
+    >
+      <ReferenceConclusionContent
+        finalSummary={finalSummary}
+        expandedConclusionIds={expandedConclusionIds}
+        setExpandedConclusionIds={setExpandedConclusionIds}
+        compact
+      />
+    </Card>
+  );
+};
+
+const ReferenceConclusionContent: React.FC<{
+  finalSummary: FinalDiagnosisSummary;
+  expandedConclusionIds: string[];
+  setExpandedConclusionIds: React.Dispatch<React.SetStateAction<string[]>>;
+  compact?: boolean;
+}> = ({ finalSummary, expandedConclusionIds, setExpandedConclusionIds, compact = false }) => (
+  <>
+    <div style={{ marginTop: compact ? 0 : 16, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <InfoCircleOutlined style={{ color: '#0284c7' }} />
+      <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>关键结论（定位参考）</span>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>用于说明判断依据，优先按最终诊断摘要中的行动清单操作</span>
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {finalSummary.headline.map(conclusion => (
+        <ConclusionCard
+          key={conclusion.id}
+          conclusion={conclusion}
+          expanded={expandedConclusionIds.includes(conclusion.id)}
+          onToggle={() => {
+            setExpandedConclusionIds(prev =>
+              prev.includes(conclusion.id)
+                ? prev.filter(id => id !== conclusion.id)
+                : [...prev, conclusion.id]
+            );
+          }}
+        />
+      ))}
+    </div>
+
+    {finalSummary.rootCauseClusters.length > 0 && (
+      <RootCauseClusterPanel clusters={finalSummary.rootCauseClusters.slice(0, 6)} />
+    )}
+  </>
+);
 
 function statusText(status: FinalDiagnosisSummary['status']): string {
   if (status === 'has-conclusion') return '已有可执行结论';

@@ -9,7 +9,6 @@ import {
   type DnsAnswerEvidence,
   type DnsIpEvidenceSummary,
   type DnsServerEvidence,
-  type IpEvidenceSource,
   type RequestImpact,
 } from '../../diagnosis/ipEvidence';
 import { copyText } from '../../utils/copyText';
@@ -18,36 +17,12 @@ interface DnsAndIpEvidencePanelProps {
   summary: DnsIpEvidenceSummary;
 }
 
-const SOURCE_LABEL: Record<IpEvidenceSource, string> = {
-  'har.serverIPAddress': 'HAR serverIPAddress',
-  'har.x-tt-cip': 'HAR x-tt-cip',
-  'har.x-lsc-source-ip': 'HAR x-lsc-source-ip',
-  'netlog.URLRequest.resolvedIp': 'NetLog resolvedIp',
-  'netlog.URLRequest.remoteIp': 'NetLog remoteIp',
-  'netlog.failedDomains.ips': 'NetLog failedDomains',
-  'netlog.dnsRecords.ips': 'NetLog dnsRecords',
-  'netlog.dnsServers': 'NetLog dnsServers',
-  'netlog.params.ip_endpoint': 'NetLog ip_endpoint',
-  'netlog.params.address': 'NetLog address',
-  'netlog.params.peer_address': 'NetLog peer_address',
-};
-
 const IMPACT_LABEL: Record<RequestImpact, string> = {
   failed: '原始请求失败',
   slow: '原始请求耗时较长',
   dns: 'DNS 解析线索',
   normal: '普通请求',
 };
-
-function sourceTags(sources: IpEvidenceSource[]) {
-  return (
-    <Space size={4} wrap>
-      {Array.from(new Set(sources)).map(source => (
-        <Tag key={source}>{SOURCE_LABEL[source] || source}</Tag>
-      ))}
-    </Space>
-  );
-}
 
 async function copyWithToast(text: string, label: string) {
   try {
@@ -58,9 +33,37 @@ async function copyWithToast(text: string, label: string) {
   }
 }
 
+function ipTags(ips: string[]) {
+  if (!ips.length) return <Typography.Text type="secondary">-</Typography.Text>;
+  return (
+    <Space size={4} wrap>
+      {ips.map(ip => (
+        <Tag key={ip} style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", marginInlineEnd: 0 }}>
+          {ip}
+        </Tag>
+      ))}
+    </Space>
+  );
+}
+
+function copyRowText(row: CipSipEvidenceRow): string {
+  return [
+    `域名: ${row.host}`,
+    `CIP: ${row.cipIps.join(', ') || '-'}`,
+    `SIP: ${row.sipIps.join(', ') || '-'}`,
+    `代表请求: ${row.representativeRequests.map(req => `${req.url} (${req.durationMs ?? '-'}ms)`).join('；') || '-'}`,
+  ].join('\n');
+}
+
 const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }) => {
   const dnsServerColumns = useMemo<ColumnsType<DnsServerEvidence>>(() => [
-    { title: 'DNS 服务器', dataIndex: 'ip', key: 'ip', width: 150 },
+    {
+      title: 'DNS 服务器',
+      dataIndex: 'ip',
+      key: 'ip',
+      width: 160,
+      render: (ip: string) => <Tag color="geekblue" style={{ fontFamily: "'SF Mono', monospace" }}>{ip}</Tag>,
+    },
     { title: '类型', dataIndex: 'label', key: 'label', width: 160 },
     {
       title: '风险',
@@ -71,8 +74,8 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
         <Tag color={risk === 'medium' ? 'orange' : risk === 'low' ? 'blue' : 'default'}>{risk}</Tag>
       ),
     },
-    { title: '说明', dataIndex: 'explanation', key: 'explanation' },
-    { title: '建议', dataIndex: 'action', key: 'action' },
+    { title: '说明', dataIndex: 'explanation', key: 'explanation', ellipsis: true },
+    { title: '建议', dataIndex: 'action', key: 'action', ellipsis: true },
   ], []);
 
   const dnsAnswerColumns = useMemo<ColumnsType<DnsAnswerEvidence>>(() => [
@@ -81,18 +84,13 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
       title: '解析 IP',
       dataIndex: 'ips',
       key: 'ips',
-      render: (ips: string[]) => ips.join(', ') || '-',
+      render: ipTags,
     },
     { title: '来源', dataIndex: 'source', key: 'source', width: 130 },
-    {
-      title: '提示',
-      key: 'hint',
-      render: () => '复制解析 IP 查询地域/运营商；如与实际连接 IP 不一致，可能与 DNS 缓存、连接复用、代理或 CDN 调度有关。',
-    },
   ], []);
 
   const cipSipColumns = useMemo<ColumnsType<CipSipEvidenceRow>>(() => [
-    { title: '域名/URL', dataIndex: 'hostOrUrl', key: 'hostOrUrl', ellipsis: true },
+    { title: '域名', dataIndex: 'host', key: 'host', width: 220, ellipsis: true },
     {
       title: '状态',
       key: 'impact',
@@ -104,70 +102,100 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
       ),
     },
     {
-      title: '耗时',
+      title: '代表请求',
+      dataIndex: 'representativeRequests',
+      key: 'representativeRequests',
+      width: 360,
+      render: (requests: CipSipEvidenceRow['representativeRequests']) => (
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          {requests.map((req, index) => (
+            <Typography.Text
+              key={`${req.url}-${index}`}
+              type="secondary"
+              ellipsis={{ tooltip: `${req.url} · ${req.durationMs ?? '-'}ms` }}
+              style={{ maxWidth: 340, fontSize: 12 }}
+            >
+              {index + 1}. {req.url} · {req.durationMs === undefined ? '-' : `${Math.round(req.durationMs)}ms`}
+            </Typography.Text>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: '最长耗时',
       dataIndex: 'durationMs',
       key: 'durationMs',
       width: 100,
       render: (durationMs?: number) => durationMs === undefined ? '-' : `${Math.round(durationMs)}ms`,
     },
     {
-      title: 'CIP / 客户端线索 IP',
+      title: 'CIP',
       dataIndex: 'cipIps',
       key: 'cipIps',
-      render: (ips: string[]) => ips.join(', ') || '-',
+      width: 180,
+      render: ipTags,
     },
     {
-      title: 'CIP 来源字段',
-      dataIndex: 'cipSources',
-      key: 'cipSources',
-      render: sourceTags,
-    },
-    {
-      title: 'SIP / 目标服务 IP',
+      title: 'SIP',
       dataIndex: 'sipIps',
       key: 'sipIps',
-      render: (ips: string[]) => ips.join(', ') || '-',
-    },
-    {
-      title: 'SIP 来源字段',
-      dataIndex: 'sipSources',
-      key: 'sipSources',
-      render: sourceTags,
+      width: 180,
+      render: ipTags,
     },
     {
       title: '复制',
       key: 'copy',
-      width: 90,
+      width: 230,
       render: (_, row) => (
-        <Button
-          size="small"
-          icon={<CopyOutlined />}
-          onClick={() => copyWithToast([...row.cipIps, ...row.sipIps].join('\n'), '本行 IP')}
-        >
-          IP
-        </Button>
+        <Space size={4} wrap>
+          <Button size="small" onClick={() => copyWithToast(row.cipIps.join('\n'), 'CIP')}>
+            CIP
+          </Button>
+          <Button size="small" onClick={() => copyWithToast(row.sipIps.join('\n'), 'SIP')}>
+            SIP
+          </Button>
+          <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(copyRowText(row), '本行证据')}>
+            本行
+          </Button>
+        </Space>
       ),
-    },
-    {
-      title: '查询提示',
-      key: 'hint',
-      render: () => '复制后粘贴到可访问的 IP 归属查询网站、企业 IP 库或发给网络团队确认运营商和地域。',
     },
   ], []);
 
   return (
     <Card
       title="DNS 与 CIP/SIP 定位证据"
-      styles={{ body: { padding: 16 } }}
-      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', marginBottom: 16 }}
+      styles={{ body: { padding: 20 } }}
+      style={{
+        background: 'linear-gradient(180deg, rgba(14,165,233,0.08), var(--bg-elevated) 92px)',
+        borderColor: 'rgba(14,165,233,0.28)',
+        boxShadow: '0 14px 34px rgba(15,23,42,0.10)',
+        marginBottom: 16,
+      }}
     >
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Alert
           type="info"
           showIcon
           message="本模块不会联网查询 IP 归属，只整理 HAR / NetLog 中记录的 DNS、CIP、SIP 证据。"
           description="“原始请求失败/耗时较长”来自上传的 HAR / NetLog 文件，不是点击本模块按钮造成。如需判断跨境/跨运营商，请复制 IP 到可访问的 IP 查询工具、企业 IP 库或发给网络团队确认运营商和地域。"
         />
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 14,
+            border: '1px solid rgba(251, 191, 36, 0.35)',
+            background: 'linear-gradient(135deg, rgba(251,191,36,0.15), rgba(14,165,233,0.10))',
+          }}
+        >
+          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+            排查建议
+          </Typography.Text>
+          <Typography.Text>
+            先复制 DNS server 判断解析入口，再复制失败/慢请求的 CIP 或 SIP 到 IP 查询工具、企业 IP 库或发给网络团队。
+            如果 SIP 归属海外，属于跨境调度线索；如果 SIP 归属运营商与用户当前网络不同，属于跨运营商访问线索。
+          </Typography.Text>
+        </div>
 
         <Space wrap>
           <Button icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(summary.copyableIps), '全部问题 IP')}>
@@ -177,12 +205,12 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             复制 DNS 服务器
           </Button>
           <Button icon={<CopyOutlined />} onClick={() => copyWithToast(buildCipSipRowsText(summary.cipSipRows), '失败/慢请求 CIP/SIP')}>
-            复制失败/慢请求 CIP/SIP
+            复制聚合列表
           </Button>
         </Space>
 
-        <div>
-          <Typography.Text strong>1. DNS 配置与解析结果</Typography.Text>
+        <div style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>1. DNS 配置与解析结果</Typography.Text>
           <Table
             size="small"
             rowKey="ip"
@@ -191,7 +219,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             pagination={false}
             scroll={{ x: 960 }}
             locale={{ emptyText: '未在文件中发现 DNS server 记录' }}
-            style={{ marginTop: 8, marginBottom: 12 }}
+            style={{ marginBottom: 14 }}
           />
           <Table
             size="small"
@@ -204,17 +232,18 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
           />
         </div>
 
-        <div>
-          <Typography.Text strong>2. 失败/慢请求 CIP/SIP 列表</Typography.Text>
+        <div style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>
+            2. 失败/慢请求 CIP/SIP 列表（同域名同 CIP/SIP 已去重，每组保留最长耗时前三个代表请求）
+          </Typography.Text>
           <Table
             size="small"
             rowKey="id"
             columns={cipSipColumns}
             dataSource={summary.cipSipRows}
             pagination={{ pageSize: 8, showSizeChanger: false }}
-            scroll={{ x: 1280 }}
+            scroll={{ x: 1240 }}
             locale={{ emptyText: '未发现失败或慢请求关联的 CIP/SIP 证据' }}
-            style={{ marginTop: 8 }}
           />
         </div>
 
@@ -228,7 +257,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
           type="info"
           showIcon
           message="CIP/SIP 说明"
-          description="CIP/SIP 的具体语义取决于原始字段。请以“来源字段”列为准：serverIPAddress/remoteIp 通常更接近实际连接目标，x-tt-cip/x-lsc-source-ip/resolvedIp 属于响应头或解析线索。"
+          description="serverIPAddress/remoteIp/socket peer 通常更接近实际连接目标；x-tt-cip、x-lsc-source-ip、resolvedIp 属于客户端、响应头或解析线索。当前列表按域名和 CIP/SIP 聚合，用于降低重复请求噪音。"
         />
       </Space>
     </Card>

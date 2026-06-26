@@ -156,6 +156,25 @@ describe('ipEvidence', () => {
     expect(summary.dnsServers.map(item => item.ip)).toEqual(['8.8.8.8', '192.168.1.1']);
     expect(summary.dnsAnswers[0].ips).toContain('203.0.113.10');
     expect(summary.copyableIps).toEqual(expect.arrayContaining(['58.215.109.83', '58.215.109.84']));
-    expect(summary.cipSipRows[0].sipSources).toEqual(expect.arrayContaining(['netlog.URLRequest.remoteIp', 'netlog.params.ip_endpoint']));
+    expect(summary.cipSipRows[0].sipIps).toEqual(expect.arrayContaining(['58.215.109.83', '58.215.109.84']));
+  });
+
+  it('相同域名和相同 CIP/SIP 去重，并保留耗时最长前三个代表请求', () => {
+    const entries = [1000, 5000, 3000, 2000].map((time, index) => harEntry({
+      id: index + 1,
+      url: `https://api.example.com/data?i=${index}`,
+      remoteAddress: '1.2.3.4',
+      xTtCip: '5.6.7.8',
+      isFailed: false,
+      isSlow: true,
+      status: 200,
+      time,
+    }));
+
+    const summary = extractDnsIpEvidenceFromHar(harResult(entries));
+
+    expect(summary.cipSipRows).toHaveLength(1);
+    expect(summary.cipSipRows[0].representativeRequests).toHaveLength(3);
+    expect(summary.cipSipRows[0].representativeRequests.map(req => req.durationMs)).toEqual([5000, 3000, 2000]);
   });
 });

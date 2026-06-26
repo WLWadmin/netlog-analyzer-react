@@ -78,39 +78,86 @@ function addIpEvidence(
 }
 
 function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
-  const rows = new Map<string, CipSipEvidenceRow>();
+  const draftRows = new Map<string, {
+    host: string;
+    cipIps: Set<string>;
+    sipIps: Set<string>;
+    items: IpEvidenceItem[];
+    descriptions: Set<string>;
+  }>();
 
   for (const item of items) {
-    const key = item.url || item.host || item.description;
-    const row = rows.get(key) || {
-      id: key,
-      hostOrUrl: item.url || item.host || '-',
-      impact: item.impact,
-      statusCode: item.statusCode,
-      error: item.error,
-      durationMs: item.durationMs,
-      cipIps: [],
-      cipSources: [],
-      sipIps: [],
-      sipSources: [],
-      descriptions: [],
+    const baseHost = item.host || hostFromUrl(item.url) || item.url || '-';
+    const provisionalKey = baseHost;
+    const row = draftRows.get(provisionalKey) || {
+      host: baseHost,
+      cipIps: new Set<string>(),
+      sipIps: new Set<string>(),
+      items: [],
+      descriptions: new Set<string>(),
     };
 
     if (item.role === 'cip') {
-      if (!row.cipIps.includes(item.ip)) row.cipIps.push(item.ip);
-      if (!row.cipSources.includes(item.source)) row.cipSources.push(item.source);
+      row.cipIps.add(item.ip);
     }
     if (item.role === 'sip' || item.role === 'socket-peer' || item.role === 'dns-answer') {
-      if (!row.sipIps.includes(item.ip)) row.sipIps.push(item.ip);
-      if (!row.sipSources.includes(item.source)) row.sipSources.push(item.source);
+      row.sipIps.add(item.ip);
     }
-    if (!row.descriptions.includes(item.description)) row.descriptions.push(item.description);
-    rows.set(key, row);
+    row.items.push(item);
+    row.descriptions.add(item.description);
+    draftRows.set(provisionalKey, row);
   }
 
-  return Array.from(rows.values()).sort((a, b) => {
+  const mergedRows = new Map<string, CipSipEvidenceRow>();
+  for (const row of draftRows.values()) {
+    const cipIps = Array.from(row.cipIps).sort();
+    const sipIps = Array.from(row.sipIps).sort();
+    const key = [row.host, cipIps.join(','), sipIps.join(',')].join('|');
+    const uniqueItems = Array.from(new Map(row.items.map(item => [
+      [item.url || item.host || '-', item.statusCode || '', item.error || '', item.durationMs || ''].join('|'),
+      item,
+    ])).values());
+    const sortedItems = uniqueItems.sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0));
+    const topItems = sortedItems.slice(0, 3);
+    const representative = topItems[0] || sortedItems[0];
+    const existing = mergedRows.get(key);
+    const nextRequests = topItems.map(item => ({
+      url: item.url || item.host || '-',
+      statusCode: item.statusCode,
+      error: item.error,
+      durationMs: item.durationMs,
+      impact: item.impact,
+    }));
+
+    if (existing) {
+      existing.representativeRequests = [...existing.representativeRequests, ...nextRequests]
+        .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
+        .slice(0, 3);
+      existing.durationMs = Math.max(existing.durationMs || 0, representative?.durationMs || 0);
+      existing.descriptions = Array.from(new Set([...existing.descriptions, ...row.descriptions])).slice(0, 6);
+      continue;
+    }
+
+    mergedRows.set(key, {
+      id: key,
+      host: row.host,
+      hostOrUrl: row.host,
+      impact: representative?.impact || 'normal',
+      statusCode: representative?.statusCode,
+      error: representative?.error,
+      durationMs: representative?.durationMs,
+      cipIps,
+      sipIps,
+      representativeRequests: nextRequests,
+      descriptions: Array.from(row.descriptions).slice(0, 6),
+    });
+  }
+
+  return Array.from(mergedRows.values()).sort((a, b) => {
     const impactScore = (impact: RequestImpact) => impact === 'failed' ? 0 : impact === 'slow' ? 1 : 2;
-    return impactScore(a.impact) - impactScore(b.impact);
+    const impactDiff = impactScore(a.impact) - impactScore(b.impact);
+    if (impactDiff !== 0) return impactDiff;
+    return (b.durationMs || 0) - (a.durationMs || 0);
   });
 }
 

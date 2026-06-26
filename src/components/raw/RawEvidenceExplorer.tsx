@@ -284,12 +284,25 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         />
       </PageSection>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(520px, 1fr) minmax(640px, 0.9fr)', gap: 16, minHeight: 400, overflowX: 'auto' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(520px, 1fr) minmax(660px, 0.95fr)',
+          gap: 20,
+          minHeight: 400,
+          overflowX: 'auto',
+          padding: 12,
+          borderRadius: 16,
+          background: 'linear-gradient(180deg, rgba(14,165,233,0.06), rgba(15,23,42,0.02))',
+          border: '1px solid var(--border-color)',
+        }}
+      >
         {/* Left: Results / Structure */}
         <Card
           size="small"
           title={searchQuery ? `搜索结果 (${searchResults.length})` : '文件结构'}
-          styles={{ body: { padding: 0, maxHeight: 600, overflow: 'auto' } }}
+          styles={{ body: { padding: 8, maxHeight: 600, overflow: 'auto' } }}
+          style={{ borderRadius: 14, overflow: 'hidden' }}
         >
           {searchQuery ? (
             searchResults.length === 0 ? (
@@ -351,12 +364,13 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
               </Button>
             </Space>
           )}
-          styles={{ body: { padding: 0, maxHeight: 'calc(100vh - 300px)', minHeight: 420, overflow: 'auto' } }}
+          styles={{ body: { padding: 12, maxHeight: 'calc(100vh - 300px)', minHeight: 420, overflow: 'auto' } }}
+          style={{ borderRadius: 14, overflow: 'hidden' }}
         >
           {expandedValue ? (
             <pre style={{
               margin: 0,
-              padding: 16,
+              padding: 22,
               minHeight: 420,
               minWidth: 'max-content',
               fontSize: 12,
@@ -365,6 +379,9 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
               whiteSpace: 'pre',
               wordBreak: 'normal',
               color: 'var(--text-primary)',
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
             }}>
               {expandedValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
                 ? expandedValue.substring(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n\n... (内容过长，已截断)'
@@ -383,10 +400,11 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         footer={null}
         width="90vw"
         title={selectedPath || '值预览'}
+        styles={{ body: { padding: 20 } }}
       >
         <pre style={{
           margin: 0,
-          padding: 16,
+          padding: 24,
           maxHeight: '75vh',
           overflow: 'auto',
           whiteSpace: 'pre',
@@ -395,7 +413,8 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
           lineHeight: 1.6,
           fontFamily: "'SF Mono', 'Fira Code', monospace",
           background: 'var(--bg-subtle)',
-          borderRadius: 8,
+          border: '1px solid var(--border-color)',
+          borderRadius: 12,
         }}>
           {expandedValue || '选择左侧字段后查看原始值'}
         </pre>

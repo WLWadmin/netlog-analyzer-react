@@ -26,7 +26,7 @@ import { CHART_COLORS } from '../../constants/chartColors';
 import { buildFinalDiagnosisSummary, buildHarDiagnosisSummary } from '../../diagnosis/shared';
 import { extractDnsIpEvidenceFromHar } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
-import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
+import FinalDiagnosisPanel, { FinalDiagnosisReferencePanel } from '../shared/FinalDiagnosisPanel';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 
 interface HarSummaryDiagnosisProps {
@@ -295,9 +295,12 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       <FinalDiagnosisPanel
         finalSummary={finalSummary}
         onShowExpertDetails={showAndScrollExpertDiagnosis}
+        hideReferenceConclusions
       />
 
       <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
+
+      <FinalDiagnosisReferencePanel finalSummary={finalSummary} />
 
       {/* 完整诊断卡片：专家视图 */}
       <div ref={expertDiagnosisRef}>

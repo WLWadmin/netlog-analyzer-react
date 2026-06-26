@@ -47,15 +47,21 @@ export interface IpEvidenceItem {
 
 export interface CipSipEvidenceRow {
   id: string;
+  host: string;
   hostOrUrl: string;
   impact: RequestImpact;
   statusCode?: number;
   error?: string | number;
   durationMs?: number;
   cipIps: string[];
-  cipSources: IpEvidenceSource[];
   sipIps: string[];
-  sipSources: IpEvidenceSource[];
+  representativeRequests: Array<{
+    url: string;
+    statusCode?: number;
+    error?: string | number;
+    durationMs?: number;
+    impact: RequestImpact;
+  }>;
   descriptions: string[];
 }
 

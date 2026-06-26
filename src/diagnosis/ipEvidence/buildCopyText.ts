@@ -1,8 +1,4 @@
-import type { CipSipEvidenceRow, DnsIpEvidenceSummary, IpEvidenceSource } from './ipEvidenceTypes';
-
-function formatSources(sources: IpEvidenceSource[]): string {
-  return Array.from(new Set(sources)).join(', ') || '-';
-}
+import type { CipSipEvidenceRow, DnsIpEvidenceSummary } from './ipEvidenceTypes';
 
 export function buildIpListText(ips: string[]): string {
   return Array.from(new Set(ips)).filter(Boolean).join('\n');
@@ -10,13 +6,12 @@ export function buildIpListText(ips: string[]): string {
 
 export function buildCipSipRowsText(rows: CipSipEvidenceRow[]): string {
   return rows.map(row => [
-    `URL/域名: ${row.hostOrUrl}`,
+    `域名: ${row.host}`,
     `状态: ${row.impact}${row.statusCode ? ` ${row.statusCode}` : ''}${row.error ? ` error=${row.error}` : ''}`,
     `耗时: ${row.durationMs ?? '-'}ms`,
     `CIP: ${row.cipIps.join(', ') || '-'}`,
-    `CIP 来源: ${formatSources(row.cipSources)}`,
     `SIP: ${row.sipIps.join(', ') || '-'}`,
-    `SIP 来源: ${formatSources(row.sipSources)}`,
+    `代表请求: ${row.representativeRequests.map(req => `${req.url} (${req.durationMs ?? '-'}ms)`).join('；') || '-'}`,
   ].join('\n')).join('\n\n');
 }
 

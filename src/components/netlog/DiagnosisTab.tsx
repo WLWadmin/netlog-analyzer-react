@@ -8,7 +8,7 @@ import { buildFinalDiagnosisSummary, buildNetlogDiagnosisSummary } from '../../d
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import { extractDnsIpEvidenceFromNetlog } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
-import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
+import FinalDiagnosisPanel, { FinalDiagnosisReferencePanel } from '../shared/FinalDiagnosisPanel';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 
 interface DiagnosisTabProps {
@@ -154,11 +154,16 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
         <FinalDiagnosisPanel
           finalSummary={finalSummary}
           onShowExpertDetails={showAndScrollExpertDiagnosis}
+          hideReferenceConclusions
         />
       )}
 
       {!diagnosisLoading && (
         <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
+      )}
+
+      {!diagnosisLoading && finalSummary && (
+        <FinalDiagnosisReferencePanel finalSummary={finalSummary} />
       )}
 
       {/* 完整诊断卡片：专家视图 */}
