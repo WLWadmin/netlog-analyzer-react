@@ -33,8 +33,6 @@ import {
   SEARCH_DEBOUNCE_MS,
 } from '../../constants/analysisThresholds';
 import EmptyState from '../shared/EmptyState';
-import PageSection from '../shared/PageSection';
-import Toolbar from '../shared/Toolbar';
 
 interface RawEvidenceExplorerProps {
   /** 原始 JSON 数据（上传的文件内容） */
@@ -263,26 +261,43 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <PageSection
-        title={
-          <Toolbar extra={fileName ? <Tag style={{ margin: 0 }}>{fileName}</Tag> : undefined}>
-            <FileSearchOutlined style={{ fontSize: 16, color: '#6366f1' }} />
-            <span>原始证据浏览器</span>
-          </Toolbar>
-        }
-        description="输入字段名或值进行搜索，例如 net_error、ERR_、dns、timeout。"
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '18px 20px 24px' }}>
+      <Card
+        styles={{ body: { padding: 18 } }}
+        style={{
+          borderRadius: 16,
+          borderColor: 'rgba(99, 102, 241, 0.18)',
+          background: 'linear-gradient(180deg, rgba(99,102,241,0.07), var(--bg-elevated) 72px)',
+          boxShadow: '0 10px 28px rgba(15,23,42,0.08)',
+        }}
       >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+              <FileSearchOutlined style={{ fontSize: 17, color: '#6366f1' }} />
+              <span>原始证据浏览器</span>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+              输入字段名或值进行搜索，例如 net_error、ERR_、dns、timeout。
+            </div>
+          </div>
+          {fileName && <Tag style={{ margin: 0, borderRadius: 999 }}>{fileName}</Tag>}
+        </div>
         <Input
           size="large"
-          prefix={<SearchOutlined />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
           placeholder="搜索字段名或值... (如: net_error, proxy, certificate, source_dependency)"
           value={searchQuery}
           onChange={e => handleSearch(e.target.value)}
           allowClear
-          style={{ borderRadius: 10 }}
+          style={{
+            borderRadius: 12,
+            height: 42,
+            background: 'var(--bg-surface)',
+            boxShadow: 'inset 0 0 0 1px rgba(148,163,184,0.10)',
+          }}
         />
-      </PageSection>
+      </Card>
 
       <div
         style={{
