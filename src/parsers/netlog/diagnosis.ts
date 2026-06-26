@@ -39,8 +39,8 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
     detail: 'DNS 服务器无法解析目标域名，返回 NXDOMAIN 或超时无响应。根据 oncall 经验，此类问题通常由以下原因导致：1) 本地 DNS 服务器（Local DNS）故障或不稳定；2) 域名确实不存在或已下线；3) hosts 文件被异常修改；4) 企业自建 DNS 配置错误；5) 网络环境变更后 DNS 未更新。',
     conclusion: 'DNS 解析失败是网络访问的首要关卡故障。根据字节跳动网络 oncall 统计，80% 以上的 DNS 问题可通过更换公共 DNS 解决。优先排查 DNS 配置，其次检查 hosts 文件和域名有效性。',
     actions: [
-      '【首选】国内用户修改 DNS 为 223.5.5.5（阿里云）或 119.29.29.29（腾讯云）；海外用户修改 DNS 为 8.8.8.8（Google）或 1.1.1.1（Cloudflare）',
-      '【重要】避免使用 114.114.114.114（已停止维护，2024 年后频繁出现解析异常）',
+      '【对比】按用户所在地和网络环境，对比运营商 DNS、企业 DNS 与公共 DNS（如 223.5.5.5、119.29.29.29、8.8.8.8、1.1.1.1）的解析结果',
+      '【注意】公共 DNS 不一定代表当前运营商本地最优解析；若怀疑 DNS/CDN 调度异常，避免只依赖单一公共 DNS',
       '【自查】检查 hosts 文件是否有异常映射（Windows: C:\\Windows\\System32\\drivers\\etc\\hosts | Mac: /etc/hosts）',
       '清除 DNS 缓存：Windows 执行 ipconfig /flushdns，Mac 执行 sudo killall -HUP mDNSResponder',
       '在 Chrome 地址栏输入 chrome://net-internals/#dns，点击 "clear host cache" 清除浏览器 DNS 缓存',

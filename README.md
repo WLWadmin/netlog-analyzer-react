@@ -34,6 +34,7 @@
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
 - **最终诊断摘要**：在 HAR、NetLog、HAR + NetLog 联合诊断顶部生成面向普通用户的收敛摘要，优先展示统一行动清单和缺失信息，再展示关键结论与完整专家报告。
 - **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
+- **DNS 与 CIP/SIP 定位证据**：HAR / NetLog 诊断页在关键结论后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP，支持一键复制问题 IP 给用户或网络团队自查；前端不联网查询 IP 归属，也不会外发公网 IP。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。
@@ -190,6 +191,7 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - **缺失信息收集**：“还缺什么信息”模块包含常规网络排查信息收集步骤，例如客户端 IP / DNS 出口、打不开或请求慢的 URL 域名、DNS / IP 连通性 / 丢包率 / 路由信息、上网方式 / 环境信息，以及 Wireshark `.pcapng` 抓包文件。
 - **首次进入非阻塞**：进入 Tab 后先渲染 loading，再异步生成诊断摘要、诊断卡片和旧版详细问题列表，大文件下不会把点击切换阻塞在同步 render 路径中。
 - **诊断卡片分批展示**：首屏先展示前一批诊断卡片，用户可继续加载更多，诊断内容不减少。
+- **DNS 与 CIP/SIP 定位证据**：从 `dnsServers`、`dnsRecords`、`URLRequest.remoteIp`、`resolvedIp`、`failedDomains` 和 socket 参数提取 DNS、CIP、SIP 证据；DNS server 和 DNS answer 优先展示，失败/慢请求 IP 支持一键复制后自查归属。
 - 按类别聚合错误、告警和信息项。
 - 每条建议底部提供"查看证据"按钮，支持一键跳转到对应 Tab 并自动设置筛选条件。跳转规则统一收口到 `navigation.ts`（`buildHarNavigationTarget` / `buildNetlogNavigationTarget`），页面组件不再根据 title/icon 自行推断。
 - **自助命令库**：诊断卡片内嵌排查命令区块，按类别推荐命令（`nslookup`、`curl`、`openssl` 等），支持一键复制，包含平台标注、预期结果和失败后续指引。
@@ -261,6 +263,7 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - 展示原始结构概览，支持按 path 展开查看。
 - 支持关键词搜索 path 和字段值。
 - 支持读取任意 path 的原始值预览。
+- 右侧值预览使用更宽的横向滚动布局，支持复制路径、复制值和全屏预览，便于核对长 JSON。
 - 大文件场景下优先通过 Worker 执行结构分析、path 搜索和值读取，减少主线程卡顿。
 
 NetLog 和 HAR 结果页都可以进入该模块，用于回看原始输入数据。
@@ -464,6 +467,7 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - **HTTP 状态分布**：2xx/3xx/4xx/5xx/0 的计数和占比。
 - **慢请求分类**：按 DNS/TCP/TLS/TTFB/Receive/Blocked 分类统计慢请求数量。
 - **域名/IP 统计**：展示请求最多的域名和 IP，含平均耗时、失败数、IP 类型（public/private/loopback/ipv6）。
+- **DNS 与 CIP/SIP 定位证据**：从 HAR `serverIPAddress`、`x-tt-cip`、`x-lsc-source-ip` 提取失败/慢请求相关 SIP/CIP 证据，支持复制给 IP 归属查询工具或网络团队继续判断。
 - **资源分析**：按资源类型（JS/CSS/Img/Font/XHR 等）统计数量、大小、平均耗时。
 - **缓存与压缩**：缓存命中率、压缩率、未压缩大资源列表。
 - **安全协议**：HTTPS/HTTP 占比、HTTP/2/HTTP/3/HTTP/1.1 分布、混合内容检测。
@@ -694,6 +698,7 @@ src/
 │       ├── CombinedDiagnosisTab.tsx
 │       ├── BaselineCompareTab.tsx
 │       ├── CollectionQualityAlert.tsx
+│       ├── DnsAndIpEvidencePanel.tsx
 │       ├── DiagnosisPanel.tsx
 │       ├── DiagnosticCard.tsx
 │       ├── ExportSummaryButton.tsx
@@ -713,6 +718,13 @@ src/
 ├── contexts/
 │   └── NavigationContext.tsx        # 跨 Tab 导航与筛选联动
 ├── diagnosis/
+│   ├── ipEvidence/                  # DNS 优先的 CIP/SIP 证据整理，不包含在线 IP 查询
+│   │   ├── ipEvidenceTypes.ts
+│   │   ├── ipNormalize.ts
+│   │   ├── classifyDnsServer.ts
+│   │   ├── extractDnsIpEvidence.ts
+│   │   ├── buildCopyText.ts
+│   │   └── index.ts
 │   └── shared/                      # 诊断模型拼装、导航、导出、对比
 │       ├── fromNetlog.ts
 │       ├── fromNetlogLifecycle.ts

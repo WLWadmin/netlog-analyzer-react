@@ -6,8 +6,10 @@ import { generateSuggestions } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, GroupedIssue, IssueAlert } from '../../components/shared/IssueDisplay';
 import { buildFinalDiagnosisSummary, buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
+import { extractDnsIpEvidenceFromNetlog } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
+import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
@@ -137,6 +139,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
     () => diagnosisSummary ? buildFinalDiagnosisSummary(diagnosisSummary, 'netlog') : undefined,
     [diagnosisSummary]
   );
+  const dnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromNetlog(result), [result]);
   const showAndScrollExpertDiagnosis = () => {
     setShowExpertDiagnosis(true);
     window.setTimeout(() => {
@@ -152,6 +155,10 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
           finalSummary={finalSummary}
           onShowExpertDetails={showAndScrollExpertDiagnosis}
         />
+      )}
+
+      {!diagnosisLoading && (
+        <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
       )}
 
       {/* 完整诊断卡片：专家视图 */}

@@ -8,11 +8,12 @@
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Card, Input, Button, Tag, Tooltip, message } from 'antd';
+import { Card, Input, Button, Tag, Tooltip, message, Modal, Space } from 'antd';
 import {
   SearchOutlined,
   CopyOutlined,
   FileSearchOutlined,
+  FullscreenOutlined,
 } from '@ant-design/icons';
 import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
@@ -53,6 +54,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [workerStructure, setWorkerStructure] = useState<StructureNode[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchTaskIdRef = useRef(0);
@@ -282,7 +284,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         />
       </PageSection>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, minHeight: 400 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(520px, 1fr) minmax(640px, 0.9fr)', gap: 16, minHeight: 400, overflowX: 'auto' }}>
         {/* Left: Results / Structure */}
         <Card
           size="small"
@@ -335,25 +337,33 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
             </div>
           }
           extra={expandedValue && (
-            <Button
-              size="small"
-              icon={<CopyOutlined />}
-              onClick={handleCopyValue}
-            >
-              复制
-            </Button>
+            <Space size={6}>
+              {selectedPath && (
+                <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyPath(selectedPath)}>
+                  复制路径
+                </Button>
+              )}
+              <Button size="small" icon={<CopyOutlined />} onClick={handleCopyValue}>
+                复制值
+              </Button>
+              <Button size="small" icon={<FullscreenOutlined />} onClick={() => setPreviewOpen(true)}>
+                全屏预览
+              </Button>
+            </Space>
           )}
-          styles={{ body: { padding: 0, maxHeight: 600, overflow: 'auto' } }}
+          styles={{ body: { padding: 0, maxHeight: 'calc(100vh - 300px)', minHeight: 420, overflow: 'auto' } }}
         >
           {expandedValue ? (
             <pre style={{
               margin: 0,
               padding: 16,
+              minHeight: 420,
+              minWidth: 'max-content',
               fontSize: 12,
               fontFamily: "'SF Mono', 'Fira Code', monospace",
               lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
+              whiteSpace: 'pre',
+              wordBreak: 'normal',
               color: 'var(--text-primary)',
             }}>
               {expandedValue.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
@@ -367,6 +377,29 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
           )}
         </Card>
       </div>
+      <Modal
+        open={previewOpen}
+        onCancel={() => setPreviewOpen(false)}
+        footer={null}
+        width="90vw"
+        title={selectedPath || '值预览'}
+      >
+        <pre style={{
+          margin: 0,
+          padding: 16,
+          maxHeight: '75vh',
+          overflow: 'auto',
+          whiteSpace: 'pre',
+          wordBreak: 'normal',
+          fontSize: 12,
+          lineHeight: 1.6,
+          fontFamily: "'SF Mono', 'Fira Code', monospace",
+          background: 'var(--bg-subtle)',
+          borderRadius: 8,
+        }}>
+          {expandedValue || '选择左侧字段后查看原始值'}
+        </pre>
+      </Modal>
     </div>
   );
 };

@@ -24,8 +24,10 @@ import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhas
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { buildFinalDiagnosisSummary, buildHarDiagnosisSummary } from '../../diagnosis/shared';
+import { extractDnsIpEvidenceFromHar } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
+import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 
 interface HarSummaryDiagnosisProps {
   result: HarAnalysisResult;
@@ -276,6 +278,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
   // 统一诊断模型
   const diagnosisSummary = useMemo(() => buildHarDiagnosisSummary(result, diag), [result, diag]);
   const finalSummary = useMemo(() => buildFinalDiagnosisSummary(diagnosisSummary, 'har'), [diagnosisSummary]);
+  const dnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromHar(result), [result]);
   const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(false);
   const expertDiagnosisRef = useRef<HTMLDivElement | null>(null);
   const showAndScrollExpertDiagnosis = () => {
@@ -293,6 +296,8 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
         finalSummary={finalSummary}
         onShowExpertDetails={showAndScrollExpertDiagnosis}
       />
+
+      <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
 
       {/* 完整诊断卡片：专家视图 */}
       <div ref={expertDiagnosisRef}>
