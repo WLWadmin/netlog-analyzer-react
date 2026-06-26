@@ -214,17 +214,6 @@ function lowerBound(values: number[], target: number): number {
   return left;
 }
 
-function upperBound(values: number[], target: number): number {
-  let left = 0;
-  let right = values.length;
-  while (left < right) {
-    const mid = Math.floor((left + right) / 2);
-    if (values[mid] <= target) left = mid + 1;
-    else right = mid;
-  }
-  return left;
-}
-
 function getRequestLookup(result: AnalysisResult): RequestLookup {
   const cached = requestLookupCache.get(result);
   if (cached) return cached;
@@ -263,17 +252,29 @@ function findEventsAround(result: AnalysisResult, time: number, windowMs = 3000)
   const index = getContextEventIndex(result);
   if (index.items.length === 0) return [];
 
-  const start = lowerBound(index.times, time - windowMs);
-  const end = upperBound(index.times, time + windowMs);
+  const maxResults = 8;
+  const results: ContextEventWithDelta[] = [];
+  let left = lowerBound(index.times, time) - 1;
+  let right = left + 1;
 
-  return index.items
-    .slice(start, end)
-    .map(item => ({
-      ...item,
-      delta: Math.abs(item.time - time),
-    }))
-    .sort((a, b) => a.delta - b.delta)
-    .slice(0, 8);
+  while (results.length < maxResults && (left >= 0 || right < index.items.length)) {
+    const leftDelta = left >= 0 ? Math.abs(index.times[left] - time) : Number.POSITIVE_INFINITY;
+    const rightDelta = right < index.items.length ? Math.abs(index.times[right] - time) : Number.POSITIVE_INFINITY;
+    const takeLeft = leftDelta <= rightDelta;
+    const delta = takeLeft ? leftDelta : rightDelta;
+
+    if (delta > windowMs) {
+      if (takeLeft) left = -1;
+      else right = index.items.length;
+      if (left < 0 && right >= index.items.length) break;
+      continue;
+    }
+
+    const item = index.items[takeLeft ? left-- : right++];
+    results.push({ ...item, delta });
+  }
+
+  return results;
 }
 
 function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult): DiagnosticCard {
@@ -943,20 +944,7 @@ export function netlogToCards(
 
   const enrichmentStart = performance.now();
   // 历史次瓶颈回归指标：用于观察诊断证据补全是否再次退化。
-  const enrichCardRows: TimingRow[] = [];
-  const enrichedCards = cards.map(card => {
-    const cardStart = performance.now();
-    const nextCard = enrichCardWithP1Evidence(card, result);
-    recordTiming(debugTiming, enrichCardRows, card.title, cardStart, undefined, {
-      id: card.id,
-      category: card.category,
-      severity: card.severity,
-      evidence: card.evidence.length,
-      relatedRequestIds: card.relatedRequestIds?.length ?? 0,
-      relatedEventIds: card.relatedEventIds?.length ?? 0,
-    });
-    return nextCard;
-  });
+  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
   recordTiming(debugTiming, timingRows, 'enrichCardWithP1Evidence map', enrichmentStart, undefined, { cards: cards.length });
 
   const sortStart = performance.now();
@@ -965,7 +953,16 @@ export function netlogToCards(
   enrichedCards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
   recordTiming(debugTiming, timingRows, 'sort enriched cards', sortStart, undefined, { cards: enrichedCards.length });
   recordTiming(debugTiming, timingRows, 'netlogToCards total', totalStart, undefined, { cards: enrichedCards.length });
-  emitTimingJson(debugTiming, 'netlogToCards internals', timingRows, {
+  const keyTimingStages = new Set([
+    'basic enhancement cards total',
+    'buildTemporalCorrelationCards',
+    'getCachedSourceGraph',
+    'netlogLifecycleToCards',
+    'lifecycle section total',
+    'enrichCardWithP1Evidence map',
+    'netlogToCards total',
+  ]);
+  emitTimingJson(debugTiming, 'netlogToCards key stages', timingRows.filter(row => keyTimingStages.has(row.stage)), {
     suggestions: suggestions.length,
     cards: enrichedCards.length,
     events: events?.length ?? 0,
@@ -975,12 +972,6 @@ export function netlogToCards(
     failedDomains: result.failedDomains.length,
     certIssues: result.certIssues.length,
   });
-  emitTimingJson(
-    debugTiming,
-    'enrichCardWithP1Evidence per-card',
-    enrichCardRows.sort((a, b) => b.durationMs - a.durationMs),
-    { cards: enrichCardRows.length }
-  );
 
   return enrichedCards;
 }
