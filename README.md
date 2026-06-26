@@ -32,6 +32,8 @@
 - **三种格式自动识别**：上传后根据文件结构自动判断 NetLog JSON、HAR 或 Go 服务日志，并进入对应的解析结果页面。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **自动定因诊断**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成问题、告警和排查建议。
+- **最终诊断摘要**：在 HAR、NetLog、HAR + NetLog 联合诊断顶部生成面向普通用户的收敛摘要，优先展示统一行动清单和缺失信息，再展示关键结论与完整专家报告。
+- **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。
@@ -73,6 +75,7 @@
 - **统一 Loading 机制**：全局使用 `LoadingOverlay` 全屏遮罩组件，支持动态 `phase` 和 `message` 文案，解析过程中实时更新进度提示。
 - **Top N 预览标注**：概览和性能分析中的截断列表明确标注"Top N 预览"，并提供"查看全部"跳转链接。
 - **统一诊断模型**：NetLog 和 HAR 的诊断结果统一输出为 `DiagnosticCard` 结构（结论、证据、动作、限制、导航目标），由 `DiagnosisPanel` 统一渲染。诊断卡片支持证据跳转、自助命令库内嵌、脱敏导出等功能。
+- **最终诊断模型**：在统一诊断模型之上新增 `FinalDiagnosisSummary` 收敛层，基于已有诊断卡片线性聚合，不重新扫描原始大文件；输出最终结论、根因簇、统一行动清单、缺失信息和专家卡片。
 - **联合诊断作为 NetLog Tab**：HAR + NetLog 联合诊断不再使用独立 `fileType='combined'` 页面，而是作为 NetLog 页面的一个固定 Tab（`#netlog/combined`）。NetLog 是主诊断工作台，HAR 是补充证据源。
 - **统一证据跳转规则**：`navigation.ts` 集中管理 HAR 和 NetLog 的证据跳转规则（`buildHarNavigationTarget` / `buildNetlogNavigationTarget`），页面组件不再根据 title/icon 自行推断。
 
@@ -182,6 +185,9 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 定因诊断页基于解析结果生成更接近排查动作的结论，包括：
 
 - **统一诊断卡片**：由 `DiagnosisPanel` 渲染 `DiagnosticCard` 结构，每张卡片包含结论、证据列表、动作项（按角色分配：用户/后端/IT/安全）、限制说明和排查命令库。
+- **最终诊断摘要**：由 `FinalDiagnosisPanel` 渲染最终收敛结果，首屏优先展示“统一行动清单”和“还缺什么信息”，关键结论作为定位参考，完整诊断报告默认折叠为专家视图。
+- **错误码驱动行动清单**：`netErrorActionKnowledge.ts` 将 Chromium `net_error` 转换为用户、IT / 网络管理员、后端 / 服务端、前端等分角色动作；支持泛域名去重展示，如 `*.feishu.cn（uaes.feishu.cn）`、`*.feishucdn.com`。
+- **缺失信息收集**：“还缺什么信息”模块包含常规网络排查信息收集步骤，例如客户端 IP / DNS 出口、打不开或请求慢的 URL 域名、DNS / IP 连通性 / 丢包率 / 路由信息、上网方式 / 环境信息，以及 Wireshark `.pcapng` 抓包文件。
 - **首次进入非阻塞**：进入 Tab 后先渲染 loading，再异步生成诊断摘要、诊断卡片和旧版详细问题列表，大文件下不会把点击切换阻塞在同步 render 路径中。
 - **诊断卡片分批展示**：首屏先展示前一批诊断卡片，用户可继续加载更多，诊断内容不减少。
 - 按类别聚合错误、告警和信息项。

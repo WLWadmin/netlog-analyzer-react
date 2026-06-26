@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Card, Tag, Badge, Table, Progress, Collapse, Tooltip, Row, Col } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -23,8 +23,9 @@ import { HarAnalysisResult, formatBytes, formatHarTime, categoryStyle, statusSty
 import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus, type DiagnosisStatus } from '../../harDiagnosis';
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
-import { buildHarDiagnosisSummary } from '../../diagnosis/shared';
+import { buildFinalDiagnosisSummary, buildHarDiagnosisSummary } from '../../diagnosis/shared';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
+import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
 
 interface HarSummaryDiagnosisProps {
   result: HarAnalysisResult;
@@ -274,12 +275,37 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
 
   // 统一诊断模型
   const diagnosisSummary = useMemo(() => buildHarDiagnosisSummary(result, diag), [result, diag]);
+  const finalSummary = useMemo(() => buildFinalDiagnosisSummary(diagnosisSummary, 'har'), [diagnosisSummary]);
+  const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(false);
+  const expertDiagnosisRef = useRef<HTMLDivElement | null>(null);
+  const showAndScrollExpertDiagnosis = () => {
+    setShowExpertDiagnosis(true);
+    window.setTimeout(() => {
+      expertDiagnosisRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* 统一诊断卡片 */}
-      <DiagnosisPanel summary={diagnosisSummary} />
+      {/* 最终诊断收敛层 */}
+      <FinalDiagnosisPanel
+        finalSummary={finalSummary}
+        onShowExpertDetails={showAndScrollExpertDiagnosis}
+      />
+
+      {/* 完整诊断卡片：专家视图 */}
+      <div ref={expertDiagnosisRef}>
+        <Collapse
+          activeKey={showExpertDiagnosis ? ['expert-diagnosis'] : []}
+          onChange={keys => setShowExpertDiagnosis((keys as string[]).includes('expert-diagnosis'))}
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', borderRadius: 12 }}
+        >
+          <Collapse.Panel header={`完整诊断报告（共 ${diagnosisSummary.cards.length} 项）`} key="expert-diagnosis">
+            <DiagnosisPanel summary={diagnosisSummary} />
+          </Collapse.Panel>
+        </Collapse>
+      </div>
 
       {/* 原始诊断视图（保留原有详细统计） */}
       <HealthAssessmentCard title="辅助健康评估（仅供参考）" assessment={healthAssessment} />

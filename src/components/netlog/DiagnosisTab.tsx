@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Card, Alert, Tag, Button } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Card, Alert, Tag, Button, Collapse } from 'antd';
 import { DownOutlined, UpOutlined, MedicineBoxOutlined } from '@ant-design/icons';
 import { AnalysisResult, ParsedEvent } from '../../parsers/netlog/parser';
 import { generateSuggestions } from '../../parsers/netlog/diagnosis';
 import { groupIssues, groupByCategory, GroupedIssue, IssueAlert } from '../../components/shared/IssueDisplay';
-import { buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
+import { buildFinalDiagnosisSummary, buildNetlogDiagnosisSummary } from '../../diagnosis/shared';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
+import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
@@ -63,6 +64,8 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
   const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | undefined>();
   const [legacyData, setLegacyData] = useState<LegacyDiagnosisData | undefined>();
   const [diagnosisLoading, setDiagnosisLoading] = useState(true);
+  const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(false);
+  const expertDiagnosisRef = useRef<HTMLDivElement | null>(null);
 
   const INITIAL_SHOW = 10;
   const LOAD_MORE_STEP = 100;
@@ -130,15 +133,47 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
     };
   }, [result, events]);
 
+  const finalSummary = useMemo(
+    () => diagnosisSummary ? buildFinalDiagnosisSummary(diagnosisSummary, 'netlog') : undefined,
+    [diagnosisSummary]
+  );
+  const showAndScrollExpertDiagnosis = () => {
+    setShowExpertDiagnosis(true);
+    window.setTimeout(() => {
+      expertDiagnosisRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
   return (
     <>
-      {/* 统一诊断卡片 */}
-      <DiagnosisPanel
-        summary={diagnosisSummary}
-        loading={diagnosisLoading}
-        initialCardCount={INITIAL_DIAGNOSIS_CARDS}
-        cardLoadStep={DIAGNOSIS_CARD_LOAD_STEP}
-      />
+      {/* 最终诊断收敛层 */}
+      {!diagnosisLoading && finalSummary && (
+        <FinalDiagnosisPanel
+          finalSummary={finalSummary}
+          onShowExpertDetails={showAndScrollExpertDiagnosis}
+        />
+      )}
+
+      {/* 完整诊断卡片：专家视图 */}
+      {diagnosisLoading ? (
+        <DiagnosisPanel loading={diagnosisLoading} />
+      ) : diagnosisSummary && (
+        <div ref={expertDiagnosisRef}>
+          <Collapse
+            activeKey={showExpertDiagnosis ? ['expert-diagnosis'] : []}
+            onChange={keys => setShowExpertDiagnosis((keys as string[]).includes('expert-diagnosis'))}
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', borderRadius: 12, marginBottom: 16 }}
+          >
+            <Collapse.Panel header={`完整诊断报告（共 ${diagnosisSummary.cards.length} 项）`} key="expert-diagnosis">
+              <DiagnosisPanel
+                summary={diagnosisSummary}
+                initialCardCount={INITIAL_DIAGNOSIS_CARDS}
+                cardLoadStep={DIAGNOSIS_CARD_LOAD_STEP}
+              />
+            </Collapse.Panel>
+          </Collapse>
+        </div>
+      )}
 
       {/* 定因诊断报告 */}
       {!diagnosisLoading && legacyData && (

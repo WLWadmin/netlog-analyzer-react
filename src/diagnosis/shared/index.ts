@@ -16,6 +16,23 @@ export type {
   DiagnosisSummary,
 } from './types';
 
+export type {
+  FinalDiagnosisMode,
+  FinalConclusionKind,
+  FinalConclusionSource,
+  FinalDiagnosisSummary,
+  FinalConclusion,
+  RootCauseCluster,
+  ActionGroup,
+  FinalAction,
+  FinalEvidence,
+  MissingInfoItem,
+} from './finalSummaryTypes';
+
+export {
+  buildFinalDiagnosisSummary,
+} from './finalSummaryBuilder';
+
 export {
   harDiagnosisToCards,
   checkHarQuality,

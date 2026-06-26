@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
-import { Alert } from 'antd';
+import React, { useMemo, useRef, useState } from 'react';
+import { Alert, Collapse } from 'antd';
 import type { HarAnalysisResult } from '../../harParser';
 import type { AnalysisResult } from '../../parsers/netlog/parser';
-import { buildCombinedDiagnosisSummary } from '../../diagnosis/shared/fromCombined';
+import { buildCombinedDiagnosisSummary, buildFinalDiagnosisSummary } from '../../diagnosis/shared';
 import DiagnosisPanel from './DiagnosisPanel';
+import FinalDiagnosisPanel from './FinalDiagnosisPanel';
 import UploadZone from '../netlog/UploadZone';
 
 interface CombinedDiagnosisTabProps {
@@ -22,10 +23,22 @@ const CombinedDiagnosisTab: React.FC<CombinedDiagnosisTabProps> = ({
   netlogResult,
   onUploadMissingFile,
 }) => {
+  const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(false);
+  const expertDiagnosisRef = useRef<HTMLDivElement | null>(null);
   const summary = useMemo(() => {
     if (!harResult || !netlogResult) return undefined;
     return buildCombinedDiagnosisSummary(harResult, netlogResult);
   }, [harResult, netlogResult]);
+  const finalSummary = useMemo(
+    () => summary ? buildFinalDiagnosisSummary(summary, 'combined') : undefined,
+    [summary]
+  );
+  const showAndScrollExpertDiagnosis = () => {
+    setShowExpertDiagnosis(true);
+    window.setTimeout(() => {
+      expertDiagnosisRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
 
   // 缺 NetLog：一般不应出现在 NetLog 页，保留兜底
   if (!netlogResult) {
@@ -67,7 +80,25 @@ const CombinedDiagnosisTab: React.FC<CombinedDiagnosisTabProps> = ({
         description="联合诊断会优先使用 URL/path 精确对齐，其次使用同 host 证据；只有同域名 NetLog 错误与 HAR timing 阶段吻合时才给出高置信结论。"
         style={{ marginBottom: 16 }}
       />
-      <DiagnosisPanel summary={summary} />
+      {finalSummary && (
+        <FinalDiagnosisPanel
+          finalSummary={finalSummary}
+          onShowExpertDetails={showAndScrollExpertDiagnosis}
+        />
+      )}
+      {summary && (
+        <div ref={expertDiagnosisRef}>
+          <Collapse
+            activeKey={showExpertDiagnosis ? ['expert-diagnosis'] : []}
+            onChange={keys => setShowExpertDiagnosis((keys as string[]).includes('expert-diagnosis'))}
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', borderRadius: 12 }}
+          >
+            <Collapse.Panel header={`完整联合诊断报告（共 ${summary.cards.length} 项）`} key="expert-diagnosis">
+              <DiagnosisPanel summary={summary} />
+            </Collapse.Panel>
+          </Collapse>
+        </div>
+      )}
     </div>
   );
 };
