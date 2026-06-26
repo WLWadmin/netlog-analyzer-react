@@ -119,6 +119,14 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
     items: sortedGroups,
     initialCount: LOG_FLOW_INITIAL_COUNT,
     step: LOG_FLOW_LOAD_STEP,
+    resetDeps: [
+      debouncedKeyword,
+      worker,
+      level,
+      status,
+      sortMode,
+      filterErrorOnly,
+    ],
   });
 
   const toggleGroup = (groupId: string) => {

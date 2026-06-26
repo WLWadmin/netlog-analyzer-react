@@ -251,7 +251,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
             </div>
           }
           placement="left"
-          overlayStyle={{ maxWidth: 500 }}
+          styles={{ root: { maxWidth: 500 } }}
         >
           <span
             style={{
@@ -473,7 +473,12 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
         ))}
       </div>
 
-      <Spin spinning={filtering} tip="筛选中..." size="small">
+      {filtering && (
+        <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          筛选中...
+        </div>
+      )}
+      <Spin spinning={filtering} size="small">
         {viewMode === 'list' ? (
           <>
             <Table

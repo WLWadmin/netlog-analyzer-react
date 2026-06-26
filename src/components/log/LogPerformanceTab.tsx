@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Card, Tag, Table, Row, Col } from 'antd';
+import { Card, Tag, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   DashboardOutlined,
@@ -8,8 +8,8 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { LogAnalysisResult, LogEntry } from '../../logParser';
-import { CHART_COLORS } from '../../constants/chartColors';
 import { SLOW_REQUEST_MS, MODERATE_REQUEST_MS, TOP_PREVIEW_COUNT, TOP_REQUESTS_COUNT } from '../../constants/analysisThresholds';
+import MetricCard from '../shared/MetricCard';
 
 interface LogPerformanceTabProps {
   result: LogAnalysisResult;
@@ -109,12 +109,12 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
   const perf = useMemo(() => calculatePerformance(result), [result]);
 
   const metricCards = [
-    { label: '最小', value: perf.overall.min, unit: 'ms', color: CHART_COLORS.semantic.success },
-    { label: '平均', value: perf.overall.avg, unit: 'ms', color: '#0ea5e9' },
-    { label: 'P50', value: perf.overall.p50, unit: 'ms', color: '#a78bfa' },
-    { label: 'P90', value: perf.overall.p90, unit: 'ms', color: '#fb923c' },
-    { label: 'P99', value: perf.overall.p99, unit: 'ms', color: '#f87171' },
-    { label: '最大', value: perf.overall.max, unit: 'ms', color: '#ff4d4f' },
+    { label: '最小', value: perf.overall.min, unit: 'ms', status: 'success' as const },
+    { label: '平均', value: perf.overall.avg, unit: 'ms', status: 'info' as const },
+    { label: 'P50', value: perf.overall.p50, unit: 'ms', status: 'default' as const },
+    { label: 'P90', value: perf.overall.p90, unit: 'ms', status: 'warning' as const },
+    { label: 'P99', value: perf.overall.p99, unit: 'ms', status: 'error' as const },
+    { label: '最大', value: perf.overall.max, unit: 'ms', status: 'error' as const },
   ];
 
   const domainColumns: ColumnsType<DomainPerf> = [
@@ -147,34 +147,26 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* 总体耗时指标 */}
-      <Card style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }} bodyStyle={{ padding: '16px 20px' }}>
+      <Card style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }} styles={{ body: { padding: '16px 20px' } }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
           <DashboardOutlined style={{ color: 'var(--accent-blue)' }} />
-          耗时统计
+          日志耗时统计
         </div>
-        <Row gutter={[12, 12]}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
           {metricCards.map(m => (
-            <Col key={m.label} flex="1 1 120px">
-              <div style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
-                <div style={{ fontSize: 22, fontWeight: 700, color: m.color, fontFamily: 'var(--font-mono)' }}>
-                  {m.value}
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>{m.unit}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{m.label}</div>
-              </div>
-            </Col>
+            <MetricCard key={m.label} label={m.label} value={m.value} unit={m.unit} status={m.status} />
           ))}
-        </Row>
+        </div>
       </Card>
 
       {/* 域名性能 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <GlobalOutlined style={{ color: 'var(--accent-blue)' }} />
-            域名性能 Top {Math.min(perf.domainPerf.length, TOP_PREVIEW_COUNT)}
+            域名耗时统计 Top {Math.min(perf.domainPerf.length, TOP_PREVIEW_COUNT)}
           </span>
         }
       >
@@ -191,11 +183,11 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
       {/* 接口性能 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <ApiOutlined style={{ color: 'var(--accent-blue)' }} />
-            接口性能 Top {Math.min(perf.apiPerf.length, TOP_PREVIEW_COUNT)}
+            接口耗时统计 Top {Math.min(perf.apiPerf.length, TOP_PREVIEW_COUNT)}
           </span>
         }
       >
@@ -213,7 +205,7 @@ const LogPerformanceTab: React.FC<LogPerformanceTabProps> = ({ result }) => {
       {perf.slowEntries.length > 0 && (
         <Card
           style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-          bodyStyle={{ padding: '16px 20px' }}
+          styles={{ body: { padding: '16px 20px' } }}
           title={
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
               <ThunderboltOutlined style={{ color: '#fa8c16' }} />

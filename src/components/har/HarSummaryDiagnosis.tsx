@@ -287,7 +287,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 2. 网络状态 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<WifiOutlined />} title="网络阶段状态" />
         <Row gutter={[12, 12]}>
@@ -302,7 +302,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 4. 请求异常分析 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<WarningOutlined />} title="请求异常分析" />
         <Row gutter={[24, 24]}>
@@ -360,7 +360,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 5. 域名 / IP 分析 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<GlobalOutlined />} title="域名与 IP 分析" />
         <Row gutter={[24, 24]}>
@@ -429,7 +429,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 6. 资源分析 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<ApiOutlined />} title="资源类型分析" />
         <Row gutter={[24, 24]}>
@@ -471,7 +471,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 7. 缓存与压缩 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<CompressOutlined />} title="缓存与压缩" />
         <Row gutter={[24, 24]}>
@@ -483,7 +483,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
                 percent={diag.cacheStats.cacheRate}
                 size={80}
                 strokeColor={diag.cacheStats.cacheRate > 50 ? CHART_COLORS.semantic.success : CHART_COLORS.semantic.warning}
-                trailColor="var(--bg-base)"
+                railColor="var(--bg-base)"
                 format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p}%</span>}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -500,7 +500,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
                 percent={diag.compressionStats.compressionRate}
                 size={80}
                 strokeColor={diag.compressionStats.compressionRate > 50 ? CHART_COLORS.semantic.success : CHART_COLORS.semantic.warning}
-                trailColor="var(--bg-base)"
+                railColor="var(--bg-base)"
                 format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p}%</span>}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -534,7 +534,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {/* 8. 安全与协议 */}
       <Card
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         <SectionTitle icon={<SafetyOutlined />} title="安全与协议" />
         <Row gutter={[16, 16]}>
@@ -581,7 +581,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {diag.attributions.length > 0 && (
         <Card
           style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-          bodyStyle={{ padding: '16px 20px' }}
+          styles={{ body: { padding: '16px 20px' } }}
         >
           <SectionTitle icon={<ThunderboltOutlined />} title="问题归因" />
           <Collapse
@@ -638,7 +638,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {diag.suggestions.length > 0 && (
         <Card
           style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-          bodyStyle={{ padding: '16px 20px' }}
+          styles={{ body: { padding: '16px 20px' } }}
         >
           <SectionTitle icon={<MedicineBoxOutlined />} title="修复建议" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -676,7 +676,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       {diag.attributions.length === 0 && diag.suggestions.length === 0 && (
         <Card
           style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
-          bodyStyle={{ padding: '24px 20px', textAlign: 'center' }}
+          styles={{ body: { padding: '24px 20px', textAlign: 'center' } }}
         >
           <CheckCircleOutlined style={{ fontSize: 32, color: CHART_COLORS.semantic.success, marginBottom: 10 }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>未发现明显问题</div>

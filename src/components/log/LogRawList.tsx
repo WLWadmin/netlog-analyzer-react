@@ -17,6 +17,8 @@ import useLoadMore from '../../hooks/useLoadMore';
 import HighlightedText from './HighlightedText';
 import LogRawContextModal from './LogRawContextModal';
 import { exportLogEntriesAsJson, exportLogEntriesAsText } from './exportLogEntries';
+import Toolbar from '../shared/Toolbar';
+import TruncatedText from '../shared/TruncatedText';
 
 interface LogRawListProps {
   entries: LogEntry[];
@@ -99,6 +101,14 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
     items: filteredEntries,
     initialCount: LOG_RAW_INITIAL_COUNT,
     step: LOG_RAW_LOAD_STEP,
+    resetDeps: [
+      debouncedSearchText,
+      statusFilter,
+      domainFilter,
+      levelFilter,
+      timeRange?.[0]?.valueOf(),
+      timeRange?.[1]?.valueOf(),
+    ],
   });
 
   return (
@@ -110,7 +120,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
           <Tag style={{ fontSize: 11, marginLeft: 8 }}>{filteredEntries.length} / {entries.length}</Tag>
         </span>
       }
-      bodyStyle={{ padding: '16px 20px' }}
+      styles={{ body: { padding: '16px 20px' } }}
       style={{
         background: 'var(--bg-surface)',
         border: '1px solid var(--border-color)',
@@ -137,7 +147,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       }
     >
       {/* 筛选栏 */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+      <Toolbar style={{ marginBottom: 16 }}>
         <Input
           placeholder="搜索 URL、方法、状态码、域名、路径、Worker、Headers、Body..."
           prefix={<SearchOutlined />}
@@ -191,7 +201,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
             重置筛选
           </Button>
         )}
-      </div>
+      </Toolbar>
 
       {/* 日志列表 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -239,23 +249,19 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                 >
                   {entry.method}
                 </Tag>
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: isError ? '#ff4d4f' : 'var(--text-primary)',
-                    fontWeight: isError ? 500 : 400,
-                    flex: 1,
-                    minWidth: 200,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={entry.url}
-                >
-                  <HighlightedText
-                    text={entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
-                    keyword={debouncedSearchText}
-                  />
+                <span style={{ flex: 1, minWidth: 200, color: isError ? '#ff4d4f' : 'var(--text-primary)', fontWeight: isError ? 500 : 400 }}>
+                  {debouncedSearchText ? (
+                    <HighlightedText
+                      text={entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
+                      keyword={debouncedSearchText}
+                    />
+                  ) : (
+                    <TruncatedText
+                      text={entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}
+                      maxWidth="100%"
+                      tooltipThreshold={80}
+                    />
+                  )}
                 </span>
                 {entry.statusCode !== undefined && (
                   <Tag

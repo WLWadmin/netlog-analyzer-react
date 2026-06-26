@@ -100,7 +100,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <DashboardOutlined />
-          性能分析
+          日志统计
         </span>
       ),
       children: <LogPerformanceTab result={result} />,

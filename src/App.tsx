@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
 import { Layout, Tabs, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
@@ -102,6 +102,7 @@ const AppContent: React.FC = () => {
   // Ref 用于避免连续多文件上传时的 state 异步判断问题
   const resultRef = useRef<AnalysisResult | null>(null);
   const harResultRef = useRef<HarAnalysisResult | null>(null);
+  const rawDataIdByTypeRef = useRef(rawDataIdByType);
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -151,6 +152,27 @@ const AppContent: React.FC = () => {
   const loadTaskIdRef = useRef(0);
   const activeLoadCountRef = useRef(0);
   const useWorker = isWorkerSupported();
+
+  useEffect(() => {
+    rawDataIdByTypeRef.current = rawDataIdByType;
+  }, [rawDataIdByType]);
+
+  const releaseRawDataId = useCallback((rawDataId?: string) => {
+    if (!rawDataId || !isWorkerSupported()) return;
+    void releaseRawDataInWorker({ rawDataId }).catch(() => {
+      // 释放失败不影响解析和浏览流程，Worker LRU 仍会兜底控制内存上限
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (isWorkerSupported()) {
+        void releaseRawDataInWorker({ all: true }).catch(() => {
+          // 页面卸载时释放失败不阻塞浏览器关闭流程
+        });
+      }
+    };
+  }, []);
 
   const finishLoad = () => {
     activeLoadCountRef.current = Math.max(0, activeLoadCountRef.current - 1);
@@ -218,13 +240,17 @@ const AppContent: React.FC = () => {
           if (repairInfo) harAnalysis.repairInfo = repairInfo;
         }
         if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+          if (useWorker && harRawDataId) {
+            releaseRawDataId(harRawDataId);
+          }
           finishLoad();
           return;
         }
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
-        if (useWorker && harRawDataId && rawDataIdByType.har && rawDataIdByType.har !== harRawDataId) {
-          void releaseRawDataInWorker({ rawDataId: rawDataIdByType.har });
+        const previousHarRawDataId = rawDataIdByTypeRef.current.har;
+        if (useWorker && harRawDataId && previousHarRawDataId && previousHarRawDataId !== harRawDataId) {
+          releaseRawDataId(previousHarRawDataId);
         }
         rememberRawData('har', harRawData, harRawDataId);
 
@@ -269,14 +295,18 @@ const AppContent: React.FC = () => {
         analysisResult = syncResult.result;
       }
       if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
+        if (useWorker && netlogRawDataId) {
+          releaseRawDataId(netlogRawDataId);
+        }
         finishLoad();
         return;
       }
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
-      if (useWorker && netlogRawDataId && rawDataIdByType.netlog && rawDataIdByType.netlog !== netlogRawDataId) {
-        void releaseRawDataInWorker({ rawDataId: rawDataIdByType.netlog });
+      const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
+      if (useWorker && netlogRawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== netlogRawDataId) {
+        releaseRawDataId(previousNetlogRawDataId);
       }
       rememberRawData('netlog', netlogRawData, netlogRawDataId);
 
@@ -346,8 +376,9 @@ const AppContent: React.FC = () => {
 
         setHarResult(harAnalysis);
         harResultRef.current = harAnalysis;
-        if (useWorker && harRawDataId && rawDataIdByType.har && rawDataIdByType.har !== harRawDataId) {
-          void releaseRawDataInWorker({ rawDataId: rawDataIdByType.har });
+        const previousHarRawDataId = rawDataIdByTypeRef.current.har;
+        if (useWorker && harRawDataId && previousHarRawDataId && previousHarRawDataId !== harRawDataId) {
+          releaseRawDataId(previousHarRawDataId);
         }
         rememberRawData('har', harRawData, harRawDataId);
 
@@ -391,8 +422,9 @@ const AppContent: React.FC = () => {
       setEvents(parsedEvents);
       setResult(analysisResult);
       resultRef.current = analysisResult;
-      if (useWorker && netlogRawDataId && rawDataIdByType.netlog && rawDataIdByType.netlog !== netlogRawDataId) {
-        void releaseRawDataInWorker({ rawDataId: rawDataIdByType.netlog });
+      const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
+      if (useWorker && netlogRawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== netlogRawDataId) {
+        releaseRawDataId(previousNetlogRawDataId);
       }
       rememberRawData('netlog', netlogRawData, netlogRawDataId);
 

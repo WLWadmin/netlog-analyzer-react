@@ -86,3 +86,6 @@ export const RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS = 50_000;
 
 /** Worker raw 搜索超时（毫秒） */
 export const RAW_EVIDENCE_WORKER_TIMEOUT_MS = 60_000;
+
+/** Worker 内最多保留的 rawData 数量，避免连续上传大文件导致内存持续增长 */
+export const WORKER_RAW_DATA_MAX_ITEMS = 2;

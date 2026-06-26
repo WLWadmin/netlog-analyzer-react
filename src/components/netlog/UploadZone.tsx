@@ -147,7 +147,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
     const lower = file.name.toLowerCase();
     if (!lower.endsWith('.json') && !lower.endsWith('.har') && !lower.endsWith('.log')) {
       notification.error({
-        message: '文件格式不支持',
+        title: '文件格式不支持',
         description: `「${file.name}」无法解析。请上传 .json (NetLog)、.har 或 .log 文件。`,
         placement: 'top',
         duration: 4,
@@ -163,14 +163,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
     const fileSizeMb = file.size / MB;
     if (fileSizeMb >= VERY_LARGE_FILE_MB) {
       notification.warning({
-        message: '文件较大，解析可能较慢',
+        title: '文件较大，解析可能较慢',
         description: `「${file.name}」大小为 ${formatFileSize(file.size)}，解析期间页面可能短暂无响应，请耐心等待。`,
         placement: 'top',
         duration: 6,
       });
     } else if (fileSizeMb >= LARGE_FILE_MB) {
       notification.info({
-        message: '文件较大',
+        title: '文件较大',
         description: `「${file.name}」大小为 ${formatFileSize(file.size)}，本地读取和解析可能需要几秒钟。`,
         placement: 'top',
         duration: 5,
@@ -311,7 +311,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
                 '0%': '#0ea5e9',
                 '100%': '#6366f1',
               }}
-              trailColor="rgba(14, 165, 233, 0.1)"
+              railColor="rgba(14, 165, 233, 0.1)"
               showInfo={false}
               size="small"
               style={{ width: 280 }}

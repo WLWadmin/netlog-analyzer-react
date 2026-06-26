@@ -15,7 +15,8 @@ const DiagnosisPanel: React.FC<DiagnosisPanelProps> = ({ summary, loading, showE
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
-        <Spin size="large" tip="正在分析诊断..." />
+        <Spin size="large" />
+        <div style={{ marginTop: 12, color: 'var(--text-muted)' }}>正在分析诊断...</div>
       </div>
     );
   }

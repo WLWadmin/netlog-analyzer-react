@@ -158,7 +158,7 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
         borderRadius: 12,
         overflow: 'hidden',
       }}
-      bodyStyle={{ padding: 0 }}
+      styles={{ body: { padding: 0 } }}
     >
       {/* 头部 */}
       <div

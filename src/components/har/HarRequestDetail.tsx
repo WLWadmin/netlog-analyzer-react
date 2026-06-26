@@ -60,7 +60,7 @@ const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.
   );
   if (!shouldTooltip) return span;
   return (
-    <Tooltip title={text} placement="topLeft" overlayStyle={tooltipOverlayStyle} overlayInnerStyle={tooltipInnerStyle}>
+    <Tooltip title={text} placement="topLeft" styles={{ root: tooltipOverlayStyle, container: tooltipInnerStyle }}>
       {span}
     </Tooltip>
   );

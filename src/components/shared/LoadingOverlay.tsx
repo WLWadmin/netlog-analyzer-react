@@ -54,7 +54,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
           <Progress
             percent={progress}
             strokeColor={{ '0%': '#0ea5e9', '100%': '#6366f1' }}
-            trailColor="var(--bg-elevated)"
+            railColor="var(--bg-elevated)"
             showInfo={false}
             style={{ marginBottom: 12 }}
           />

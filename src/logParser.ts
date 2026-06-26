@@ -735,7 +735,7 @@ class GoServiceLogParser implements LogParserStrategy {
     return {
       summary: `检测到 ${stats.error} 次失败记录`,
       severity: stats.successRate < 80 ? 'error' : 'warning',
-      detail: `当前仅展示日志中的状态、域名、耗时和原始内容，不基于 log 文件做网络原因诊断。`,
+      detail: `当前仅展示日志中的状态、域名、耗时和原始内容，不基于 log 文件单独判断网络根因。`,
     };
   }
 }

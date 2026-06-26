@@ -15,6 +15,7 @@ import {
   RAW_EVIDENCE_SEARCH_MAX_RESULTS,
   RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
   RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
+  WORKER_RAW_DATA_MAX_ITEMS,
 } from '../constants/analysisThresholds';
 import type { WorkerRequest, WorkerResponse } from './protocols';
 
@@ -24,9 +25,25 @@ const ctx: Worker = self as any;
 // Worker 内缓存解析后的 rawData，避免 raw 搜索时反复 structured clone 大 JSON
 const rawDataStore = new Map<string, unknown>();
 
+function touchRawData(id: string) {
+  if (!rawDataStore.has(id)) return;
+  const value = rawDataStore.get(id);
+  rawDataStore.delete(id);
+  rawDataStore.set(id, value);
+}
+
+function enforceRawDataLimit() {
+  while (rawDataStore.size > WORKER_RAW_DATA_MAX_ITEMS) {
+    const oldestId = rawDataStore.keys().next().value;
+    if (!oldestId) break;
+    rawDataStore.delete(oldestId);
+  }
+}
+
 function keepRawData(kind: 'har' | 'netlog', rawData: unknown): string {
   const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   rawDataStore.set(id, rawData);
+  enforceRawDataLimit();
   return id;
 }
 
@@ -42,6 +59,7 @@ function getStoredRawData(id: string): unknown {
   if (!rawDataStore.has(id)) {
     throw new Error('Raw data not found or released');
   }
+  touchRawData(id);
   return rawDataStore.get(id);
 }
 
@@ -189,17 +207,24 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'release-raw-data': {
+        let released = false;
         if (msg.payload?.all) {
+          released = rawDataStore.size > 0;
           rawDataStore.clear();
         } else if (msg.payload?.rawDataId) {
-          rawDataStore.delete(msg.payload.rawDataId);
+          released = rawDataStore.delete(msg.payload.rawDataId);
         }
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
           id: msg.id,
           resultType: 'raw-release',
-          payload: true,
+          payload: {
+            released,
+            rawDataId: msg.payload?.rawDataId,
+            all: Boolean(msg.payload?.all),
+            remaining: rawDataStore.size,
+          },
           duration,
         });
         break;

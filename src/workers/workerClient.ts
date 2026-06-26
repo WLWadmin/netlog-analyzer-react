@@ -3,7 +3,7 @@
  * 提供 Promise-based API 调用 Worker，支持进度回调和超时
  */
 
-import type { WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './protocols';
+import type { RawReleaseResult, WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './protocols';
 import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
@@ -172,7 +172,10 @@ export async function releaseRawDataInWorker(
     },
     options
   );
-  return Boolean(response.payload);
+  if (typeof response.payload === 'boolean') {
+    return response.payload;
+  }
+  return Boolean((response.payload as RawReleaseResult).released);
 }
 
 /**

@@ -46,8 +46,8 @@ const LogInsightBanner: React.FC<LogInsightBannerProps> = ({ insight }) => {
 
   const severityLabels: Record<string, string> = {
     success: '正常',
-    warning: '警告',
-    error: '异常',
+    warning: '阅读提示',
+    error: '失败线索',
   };
 
   return (

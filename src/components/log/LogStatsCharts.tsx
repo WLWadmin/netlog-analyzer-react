@@ -47,7 +47,7 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 <Progress
                   percent={type.percentage}
                   strokeColor={{ '0%': errorColors[index % errorColors.length], '100%': errorColors[index % errorColors.length] + 'cc' }}
-                  trailColor="var(--bg-base)"
+                  railColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>
@@ -80,7 +80,7 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                   <Progress
                     percent={percentage}
                     strokeColor={{ '0%': domainColors[index % domainColors.length], '100%': domainColors[index % domainColors.length] + 'cc' }}
-                    trailColor="var(--bg-base)"
+                    railColor="var(--bg-base)"
                     showInfo={false}
                     style={{ flex: 1 }}
                   />
@@ -122,7 +122,7 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 <Progress
                   percent={percentage}
                   strokeColor={{ '0%': '#fa8c16', '100%': '#fa8c16cc' }}
-                  trailColor="var(--bg-base)"
+                  railColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>
@@ -159,7 +159,7 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
                 <Progress
                   percent={percentage}
                   strokeColor={{ '0%': level.color, '100%': level.color + 'cc' }}
-                  trailColor="var(--bg-base)"
+                  railColor="var(--bg-base)"
                   showInfo={false}
                 />
               </div>

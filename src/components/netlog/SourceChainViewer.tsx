@@ -103,7 +103,7 @@ const SourceChainViewer: React.FC<SourceChainViewerProps> = ({ events, urlReques
       </div>
 
       {/* Filters */}
-      <Card size="small" bodyStyle={{ padding: '12px 16px' }}>
+      <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
             prefix={<SearchOutlined />}
@@ -182,7 +182,7 @@ function ChainCard({
   return (
     <Card
       size="small"
-      bodyStyle={{ padding: '12px 16px' }}
+      styles={{ body: { padding: '12px 16px' } }}
       style={{
         border: chain.hasError ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-color)',
         background: chain.hasError ? 'rgba(239, 68, 68, 0.02)' : 'var(--bg-surface)',

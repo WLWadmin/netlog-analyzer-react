@@ -8,7 +8,7 @@
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Card, Input, Button, Tag, Empty, Tooltip, message } from 'antd';
+import { Card, Input, Button, Tag, Tooltip, message } from 'antd';
 import {
   SearchOutlined,
   CopyOutlined,
@@ -31,6 +31,9 @@ import {
   RAW_EVIDENCE_WORKER_TIMEOUT_MS,
   SEARCH_DEBOUNCE_MS,
 } from '../../constants/analysisThresholds';
+import EmptyState from '../shared/EmptyState';
+import PageSection from '../shared/PageSection';
+import Toolbar from '../shared/Toolbar';
 
 interface RawEvidenceExplorerProps {
   /** 原始 JSON 数据（上传的文件内容） */
@@ -53,6 +56,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   const [workerStructure, setWorkerStructure] = useState<StructureNode[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchTaskIdRef = useRef(0);
+  const valueTaskIdRef = useRef(0);
   const pendingSelectPathRef = useRef<string | null>(null);
   const { intent, consumeIntent } = useNavigation();
 
@@ -200,9 +204,18 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     if (!hit) return;
     pendingSelectPathRef.current = null;
     setSelectedPath(hit.path);
+    const taskId = ++valueTaskIdRef.current;
+    setExpandedValue('读取中...');
     void readValuePreview(hit.path)
-      .then(setExpandedValue)
-      .catch(() => message.error('字段值读取失败'));
+      .then(value => {
+        if (taskId !== valueTaskIdRef.current) return;
+        setExpandedValue(value);
+      })
+      .catch(() => {
+        if (taskId !== valueTaskIdRef.current) return;
+        setExpandedValue(null);
+        message.error('字段值读取失败');
+      });
   }, [searchResults, readValuePreview]);
 
   const handleCopyPath = async (path: string) => {
@@ -214,10 +227,9 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     }
   };
 
-  const handleCopyValue = async (value: unknown) => {
+  const handleCopyValue = async () => {
     try {
-      const text = expandedValue ?? (typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
-      await copyText(text);
+      await copyText(expandedValue || '');
       message.success('值已复制');
     } catch {
       message.error('复制失败');
@@ -225,11 +237,16 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   };
 
   const handleSelectPath = (path: string) => {
+    const taskId = ++valueTaskIdRef.current;
     setSelectedPath(path);
     setExpandedValue('读取中...');
     void readValuePreview(path)
-      .then(setExpandedValue)
+      .then(value => {
+        if (taskId !== valueTaskIdRef.current) return;
+        setExpandedValue(value);
+      })
       .catch(() => {
+        if (taskId !== valueTaskIdRef.current) return;
         setExpandedValue(null);
         message.error('字段值读取失败');
       });
@@ -238,46 +255,39 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   if (!rawData && !rawDataId) {
     return (
       <Card>
-        <Empty description="暂无原始数据可浏览" />
+        <EmptyState title="暂无原始数据可浏览" description="上传 NetLog 或 HAR 后，可以在这里搜索和核对原始字段。" />
       </Card>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header */}
-      <Card size="small" bodyStyle={{ padding: '12px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <FileSearchOutlined style={{ fontSize: 16, color: '#6366f1' }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-            原始证据浏览器
-          </span>
-          {fileName && (
-            <Tag style={{ margin: 0 }}>{fileName}</Tag>
-          )}
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-            输入字段名或值进行搜索（如 net_error、ERR_、dns、timeout）
-          </span>
-        </div>
-      </Card>
-
-      {/* Search */}
-      <Input
-        size="large"
-        prefix={<SearchOutlined />}
-        placeholder="搜索字段名或值... (如: net_error, proxy, certificate, source_dependency)"
-        value={searchQuery}
-        onChange={e => handleSearch(e.target.value)}
-        allowClear
-        style={{ borderRadius: 10 }}
-      />
+      <PageSection
+        title={
+          <Toolbar extra={fileName ? <Tag style={{ margin: 0 }}>{fileName}</Tag> : undefined}>
+            <FileSearchOutlined style={{ fontSize: 16, color: '#6366f1' }} />
+            <span>原始证据浏览器</span>
+          </Toolbar>
+        }
+        description="输入字段名或值进行搜索，例如 net_error、ERR_、dns、timeout。"
+      >
+        <Input
+          size="large"
+          prefix={<SearchOutlined />}
+          placeholder="搜索字段名或值... (如: net_error, proxy, certificate, source_dependency)"
+          value={searchQuery}
+          onChange={e => handleSearch(e.target.value)}
+          allowClear
+          style={{ borderRadius: 10 }}
+        />
+      </PageSection>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, minHeight: 400 }}>
         {/* Left: Results / Structure */}
         <Card
           size="small"
           title={searchQuery ? `搜索结果 (${searchResults.length})` : '文件结构'}
-          bodyStyle={{ padding: 0, maxHeight: 600, overflow: 'auto' }}
+          styles={{ body: { padding: 0, maxHeight: 600, overflow: 'auto' } }}
         >
           {searchQuery ? (
             searchResults.length === 0 ? (
@@ -328,12 +338,12 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
             <Button
               size="small"
               icon={<CopyOutlined />}
-              onClick={() => handleCopyValue(selectedPath && rawData ? getValueByPath(rawData, selectedPath) : null)}
+              onClick={handleCopyValue}
             >
               复制
             </Button>
           )}
-          bodyStyle={{ padding: 0, maxHeight: 600, overflow: 'auto' }}
+          styles={{ body: { padding: 0, maxHeight: 600, overflow: 'auto' } }}
         >
           {expandedValue ? (
             <pre style={{

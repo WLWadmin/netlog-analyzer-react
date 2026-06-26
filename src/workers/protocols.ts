@@ -86,6 +86,13 @@ export interface WorkerSuccessResponse {
   duration: number; // parsing time in ms
 }
 
+export interface RawReleaseResult {
+  released: boolean;
+  rawDataId?: string;
+  all: boolean;
+  remaining: number;
+}
+
 export interface WorkerErrorResponse {
   type: 'error';
   id: string;
