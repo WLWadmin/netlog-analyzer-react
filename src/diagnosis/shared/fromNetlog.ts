@@ -50,6 +50,7 @@ const DIAGNOSIS_TIMING_DEBUG_KEY = 'diagnosis_debug_timing';
 interface TimingRow {
   stage: string;
   durationMs: number;
+  meta?: Record<string, string | number | boolean | undefined>;
 }
 
 function isDiagnosisTimingDebugEnabled(): boolean {
@@ -60,16 +61,26 @@ function isDiagnosisTimingDebugEnabled(): boolean {
   }
 }
 
-function recordTiming(enabled: boolean, rows: TimingRow[], stage: string, start: number, end: number = performance.now()) {
+function recordTiming(
+  enabled: boolean,
+  rows: TimingRow[],
+  stage: string,
+  start: number,
+  end: number = performance.now(),
+  meta?: TimingRow['meta']
+) {
   if (!enabled) return;
-  rows.push({ stage, durationMs: Math.round((end - start) * 10) / 10 });
+  rows.push({ stage, durationMs: Math.round((end - start) * 10) / 10, meta });
 }
 
-function printTimingTable(enabled: boolean, title: string, rows: TimingRow[]) {
+function emitTimingJson(
+  enabled: boolean,
+  label: string,
+  rows: TimingRow[],
+  extra?: Record<string, string | number | boolean | undefined>
+) {
   if (!enabled) return;
-  console.groupCollapsed(title);
-  console.table(rows);
-  console.groupEnd();
+  console.info('[diagnosis timing json]', JSON.stringify({ label, rows, extra }));
 }
 
 function generateId(prefix: string, index: number): string {
@@ -592,9 +603,10 @@ export function netlogToCards(
   const totalStart = performance.now();
   const suggestionStart = performance.now();
   const cards = suggestions.map((s, i) => suggestionToCard(s, i, result));
-  recordTiming(debugTiming, timingRows, 'suggestionToCard map', suggestionStart);
+  recordTiming(debugTiming, timingRows, 'suggestionToCard map', suggestionStart, undefined, { suggestions: suggestions.length, cards: cards.length });
 
   const basicEnhancementStart = performance.now();
+  const proxyHijackStart = performance.now();
   // 添加代理/VPN 环境卡片（如果检测到但未生成）
   if (result.proxyInfo.hasProxy && !cards.some(c => c.category === 'proxy')) {
     const proxyCard = buildProxyCard(result.proxyInfo, result);
@@ -609,7 +621,9 @@ export function netlogToCards(
     const dnsHijackCard = buildDnsHijackCard(hijackedDomains);
     cards.push(dnsHijackCard);
   }
+  recordTiming(debugTiming, timingRows, 'proxy/dnsHijack cards', proxyHijackStart, undefined, { hijackedDomains: hijackedDomains.length, cards: cards.length });
 
+  const dnsDetailStart = performance.now();
   // ========== 批次 C 增强：DNS 解析诊断卡片 ==========
   if (result.failedDomains.length > 0 && !cards.some(c => c.category === 'dns' && c.severity === 'critical')) {
     const dnsErrors = result.failedDomains.filter(d => d.errorCodes.some(ec => ec === -105 || ec === -137 || ec === -139));
@@ -653,7 +667,9 @@ export function netlogToCards(
       });
     }
   }
+  recordTiming(debugTiming, timingRows, 'dns detail cards', dnsDetailStart, undefined, { failedDomains: result.failedDomains.length, cards: cards.length });
 
+  const tlsDetailStart = performance.now();
   // ========== 批次 C 增强：TLS/证书诊断卡片 ==========
   if (result.certIssues.length > 0 && !cards.some(c => c.category === 'tls')) {
     const certHosts = [...new Set(result.certIssues.map(si => si.host))].slice(0, 10);
@@ -726,7 +742,9 @@ export function netlogToCards(
       ],
     });
   }
+  recordTiming(debugTiming, timingRows, 'tls detail cards', tlsDetailStart, undefined, { certIssues: result.certIssues.length, cards: cards.length });
 
+  const stalledStart = performance.now();
   // ========== 批次 C 增强：连接池/排队诊断卡片 ==========
   if (result.stalledRequests.length > 0 && !cards.some(c => c.category === 'browser-queue')) {
     const stalledDomains = [...new Set(result.stalledRequests.map(r => {
@@ -767,7 +785,9 @@ export function netlogToCards(
       ],
     });
   }
+  recordTiming(debugTiming, timingRows, 'stalled cards', stalledStart, undefined, { stalledRequests: result.stalledRequests.length, cards: cards.length });
 
+  const protocolStart = performance.now();
   // ========== 批次 C 增强：HTTP/2 与 QUIC 诊断卡片 ==========
   const protocolCounts = result.protocols;
   const h2Count = (protocolCounts['HTTP/2'] || 0) + (protocolCounts['h2'] || 0);
@@ -823,7 +843,9 @@ export function netlogToCards(
       actions: [],
     });
   }
+  recordTiming(debugTiming, timingRows, 'protocol cards', protocolStart, undefined, { h2Count, quicCount, h11Count, cards: cards.length });
 
+  const networkChangeStart = performance.now();
   // ========== 批次 C 增强：网络切换诊断卡片 ==========
   if (result.networkChanges.length > 0 && !cards.some(c => c.category === 'network-change')) {
     const changeTimes = result.networkChanges.map(e => ({
@@ -860,43 +882,53 @@ export function netlogToCards(
       ],
     });
   }
-  recordTiming(debugTiming, timingRows, 'basic enhancement cards', basicEnhancementStart);
+  recordTiming(debugTiming, timingRows, 'network change cards', networkChangeStart, undefined, { networkChanges: result.networkChanges.length, cards: cards.length });
+  recordTiming(debugTiming, timingRows, 'basic enhancement cards total', basicEnhancementStart, undefined, { cards: cards.length });
 
   const temporalStart = performance.now();
   // ========== P1 增强：时间相关性 + 决策链路 ==========
   // 历史主瓶颈回归指标：用于观察时间相关性构建是否再次膨胀。
   cards.push(...buildTemporalCorrelationCards(result));
-  recordTiming(debugTiming, timingRows, 'buildTemporalCorrelationCards', temporalStart);
+  recordTiming(debugTiming, timingRows, 'buildTemporalCorrelationCards', temporalStart, undefined, { connectionFailures: result.connectionFailures.length, cards: cards.length });
 
-  const decisionStart = performance.now();
+  const cacheDecisionStart = performance.now();
   const cacheDecisionCard = buildCacheDecisionCard(result);
   if (cacheDecisionCard && !cards.some(c => c.id.startsWith('netlog-cache-decision'))) {
     cards.push(cacheDecisionCard);
   }
+  recordTiming(debugTiming, timingRows, 'buildCacheDecisionCard', cacheDecisionStart, undefined, { cards: cards.length });
 
+  const proxyDecisionStart = performance.now();
   const proxyDecisionCard = buildProxyDecisionCard(result);
   if (proxyDecisionCard && !cards.some(c => c.id.startsWith('netlog-proxy-decision'))) {
     cards.push(proxyDecisionCard);
   }
+  recordTiming(debugTiming, timingRows, 'buildProxyDecisionCard', proxyDecisionStart, undefined, { cards: cards.length });
 
+  const protocolDecisionStart = performance.now();
   const protocolDecisionCard = buildProtocolDecisionCard(result);
   if (protocolDecisionCard && !cards.some(c => c.id.startsWith('netlog-protocol-decision'))) {
     cards.push(protocolDecisionCard);
   }
+  recordTiming(debugTiming, timingRows, 'buildProtocolDecisionCard', protocolDecisionStart, undefined, { cards: cards.length });
 
+  const tlsCertificateStart = performance.now();
   const tlsCertificateCard = buildTlsCertificateEvidenceCard(result);
   if (tlsCertificateCard && !cards.some(c => c.id.startsWith('netlog-tls-cert-fields'))) {
     cards.push(tlsCertificateCard);
   }
-  recordTiming(debugTiming, timingRows, 'decision/evidence cards', decisionStart);
+  recordTiming(debugTiming, timingRows, 'buildTlsCertificateEvidenceCard', tlsCertificateStart, undefined, { cards: cards.length });
 
   const lifecycleStart = performance.now();
   // ========== Phase 3 增强：请求生命周期证据 ==========
   if (events && events.length > 0) {
     const sourceGraphStart = performance.now();
     const graph = getCachedSourceGraph(events, result.urlRequests);
+    recordTiming(debugTiming, timingRows, 'getCachedSourceGraph', sourceGraphStart, undefined, { events: events.length, urlRequests: result.urlRequests.length });
+
+    const sourceIdCacheStart = performance.now();
     const eventsBySourceId = getCachedEventsBySourceId(events);
-    recordTiming(debugTiming, timingRows, 'source graph and sourceId cache', sourceGraphStart);
+    recordTiming(debugTiming, timingRows, 'getCachedEventsBySourceId', sourceIdCacheStart, undefined, { sourceIds: eventsBySourceId.size });
 
     const lifecycleCardsStart = performance.now();
     const lifecycleCards = netlogLifecycleToCards(result, events, {
@@ -905,34 +937,82 @@ export function netlogToCards(
       eventsBySourceId,
     });
     lifecycleCards.forEach(c => cards.push(c));
-    recordTiming(debugTiming, timingRows, 'netlogLifecycleToCards', lifecycleCardsStart);
+    recordTiming(debugTiming, timingRows, 'netlogLifecycleToCards', lifecycleCardsStart, undefined, { lifecycleCards: lifecycleCards.length, cards: cards.length });
   }
-  recordTiming(debugTiming, timingRows, 'lifecycle section total', lifecycleStart);
+  recordTiming(debugTiming, timingRows, 'lifecycle section total', lifecycleStart, undefined, { cards: cards.length });
 
   const enrichmentStart = performance.now();
   // 历史次瓶颈回归指标：用于观察诊断证据补全是否再次退化。
-  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
-  recordTiming(debugTiming, timingRows, 'enrichCardWithP1Evidence map', enrichmentStart);
+  const enrichCardRows: TimingRow[] = [];
+  const enrichedCards = cards.map(card => {
+    const cardStart = performance.now();
+    const nextCard = enrichCardWithP1Evidence(card, result);
+    recordTiming(debugTiming, enrichCardRows, card.title, cardStart, undefined, {
+      id: card.id,
+      category: card.category,
+      severity: card.severity,
+      evidence: card.evidence.length,
+      relatedRequestIds: card.relatedRequestIds?.length ?? 0,
+      relatedEventIds: card.relatedEventIds?.length ?? 0,
+    });
+    return nextCard;
+  });
+  recordTiming(debugTiming, timingRows, 'enrichCardWithP1Evidence map', enrichmentStart, undefined, { cards: cards.length });
 
   const sortStart = performance.now();
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
   enrichedCards.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
-  recordTiming(debugTiming, timingRows, 'sort enriched cards', sortStart);
-  recordTiming(debugTiming, timingRows, 'netlogToCards total', totalStart);
-  printTimingTable(debugTiming, '[diagnosis timing] netlogToCards internals', timingRows);
+  recordTiming(debugTiming, timingRows, 'sort enriched cards', sortStart, undefined, { cards: enrichedCards.length });
+  recordTiming(debugTiming, timingRows, 'netlogToCards total', totalStart, undefined, { cards: enrichedCards.length });
+  emitTimingJson(debugTiming, 'netlogToCards internals', timingRows, {
+    suggestions: suggestions.length,
+    cards: enrichedCards.length,
+    events: events?.length ?? 0,
+    urlRequests: result.urlRequests.length,
+    totalEvents: result.totalEvents,
+    connectionFailures: result.connectionFailures.length,
+    failedDomains: result.failedDomains.length,
+    certIssues: result.certIssues.length,
+  });
+  emitTimingJson(
+    debugTiming,
+    'enrichCardWithP1Evidence per-card',
+    enrichCardRows.sort((a, b) => b.durationMs - a.durationMs),
+    { cards: enrichCardRows.length }
+  );
 
   return enrichedCards;
 }
 
 function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[] {
+  const debugTiming = isDiagnosisTimingDebugEnabled();
+  const timingRows: TimingRow[] = [];
+  const totalStart = performance.now();
+
+  const lookupStart = performance.now();
   const requestLookup = getRequestLookup(result);
+  recordTiming(debugTiming, timingRows, 'getRequestLookup', lookupStart, undefined, { urlRequests: result.urlRequests.length });
+
+  const contextStart = performance.now();
   const failuresWithContext = result.connectionFailures
     .map(failure => ({ failure, context: findEventsAround(result, failure.time, 3000) }))
     .filter(item => item.context.length > 0);
+  recordTiming(debugTiming, timingRows, 'findEventsAround all failures', contextStart, undefined, {
+    connectionFailures: result.connectionFailures.length,
+    failuresWithContext: failuresWithContext.length,
+  });
 
-  if (failuresWithContext.length < 2) return [];
+  if (failuresWithContext.length < 2) {
+    recordTiming(debugTiming, timingRows, 'buildTemporalCorrelationCards total', totalStart, undefined, { emittedCards: 0 });
+    emitTimingJson(debugTiming, 'buildTemporalCorrelationCards internals', timingRows, {
+      connectionFailures: result.connectionFailures.length,
+      failuresWithContext: failuresWithContext.length,
+    });
+    return [];
+  }
 
+  const aggregateStart = performance.now();
   const relatedRequestIds = failuresWithContext
     .flatMap(item => requestLookup.idsByUrl.get(item.failure.url) || [])
     .slice(0, 30);
@@ -941,8 +1021,13 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
     return acc;
   }, {});
   const dominantKind = Object.entries(kindCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '网络上下文';
+  recordTiming(debugTiming, timingRows, 'aggregate related ids and kinds', aggregateStart, undefined, {
+    relatedRequestIds: relatedRequestIds.length,
+    contextKinds: Object.keys(kindCounts).length,
+  });
 
-  return [addConfidenceDetails({
+  const cardStart = performance.now();
+  const resultCards = [addConfidenceDetails({
     id: generateId('netlog-time-correlation', 0),
     source: 'netlog',
     category: dominantKind.includes('代理') ? 'proxy' : dominantKind.includes('TLS') ? 'tls' : dominantKind.includes('缓存') ? 'cache' : dominantKind.includes('HTTP') || dominantKind.includes('QUIC') ? 'protocol' : 'network-change',
@@ -975,6 +1060,14 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
     { label: '时间聚集', impact: 'positive', detail: `${failuresWithContext.length} 个失败点存在 ±3s 上下文事件` },
     { label: '跨层佐证', impact: 'positive', detail: Object.entries(kindCounts).map(([k, v]) => `${k} ${v}`).join('，') },
   ], relatedRequestIds.length === 0 ? [{ label: '请求映射不足', impact: 'negative', detail: '部分失败未映射到 URL_REQUEST，只能从时间维度推断' }] : [])];
+  recordTiming(debugTiming, timingRows, 'create temporal card', cardStart, undefined, { emittedCards: resultCards.length });
+  recordTiming(debugTiming, timingRows, 'buildTemporalCorrelationCards total', totalStart, undefined, { emittedCards: resultCards.length });
+  emitTimingJson(debugTiming, 'buildTemporalCorrelationCards internals', timingRows, {
+    connectionFailures: result.connectionFailures.length,
+    failuresWithContext: failuresWithContext.length,
+    relatedRequestIds: relatedRequestIds.length,
+  });
+  return resultCards;
 }
 
 function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
@@ -1396,20 +1489,29 @@ export function buildNetlogDiagnosisSummary(
   const totalStart = performance.now();
   const cardsStart = performance.now();
   const cards = netlogToCards(result, suggestions, events);
-  recordTiming(debugTiming, timingRows, 'netlogToCards', cardsStart);
+  recordTiming(debugTiming, timingRows, 'netlogToCards', cardsStart, undefined, { cards: cards.length });
 
   const qualityStart = performance.now();
   const quality = checkNetlogQuality(result);
-  recordTiming(debugTiming, timingRows, 'checkNetlogQuality', qualityStart);
+  recordTiming(debugTiming, timingRows, 'checkNetlogQuality', qualityStart, undefined, { qualityIssues: quality.issues.length });
 
   const severityStart = performance.now();
   const overallSeverity = (
     cards.some(c => c.severity === 'critical') ? 'critical' :
     cards.some(c => c.severity === 'warning') ? 'warning' : 'info'
   ) as DiagnosisSummary['overallSeverity'];
-  recordTiming(debugTiming, timingRows, 'overallSeverity scan', severityStart);
-  recordTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary total', totalStart);
-  printTimingTable(debugTiming, '[diagnosis timing] buildNetlogDiagnosisSummary internals', timingRows);
+  recordTiming(debugTiming, timingRows, 'overallSeverity scan', severityStart, undefined, { cards: cards.length, overallSeverity });
+  recordTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary total', totalStart, undefined, { cards: cards.length });
+  emitTimingJson(debugTiming, 'buildNetlogDiagnosisSummary internals', timingRows, {
+    suggestions: suggestions.length,
+    cards: cards.length,
+    events: events?.length ?? 0,
+    urlRequests: result.urlRequests.length,
+    totalEvents: result.totalEvents,
+    errors: result.errors.length,
+    warnings: result.warnings.length,
+    info: result.info.length,
+  });
 
   return {
     cards,

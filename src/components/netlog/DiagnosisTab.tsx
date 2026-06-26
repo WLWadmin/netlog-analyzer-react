@@ -31,13 +31,14 @@ function isDiagnosisTimingDebugEnabled(): boolean {
 
 function recordDiagnosisTiming(
   enabled: boolean,
-  rows: { stage: string; durationMs: number }[],
+  rows: { stage: string; durationMs: number; meta?: Record<string, string | number | boolean | undefined> }[],
   stage: string,
   start: number,
-  end: number = performance.now()
+  end: number = performance.now(),
+  meta?: Record<string, string | number | boolean | undefined>
 ) {
   if (!enabled) return;
-  rows.push({ stage, durationMs: Math.round((end - start) * 10) / 10 });
+  rows.push({ stage, durationMs: Math.round((end - start) * 10) / 10, meta });
 }
 
 function buildLegacyDiagnosisData(result: AnalysisResult): LegacyDiagnosisData {
@@ -72,7 +73,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
   useEffect(() => {
     let cancelled = false;
     const debugTiming = isDiagnosisTimingDebugEnabled();
-    const timingRows: { stage: string; durationMs: number }[] = [];
+    const timingRows: { stage: string; durationMs: number; meta?: Record<string, string | number | boolean | undefined> }[] = [];
     const effectStart = performance.now();
     setDiagnosisLoading(true);
     setDiagnosisSummary(undefined);
@@ -86,15 +87,15 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
 
       const suggestionsStart = performance.now();
       const suggestions = generateSuggestions(result);
-      recordDiagnosisTiming(debugTiming, timingRows, 'generateSuggestions', suggestionsStart);
+      recordDiagnosisTiming(debugTiming, timingRows, 'generateSuggestions', suggestionsStart, undefined, { suggestions: suggestions.length });
 
       const summaryStart = performance.now();
       const nextSummary = buildNetlogDiagnosisSummary(result, suggestions, events);
-      recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart);
+      recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart, undefined, { cards: nextSummary.cards.length });
 
       const legacyStart = performance.now();
       const nextLegacyData = buildLegacyDiagnosisData(result);
-      recordDiagnosisTiming(debugTiming, timingRows, 'buildLegacyDiagnosisData', legacyStart);
+      recordDiagnosisTiming(debugTiming, timingRows, 'buildLegacyDiagnosisData', legacyStart, undefined, { legacyIssues: nextLegacyData.groupedIssues.length });
 
       if (cancelled) return;
       const setStateStart = performance.now();
@@ -105,10 +106,21 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
       recordDiagnosisTiming(debugTiming, timingRows, 'setTimeout handler total', handlerStart);
 
       if (debugTiming) {
-        console.groupCollapsed('[diagnosis timing] DiagnosisTab first-build');
-        console.table(timingRows);
-        console.info('[diagnosis timing] cards:', nextSummary.cards.length, 'legacy issues:', nextLegacyData.groupedIssues.length);
-        console.groupEnd();
+        console.info('[diagnosis timing json]', JSON.stringify({
+          label: 'DiagnosisTab first-build',
+          rows: timingRows,
+          extra: {
+            cards: nextSummary.cards.length,
+            legacyIssues: nextLegacyData.groupedIssues.length,
+            events: events.length,
+            urlRequests: result.urlRequests.length,
+            totalEvents: result.totalEvents,
+            errors: result.errors.length,
+            warnings: result.warnings.length,
+            info: result.info.length,
+            hash: window.location.hash,
+          },
+        }));
       }
     }, 0);
 
