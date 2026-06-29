@@ -18,7 +18,7 @@ interface HarResultPageProps {
   onTabChange?: (tab: string) => void;
 }
 
-// HAR 解析结果整体页面（汇总卡片 + 请求列表 / 汇总诊断 两个 Tab）
+// HAR 解析结果整体页面：请求详情优先，现象摘要仅描述请求层表现。
 const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveKey, setInternalActiveKey] = useState('requests');
   const activeKey = externalActiveTab || internalActiveKey;
@@ -44,7 +44,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <UnorderedListOutlined />
-          请求列表
+          请求详情
         </span>
       ),
       children: (
@@ -58,11 +58,11 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
       ),
     },
     {
-      key: 'diagnosis',
+      key: 'summary',
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <MedicineBoxOutlined />
-          汇总诊断
+          HAR 现象摘要
         </span>
       ),
       children: <HarSummaryDiagnosis result={result} />,

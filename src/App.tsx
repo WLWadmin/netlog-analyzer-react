@@ -906,15 +906,15 @@ const AppContent: React.FC = () => {
                 }}
               />
             </Suspense>
-            {/* 追加 NetLog，进入联合诊断 */}
+            {/* 追加 NetLog，进入 NetLog 结论与证据链 */}
             {!result && (
               <div style={{ marginTop: 24, padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <RadarChartOutlined style={{ color: '#6366f1' }} />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>追加 NetLog，进入联合诊断</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>追加 NetLog，增强浏览器网络栈判断</span>
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                  当前已加载 HAR。追加上传同一次问题复现导出的 NetLog 文件后，将自动进入 NetLog 页面中的联合诊断 Tab。
+                  当前已加载 HAR。追加上传同一次问题复现导出的 NetLog 文件后，将自动进入 NetLog「结论与行动」，并可在「证据链」查看 HAR 与 NetLog 的关联证据。
                 </p>
                 <UploadZone onFileLoaded={handleSecondaryFileLoaded} compact />
               </div>

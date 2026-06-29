@@ -41,7 +41,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <DashboardOutlined />
-          概览
+          日志概览
         </span>
       ),
       children: (
@@ -74,7 +74,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <BranchesOutlined />
-          操作流程
+          操作流程 / 结构化日志
           {filterErrorOnly && (
             <span style={{ fontSize: 11, color: '#ff4d4f', marginLeft: 4 }}>(仅失败)</span>
           )}

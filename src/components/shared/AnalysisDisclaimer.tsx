@@ -13,9 +13,9 @@ interface AnalysisDisclaimerProps {
 }
 
 const DEFAULT_DESCRIPTIONS: Record<string, string> = {
-  netlog: '本工具解析内容仅供参考，具体原因需人工二次确认或自行尝试「定因诊断」中的建议操作。分析结果可能因日志版本、浏览器差异等因素存在偏差，请结合实际情况综合判断。',
-  har: '数据来自浏览器 DevTools → Network 导出的 .har 文件，解析结果仅供参考。Size 优先取传输大小（_transferSize），关键字段依赖响应头是否存在，请结合实际链路综合判断。',
-  log: '本工具解析内容仅供参考，具体原因需人工二次确认或自行尝试建议操作。分析结果可能因日志版本、格式差异等因素存在偏差，请结合实际情况综合判断。',
+  netlog: 'NetLog 是浏览器网络栈证据，可辅助判断 DNS、代理、连接、TLS、协议和请求失败线索。结论仍需结合复现环境、链路测试和人工确认。',
+  har: 'HAR 主要说明请求现象、状态码、Headers 和 Timing，不能单独证明 DNS、TCP、TLS 或代理根因；需要同次 NetLog 或链路测试进一步验证。',
+  log: 'Log 页面用于服务端关联字段提取和日志可阅读化，不基于日志文件单独判断浏览器网络根因。请结合 logid、request id、服务端状态和浏览器侧证据综合分析。',
 };
 
 export const AnalysisDisclaimer: React.FC<AnalysisDisclaimerProps> = ({
