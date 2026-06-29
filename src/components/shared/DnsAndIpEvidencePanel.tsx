@@ -1,20 +1,38 @@
-import React, { useMemo } from 'react';
-import { Alert, Button, Card, Popover, Space, Table, Tag, Typography, message } from 'antd';
-import { CopyOutlined } from '@ant-design/icons';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Card, Input, Popover, Space, Table, Tag, Typography, message } from 'antd';
+import { CopyOutlined, GlobalOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  buildIpLookupConclusions,
   buildCipSipRowsText,
   buildIpListText,
+  collectRowLookupIps,
+  formatIpLocation,
+  getCarrierDisplayName,
+  lookupCurrentClientIp,
+  lookupIpsWithLimit,
+  shouldLookupIp,
   type CipSipEvidenceRow,
   type DnsAnswerEvidence,
   type DnsIpEvidenceSummary,
   type DnsServerEvidence,
+  type IpLookupResult,
+  type IpRoutingConclusion,
   type RequestImpact,
 } from '../../diagnosis/ipEvidence';
 import { copyText } from '../../utils/copyText';
 
 interface DnsAndIpEvidencePanelProps {
   summary: DnsIpEvidenceSummary;
+}
+
+interface LookupTableRow {
+  ip: string;
+  result: IpLookupResult;
+  roles: string[];
+  hosts: string[];
+  impacts: string[];
+  risk: string;
 }
 
 const IMPACT_LABEL: Record<RequestImpact, string> = {
@@ -154,11 +172,262 @@ function copyRowText(row: CipSipEvidenceRow): string {
   ].join('\n');
 }
 
+function lookupRiskText(result: IpLookupResult, roles: string[]): string {
+  if (result.status !== 'success') return '查询失败';
+  const isChina = result.country === '中国' || result.country === 'China' || result.country === 'CN';
+  if ((roles.includes('SIP') || roles.includes('DNS answer')) && !isChina) return '跨境线索';
+  if (roles.includes('CIP') && roles.includes('SIP')) return '需结合运营商对照';
+  return '暂无明显风险';
+}
+
+function buildLookupRows(
+  summary: DnsIpEvidenceSummary,
+  lookupMap: Map<string, IpLookupResult>,
+  manualIps: Set<string>
+): LookupTableRow[] {
+  const hostByIp = new Map<string, Set<string>>();
+  const roleByIp = new Map<string, Set<string>>();
+  const impactByIp = new Map<string, Set<string>>();
+
+  const addContext = (ip: string, role: string, host: string, impact: string) => {
+    if (!hostByIp.has(ip)) hostByIp.set(ip, new Set());
+    if (!roleByIp.has(ip)) roleByIp.set(ip, new Set());
+    if (!impactByIp.has(ip)) impactByIp.set(ip, new Set());
+    hostByIp.get(ip)!.add(host);
+    roleByIp.get(ip)!.add(role);
+    impactByIp.get(ip)!.add(impact);
+  };
+
+  for (const row of summary.cipSipRows) {
+    row.cipIps.forEach(ip => addContext(ip, 'CIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
+    row.sipIps.forEach(ip => addContext(ip, 'SIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
+  }
+  for (const answer of summary.dnsAnswers) {
+    answer.ips.forEach(ip => addContext(ip, 'DNS answer', answer.host, 'DNS 解析线索'));
+  }
+  for (const ip of manualIps) {
+    addContext(ip, '手动查询', '自助查询', '手动查询');
+  }
+
+  return Array.from(lookupMap.values()).map(result => {
+    const roles = Array.from(roleByIp.get(result.ip) || (result.self ? ['当前出口'] : []));
+    return {
+      ip: result.ip || '当前出口',
+      result,
+      roles,
+      hosts: Array.from(hostByIp.get(result.ip) || []),
+      impacts: Array.from(impactByIp.get(result.ip) || []),
+      risk: lookupRiskText(result, roles),
+    };
+  });
+}
+
+function parseManualIps(value: string): string[] {
+  return Array.from(new Set(value.split(/[\s,，;；]+/).map(item => item.trim()).filter(Boolean)));
+}
+
+function renderLimitedText(items: string[], emptyText = '-') {
+  if (!items.length) return <Typography.Text type="secondary">{emptyText}</Typography.Text>;
+  const visible = items.slice(0, 3);
+  const hidden = items.length - visible.length;
+  return (
+    <Typography.Text type="secondary" ellipsis={{ tooltip: items.join('、') }}>
+      {visible.join('、')}{hidden > 0 ? ` +${hidden}` : ''}
+    </Typography.Text>
+  );
+}
+
+function renderLookupResultCards(rows: LookupTableRow[]) {
+  if (rows.length === 0) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+      {rows.map(row => {
+        const carrier = row.result.status === 'success' ? getCarrierDisplayName(row.result) : row.result.message || '查询失败';
+        const location = row.result.status === 'success'
+          ? [row.result.country, row.result.regionName, row.result.city].filter(Boolean).join(' / ') || '未知归属'
+          : row.result.message || '查询失败';
+        const rawCarrier = [row.result.isp, row.result.org, row.result.as].filter(Boolean).join(' / ');
+        return (
+          <div
+            key={`${row.ip}-${row.roles.join(',')}`}
+            style={{
+              padding: 14,
+              borderRadius: 14,
+              border: '1px solid var(--border-color)',
+              background: 'linear-gradient(180deg, var(--bg-elevated), var(--bg-surface))',
+              boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 0 }}>
+                <Typography.Text style={{ fontFamily: "'SF Mono', monospace", fontWeight: 800 }}>
+                  {row.ip}
+                </Typography.Text>
+                <div style={{ marginTop: 6 }}>
+                  <Space size={4} wrap>
+                    {row.roles.length ? row.roles.map(role => <Tag key={role} style={{ marginInlineEnd: 0 }}>{role}</Tag>) : <Tag>未知角色</Tag>}
+                  </Space>
+                </div>
+              </div>
+              <Tag color={row.risk.includes('跨境') ? 'orange' : row.risk.includes('失败') ? 'red' : 'blue'} style={{ margin: 0 }}>
+                {row.risk}
+              </Tag>
+            </div>
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '88px minmax(0, 1fr)', rowGap: 7, columnGap: 10 }}>
+              <Typography.Text type="secondary">归属地</Typography.Text>
+              <Typography.Text>{location}</Typography.Text>
+              <Typography.Text type="secondary">运营商</Typography.Text>
+              <div style={{ minWidth: 0 }}>
+                <Typography.Text strong>{carrier}</Typography.Text>
+                {rawCarrier && (
+                  <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }} ellipsis={{ tooltip: rawCarrier }}>
+                    {rawCarrier}
+                  </Typography.Text>
+                )}
+              </div>
+              <Typography.Text type="secondary">关联域名</Typography.Text>
+              {renderLimitedText(row.hosts)}
+              <Typography.Text type="secondary">关联问题</Typography.Text>
+              {renderLimitedText(row.impacts)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderLookupConclusions(conclusions: IpRoutingConclusion[]) {
+  if (conclusions.length === 0) return null;
+  return (
+    <div style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+      <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>
+        定位参考（基于 DNS 与 IP 查询）
+      </Typography.Text>
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        {conclusions.map(item => (
+          <Alert
+            key={`${item.title}-${item.detail}`}
+            type={item.level === 'critical' ? 'error' : item.level === 'warning' ? 'warning' : 'info'}
+            showIcon
+            message={item.title}
+            description={
+              <Space direction="vertical" size={4}>
+                <Typography.Text>{item.detail}</Typography.Text>
+                <Typography.Text type="secondary">下一步：{item.nextAction}</Typography.Text>
+              </Space>
+            }
+          />
+        ))}
+      </Space>
+    </div>
+  );
+}
+
 const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }) => {
+  const [lookupMap, setLookupMap] = useState<Map<string, IpLookupResult>>(new Map());
+  const [manualLookupIps, setManualLookupIps] = useState<Set<string>>(new Set());
+  const [manualIpInput, setManualIpInput] = useState('');
+  const [activeLookupRowId, setActiveLookupRowId] = useState<string | null>(null);
+  const [bulkLookupLoading, setBulkLookupLoading] = useState(false);
+  const [manualLookupLoading, setManualLookupLoading] = useState(false);
+  const [selfLookup, setSelfLookup] = useState<IpLookupResult | undefined>();
+  const [selfLookupLoading, setSelfLookupLoading] = useState(false);
+  const lookupResultRef = useRef<HTMLDivElement | null>(null);
   const dnsServerEmptyText = '未解析到 DNS server 配置。部分 NetLog 导出不包含 DNS 配置字段，或当前解析器未识别该 Chrome 版本字段。';
   const dnsAnswerEmptyText = summary.dnsEventCount && summary.dnsEventCount > 0
     ? '检测到 DNS/HOST_RESOLVER 事件，但未能从事件参数中解析出域名和 IP。建议查看原始证据并反馈相关 params 字段。'
     : '未解析到 DNS answer。请在原始证据中搜索 HOST_RESOLVER、DNS_TRANSACTION、address_list、endpoint_results，确认文件是否包含解析结果。';
+  const lookupConclusions = useMemo(() => buildIpLookupConclusions(summary, lookupMap), [summary, lookupMap]);
+  const lookupRows = useMemo(() => buildLookupRows(summary, lookupMap, manualLookupIps), [summary, lookupMap, manualLookupIps]);
+
+  const scrollToLookupResults = useCallback(() => {
+    window.setTimeout(() => {
+      lookupResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }, []);
+
+  const queryIps = useCallback(async (
+    rawIps: string[],
+    options?: { rowId?: string; mode?: 'bulk' | 'manual' | 'row' }
+  ) => {
+    const uniqueIps = Array.from(new Set(rawIps)).filter(Boolean);
+    const publicIps = uniqueIps.filter(shouldLookupIp);
+    const missingIps = publicIps.filter(ip => !lookupMap.has(ip));
+    const mode = options?.mode;
+
+    if (publicIps.length === 0) {
+      message.info('没有可查询的公网 IP，内网 / 保留地址不会外发。');
+      return;
+    }
+    if (missingIps.length === 0) {
+      message.info('这些公网 IP 已有查询结果');
+      scrollToLookupResults();
+      return;
+    }
+
+    const limitedIps = missingIps.slice(0, 20);
+    message.info(`将通过 Cloudflare Worker 代理查询 ${limitedIps.length} 个公网 IP，内网 IP 不会外发。`);
+    if (mode === 'row') setActiveLookupRowId(options?.rowId || null);
+    if (mode === 'bulk') setBulkLookupLoading(true);
+    if (mode === 'manual') setManualLookupLoading(true);
+
+    try {
+      const summaryResult = await lookupIpsWithLimit(limitedIps, (ip, result) => {
+        setLookupMap(prev => {
+          const next = new Map(prev);
+          next.set(ip, result);
+          return next;
+        });
+      }, { concurrency: 3, limit: 20 });
+
+      if (summaryResult.stoppedByRateLimit) {
+        message.warning('上游或本地查询频率已触发保护，本轮剩余 IP 已停止查询。');
+      } else if (summaryResult.skipped > 0) {
+        message.info(`已过滤 ${summaryResult.skipped} 个内网 / 保留地址。`);
+      }
+      message.success('查询完成，已跳转到 IP 归属查询结果');
+      scrollToLookupResults();
+    } finally {
+      if (mode === 'row') setActiveLookupRowId(null);
+      if (mode === 'bulk') setBulkLookupLoading(false);
+      if (mode === 'manual') setManualLookupLoading(false);
+    }
+  }, [lookupMap, scrollToLookupResults]);
+
+  const queryManualIps = useCallback(async () => {
+    const ips = parseManualIps(manualIpInput);
+    if (ips.length === 0) {
+      message.info('请输入要查询的 IP，支持逗号、空格或换行分隔。');
+      return;
+    }
+    setManualLookupIps(prev => new Set([...Array.from(prev), ...ips]));
+    await queryIps(ips, { mode: 'manual' });
+  }, [manualIpInput, queryIps]);
+
+  const querySelfIp = useCallback(async () => {
+    setSelfLookupLoading(true);
+    try {
+      const result = await lookupCurrentClientIp();
+      setSelfLookup(result);
+      if (result.ip) {
+        setLookupMap(prev => {
+          const next = new Map(prev);
+          next.set(result.ip, result);
+          return next;
+        });
+      }
+      if (result.status === 'success') {
+        message.success('当前出口 IP 查询完成');
+      } else {
+        message.warning(result.message || '当前出口 IP 查询失败');
+      }
+      scrollToLookupResults();
+    } finally {
+      setSelfLookupLoading(false);
+    }
+  }, [scrollToLookupResults]);
 
   const dnsServerColumns = useMemo<ColumnsType<DnsServerEvidence>>(() => [
     {
@@ -243,25 +512,33 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
       render: (durationMs?: number) => durationMs === undefined ? '-' : `${Math.round(durationMs)}ms`,
     },
     {
-      title: 'CIP',
+      title: 'CIP（客户端/出口线索）',
       dataIndex: 'cipIps',
       key: 'cipIps',
-      width: 180,
+      width: 210,
       render: ipTags,
     },
     {
-      title: 'SIP',
+      title: 'SIP（服务端/连接目标）',
       dataIndex: 'sipIps',
       key: 'sipIps',
-      width: 180,
+      width: 210,
       render: ipTags,
     },
     {
-      title: '复制',
+      title: '操作',
       key: 'copy',
-      width: 230,
+      width: 310,
       render: (_, row) => (
         <Space size={4} wrap>
+          <Button
+            size="small"
+            icon={<GlobalOutlined />}
+            loading={activeLookupRowId === row.id}
+            onClick={() => queryIps(collectRowLookupIps(row), { mode: 'row', rowId: row.id })}
+          >
+            查询本行 IP
+          </Button>
           <Button size="small" onClick={() => copyWithToast(row.cipIps.join('\n'), 'CIP')}>
             CIP
           </Button>
@@ -274,7 +551,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
         </Space>
       ),
     },
-  ], []);
+  ], [activeLookupRowId, queryIps]);
 
   return (
     <Card
@@ -291,8 +568,8 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
         <Alert
           type="info"
           showIcon
-          message="本模块不会联网查询 IP 归属，只整理 HAR / NetLog 中记录的 DNS、CIP、SIP 证据。"
-          description="“原始请求失败/耗时较长”来自上传的 HAR / NetLog 文件，不是点击本模块按钮造成。如需判断跨境/跨运营商，请复制 IP 到可访问的 IP 查询工具、企业 IP 库或发给网络团队确认运营商和地域。"
+          message="默认只整理 HAR / NetLog 中记录的 DNS、CIP、SIP 证据；只有点击查询按钮时才会通过 Cloudflare Worker 代理查询公网 IP。"
+          description="内网、loopback、保留地址不会外发。查询结果仅作为跨境、跨运营商或 DNS 调度定位线索，不能直接作为故障根因。"
         />
         <div
           style={{
@@ -306,12 +583,27 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             排查建议
           </Typography.Text>
           <Typography.Text>
-            先复制 DNS server 判断解析入口，再复制失败/慢请求的 CIP 或 SIP 到 IP 查询工具、企业 IP 库或发给网络团队。
-            如果 SIP 归属海外，属于跨境调度线索；如果 SIP 归属运营商与用户当前网络不同，属于跨运营商访问线索。
+            先看 DNS server 判断解析入口，再查询失败/慢请求的 CIP 或 SIP 归属。
+            如果 SIP 归属海外，属于跨境调度或海外链路线索；如果 CIP 与 SIP 运营商不同，属于跨运营商访问线索，仍需结合 MTR / traceroute 确认。
           </Typography.Text>
         </div>
 
         <Space wrap>
+          <Button
+            type="primary"
+            icon={<GlobalOutlined />}
+            loading={bulkLookupLoading}
+            onClick={() => queryIps(summary.cipSipRows.flatMap(row => collectRowLookupIps(row)), { mode: 'bulk' })}
+          >
+            查询当前页问题 IP
+          </Button>
+          <Button
+            icon={<GlobalOutlined />}
+            loading={selfLookupLoading}
+            onClick={querySelfIp}
+          >
+            查询当前出口 IP
+          </Button>
           <Button icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(summary.copyableIps), '全部问题 IP')}>
             复制全部问题 IP
           </Button>
@@ -322,6 +614,33 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             复制聚合列表
           </Button>
         </Space>
+
+        <div
+          style={{
+            padding: 14,
+            borderRadius: 14,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+          }}
+        >
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            自助查询 IP
+          </Typography.Text>
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              value={manualIpInput}
+              onChange={e => setManualIpInput(e.target.value)}
+              onPressEnter={queryManualIps}
+              placeholder="输入 IP，支持逗号 / 空格 / 换行分隔，例如 58.215.109.83, 223.5.5.5"
+            />
+            <Button icon={<GlobalOutlined />} loading={manualLookupLoading} onClick={queryManualIps}>
+              查询
+            </Button>
+          </Space.Compact>
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+            仅查询公网 IP，内网 / loopback / 保留地址不会外发；结果会进入下方 IP 归属查询结果。
+          </Typography.Text>
+        </div>
 
         <div style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
           <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>1. DNS 配置与解析结果</Typography.Text>
@@ -344,12 +663,39 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             scroll={{ x: 900 }}
             locale={{ emptyText: dnsAnswerEmptyText }}
           />
+          <Alert
+            style={{ marginTop: 12 }}
+            type="info"
+            showIcon
+            message="DNS server 决定解析入口，DNS answer 是文件中记录到的解析结果。"
+            description="若 DNS server 是海外公共 DNS，或 DNS answer 指向海外 IP，可能影响 CDN 就近调度；该结论只是定位线索，需结合 MTR / traceroute / 出口 IP 确认。"
+          />
         </div>
+
+        {selfLookup && (
+          <Alert
+            type={selfLookup.status === 'success' ? 'info' : 'warning'}
+            showIcon
+            message={selfLookup.status === 'success' ? `当前出口 IP：${selfLookup.ip}` : '当前出口 IP 查询失败'}
+            description={selfLookup.status === 'success'
+              ? `${formatIpLocation(selfLookup)}。这是当前浏览器访问 Worker 时的出口，只能作为本机对照；如果 HAR / NetLog 来自其他用户或其他时间，不能作为原始故障发生时的证据。`
+              : selfLookup.message}
+          />
+        )}
+
+        {renderLookupConclusions(lookupConclusions)}
 
         <div style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
           <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>
             2. 失败/慢请求 CIP/SIP 列表（同域名同 CIP/SIP 已去重，每组保留最长耗时前三个代表请求）
           </Typography.Text>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="来源说明"
+            description="har.x-tt-cip / har.x-lsc-source-ip 更接近客户端出口或响应头线索；har.serverIPAddress、netlog.URLRequest.remoteIp、socket peer 更接近实际连接目标；netlog.URLRequest.resolvedIp 是解析或请求链路线索，不能简单等同于客户端公网 IP。"
+          />
           <Table
             size="small"
             rowKey="id"
@@ -360,6 +706,15 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
             locale={{ emptyText: '未发现失败或慢请求关联的 CIP/SIP 证据' }}
           />
         </div>
+
+        {lookupRows.length > 0 && (
+          <div ref={lookupResultRef} style={{ padding: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-color)', scrollMarginTop: 16 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 10 }}>
+              IP 归属查询结果
+            </Typography.Text>
+            {renderLookupResultCards(lookupRows)}
+          </div>
+        )}
 
         <Alert
           type="warning"

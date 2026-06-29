@@ -21,3 +21,26 @@ export {
   buildCipSipRowsText,
   buildDnsIpEvidenceCopyText,
 } from './buildCopyText';
+export type {
+  IpLookupStatus,
+  IpLookupResult,
+  IpLookupState,
+  LookupIpContext,
+  IpRoutingConclusion,
+  IpLookupBatchSummary,
+} from './ipLookupTypes';
+export {
+  DEFAULT_IP_LOOKUP_PROXY_URL,
+  lookupIpViaProxy,
+  lookupCurrentClientIp,
+  lookupIpsWithLimit,
+  shouldLookupIp,
+  resetIpLookupBudgetForTest,
+} from './ipLookupClient';
+export {
+  buildIpLookupConclusions,
+  collectRowLookupIps,
+  formatIpLocation,
+  getCarrierDisplayName,
+  getCarrierGroup,
+} from './ipLookupDiagnosis';

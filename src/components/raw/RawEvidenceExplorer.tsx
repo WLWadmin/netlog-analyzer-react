@@ -14,6 +14,7 @@ import {
   CopyOutlined,
   FileSearchOutlined,
   FullscreenOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
@@ -53,6 +54,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [wrapPreview, setWrapPreview] = useState(true);
   const [workerStructure, setWorkerStructure] = useState<StructureNode[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchTaskIdRef = useRef(0);
@@ -302,13 +304,13 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(520px, 1fr) minmax(660px, 0.95fr)',
-          gap: 20,
-          minHeight: 400,
-          overflowX: 'auto',
+          gridTemplateColumns: 'minmax(360px, 0.42fr) minmax(0, 0.58fr)',
+          gap: 16,
+          minHeight: 'calc(100vh - 260px)',
+          overflow: 'hidden',
           padding: 12,
           borderRadius: 16,
-          background: 'linear-gradient(180deg, rgba(14,165,233,0.06), rgba(15,23,42,0.02))',
+          background: 'var(--bg-surface)',
           border: '1px solid var(--border-color)',
         }}
       >
@@ -316,8 +318,8 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         <Card
           size="small"
           title={searchQuery ? `搜索结果 (${searchResults.length})` : '文件结构'}
-          styles={{ body: { padding: 8, maxHeight: 600, overflow: 'auto' } }}
-          style={{ borderRadius: 14, overflow: 'hidden' }}
+          styles={{ body: { padding: 8, height: 'calc(100vh - 330px)', minHeight: 480, overflow: 'auto' } }}
+          style={{ borderRadius: 14, overflow: 'hidden', minWidth: 0 }}
         >
           {searchQuery ? (
             searchResults.length === 0 ? (
@@ -374,25 +376,29 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
               <Button size="small" icon={<CopyOutlined />} onClick={handleCopyValue}>
                 复制值
               </Button>
+              <Button size="small" icon={<SwapOutlined />} onClick={() => setWrapPreview(prev => !prev)}>
+                {wrapPreview ? '保持原格式' : '自动换行'}
+              </Button>
               <Button size="small" icon={<FullscreenOutlined />} onClick={() => setPreviewOpen(true)}>
                 全屏预览
               </Button>
             </Space>
           )}
-          styles={{ body: { padding: 12, maxHeight: 'calc(100vh - 300px)', minHeight: 420, overflow: 'auto' } }}
-          style={{ borderRadius: 14, overflow: 'hidden' }}
+          styles={{ body: { padding: 12, height: 'calc(100vh - 330px)', minHeight: 480, overflow: 'auto' } }}
+          style={{ borderRadius: 14, overflow: 'hidden', minWidth: 0 }}
         >
           {expandedValue ? (
             <pre style={{
               margin: 0,
-              padding: 22,
-              minHeight: 420,
-              minWidth: 'max-content',
+              padding: 18,
+              minHeight: '100%',
+              minWidth: wrapPreview ? 0 : 'max-content',
               fontSize: 12,
               fontFamily: "'SF Mono', 'Fira Code', monospace",
               lineHeight: 1.6,
-              whiteSpace: 'pre',
-              wordBreak: 'normal',
+              whiteSpace: wrapPreview ? 'pre-wrap' : 'pre',
+              wordBreak: wrapPreview ? 'break-word' : 'normal',
+              overflowWrap: wrapPreview ? 'anywhere' : 'normal',
               color: 'var(--text-primary)',
               background: 'var(--bg-subtle)',
               border: '1px solid var(--border-color)',
@@ -413,17 +419,18 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={null}
-        width="90vw"
+        width="96vw"
         title={selectedPath || '值预览'}
-        styles={{ body: { padding: 20 } }}
+        styles={{ body: { padding: 16 } }}
       >
         <pre style={{
           margin: 0,
-          padding: 24,
-          maxHeight: '75vh',
+          padding: 20,
+          maxHeight: '82vh',
           overflow: 'auto',
-          whiteSpace: 'pre',
-          wordBreak: 'normal',
+          whiteSpace: wrapPreview ? 'pre-wrap' : 'pre',
+          wordBreak: wrapPreview ? 'break-word' : 'normal',
+          overflowWrap: wrapPreview ? 'anywhere' : 'normal',
           fontSize: 12,
           lineHeight: 1.6,
           fontFamily: "'SF Mono', 'Fira Code', monospace",
