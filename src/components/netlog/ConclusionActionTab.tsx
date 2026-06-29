@@ -39,6 +39,9 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
         <FinalDiagnosisPanel
           finalSummary={finalSummary}
           hideReferenceConclusions
+          title="诊断结论与下一步"
+          evidenceButton={{ text: '查看关键证据', onClick: () => onNavigate('evidence') }}
+          expertButtonText="查看完整专家报告"
           onShowExpertDetails={() => onNavigate('expert', 'report')}
         />
       )}

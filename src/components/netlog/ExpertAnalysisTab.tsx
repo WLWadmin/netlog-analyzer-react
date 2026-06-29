@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Tabs } from 'antd';
 import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { DiagnosisSummary } from '../../diagnosis/shared';
+import { useNetlogDiagnosisSummary } from '../../hooks/useNetlogDiagnosisSummary';
 import EventsTab from './EventsTab';
 import SourceChainViewer from './SourceChainViewer';
 import SSLTab from './SSLTab';
@@ -30,8 +31,13 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   activeSubTab,
   onSubTabChange,
   onNavigateToSource,
+  diagnosisSummary,
+  diagnosisLoading,
 }) => {
   const activeKey = activeSubTab && EXPERT_TABS.includes(activeSubTab) ? activeSubTab : 'events';
+  const { loading: diagnosisLoadingState, diagnosisSummary: sharedDiagnosisSummary } = useNetlogDiagnosisSummary(result, events);
+  const effectiveDiagnosisSummary = diagnosisSummary || sharedDiagnosisSummary;
+  const effectiveDiagnosisLoading = diagnosisLoading ?? diagnosisLoadingState;
 
   return (
     <Tabs
@@ -80,7 +86,15 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         {
           key: 'report',
           label: '完整诊断报告',
-          children: <DiagnosisTab result={result} events={events} />,
+          children: (
+            <DiagnosisTab
+              result={result}
+              events={events}
+              mode="expert-report"
+              prebuiltSummary={effectiveDiagnosisSummary}
+              prebuiltLoading={effectiveDiagnosisLoading}
+            />
+          ),
         },
       ]}
     />

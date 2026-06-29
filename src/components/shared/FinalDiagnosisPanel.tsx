@@ -23,6 +23,13 @@ interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
   onShowExpertDetails?: () => void;
   hideReferenceConclusions?: boolean;
+  title?: string;
+  modeLabelOverride?: string;
+  expertButtonText?: string;
+  evidenceButton?: {
+    text: string;
+    onClick: () => void;
+  };
 }
 
 const kindConfig: Record<FinalConclusionKind, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -113,7 +120,15 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
   return lines.join('\n');
 }
 
-const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary, onShowExpertDetails, hideReferenceConclusions = false }) => {
+const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
+  finalSummary,
+  onShowExpertDetails,
+  hideReferenceConclusions = false,
+  title,
+  modeLabelOverride,
+  expertButtonText,
+  evidenceButton,
+}) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
 
   const copyableText = useMemo(() => finalSummary ? buildCopyText(finalSummary) : '', [finalSummary]);
@@ -149,25 +164,30 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary,
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <Tag style={{ border: 'none', background: 'rgba(14, 165, 233, 0.12)', color: '#0284c7', fontWeight: 600 }}>
-              {modeLabelMap[finalSummary.mode]}
+              {modeLabelOverride || modeLabelMap[finalSummary.mode]}
             </Tag>
             <Tag style={{ border: 'none', background: statusBg(finalSummary.status), color: statusColor(finalSummary.status), fontWeight: 600 }}>
               {statusText(finalSummary.status)}
             </Tag>
           </div>
           <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-            最终诊断摘要
+            {title || '最终诊断摘要'}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 760, lineHeight: 1.7 }}>
             {finalSummary.executiveSummary}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {evidenceButton && (
+            <Button size="small" icon={<ThunderboltOutlined />} onClick={evidenceButton.onClick}>
+              {evidenceButton.text}
+            </Button>
+          )}
           <Button size="small" icon={<FileTextOutlined />} onClick={() => copyText(copyableText)}>
             复制摘要
           </Button>
           <Button size="small" icon={<EyeOutlined />} onClick={handleShowExpertDetails}>
-            查看完整报告
+            {expertButtonText || '查看完整报告'}
           </Button>
         </div>
       </div>
