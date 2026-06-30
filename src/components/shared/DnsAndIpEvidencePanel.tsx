@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Input, Popover, Space, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, GlobalOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -23,6 +23,7 @@ import { useIpLookupController } from './useIpLookupController';
 
 interface DnsAndIpEvidencePanelProps {
   summary: DnsIpEvidenceSummary;
+  onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
 }
 
 interface LookupTableRow {
@@ -327,7 +328,7 @@ function renderLookupConclusions(conclusions: IpRoutingConclusion[]) {
   );
 }
 
-const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }) => {
+const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, onLookupConclusionsChange }) => {
   const [manualIpInput, setManualIpInput] = useState('');
   const lookupResultRef = useRef<HTMLDivElement | null>(null);
   const dnsServerEmptyText = '未解析到 DNS server 配置。部分 NetLog 导出不包含 DNS 配置字段，或当前解析器未识别该 Chrome 版本字段。';
@@ -358,6 +359,10 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary }
   });
   const lookupConclusions = useMemo(() => buildIpLookupConclusions(summary, lookupMap), [summary, lookupMap]);
   const lookupRows = useMemo(() => buildLookupRows(summary, lookupMap, manualLookupIps), [summary, lookupMap, manualLookupIps]);
+
+  useEffect(() => {
+    onLookupConclusionsChange?.(lookupConclusions);
+  }, [lookupConclusions, onLookupConclusionsChange]);
 
   const dnsServerColumns = useMemo<ColumnsType<DnsServerEvidence>>(() => [
     {

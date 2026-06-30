@@ -1,6 +1,7 @@
 import { AnalysisResult } from './parser';
 import { getNetErrorDescription } from './constants';
 import { classifyNetError } from './errorClassifier';
+import type { IpRoutingConclusion } from '../../diagnosis/ipEvidence';
 
 export interface Suggestion {
   icon: string;
@@ -937,7 +938,51 @@ function formatReportList(items: string[]): string {
   return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
 
-export function exportReport(r: AnalysisResult): string {
+export interface ExportReportOptions {
+  ipRoutingConclusions?: IpRoutingConclusion[];
+}
+
+function extraActionsForIpConclusion(conclusion: IpRoutingConclusion): string[] {
+  const text = `${conclusion.title} ${conclusion.detail}`;
+  if (text.includes('跨境')) {
+    return [
+      '关闭 VPN / 代理后重新访问，确认跨境出口是否消失。',
+      '检查 DNS 是否为境内节点，必要时临时切换到阿里云、百度或腾讯云 DNS 做对比。',
+    ];
+  }
+  if (text.includes('运营商')) {
+    return [
+      '尝试配置同运营商网络线路，减少跨运营商绕路影响。',
+      '使用同运营商宽带或手机热点做对比验证，并把结果提供给网络团队。',
+    ];
+  }
+  return [];
+}
+
+function appendIpRoutingConclusions(report: string, conclusions: IpRoutingConclusion[]): string {
+  const effectiveConclusions = conclusions.filter(item => item.title || item.detail);
+  if (effectiveConclusions.length === 0) return report;
+
+  let nextReport = report;
+  nextReport += `## IP 归属结论\n\n`;
+  effectiveConclusions.forEach((conclusion, index) => {
+    nextReport += `### ${index + 1}. ${conclusion.title}\n\n`;
+    nextReport += `${conclusion.detail}\n\n`;
+    if (conclusion.evidence.length > 0) {
+      nextReport += `证据：${conclusion.evidence.join('；')}\n\n`;
+    }
+    const actions = Array.from(new Set([
+      conclusion.nextAction,
+      ...extraActionsForIpConclusion(conclusion),
+    ].filter(Boolean)));
+    if (actions.length > 0) {
+      nextReport += `建议：\n${formatReportList(actions)}\n\n`;
+    }
+  });
+  return nextReport;
+}
+
+export function exportReport(r: AnalysisResult, options: ExportReportOptions = {}): string {
   const suggestions = generateSuggestions(r);
   const affectedDomains = uniqueAffectedDomains(r);
   const dnsNeedsChange = hasNonRecommendedDns(r);
@@ -981,6 +1026,8 @@ export function exportReport(r: AnalysisResult): string {
       }
     });
   }
+
+  report = appendIpRoutingConclusions(report, options.ipRoutingConclusions || []);
 
   if (affectedDomains.length > 0) {
     const visibleDomains = affectedDomains.slice(0, 10);

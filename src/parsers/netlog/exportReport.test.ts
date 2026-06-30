@@ -152,4 +152,32 @@ describe('exportReport', () => {
     expect(report).toContain('百度 DNS：180.76.76.76');
     expect(report).toContain('腾讯云 DNSPod：119.29.29.29 / 182.254.116.116');
   });
+
+  it('传入 IP 查询结论时导出 IP 归属结论和处理建议', () => {
+    const report = exportReport(result(), {
+      ipRoutingConclusions: [
+        {
+          level: 'warning',
+          title: '检测到跨境访问线索',
+          detail: 'SIP 位于境外，可能经过跨境链路。',
+          evidence: ['SIP：203.0.113.10'],
+          nextAction: '确认是否使用代理或海外出口。',
+        },
+        {
+          level: 'info',
+          title: '客户端出口线索与服务端目标运营商不同',
+          detail: 'CIP 侧运营商为中国移动，SIP 侧运营商为中国电信。',
+          evidence: ['CIP：中国移动：183.205.137.81', 'SIP：中国电信：171.8.194.33'],
+          nextAction: '结合同运营商线路验证。',
+        },
+      ],
+    });
+
+    expect(report).toContain('## IP 归属结论');
+    expect(report).toContain('检测到跨境访问线索');
+    expect(report).toContain('关闭 VPN / 代理');
+    expect(report).toContain('检查 DNS 是否为境内节点');
+    expect(report).toContain('客户端出口线索与服务端目标运营商不同');
+    expect(report).toContain('配置同运营商网络线路');
+  });
 });

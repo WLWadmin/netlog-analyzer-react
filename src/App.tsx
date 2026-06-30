@@ -39,6 +39,7 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 import { buildAppHash, parseAppHash, type FileType } from './utils/hashRouting';
+import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 
 const { Header, Content } = Layout;
 
@@ -75,6 +76,7 @@ const AppContent: React.FC = () => {
   const [showBackTop, setShowBackTop] = useState(false);
   const [activeTab, setActiveTab] = useState('conclusion');
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>();
+  const [ipRoutingConclusions, setIpRoutingConclusions] = useState<IpRoutingConclusion[]>([]);
   const { mode, toggleTheme } = useTheme();
   const { intent, navigateTo } = useNavigation();
 
@@ -175,6 +177,7 @@ const AppContent: React.FC = () => {
     activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
+    setIpRoutingConclusions([]);
 
     try {
       const parsed = await parseUploadedInput({
@@ -392,6 +395,7 @@ const AppContent: React.FC = () => {
     setFileType('netlog');
     setActiveTab('conclusion');
     setActiveSubTab(undefined);
+    setIpRoutingConclusions([]);
     window.location.hash = '';
   };
 
@@ -406,7 +410,7 @@ const AppContent: React.FC = () => {
 
   const handleExport = () => {
     if (!result) return;
-    const report = exportReport(result);
+    const report = exportReport(result, { ipRoutingConclusions });
     const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -501,6 +505,7 @@ const AppContent: React.FC = () => {
           events={events}
           harResult={harResult}
           onUploadMissingFile={handleSecondaryFileLoaded}
+          onLookupConclusionsChange={setIpRoutingConclusions}
         />
       ) : null,
     },

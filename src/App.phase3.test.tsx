@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
 import { isWorkerSupported, releaseRawDataInWorker } from './workers/workerClient';
+import { exportReport } from './parsers/netlog';
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -13,7 +14,14 @@ jest.mock('antd', () => {
   return {
     Layout,
     Button: ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => <button onClick={onClick}>{children}</button>,
-    Dropdown: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    Dropdown: ({ children, menu }: { children: React.ReactNode; menu?: { items?: Array<{ key: string; label: string; onClick?: () => void }> } }) => (
+      <>
+        {children}
+        {menu?.items?.map(item => (
+          <button key={item.key} onClick={item.onClick}>{item.label}</button>
+        ))}
+      </>
+    ),
     FloatButton: () => null,
     message: {
       success: jest.fn(),
@@ -32,6 +40,10 @@ jest.mock('@ant-design/icons', () => {
 
 jest.mock('./upload/parseUploadedInput', () => ({
   parseUploadedInput: jest.fn(),
+}));
+
+jest.mock('./parsers/netlog', () => ({
+  exportReport: jest.fn(() => '# mock report'),
 }));
 
 jest.mock('./workers/workerClient', () => ({
@@ -54,15 +66,33 @@ jest.mock('./components/netlog/SummaryCards', () => ({ __esModule: true, default
 jest.mock('./components/netlog/NetLogRequestList', () => ({ __esModule: true, default: () => <div>NetLogRequestList</div> }));
 jest.mock('./components/netlog/ConclusionActionTab', () => ({
   __esModule: true,
-  default: ({ onUploadMissingFile }: { onUploadMissingFile?: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void }) => (
+  default: ({ onUploadMissingFile, onNavigate }: { onUploadMissingFile?: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void; onNavigate?: (tab: string, subTab?: string) => void }) => (
     <div>
       <span>ConclusionActionTab</span>
       <button onClick={() => onUploadMissingFile?.({ log: { entries: [] } }, false, undefined, 'har')}>从结论追加 HAR</button>
       <button onClick={() => onUploadMissingFile?.({ events: [] }, false, undefined, 'netlog')}>从结论追加 NetLog</button>
+      <button onClick={() => onNavigate?.('evidence')}>切到证据链</button>
     </div>
   ),
 }));
-jest.mock('./components/netlog/EvidenceChainTab', () => ({ __esModule: true, default: () => <div>EvidenceChainTab</div> }));
+jest.mock('./components/netlog/EvidenceChainTab', () => ({
+  __esModule: true,
+  default: ({ onLookupConclusionsChange }: { onLookupConclusionsChange?: (conclusions: unknown[]) => void }) => {
+    const React = require('react');
+    React.useEffect(() => {
+      onLookupConclusionsChange?.([
+        {
+          level: 'info',
+          title: '客户端出口线索与服务端目标运营商不同',
+          detail: 'CIP 侧运营商为中国移动，SIP 侧运营商为中国电信。',
+          evidence: ['CIP：中国移动：183.205.137.81', 'SIP：中国电信：171.8.194.33'],
+          nextAction: '结合同运营商线路验证。',
+        },
+      ]);
+    }, [onLookupConclusionsChange]);
+    return <div>EvidenceChainTab</div>;
+  },
+}));
 jest.mock('./components/netlog/ExpertAnalysisTab', () => ({ __esModule: true, default: () => <div>ExpertAnalysisTab</div> }));
 jest.mock('./components/netlog/NetlogWorkbenchNav', () => ({ __esModule: true, default: () => <div>NetlogWorkbenchNav</div> }));
 jest.mock('./components/shared/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
@@ -75,6 +105,7 @@ jest.mock('./components/raw/RawEvidenceExplorer', () => ({ __esModule: true, def
 const parseUploadedInputMock = parseUploadedInput as jest.Mock;
 const isWorkerSupportedMock = isWorkerSupported as jest.Mock;
 const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
+const exportReportMock = exportReport as jest.Mock;
 
 describe('App Phase 3 upload behavior', () => {
   beforeEach(() => {
@@ -83,6 +114,10 @@ describe('App Phase 3 upload behavior', () => {
     isWorkerSupportedMock.mockReturnValue(false);
     releaseRawDataInWorkerMock.mockClear();
     releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
+    exportReportMock.mockClear();
+    exportReportMock.mockReturnValue('# mock report');
+    URL.createObjectURL = jest.fn(() => 'blob:mock');
+    URL.revokeObjectURL = jest.fn();
   });
 
   it('NetLog 首次上传后进入结论入口', async () => {
@@ -262,5 +297,39 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('重新上传'));
 
     await waitFor(() => expect(releaseRawDataInWorkerMock).toHaveBeenCalledWith({ all: true }));
+  });
+
+  it('导出 Markdown 时会传入当前 IP 查询结论', async () => {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'netlog',
+      events: [{ id: 1 }],
+      result: {
+        totalEvents: 1,
+        uniqueSources: 1,
+        peakConcurrency: 1,
+        urlRequests: [],
+        errors: [],
+        warnings: [],
+        info: [],
+        slowRequests: [],
+      },
+      rawData: { events: [] },
+      rawDataId: 'netlog-1',
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 NetLog'));
+    await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+    await userEvent.click(screen.getByText('切到证据链'));
+    await waitFor(() => expect(window.location.hash).toBe('#netlog/evidence'));
+    await userEvent.click(screen.getByText('Markdown 报告'));
+
+    expect(exportReportMock).toHaveBeenCalledWith(expect.any(Object), {
+      ipRoutingConclusions: [
+        expect.objectContaining({
+          title: '客户端出口线索与服务端目标运营商不同',
+        }),
+      ],
+    });
   });
 });

@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { HarAnalysisResult } from '../../harParser';
 import type { AnalysisResult, FailedDomain, ParsedEvent } from '../../parsers/netlog/parser';
 import { buildCombinedDiagnosisSummary, buildFinalDiagnosisSummary } from '../../diagnosis/shared';
-import { extractDnsIpEvidenceFromNetlog } from '../../diagnosis/ipEvidence';
+import { extractDnsIpEvidenceFromNetlog, type IpRoutingConclusion } from '../../diagnosis/ipEvidence';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
@@ -21,6 +21,7 @@ interface EvidenceChainTabProps {
     repairInfo?: HarAnalysisResult['repairInfo'],
     fileTypeHint?: 'netlog' | 'har' | 'log'
   ) => void;
+  onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
 }
 
 const FailedDomainEvidencePanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
@@ -98,13 +99,14 @@ const EvidenceChainTab: React.FC<EvidenceChainTabProps> = ({
   result,
   harResult,
   onUploadMissingFile,
+  onLookupConclusionsChange,
 }) => {
   const dnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromNetlog(result), [result]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <NetlogProxyEvidencePanel result={result} />
-      <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
+      <DnsAndIpEvidencePanel summary={dnsIpEvidence} onLookupConclusionsChange={onLookupConclusionsChange} />
       <FailedDomainEvidencePanel result={result} />
       <CombinedEvidenceEntry
         harResult={harResult}
