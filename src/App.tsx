@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Layout, Tabs, Button, message, FloatButton, Dropdown } from 'antd';
+import { Layout, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
   DownloadOutlined,
@@ -36,6 +36,7 @@ import NetLogRequestList from './components/netlog/NetLogRequestList';
 import ConclusionActionTab from './components/netlog/ConclusionActionTab';
 import EvidenceChainTab from './components/netlog/EvidenceChainTab';
 import ExpertAnalysisTab from './components/netlog/ExpertAnalysisTab';
+import NetlogWorkbenchNav from './components/netlog/NetlogWorkbenchNav';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
@@ -605,6 +606,8 @@ const AppContent: React.FC = () => {
     },
   ];
 
+  const activeNetlogContent = tabItems.find(item => item.key === activeTab)?.children || tabItems[0].children;
+
   return (
     <ErrorBoundary onReset={handleReset}>
       <LoadingOverlay visible={loading} phase={loadingText} message="请稍候，正在提取事件、统计指标和诊断信息" />
@@ -954,24 +957,9 @@ const AppContent: React.FC = () => {
               window.location.hash = buildAppHash('netlog', nextTab, nextSubTab);
             }} />}
             <AnalysisDisclaimer variant="netlog" />
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                borderRadius: 14,
-                border: '1px solid var(--border-color)',
-                overflow: 'hidden',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-              }}
-            >
-              <Tabs
-                activeKey={activeTab}
-                onChange={handleNetlogTabChange}
-                items={tabItems}
-                type="card"
-                style={{
-                  background: 'var(--bg-surface)',
-                }}
-              />
+            <NetlogWorkbenchNav activeKey={activeTab} onChange={handleNetlogTabChange} />
+            <div className="netlog-workbench-content">
+              {activeNetlogContent}
             </div>
           </div>
         )}
