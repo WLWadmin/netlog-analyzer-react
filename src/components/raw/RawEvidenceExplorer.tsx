@@ -7,7 +7,7 @@
  * - Worker 不可用或失败时降级到主线程搜索（仍限制 maxResults/maxDepth）
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Card, Input, Button, Tag, Tooltip, message, Modal, Space } from 'antd';
 import {
   SearchOutlined,
@@ -16,21 +16,16 @@ import {
   FullscreenOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import { searchJsonPaths, getStructureOverview, getValueByPath, JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
+import { JsonPathMatch, StructureNode } from '../../parsers/shared/rawJsonPath';
 import { copyText } from '../../utils/copyText';
 import {
-  getRawStructureInWorker,
-  getRawValueInWorker,
-  isWorkerSupported,
-  searchRawJsonInWorker,
-} from '../../workers/workerClient';
+  loadRawEvidenceStructure,
+  readRawEvidenceValuePreview,
+  searchRawEvidence,
+} from './rawEvidenceGateway';
 import { useNavigation } from '../../contexts/NavigationContext';
 import {
-  RAW_EVIDENCE_SEARCH_MAX_DEPTH,
-  RAW_EVIDENCE_SEARCH_MAX_RESULTS,
-  RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
   RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
-  RAW_EVIDENCE_WORKER_TIMEOUT_MS,
   SEARCH_DEBOUNCE_MS,
 } from '../../constants/analysisThresholds';
 import EmptyState from '../shared/EmptyState';
@@ -68,25 +63,22 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
     };
   }, []);
 
-  const fallbackStructure = useMemo(
-    () => rawData ? getStructureOverview(rawData, RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH) : [],
-    [rawData]
-  );
-  const structure = rawDataId ? workerStructure : fallbackStructure;
+  const structure = workerStructure;
 
   useEffect(() => {
     let cancelled = false;
-    if (!rawDataId) {
+    if (!rawData && !rawDataId) {
       setWorkerStructure([]);
       return;
     }
 
-    getRawStructureInWorker(rawDataId, {
-      timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-      maxDepth: RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
-    })
-      .then((nextStructure) => {
-        if (!cancelled) setWorkerStructure(nextStructure);
+    loadRawEvidenceStructure({ rawData, rawDataId })
+      .then(result => {
+        if (cancelled) return;
+        setWorkerStructure(result.value);
+        if (result.fallbackUsed) {
+          message.warning('Worker 结构读取失败，已降级到主线程结构预览');
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -105,19 +97,8 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   }, [rawDataId, rawData]);
 
   const readValuePreview = useCallback(async (path: string): Promise<string> => {
-    if (isWorkerSupported() && rawDataId) {
-      const preview = await getRawValueInWorker(rawDataId, path, {
-        timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-        maxChars: RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
-      });
-      return preview.text;
-    }
-
-    const value = getValueByPath(rawData, path);
-    const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-    return text.length > RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
-      ? text.slice(0, RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS) + '\n...(内容过长已截断)'
-      : text;
+    const result = await readRawEvidenceValuePreview({ rawData, rawDataId }, path);
+    return result.value;
   }, [rawData, rawDataId]);
 
   const handleSearch = useCallback((query: string) => {
@@ -136,50 +117,18 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
 
       const run = async () => {
         try {
-          if (isWorkerSupported() && rawDataId) {
-            const results = await searchRawJsonInWorker(rawDataId, q, {
-              timeout: RAW_EVIDENCE_WORKER_TIMEOUT_MS,
-              maxResults: RAW_EVIDENCE_SEARCH_MAX_RESULTS,
-              maxDepth: RAW_EVIDENCE_SEARCH_MAX_DEPTH,
-            });
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults(results);
-            setIsSearching(false);
-            return;
-          }
-
-          // Worker 不支持或缺少 rawDataId：降级主线程搜索
-          if (!rawData) {
-            setSearchResults([]);
-            setIsSearching(false);
-            message.error('原始 JSON 未在主线程保留，请重新上传文件后重试');
-            return;
-          }
-          const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
+          const results = await searchRawEvidence({ rawData, rawDataId }, q);
           if (taskId !== searchTaskIdRef.current) return;
-          setSearchResults(results);
+          setSearchResults(results.value);
           setIsSearching(false);
-        } catch (err) {
-          // Worker 搜索失败：降级主线程搜索（避免功能不可用）
-          try {
-            if (!rawData) {
-              if (taskId !== searchTaskIdRef.current) return;
-              setSearchResults([]);
-              setIsSearching(false);
-              message.error('Worker 搜索失败，请重新上传文件后重试');
-              return;
-            }
-            const results = searchJsonPaths(rawData, q, RAW_EVIDENCE_SEARCH_MAX_RESULTS, RAW_EVIDENCE_SEARCH_MAX_DEPTH);
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults(results);
-            setIsSearching(false);
+          if (results.fallbackUsed) {
             message.warning('Worker 搜索失败，已降级到主线程搜索（大文件可能卡顿）');
-          } catch {
-            if (taskId !== searchTaskIdRef.current) return;
-            setSearchResults([]);
-            setIsSearching(false);
-            message.error('搜索失败');
           }
+        } catch (err) {
+          if (taskId !== searchTaskIdRef.current) return;
+          setSearchResults([]);
+          setIsSearching(false);
+          message.error(err instanceof Error ? err.message : '搜索失败');
         }
       };
 
