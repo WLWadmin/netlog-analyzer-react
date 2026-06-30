@@ -393,7 +393,7 @@ export const IssueSummaryList: React.FC<IssueSummaryListProps> = ({
       })}
       {(errors.length > 0 || warnings.length > 0) && grouped.length < errors.length + warnings.length && (
         <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '8px 0' }}>
-          已合并重复项，更多详情请查看「定因诊断」选项卡
+          已合并重复项，更多详情请查看 NetLog「专家分析」中的完整诊断报告
         </div>
       )}
     </>

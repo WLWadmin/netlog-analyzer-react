@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Layout, Tabs, Button, message, FloatButton, Dropdown } from 'antd';
+import { Layout, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
   DownloadOutlined,
-  DashboardOutlined,
-  ClockCircleOutlined,
-  SafetyOutlined,
   MedicineBoxOutlined,
   UnorderedListOutlined,
   RadarChartOutlined,
@@ -18,7 +15,6 @@ import {
   CloudUploadOutlined,
   CodeOutlined,
   DownOutlined,
-  ApartmentOutlined,
   FileSearchOutlined,
 } from '@ant-design/icons';
 
@@ -36,19 +32,15 @@ import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
 import SummaryCards from './components/netlog/SummaryCards';
-import OverviewTab from './components/netlog/OverviewTab';
-import PerformanceTab from './components/netlog/PerformanceTab';
-import SSLTab from './components/netlog/SSLTab';
-import ProtocolTab from './components/netlog/ProtocolTab';
-import DiagnosisTab from './components/netlog/DiagnosisTab';
-import EventsTab from './components/netlog/EventsTab';
-import SourceChainViewer from './components/netlog/SourceChainViewer';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
-import CombinedDiagnosisTab from './components/shared/CombinedDiagnosisTab';
-import BaselineCompareTab from './components/shared/BaselineCompareTab';
+import ConclusionActionTab from './components/netlog/ConclusionActionTab';
+import EvidenceChainTab from './components/netlog/EvidenceChainTab';
+import ExpertAnalysisTab from './components/netlog/ExpertAnalysisTab';
+import NetlogWorkbenchNav from './components/netlog/NetlogWorkbenchNav';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
+import { buildAppHash, parseAppHash, type FileType } from './utils/hashRouting';
 
 const { Header, Content } = Layout;
 
@@ -65,22 +57,10 @@ const LazyFallback: React.FC<{ text?: string }> = ({ text = '正在加载模块.
 
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
-  netlog: ['overview', 'requests', 'diagnosis', 'combined', 'events', 'source-chain', 'ssl-protocol', 'performance', 'raw-evidence', 'baseline'],
-  har: ['requests', 'diagnosis', 'raw-evidence'],
+  netlog: ['conclusion', 'requests', 'evidence', 'expert', 'raw'],
+  har: ['requests', 'summary', 'raw-evidence'],
   log: ['overview', 'flows', 'performance', 'raw'],
 };
-
-function parseHash(hash: string): { fileType?: string; tab?: string } {
-  const h = hash.replace('#', '');
-  const parts = h.split('/');
-  if (parts.length === 2) return { fileType: parts[0], tab: parts[1] };
-  if (parts.length === 1) return { tab: parts[0] };
-  return {};
-}
-
-function buildHash(fileType: string, tab: string): string {
-  return `#${fileType}/${tab}`;
-}
 
 /** 内部组件：可以使用 useNavigation 监听 tab 切换 */
 const AppContent: React.FC = () => {
@@ -95,7 +75,8 @@ const AppContent: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [showBackTop, setShowBackTop] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('conclusion');
+  const [activeSubTab, setActiveSubTab] = useState<string | undefined>();
   const { mode, toggleTheme } = useTheme();
   const { intent, navigateTo } = useNavigation();
 
@@ -106,15 +87,16 @@ const AppContent: React.FC = () => {
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
-    const { fileType: hashFileType, tab: hashTab } = parseHash(window.location.hash);
+    const { fileType: hashFileType, tab: hashTab, subTab: hashSubTab } = parseAppHash(window.location.hash);
     if (hashFileType && hashFileType in VALID_TABS) {
-      setFileType(hashFileType as 'netlog' | 'har' | 'log');
+      setFileType(hashFileType);
     }
     if (hashTab) {
       const resolvedFileType = hashFileType && hashFileType in VALID_TABS ? hashFileType : 'netlog';
       const validTabs = VALID_TABS[resolvedFileType] || [];
       if (validTabs.includes(hashTab)) {
         setActiveTab(hashTab);
+        setActiveSubTab(hashTab === 'expert' ? (hashSubTab || 'events') : undefined);
       }
     }
   }, []);
@@ -129,8 +111,12 @@ const AppContent: React.FC = () => {
     if (nextFileType !== fileType) {
       setFileType(nextFileType);
     }
-    setActiveTab(intent.tab);
-    window.location.hash = buildHash(nextFileType, intent.tab);
+    const parsed = parseAppHash(buildAppHash(nextFileType as FileType, intent.tab));
+    const nextTab = parsed.tab || intent.tab;
+    const nextSubTab = parsed.subTab || (nextTab === 'expert' ? 'events' : undefined);
+    setActiveTab(nextTab);
+    setActiveSubTab(nextSubTab);
+    window.location.hash = buildAppHash(nextFileType as FileType, nextTab, nextSubTab);
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
   }, [intent, fileType]);
 
@@ -211,9 +197,9 @@ const AppContent: React.FC = () => {
         }
         setLogResult(logAnalysis);
         setFileType('log');
-        const defaultTab = VALID_TABS['log'][0];
-        setActiveTab(defaultTab);
-        window.location.hash = buildHash('log', defaultTab);
+        setActiveTab('overview');
+        setActiveSubTab(undefined);
+        window.location.hash = buildAppHash('log', 'overview');
         setHasData(true);
         finishLoad();
         message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
@@ -256,8 +242,9 @@ const AppContent: React.FC = () => {
 
         if (resultRef.current) {
           setFileType('netlog');
-          setActiveTab('combined');
-          window.location.hash = buildHash('netlog', 'combined');
+          setActiveTab('conclusion');
+          setActiveSubTab(undefined);
+          window.location.hash = buildAppHash('netlog', 'conclusion');
           setHasData(true);
           finishLoad();
           message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
@@ -265,9 +252,9 @@ const AppContent: React.FC = () => {
         }
 
         setFileType('har');
-        const defaultTab = VALID_TABS['har'][0];
-        setActiveTab(defaultTab);
-        window.location.hash = buildHash('har', defaultTab);
+        setActiveTab('requests');
+        setActiveSubTab(undefined);
+        window.location.hash = buildAppHash('har', 'requests');
         setHasData(true);
         finishLoad();
         message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
@@ -312,8 +299,9 @@ const AppContent: React.FC = () => {
 
       if (harResultRef.current) {
         setFileType('netlog');
-        setActiveTab('combined');
-        window.location.hash = buildHash('netlog', 'combined');
+        setActiveTab('conclusion');
+        setActiveSubTab(undefined);
+        window.location.hash = buildAppHash('netlog', 'conclusion');
         setHasData(true);
         finishLoad();
         message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
@@ -321,9 +309,9 @@ const AppContent: React.FC = () => {
       }
 
       setFileType('netlog');
-      const defaultTab = VALID_TABS['netlog'][0];
-      setActiveTab(defaultTab);
-      window.location.hash = buildHash('netlog', defaultTab);
+      setActiveTab('conclusion');
+      setActiveSubTab(undefined);
+      window.location.hash = buildAppHash('netlog', 'conclusion');
       setHasData(true);
       finishLoad();
       message.success(`成功解析 ${parsedEvents.length} 个事件`);
@@ -384,13 +372,15 @@ const AppContent: React.FC = () => {
 
         if (resultRef.current) {
           setFileType('netlog');
-          setActiveTab('combined');
-          window.location.hash = buildHash('netlog', 'combined');
+          setActiveTab('conclusion');
+          setActiveSubTab(undefined);
+          window.location.hash = buildAppHash('netlog', 'conclusion');
           message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
         } else {
           setFileType('har');
           setActiveTab('requests');
-          window.location.hash = buildHash('har', 'requests');
+          setActiveSubTab(undefined);
+          window.location.hash = buildAppHash('har', 'requests');
           message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求）`);
         }
 
@@ -430,13 +420,15 @@ const AppContent: React.FC = () => {
 
       if (harResultRef.current) {
         setFileType('netlog');
-        setActiveTab('combined');
-        window.location.hash = buildHash('netlog', 'combined');
+        setActiveTab('conclusion');
+        setActiveSubTab(undefined);
+        window.location.hash = buildAppHash('netlog', 'conclusion');
         message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
       } else {
         setFileType('netlog');
-        setActiveTab('overview');
-        window.location.hash = buildHash('netlog', 'overview');
+        setActiveTab('conclusion');
+        setActiveSubTab(undefined);
+        window.location.hash = buildAppHash('netlog', 'conclusion');
         message.success(`追加 NetLog 成功（${parsedEvents.length} 事件）`);
       }
 
@@ -463,13 +455,16 @@ const AppContent: React.FC = () => {
     resultRef.current = null;
     harResultRef.current = null;
     setFileType('netlog');
-    setActiveTab('overview');
+    setActiveTab('conclusion');
+    setActiveSubTab(undefined);
     window.location.hash = '';
   };
 
   const handleNetlogTabChange = (key: string) => {
     setActiveTab(key);
-    window.location.hash = buildHash(fileType, key);
+    const nextSubTab = key === 'expert' ? (activeSubTab || 'events') : undefined;
+    setActiveSubTab(nextSubTab);
+    window.location.hash = buildAppHash('netlog', key, nextSubTab);
   };
 
 
@@ -544,45 +539,74 @@ const AppContent: React.FC = () => {
   };
 
   const tabItems = [
-    { key: 'overview', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DashboardOutlined />总览</span>, children: result ? <OverviewTab result={result} /> : null },
-    { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />请求瀑布</span>, children: result ? <NetLogRequestList result={result} /> : null },
-    { key: 'diagnosis', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />定因诊断</span>, children: result ? <DiagnosisTab result={result} events={events} /> : null },
-    { key: 'combined', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />联合诊断</span>, children: result ? (
-      <CombinedDiagnosisTab harResult={harResult} netlogResult={result} onUploadMissingFile={handleSecondaryFileLoaded} />
-    ) : null },
-    { key: 'events', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><UnorderedListOutlined />事件列表</span>, children: <EventsTab events={events} /> },
-    { key: 'source-chain', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ApartmentOutlined />源链路</span>, children: result ? (
-      <SourceChainViewer
-        events={events}
-        urlRequests={result.urlRequests}
-        onNavigateToSource={(sourceId) => {
-          navigateTo({
-            tab: 'events',
-            filters: { sourceId: String(sourceId) },
-            source: '源链路',
-            reason: '查看 source 事件',
-          });
-        }}
-      />
-    ) : null },
-    { key: 'ssl-protocol', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><SafetyOutlined />安全与协议</span>, children: result ? (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        <SSLTab result={result} />
-        <ProtocolTab result={result} />
-      </div>
-    ) : null },
-    { key: 'performance', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClockCircleOutlined />性能分析</span>, children: result ? <PerformanceTab result={result} /> : null },
     {
-      key: 'raw-evidence',
-      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始证据</span>,
+      key: 'conclusion',
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedicineBoxOutlined />结论与行动</span>,
+      children: result ? (
+        <ConclusionActionTab
+          result={result}
+          events={events}
+          harResult={harResult}
+          onUploadMissingFile={handleSecondaryFileLoaded}
+          onNavigate={(tab, subTab) => {
+            setActiveTab(tab);
+            setActiveSubTab(subTab);
+            window.location.hash = buildAppHash('netlog', tab, subTab);
+          }}
+        />
+      ) : null,
+    },
+    { key: 'requests', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><GlobalOutlined />请求详情</span>, children: result ? <NetLogRequestList result={result} /> : null },
+    {
+      key: 'evidence',
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RadarChartOutlined />证据链</span>,
+      children: result ? (
+        <EvidenceChainTab
+          result={result}
+          events={events}
+          harResult={harResult}
+          onUploadMissingFile={handleSecondaryFileLoaded}
+        />
+      ) : null,
+    },
+    {
+      key: 'expert',
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CodeOutlined />专家分析</span>,
+      children: result ? (
+        <ExpertAnalysisTab
+          result={result}
+          events={events}
+          urlRequests={result.urlRequests}
+          activeSubTab={activeSubTab}
+          onSubTabChange={(subTab) => {
+            setActiveSubTab(subTab);
+            window.location.hash = buildAppHash('netlog', 'expert', subTab);
+          }}
+          onNavigateToSource={(sourceId) => {
+            setActiveSubTab('events');
+            window.location.hash = buildAppHash('netlog', 'expert', 'events');
+            navigateTo({
+              tab: 'expert',
+              filters: { sourceId: String(sourceId) },
+              source: '源链路',
+              reason: '查看 source 事件',
+            });
+          }}
+        />
+      ) : null,
+    },
+    {
+      key: 'raw',
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始数据</span>,
       children: (rawUploadDataByType.netlog || rawDataIdByType.netlog) ? (
-        <Suspense fallback={<LazyFallback text="正在加载原始证据模块..." />}>
-          <RawEvidenceExplorer rawData={rawUploadDataByType.netlog} rawDataId={rawDataIdByType.netlog} fileName="NetLog 原始证据" />
+        <Suspense fallback={<LazyFallback text="正在加载原始数据模块..." />}>
+          <RawEvidenceExplorer rawData={rawUploadDataByType.netlog} rawDataId={rawDataIdByType.netlog} fileName="NetLog 原始数据" />
         </Suspense>
       ) : null,
     },
-    { key: 'baseline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileTextOutlined />A-B 对比</span>, children: <BaselineCompareTab /> },
   ];
+
+  const activeNetlogContent = tabItems.find(item => item.key === activeTab)?.children || tabItems[0].children;
 
   return (
     <ErrorBoundary onReset={handleReset}>
@@ -880,19 +904,20 @@ const AppContent: React.FC = () => {
                 activeTab={activeTab}
                 onTabChange={(key) => {
                   setActiveTab(key);
-                  window.location.hash = buildHash(fileType, key);
+                  setActiveSubTab(undefined);
+                  window.location.hash = buildAppHash('har', key);
                 }}
               />
             </Suspense>
-            {/* 追加 NetLog，进入联合诊断 */}
+            {/* 追加 NetLog，进入 NetLog 结论与证据链 */}
             {!result && (
               <div style={{ marginTop: 24, padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <RadarChartOutlined style={{ color: '#6366f1' }} />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>追加 NetLog，进入联合诊断</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>追加 NetLog，增强浏览器网络栈判断</span>
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                  当前已加载 HAR。追加上传同一次问题复现导出的 NetLog 文件后，将自动进入 NetLog 页面中的联合诊断 Tab。
+                  当前已加载 HAR。追加上传同一次问题复现导出的 NetLog 文件后，将自动进入 NetLog「结论与行动」，并可在「证据链」查看 HAR 与 NetLog 的关联证据。
                 </p>
                 <UploadZone onFileLoaded={handleSecondaryFileLoaded} compact />
               </div>
@@ -906,7 +931,8 @@ const AppContent: React.FC = () => {
                 activeTab={activeTab}
                 onTabChange={(key) => {
                   setActiveTab(key);
-                  window.location.hash = buildHash(fileType, key);
+                  setActiveSubTab(undefined);
+                  window.location.hash = buildAppHash('log', key);
                 }}
               />
             </Suspense>
@@ -923,28 +949,17 @@ const AppContent: React.FC = () => {
                 });
                 return;
               }
-              setActiveTab(tab);
-              window.location.hash = buildHash(fileType, tab);
+              const parsed = parseAppHash(buildAppHash('netlog', tab));
+              const nextTab = parsed.tab || tab;
+              const nextSubTab = parsed.subTab || (nextTab === 'expert' ? 'events' : undefined);
+              setActiveTab(nextTab);
+              setActiveSubTab(nextSubTab);
+              window.location.hash = buildAppHash('netlog', nextTab, nextSubTab);
             }} />}
             <AnalysisDisclaimer variant="netlog" />
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                borderRadius: 14,
-                border: '1px solid var(--border-color)',
-                overflow: 'hidden',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-              }}
-            >
-              <Tabs
-                activeKey={activeTab}
-                onChange={handleNetlogTabChange}
-                items={tabItems}
-                type="card"
-                style={{
-                  background: 'var(--bg-surface)',
-                }}
-              />
+            <NetlogWorkbenchNav activeKey={activeTab} onChange={handleNetlogTabChange} />
+            <div className="netlog-workbench-content">
+              {activeNetlogContent}
             </div>
           </div>
         )}

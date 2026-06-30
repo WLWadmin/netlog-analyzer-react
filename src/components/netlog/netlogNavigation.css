@@ -1,0 +1,219 @@
+.netlog-workbench-nav {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 5% 0%, rgba(14, 165, 233, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.88));
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+  padding: 16px;
+}
+
+.netlog-workbench-nav__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.netlog-workbench-nav__eyebrow {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.netlog-workbench-nav__title {
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.35px;
+}
+
+.netlog-workbench-nav__hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.netlog-workbench-nav__items {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.netlog-workbench-nav__item {
+  position: relative;
+  min-height: 86px;
+  padding: 13px 14px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.netlog-workbench-nav__item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.netlog-workbench-nav__item--active {
+  border-color: rgba(59, 130, 246, 0.34);
+  background: linear-gradient(135deg, #0f172a, #1d4ed8 58%, #0284c7);
+  color: #fff;
+  box-shadow: 0 18px 38px rgba(37, 99, 235, 0.24);
+}
+
+.netlog-workbench-nav__item--active::after {
+  content: '';
+  position: absolute;
+  right: -26px;
+  top: -38px;
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.netlog-workbench-nav__item-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.netlog-workbench-nav__icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #2563eb;
+  font-size: 16px;
+}
+
+.netlog-workbench-nav__item--active .netlog-workbench-nav__icon {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.netlog-workbench-nav__label {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.netlog-workbench-nav__desc {
+  position: relative;
+  z-index: 1;
+  margin-top: 9px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.netlog-workbench-nav__item--active .netlog-workbench-nav__desc {
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.expert-segment-shell {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.86));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+}
+
+.expert-segment-shell__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.expert-segment-shell__title {
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+}
+
+.expert-segment-shell__desc {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.expert-segment {
+  display: flex;
+  gap: 7px;
+  padding: 6px;
+  overflow-x: auto;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.expert-segment__item {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 13px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.expert-segment__item:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.expert-segment__item--active {
+  color: #fff;
+  background: linear-gradient(135deg, #1e293b, #2563eb);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+}
+
+.netlog-workbench-content {
+  padding: 18px 0 0;
+}
+
+@media (max-width: 1100px) {
+  .netlog-workbench-nav__items {
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .netlog-workbench-nav__items {
+    grid-template-columns: 1fr;
+  }
+
+  .netlog-workbench-nav__header,
+  .expert-segment-shell__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

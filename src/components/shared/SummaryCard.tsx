@@ -43,17 +43,18 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
     <Card
       onClick={onClick}
       style={{
-        background: 'var(--bg-elevated)',
-        border: onClick ? `1px solid ${color}` : '1px solid var(--border-color)',
-        borderRadius: 14,
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.86))',
+        border: `1px solid ${onClick ? `${color}55` : 'rgba(148,163,184,0.24)'}`,
+        borderRadius: 18,
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.2s ease',
+        transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
+        boxShadow: '0 14px 34px rgba(15,23,42,0.06)',
       }}
       styles={{ body: { padding: 0 } }}
       hoverable
     >
-      <div style={{ padding: '18px 16px', position: 'relative' }}>
+      <div style={{ padding: '16px 16px 15px', position: 'relative', minHeight: 126 }}>
         {/* 渐变背景 */}
         <div
           style={{
@@ -63,9 +64,17 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             right: 0,
             bottom: 0,
             background: bgGradient,
-            opacity: 0.45,
+            opacity: 0.62,
             pointerEvents: 'none',
-            borderRadius: 14,
+            borderRadius: 18,
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'radial-gradient(circle at 80% 10%, rgba(255,255,255,0.72), transparent 32%)',
+            pointerEvents: 'none',
           }}
         />
         {/* 图标 + 标题行 */}
@@ -74,20 +83,20 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            marginBottom: 14,
+            marginBottom: 12,
             position: 'relative',
             zIndex: 1,
           }}
         >
           <span
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: `${color}18`,
-              border: `1px solid ${color}25`,
+              width: 32,
+              height: 32,
+              borderRadius: 12,
+              background: `linear-gradient(135deg, ${color}22, rgba(255,255,255,0.74))`,
+              border: `1px solid ${color}35`,
               color,
-              fontSize: 16,
+              fontSize: 15,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -99,9 +108,9 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           </span>
           <span
             style={{
-              fontSize: 12,
+              fontSize: 11,
               color: 'var(--text-secondary)',
-              fontWeight: 500,
+              fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               lineHeight: 1.3,
@@ -113,14 +122,14 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
         {/* 数值 — 双色调 */}
         <div
           style={{
-            fontSize: 28,
-            fontWeight: 700,
+            fontSize: 30,
+            fontWeight: 850,
             color: valueColor || 'var(--text-primary)',
             lineHeight: 1.2,
             position: 'relative',
             zIndex: 1,
             fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-            letterSpacing: -0.5,
+            letterSpacing: -0.8,
           }}
         >
           {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
@@ -130,11 +139,12 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           <div
             style={{
               fontSize: 12,
-              color: 'var(--text-muted)',
+              color: 'var(--text-secondary)',
               marginTop: 8,
               position: 'relative',
               zIndex: 1,
-              lineHeight: 1.4,
+              lineHeight: 1.45,
+              fontWeight: 500,
             }}
           >
             {suffix}

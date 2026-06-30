@@ -14,6 +14,9 @@ import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 interface DiagnosisTabProps {
   result: AnalysisResult;
   events: ParsedEvent[];
+  mode?: 'full-legacy' | 'expert-report';
+  prebuiltSummary?: DiagnosisSummary;
+  prebuiltLoading?: boolean;
 }
 
 interface LegacyDiagnosisData {
@@ -60,7 +63,13 @@ function buildLegacyDiagnosisData(result: AnalysisResult): LegacyDiagnosisData {
   return { groupedIssues, byCategory, categories };
 }
 
-const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
+const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
+  result,
+  events,
+  mode = 'full-legacy',
+  prebuiltSummary,
+  prebuiltLoading,
+}) => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [loadedCategories, setLoadedCategories] = useState<Map<string, number>>(new Map());
   const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | undefined>();
@@ -90,13 +99,16 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
       const handlerStart = performance.now();
       recordDiagnosisTiming(debugTiming, timingRows, 'effect -> setTimeout', effectStart, handlerStart);
 
-      const suggestionsStart = performance.now();
-      const suggestions = generateSuggestions(result);
-      recordDiagnosisTiming(debugTiming, timingRows, 'generateSuggestions', suggestionsStart, undefined, { suggestions: suggestions.length });
+      let nextSummary = prebuiltSummary;
+      if (!nextSummary && !prebuiltLoading) {
+        const suggestionsStart = performance.now();
+        const suggestions = generateSuggestions(result);
+        recordDiagnosisTiming(debugTiming, timingRows, 'generateSuggestions', suggestionsStart, undefined, { suggestions: suggestions.length });
 
-      const summaryStart = performance.now();
-      const nextSummary = buildNetlogDiagnosisSummary(result, suggestions, events);
-      recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart, undefined, { cards: nextSummary.cards.length });
+        const summaryStart = performance.now();
+        nextSummary = buildNetlogDiagnosisSummary(result, suggestions, events);
+        recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart, undefined, { cards: nextSummary.cards.length });
+      }
 
       const legacyStart = performance.now();
       const nextLegacyData = buildLegacyDiagnosisData(result);
@@ -106,7 +118,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
       const setStateStart = performance.now();
       setDiagnosisSummary(nextSummary);
       setLegacyData(nextLegacyData);
-      setDiagnosisLoading(false);
+      setDiagnosisLoading(Boolean(prebuiltLoading));
       recordDiagnosisTiming(debugTiming, timingRows, 'setState dispatch', setStateStart);
       recordDiagnosisTiming(debugTiming, timingRows, 'setTimeout handler total', handlerStart);
 
@@ -115,7 +127,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
           label: 'DiagnosisTab first-build',
           rows: timingRows,
           extra: {
-            cards: nextSummary.cards.length,
+            cards: nextSummary?.cards.length || 0,
             legacyIssues: nextLegacyData.groupedIssues.length,
             events: events.length,
             urlRequests: result.urlRequests.length,
@@ -133,7 +145,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [result, events]);
+  }, [result, events, prebuiltSummary, prebuiltLoading]);
 
   const finalSummary = useMemo(
     () => diagnosisSummary ? buildFinalDiagnosisSummary(diagnosisSummary, 'netlog') : undefined,
@@ -146,6 +158,26 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({ result, events }) => {
       expertDiagnosisRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 80);
   };
+
+  const effectiveLoading = prebuiltLoading ?? diagnosisLoading;
+  const effectiveSummary = prebuiltSummary ?? diagnosisSummary;
+
+  if (mode === 'expert-report') {
+    return (
+      <>
+        {effectiveLoading ? (
+          <DiagnosisPanel loading />
+        ) : effectiveSummary ? (
+          <DiagnosisPanel
+            summary={effectiveSummary}
+            initialCardCount={INITIAL_DIAGNOSIS_CARDS}
+            cardLoadStep={DIAGNOSIS_CARD_LOAD_STEP}
+          />
+        ) : null}
+
+      </>
+    );
+  }
 
   return (
     <>

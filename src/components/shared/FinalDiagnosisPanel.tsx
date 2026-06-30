@@ -23,6 +23,13 @@ interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
   onShowExpertDetails?: () => void;
   hideReferenceConclusions?: boolean;
+  title?: string;
+  modeLabelOverride?: string;
+  expertButtonText?: string;
+  evidenceButton?: {
+    text: string;
+    onClick: () => void;
+  };
 }
 
 const kindConfig: Record<FinalConclusionKind, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -113,7 +120,15 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
   return lines.join('\n');
 }
 
-const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary, onShowExpertDetails, hideReferenceConclusions = false }) => {
+const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
+  finalSummary,
+  onShowExpertDetails,
+  hideReferenceConclusions = false,
+  title,
+  modeLabelOverride,
+  expertButtonText,
+  evidenceButton,
+}) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
 
   const copyableText = useMemo(() => finalSummary ? buildCopyText(finalSummary) : '', [finalSummary]);
@@ -142,32 +157,53 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({ finalSummary,
 
   return (
     <Card
-      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', marginBottom: 16 }}
-      styles={{ body: { padding: 18 } }}
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.88))',
+        borderColor: 'rgba(14,165,233,0.20)',
+        borderRadius: 24,
+        marginBottom: 16,
+        boxShadow: '0 20px 56px rgba(15,23,42,0.08)',
+      }}
+      styles={{ body: { padding: 22, position: 'relative' } }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(circle at 6% 0%, rgba(14,165,233,0.10), transparent 28%), radial-gradient(circle at 95% 8%, rgba(59,130,246,0.08), transparent 24%)',
+          pointerEvents: 'none',
+        }}
+      />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <Tag style={{ border: 'none', background: 'rgba(14, 165, 233, 0.12)', color: '#0284c7', fontWeight: 600 }}>
-              {modeLabelMap[finalSummary.mode]}
+              {modeLabelOverride || modeLabelMap[finalSummary.mode]}
             </Tag>
             <Tag style={{ border: 'none', background: statusBg(finalSummary.status), color: statusColor(finalSummary.status), fontWeight: 600 }}>
               {statusText(finalSummary.status)}
             </Tag>
           </div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-            最终诊断摘要
+          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.28, letterSpacing: -0.45 }}>
+            {title || '最终诊断摘要'}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 760, lineHeight: 1.7 }}>
             {finalSummary.executiveSummary}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <Button size="small" icon={<FileTextOutlined />} onClick={() => copyText(copyableText)}>
+          {evidenceButton && (
+            <Button size="small" style={{ borderRadius: 999 }} icon={<ThunderboltOutlined />} onClick={evidenceButton.onClick}>
+              {evidenceButton.text}
+            </Button>
+          )}
+          <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={() => copyText(copyableText)}>
             复制摘要
           </Button>
-          <Button size="small" icon={<EyeOutlined />} onClick={handleShowExpertDetails}>
-            查看完整报告
+          <Button size="small" type="primary" style={{ borderRadius: 999, boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }} icon={<EyeOutlined />} onClick={handleShowExpertDetails}>
+            {expertButtonText || '查看完整报告'}
           </Button>
         </div>
       </div>
@@ -353,9 +389,11 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
   if (groups.length === 0) return null;
 
   return (
-    <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, background: 'var(--bg-surface)' }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+    <div style={{ border: '1px solid rgba(14,165,233,0.18)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,0.68)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+      <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.14)', color: '#d97706' }}>
+          <ThunderboltOutlined />
+        </span>
         统一行动清单
       </div>
       <Collapse ghost bordered={false} defaultActiveKey={groups.slice(0, 1).map(group => group.role)}>
@@ -366,7 +404,7 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {group.actions.slice(0, 3).map((action, index) => (
-                <div key={action.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                <div key={action.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(248,250,252,0.78)', border: '1px solid rgba(148,163,184,0.16)' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{index + 1}. {action.title}：</strong>{action.detail}
                   {action.command && (
                     <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#0284c7', wordBreak: 'break-all' }}>
@@ -386,9 +424,11 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
 const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => {
   if (items.length === 0) {
     return (
-      <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, background: 'var(--bg-surface)' }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <CheckCircleOutlined style={{ color: '#10b981' }} />
+      <div style={{ border: '1px solid rgba(16,185,129,0.22)', borderRadius: 18, padding: 16, background: 'rgba(236,253,245,0.46)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+        <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.14)', color: '#059669' }}>
+            <CheckCircleOutlined />
+          </span>
           暂无明显缺失信息
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
@@ -399,14 +439,16 @@ const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => 
   }
 
   return (
-    <div style={{ border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 12, padding: 14, background: 'rgba(245, 158, 11, 0.06)' }}>
-      <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <ClockCircleOutlined style={{ color: '#f59e0b' }} />
+    <div style={{ border: '1px solid rgba(245, 158, 11, 0.24)', borderRadius: 18, padding: 16, background: 'linear-gradient(180deg, rgba(255,251,235,0.76), rgba(255,247,237,0.58))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+      <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.16)', color: '#d97706' }}>
+          <ClockCircleOutlined />
+        </span>
         还缺什么信息
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {items.slice(0, 4).map((item, index) => (
-          <div key={item.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <div key={item.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,0.62)', border: '1px solid rgba(245,158,11,0.14)' }}>
             <strong style={{ color: 'var(--text-primary)' }}>{index + 1}. {item.title}：</strong>
             {item.reason}
             <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
