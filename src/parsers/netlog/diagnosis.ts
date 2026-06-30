@@ -858,99 +858,158 @@ export function generateChecklist(r: AnalysisResult): CheckItem[] {
 // Export report
 // ============================================================
 
+const OVERSEAS_PUBLIC_DNS = new Set(['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1', '9.9.9.9']);
+const RECOMMENDED_CN_DNS = [
+  '阿里云 DNS：223.5.5.5 / 223.6.6.6',
+  '百度 DNS：180.76.76.76',
+  '腾讯云 DNSPod：119.29.29.29 / 182.254.116.116',
+];
+
+function reportHostFromUrl(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function uniqueAffectedDomains(r: AnalysisResult): string[] {
+  const domains = new Set<string>();
+  for (const fd of r.failedDomains || []) {
+    if (fd.domain) domains.add(fd.domain);
+  }
+  for (const req of [...(r.urlRequests || []), ...(r.slowRequests || [])]) {
+    const host = reportHostFromUrl(req.url);
+    if (host && (req.error || (req.statusCode && req.statusCode >= 400) || (req.duration || 0) >= 3000)) {
+      domains.add(host);
+    }
+  }
+  for (const failure of r.connectionFailures || []) {
+    const host = reportHostFromUrl(failure.url);
+    if (host) domains.add(host);
+  }
+  return Array.from(domains).sort();
+}
+
+function hasNonRecommendedDns(r: AnalysisResult): boolean {
+  return (r.dnsServers || []).some(ip => OVERSEAS_PUBLIC_DNS.has(ip));
+}
+
+function buildUserFacingReason(r: AnalysisResult, suggestions: Suggestion[]): string {
+  if (hasNonRecommendedDns(r)) {
+    return '当前 DNS 配置包含海外公共 DNS，国内访问可能解析到不理想节点，导致访问慢或失败。';
+  }
+  if (r.proxyInfo.isVPN || r.proxyInfo.hasProxy) {
+    return '当前环境检测到 VPN / 代理配置，网络请求可能被代理、审计或中间设备影响。';
+  }
+  if (r.failedDomains.length > 0) {
+    return '存在域名解析或连接失败，请优先检查 DNS、代理和网络连通性。';
+  }
+  if (r.slowRequests.length > 0) {
+    return '存在慢请求，可能与网络链路质量、DNS 调度或服务端响应变慢有关。';
+  }
+  if (suggestions[0]?.conclusion) {
+    return suggestions[0].conclusion;
+  }
+  return '未发现单一明确根因，建议按下方步骤先排除本机网络、DNS 和代理影响。';
+}
+
+function buildImmediateActions(r: AnalysisResult): string[] {
+  const actions: string[] = [];
+  if (r.proxyInfo.isVPN || r.proxyInfo.hasProxy) {
+    actions.push('先关闭 VPN / 代理后重新访问，确认问题是否消失。');
+  }
+  if (hasNonRecommendedDns(r) || r.failedDomains.length > 0) {
+    actions.push('临时切换到境内 DNS（阿里云、百度或腾讯云 DNS）后重试。');
+  }
+  if (r.slowRequests.length > 0 || r.connectionFailures.length > 0) {
+    actions.push('对受影响域名执行 ping / traceroute，并把结果发给 IT 或网络团队。');
+  }
+  if (actions.length === 0) {
+    actions.push('换一个网络环境（如手机热点）重试，用于区分本机/办公网问题。');
+    actions.push('如果仍复现，请把本报告和复现时间发给 IT 或网络团队。');
+  }
+  return actions.slice(0, 3);
+}
+
+function formatReportList(items: string[]): string {
+  return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
+}
+
 export function exportReport(r: AnalysisResult): string {
-  let report = `# NetLog 网络日志定因分析报告\n`;
+  const suggestions = generateSuggestions(r);
+  const affectedDomains = uniqueAffectedDomains(r);
+  const dnsNeedsChange = hasNonRecommendedDns(r);
+  const reason = buildUserFacingReason(r, suggestions);
+  const immediateActions = buildImmediateActions(r);
+
+  let report = `# 网络问题处理建议\n`;
   report += `生成时间: ${new Date().toLocaleString('zh-CN')}\n\n`;
 
-  // ---- Compressed Overview (Section 1) ----
-  report += `## 概览\n`;
+  report += `## 先看这里\n\n`;
+  report += `**可能原因：** ${reason}\n\n`;
+  report += `**你现在该做什么：**\n${formatReportList(immediateActions)}\n\n`;
+  report += `**是否需要找 IT / 网络团队：** ${r.connectionFailures.length > 0 || r.failedDomains.length > 0 || r.proxyInfo.hasProxy ? '建议联系。请附上本报告、复现时间和受影响域名。' : '可先按上方步骤自查；若仍复现，再联系 IT / 网络团队。'}\n\n`;
+
+  report += `## 关键发现\n\n`;
+  const findings: string[] = [];
+  if (r.failedDomains.length > 0) findings.push(`发现 ${r.failedDomains.length} 个失败域名。`);
+  if (r.slowRequests.length > 0) findings.push(`发现 ${r.slowRequests.length} 个慢请求。`);
+  if (r.connectionFailures.length > 0) findings.push(`发现 ${r.connectionFailures.length} 条连接失败记录。`);
+  if (dnsNeedsChange) findings.push(`DNS 使用了不推荐的海外公共 DNS：${r.dnsServers.filter(ip => OVERSEAS_PUBLIC_DNS.has(ip)).join('、')}。`);
+  if (r.proxyInfo.isVPN) findings.push(`检测到 VPN 线索：${r.proxyInfo.vpnHints.join('、') || '代理配置含 VPN 特征'}。`);
+  else if (r.proxyInfo.hasProxy) findings.push(`检测到代理配置：${r.proxyInfo.proxyType || '未知模式'}。`);
+  if (findings.length === 0) findings.push('未发现明显 DNS、代理、失败域名或慢请求集中异常。');
+  report += findings.map(item => `- ${item}`).join('\n') + `\n\n`;
+
+  if (dnsNeedsChange || r.failedDomains.length > 0) {
+    report += `## DNS 建议\n\n`;
+    report += `如果当前在中国大陆网络环境访问，建议临时改用以下境内 DNS 做对比验证：\n\n`;
+    report += RECOMMENDED_CN_DNS.map(item => `- ${item}`).join('\n') + `\n\n`;
+    report += `验证后如果问题消失，说明原 DNS 可能影响解析或 CDN 调度；如仍失败，再继续排查代理、防火墙或链路质量。\n\n`;
+  }
+
+  if (suggestions.length > 0) {
+    report += `## 建议操作\n\n`;
+    suggestions.slice(0, 3).forEach((s, i) => {
+      const actions = (s.actions || []).slice(0, 2);
+      report += `### ${i + 1}. ${s.title}\n\n`;
+      report += `${s.conclusion}\n\n`;
+      if (actions.length > 0) {
+        report += actions.map((action, index) => `${index + 1}. ${action}`).join('\n') + `\n\n`;
+      }
+    });
+  }
+
+  if (affectedDomains.length > 0) {
+    const visibleDomains = affectedDomains.slice(0, 10);
+    const hiddenCount = affectedDomains.length - visibleDomains.length;
+    report += `## 受影响域名\n\n`;
+    visibleDomains.forEach(domain => {
+      report += `- ${domain}\n`;
+    });
+    if (hiddenCount > 0) {
+      report += `- 另有 ${hiddenCount} 个域名未展示\n`;
+    }
+    report += `\n`;
+  }
+
+  report += `## 技术摘要\n\n`;
   report += `| 指标 | 数值 |\n`;
   report += `|------|------|\n`;
   report += `| 总事件数 | ${r.totalEvents.toLocaleString()} |\n`;
-  report += `| 活跃来源 | ${r.uniqueSources.toLocaleString()} |\n`;
-  report += `| 峰值并发 | ${r.peakConcurrency} |\n`;
   report += `| URL 请求 | ${r.urlRequests.length} |\n`;
   report += `| 错误 | ${r.errors.length} |\n`;
   report += `| 警告 | ${r.warnings.length} |\n`;
   report += `| 慢请求(>3s) | ${r.slowRequests.length} |\n`;
+  report += `| DNS 服务器 | ${(r.dnsServers || []).join(', ') || '未记录'} |\n`;
   if (r.proxyInfo.isVPN) {
     report += `| VPN | ${r.proxyInfo.vpnHints.join(', ')} |\n`;
   } else if (r.proxyInfo.hasProxy) {
     report += `| 代理 | ${r.proxyInfo.proxyType} (${r.proxyInfo.proxyList.join(', ')}) |\n`;
   }
   report += `\n`;
-
-  // ---- Root Cause Suggestions (Section 2 - High Priority) ----
-  const suggestions = generateSuggestions(r);
-  if (suggestions.length > 0) {
-    report += `## 根因建议\n\n`;
-    suggestions.forEach((s, i) => {
-      report += `### ${i + 1}. ${s.title}\n\n`;
-      report += `**问题描述:**\n${s.detail}\n\n`;
-      report += `**处理结论:**\n${s.conclusion}\n\n`;
-      if (s.actions && s.actions.length > 0) {
-        report += `**排查步骤:**\n`;
-        s.actions.forEach((a, j) => {
-          report += `${j + 1}. ${a}\n`;
-        });
-        report += `\n`;
-      }
-      report += `---\n\n`;
-    });
-  }
-
-  // ---- Next Step Info (Section 3) ----
-  const nextSteps = generateNextStepInfo(r);
-  if (nextSteps.length > 0) {
-    report += `## 下一步定因所需信息\n\n`;
-    nextSteps.forEach((step, i) => {
-      report += `### ${step.category}\n`;
-      report += `${step.description}\n\n`;
-      step.items.forEach((item, j) => {
-        report += `${j + 1}. ${item}\n`;
-      });
-      report += `\n`;
-    });
-  }
-
-  // ---- Checklist (Section 4) ----
-  const checklist = generateChecklist(r);
-  report += `## 排查清单\n\n`;
-  checklist.forEach(cat => {
-    report += `### ${cat.category}\n`;
-    cat.items.forEach(item => {
-      report += `- [ ] **${item.label}**: ${item.description}\n`;
-    });
-    report += `\n`;
-  });
-
-  // ---- Failed Domains (Section 5) ----
-  if (r.failedDomains.length > 0) {
-    report += `## 报错域名\n\n`;
-    report += `| 域名 | 错误次数 | 解析IP |\n`;
-    report += `|------|----------|--------|\n`;
-    for (const fd of r.failedDomains.slice(0, 30)) {
-      report += `| ${fd.domain} | ${fd.count} | ${fd.ips.join(', ') || '未解析'} |\n`;
-    }
-    report += `\n`;
-  }
-
-  // ---- Error & Warning Lists (Section 6 - Bottom) ----
-  if (r.errors.length > 0) {
-    report += `## 错误列表\n\n`;
-    r.errors.forEach((e, i) => {
-      report += `${i + 1}. **[${e.category}]** ${e.message}\n`;
-      report += `   - ${e.detail}\n\n`;
-    });
-  }
-
-  if (r.warnings.length > 0) {
-    report += `## 警告列表\n\n`;
-    r.warnings.forEach((e, i) => {
-      report += `${i + 1}. **[${e.category}]** ${e.message}\n`;
-      report += `   - ${e.detail}\n\n`;
-    });
-  }
 
   return report;
 }
