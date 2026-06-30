@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
+import { isWorkerSupported, releaseRawDataInWorker } from './workers/workerClient';
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -34,7 +35,7 @@ jest.mock('./upload/parseUploadedInput', () => ({
 }));
 
 jest.mock('./workers/workerClient', () => ({
-  isWorkerSupported: () => false,
+  isWorkerSupported: jest.fn(() => false),
   releaseRawDataInWorker: jest.fn(),
 }));
 
@@ -72,11 +73,16 @@ jest.mock('./components/log/LogResultPage', () => ({ __esModule: true, default: 
 jest.mock('./components/raw/RawEvidenceExplorer', () => ({ __esModule: true, default: () => <div>RawEvidenceExplorer</div> }));
 
 const parseUploadedInputMock = parseUploadedInput as jest.Mock;
+const isWorkerSupportedMock = isWorkerSupported as jest.Mock;
+const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
 
 describe('App Phase 3 upload behavior', () => {
   beforeEach(() => {
     window.location.hash = '';
     parseUploadedInputMock.mockReset();
+    isWorkerSupportedMock.mockReturnValue(false);
+    releaseRawDataInWorkerMock.mockClear();
+    releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
   });
 
   it('NetLog 首次上传后进入结论入口', async () => {
@@ -193,5 +199,68 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('追加 NetLog'));
 
     await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+  });
+
+  it('worker supported 时替换同类型 NetLog 会释放旧 rawDataId', async () => {
+    isWorkerSupportedMock.mockReturnValue(true);
+    parseUploadedInputMock
+      .mockResolvedValueOnce({
+        kind: 'netlog',
+        events: [{ id: 1 }],
+        result: {
+          totalEvents: 1,
+          uniqueSources: 1,
+          peakConcurrency: 1,
+          urlRequests: [],
+          errors: [],
+          warnings: [],
+          info: [],
+          slowRequests: [],
+        },
+        rawData: { events: [] },
+        rawDataId: 'netlog-old',
+      })
+      .mockResolvedValueOnce({
+        kind: 'netlog',
+        events: [{ id: 2 }],
+        result: {
+          totalEvents: 1,
+          uniqueSources: 1,
+          peakConcurrency: 1,
+          urlRequests: [],
+          errors: [],
+          warnings: [],
+          info: [],
+          slowRequests: [],
+        },
+        rawData: { events: [] },
+        rawDataId: 'netlog-new',
+      });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 NetLog'));
+    await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+    await userEvent.click(screen.getByText('从结论追加 NetLog'));
+
+    await waitFor(() => expect(releaseRawDataInWorkerMock).toHaveBeenCalledWith({ rawDataId: 'netlog-old' }));
+  });
+
+  it('worker supported 时重置会释放全部 rawData', async () => {
+    isWorkerSupportedMock.mockReturnValue(true);
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'har',
+      result: { totalRequests: 1, entries: [] },
+      rawData: { log: { entries: [] } },
+      rawDataId: 'har-1',
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 HAR'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/requests'));
+    releaseRawDataInWorkerMock.mockClear();
+    releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
+    await userEvent.click(screen.getByText('重新上传'));
+
+    await waitFor(() => expect(releaseRawDataInWorkerMock).toHaveBeenCalledWith({ all: true }));
   });
 });

@@ -102,17 +102,18 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   }, [rawData, rawDataId]);
 
   const handleSearch = useCallback((query: string) => {
+    const taskId = ++searchTaskIdRef.current;
     setSearchQuery(query);
     if (searchTimer.current) clearTimeout(searchTimer.current);
 
     if (!query.trim()) {
       setSearchResults([]);
+      setIsSearching(false);
       return;
     }
 
     setIsSearching(true);
     searchTimer.current = setTimeout(() => {
-      const taskId = ++searchTaskIdRef.current;
       const q = query.trim();
 
       const run = async () => {
