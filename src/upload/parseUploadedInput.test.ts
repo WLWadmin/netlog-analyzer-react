@@ -1,0 +1,161 @@
+import { parseUploadedInput } from './parseUploadedInput';
+import { parseLog } from '../parsers/netlog';
+import { isHarFile, parseHar } from '../harParser';
+import { parseLogFile } from '../logParser';
+import {
+  parseHarInWorker,
+  parseLogInWorker,
+  parseNetlogInWorker,
+} from '../workers/workerClient';
+
+jest.mock('../parsers/netlog', () => ({
+  parseLog: jest.fn(),
+}));
+
+jest.mock('../harParser', () => ({
+  isHarFile: jest.fn(),
+  parseHar: jest.fn(),
+}));
+
+jest.mock('../logParser', () => ({
+  parseLogFile: jest.fn(),
+}));
+
+jest.mock('../workers/workerClient', () => ({
+  parseHarInWorker: jest.fn(),
+  parseLogInWorker: jest.fn(),
+  parseNetlogInWorker: jest.fn(),
+}));
+
+const parseLogMock = parseLog as jest.Mock;
+const isHarFileMock = isHarFile as jest.Mock;
+const parseHarMock = parseHar as jest.Mock;
+const parseLogFileMock = parseLogFile as jest.Mock;
+const parseHarInWorkerMock = parseHarInWorker as jest.Mock;
+const parseLogInWorkerMock = parseLogInWorker as jest.Mock;
+const parseNetlogInWorkerMock = parseNetlogInWorker as jest.Mock;
+
+describe('parseUploadedInput', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    isHarFileMock.mockReturnValue(false);
+  });
+
+  it('log 文本走 log 分支', async () => {
+    const logResult = { stats: { total: 1 } };
+    parseLogFileMock.mockReturnValue(logResult);
+
+    const result = await parseUploadedInput({
+      data: '[worker] Success GET:https://example.com +10ms',
+      isTextLog: true,
+      useWorker: false,
+    });
+
+    expect(result).toEqual({ kind: 'log', result: logResult });
+    expect(parseLogFileMock).toHaveBeenCalled();
+  });
+
+  it('fileTypeHint=har 时走 HAR 分支并透传 repairInfo', async () => {
+    const repairInfo = { repaired: true, recoveredEntries: 1, totalEntries: 1, droppedEntries: 0, recoveryRate: 1, reason: 'test', warnings: [] };
+    const harResult = { totalRequests: 1 };
+    parseHarMock.mockReturnValue(harResult);
+
+    const result = await parseUploadedInput({
+      data: JSON.stringify({ log: { entries: [] } }),
+      fileTypeHint: 'har',
+      repairInfo,
+      useWorker: false,
+    });
+
+    expect(result).toEqual({
+      kind: 'har',
+      result: { totalRequests: 1, repairInfo },
+      rawData: { log: { entries: [] } },
+    });
+    expect(parseHarMock).toHaveBeenCalledWith({ log: { entries: [] } });
+  });
+
+  it('HAR object 走 HAR 分支', async () => {
+    const harData = { log: { entries: [] } };
+    const harResult = { totalRequests: 0 };
+    isHarFileMock.mockReturnValue(true);
+    parseHarMock.mockReturnValue(harResult);
+
+    const result = await parseUploadedInput({ data: harData, useWorker: false });
+
+    expect(result).toEqual({ kind: 'har', result: harResult, rawData: harData });
+  });
+
+  it('默认 JSON 走 NetLog 分支', async () => {
+    const netlogData = { events: [] };
+    const netlogResult = { totalEvents: 0 };
+    const events: unknown[] = [];
+    parseLogMock.mockReturnValue({ events, result: netlogResult });
+
+    const result = await parseUploadedInput({
+      data: JSON.stringify(netlogData),
+      useWorker: false,
+    });
+
+    expect(result).toEqual({ kind: 'netlog', result: netlogResult, events, rawData: netlogData });
+    expect(parseLogMock).toHaveBeenCalledWith(netlogData);
+  });
+
+  it('useWorker=true 时调用 NetLog worker 并返回 rawDataId', async () => {
+    parseNetlogInWorkerMock.mockResolvedValue({
+      events: [{ id: 1 }],
+      result: { totalEvents: 1 },
+      rawData: { events: [] },
+      rawDataId: 'netlog-1',
+    });
+    const onProgress = jest.fn();
+
+    const result = await parseUploadedInput({ data: { events: [] }, useWorker: true, onProgress });
+
+    expect(result).toEqual({
+      kind: 'netlog',
+      events: [{ id: 1 }],
+      result: { totalEvents: 1 },
+      rawData: { events: [] },
+      rawDataId: 'netlog-1',
+    });
+    expect(parseNetlogInWorkerMock).toHaveBeenCalledWith({ events: [] }, { onProgress });
+  });
+
+  it('useWorker=true 时调用 HAR worker 并返回 rawDataId', async () => {
+    const repairInfo = { repaired: true, recoveredEntries: 1, totalEntries: 1, droppedEntries: 0, recoveryRate: 1, reason: 'test', warnings: [] };
+    parseHarInWorkerMock.mockResolvedValue({
+      result: { totalRequests: 1 },
+      rawData: { log: { entries: [] } },
+      rawDataId: 'har-1',
+    });
+
+    const result = await parseUploadedInput({
+      data: { log: { entries: [] } },
+      repairInfo,
+      fileTypeHint: 'har',
+      useWorker: true,
+    });
+
+    expect(result).toEqual({
+      kind: 'har',
+      result: { totalRequests: 1 },
+      rawData: { log: { entries: [] } },
+      rawDataId: 'har-1',
+    });
+    expect(parseHarInWorkerMock).toHaveBeenCalledWith({ log: { entries: [] } }, repairInfo, { onProgress: undefined });
+  });
+
+  it('useWorker=true 时调用 Log worker', async () => {
+    parseLogInWorkerMock.mockResolvedValue({ result: { stats: { total: 1 } } });
+
+    const result = await parseUploadedInput({
+      data: '[worker] Success GET:https://example.com +10ms',
+      fileTypeHint: 'log',
+      useWorker: true,
+    });
+
+    expect(result).toEqual({ kind: 'log', result: { stats: { total: 1 } } });
+    expect(parseLogInWorkerMock).toHaveBeenCalled();
+  });
+});

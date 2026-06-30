@@ -18,16 +18,14 @@ import {
   FileSearchOutlined,
 } from '@ant-design/icons';
 
-import { parseLog, ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
-import { isHarFile, parseHar, HarAnalysisResult } from './harParser';
-import { parseLogFile, LogAnalysisResult } from './logParser';
+import { ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
+import { HarAnalysisResult } from './harParser';
+import { LogAnalysisResult } from './logParser';
 import {
   isWorkerSupported,
-  parseNetlogInWorker,
-  parseHarInWorker,
-  parseLogInWorker,
   releaseRawDataInWorker,
 } from './workers/workerClient';
+import { parseUploadedInput } from './upload/parseUploadedInput';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
@@ -179,66 +177,46 @@ const AppContent: React.FC = () => {
     setLoadingText('正在识别文件类型...');
 
     try {
-      // 自动识别文件类型
-      if (isTextLog && typeof data === 'string') {
-        setLoadingText('正在解析日志文件...');
-        let logAnalysis;
-        if (useWorker) {
-          const { result } = await parseLogInWorker(data, {
-            onProgress: (phase) => setLoadingText(phase),
-          });
-          logAnalysis = result;
-        } else {
-          logAnalysis = parseLogFile(data);
-        }
+      const parsed = await parseUploadedInput({
+        data,
+        isTextLog,
+        repairInfo,
+        fileTypeHint,
+        useWorker,
+        onProgress: (phase) => setLoadingText(phase),
+      });
+
+      if (parsed.kind === 'log') {
         if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
           finishLoad();
           return;
         }
-        setLogResult(logAnalysis);
+        setLogResult(parsed.result);
         setFileType('log');
         setActiveTab('overview');
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('log', 'overview');
         setHasData(true);
         finishLoad();
-        message.success(`成功解析 ${logAnalysis.stats.total} 条日志记录`);
+        message.success(`成功解析 ${parsed.result.stats.total} 条日志记录`);
         return;
       }
 
-      const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));
-      if (shouldParseHar) {
-        setLoadingText('正在分析 HAR 请求...');
-        let harAnalysis;
-        let harRawData: unknown = typeof data === 'string' ? undefined : data;
-        let harRawDataId: string | undefined = undefined;
-        if (useWorker) {
-          const { result, rawData, rawDataId } = await parseHarInWorker(data, repairInfo, {
-            onProgress: (phase) => setLoadingText(phase),
-          });
-          harAnalysis = result;
-          harRawData = rawData;
-          harRawDataId = rawDataId;
-        } else {
-          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-          harRawData = parsedData;
-          harAnalysis = parseHar(parsedData);
-          if (repairInfo) harAnalysis.repairInfo = repairInfo;
-        }
+      if (parsed.kind === 'har') {
         if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-          if (useWorker && harRawDataId) {
-            releaseRawDataId(harRawDataId);
+          if (useWorker && parsed.rawDataId) {
+            releaseRawDataId(parsed.rawDataId);
           }
           finishLoad();
           return;
         }
-        setHarResult(harAnalysis);
-        harResultRef.current = harAnalysis;
+        setHarResult(parsed.result);
+        harResultRef.current = parsed.result;
         const previousHarRawDataId = rawDataIdByTypeRef.current.har;
-        if (useWorker && harRawDataId && previousHarRawDataId && previousHarRawDataId !== harRawDataId) {
+        if (useWorker && parsed.rawDataId && previousHarRawDataId && previousHarRawDataId !== parsed.rawDataId) {
           releaseRawDataId(previousHarRawDataId);
         }
-        rememberRawData('har', harRawData, harRawDataId);
+        rememberRawData('har', parsed.rawData, parsed.rawDataId);
 
         if (resultRef.current) {
           setFileType('netlog');
@@ -247,7 +225,7 @@ const AppContent: React.FC = () => {
           window.location.hash = buildAppHash('netlog', 'conclusion');
           setHasData(true);
           finishLoad();
-          message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求，已启用联合诊断`);
+          message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求，已启用联合诊断`);
           return;
         }
 
@@ -257,45 +235,25 @@ const AppContent: React.FC = () => {
         window.location.hash = buildAppHash('har', 'requests');
         setHasData(true);
         finishLoad();
-        message.success(`成功解析 ${harAnalysis.totalRequests} 个 HAR 请求`);
+        message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求`);
         return;
       }
 
-      setLoadingText('正在分析 NetLog 事件...');
-      let parsedEvents: ParsedEvent[];
-      let analysisResult: AnalysisResult;
-      let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
-      let netlogRawDataId: string | undefined = undefined;
-      if (useWorker) {
-        const workerResult = await parseNetlogInWorker(data, {
-          onProgress: (phase) => setLoadingText(phase),
-        });
-        parsedEvents = workerResult.events;
-        analysisResult = workerResult.result;
-        netlogRawData = workerResult.rawData;
-        netlogRawDataId = workerResult.rawDataId;
-      } else {
-        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-        netlogRawData = parsedData;
-        const syncResult = parseLog(parsedData);
-        parsedEvents = syncResult.events;
-        analysisResult = syncResult.result;
-      }
       if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-        if (useWorker && netlogRawDataId) {
-          releaseRawDataId(netlogRawDataId);
+        if (useWorker && parsed.rawDataId) {
+          releaseRawDataId(parsed.rawDataId);
         }
         finishLoad();
         return;
       }
-      setEvents(parsedEvents);
-      setResult(analysisResult);
-      resultRef.current = analysisResult;
+      setEvents(parsed.events);
+      setResult(parsed.result);
+      resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
-      if (useWorker && netlogRawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== netlogRawDataId) {
+      if (useWorker && parsed.rawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== parsed.rawDataId) {
         releaseRawDataId(previousNetlogRawDataId);
       }
-      rememberRawData('netlog', netlogRawData, netlogRawDataId);
+      rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -304,7 +262,7 @@ const AppContent: React.FC = () => {
         window.location.hash = buildAppHash('netlog', 'conclusion');
         setHasData(true);
         finishLoad();
-        message.success(`成功解析 ${parsedEvents.length} 个事件，已启用联合诊断`);
+        message.success(`成功解析 ${parsed.events.length} 个事件，已启用联合诊断`);
         return;
       }
 
@@ -314,7 +272,7 @@ const AppContent: React.FC = () => {
       window.location.hash = buildAppHash('netlog', 'conclusion');
       setHasData(true);
       finishLoad();
-      message.success(`成功解析 ${parsedEvents.length} 个事件`);
+      message.success(`成功解析 ${parsed.events.length} 个事件`);
     } catch (err) {
       if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
         finishLoad();
@@ -337,51 +295,48 @@ const AppContent: React.FC = () => {
     setLoadingText('正在解析追加文件...');
 
     try {
-      if (isTextLog && typeof data === 'string') {
+      if ((isTextLog || fileTypeHint === 'log') && typeof data === 'string') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
         finishLoad();
         return;
       }
 
-      const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));
-      if (shouldParseHar) {
-        let harAnalysis;
-        let harRawData: unknown = typeof data === 'string' ? undefined : data;
-        let harRawDataId: string | undefined = undefined;
-        if (useWorker) {
-          const { result, rawData, rawDataId } = await parseHarInWorker(data, repairInfo, {
-            onProgress: (phase) => setLoadingText(phase),
-          });
-          harAnalysis = result;
-          harRawData = rawData;
-          harRawDataId = rawDataId;
-        } else {
-          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-          harRawData = parsedData;
-          harAnalysis = parseHar(parsedData);
-          if (repairInfo) harAnalysis.repairInfo = repairInfo;
-        }
+      const parsed = await parseUploadedInput({
+        data,
+        isTextLog,
+        repairInfo,
+        fileTypeHint,
+        useWorker,
+        onProgress: (phase) => setLoadingText(phase),
+      });
 
-        setHarResult(harAnalysis);
-        harResultRef.current = harAnalysis;
+      if (parsed.kind === 'log') {
+        message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
+        finishLoad();
+        return;
+      }
+
+      if (parsed.kind === 'har') {
+        setHarResult(parsed.result);
+        harResultRef.current = parsed.result;
         const previousHarRawDataId = rawDataIdByTypeRef.current.har;
-        if (useWorker && harRawDataId && previousHarRawDataId && previousHarRawDataId !== harRawDataId) {
+        if (useWorker && parsed.rawDataId && previousHarRawDataId && previousHarRawDataId !== parsed.rawDataId) {
           releaseRawDataId(previousHarRawDataId);
         }
-        rememberRawData('har', harRawData, harRawDataId);
+        rememberRawData('har', parsed.rawData, parsed.rawDataId);
 
         if (resultRef.current) {
           setFileType('netlog');
           setActiveTab('conclusion');
           setActiveSubTab(undefined);
           window.location.hash = buildAppHash('netlog', 'conclusion');
-          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求），联合诊断已启用`);
+          message.success(`追加 HAR 成功（${parsed.result.totalRequests} 请求），联合诊断已启用`);
         } else {
           setFileType('har');
           setActiveTab('requests');
           setActiveSubTab(undefined);
           window.location.hash = buildAppHash('har', 'requests');
-          message.success(`追加 HAR 成功（${harAnalysis.totalRequests} 请求）`);
+          message.success(`追加 HAR 成功（${parsed.result.totalRequests} 请求）`);
         }
 
         setHasData(true);
@@ -389,47 +344,27 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      let parsedEvents: ParsedEvent[];
-      let analysisResult: AnalysisResult;
-      let netlogRawData: unknown = typeof data === 'string' ? undefined : data;
-      let netlogRawDataId: string | undefined = undefined;
-      if (useWorker) {
-        const workerResult = await parseNetlogInWorker(data, {
-          onProgress: (phase) => setLoadingText(phase),
-        });
-        parsedEvents = workerResult.events;
-        analysisResult = workerResult.result;
-        netlogRawData = workerResult.rawData;
-        netlogRawDataId = workerResult.rawDataId;
-      } else {
-        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-        netlogRawData = parsedData;
-        const syncResult = parseLog(parsedData);
-        parsedEvents = syncResult.events;
-        analysisResult = syncResult.result;
-      }
-
-      setEvents(parsedEvents);
-      setResult(analysisResult);
-      resultRef.current = analysisResult;
+      setEvents(parsed.events);
+      setResult(parsed.result);
+      resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
-      if (useWorker && netlogRawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== netlogRawDataId) {
+      if (useWorker && parsed.rawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== parsed.rawDataId) {
         releaseRawDataId(previousNetlogRawDataId);
       }
-      rememberRawData('netlog', netlogRawData, netlogRawDataId);
+      rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
 
       if (harResultRef.current) {
         setFileType('netlog');
         setActiveTab('conclusion');
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('netlog', 'conclusion');
-        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件），联合诊断已启用`);
+        message.success(`追加 NetLog 成功（${parsed.events.length} 事件），联合诊断已启用`);
       } else {
         setFileType('netlog');
         setActiveTab('conclusion');
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('netlog', 'conclusion');
-        message.success(`追加 NetLog 成功（${parsedEvents.length} 事件）`);
+        message.success(`追加 NetLog 成功（${parsed.events.length} 事件）`);
       }
 
       setHasData(true);
