@@ -39,6 +39,7 @@ export {
 } from './ipLookupClient';
 export {
   buildIpLookupConclusions,
+  compareCipSipCarriersInRow,
   collectRowLookupIps,
   formatIpLocation,
   getCarrierDisplayName,

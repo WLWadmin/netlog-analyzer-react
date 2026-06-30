@@ -55,10 +55,71 @@ export function formatIpLocation(result?: IpLookupResult): string {
     .join(' / ') || '未查询到归属';
 }
 
-function isCarrierDifferent(a?: IpLookupResult, b?: IpLookupResult): boolean {
-  const left = getCarrierGroup(a);
-  const right = getCarrierGroup(b);
-  return Boolean(left && right && left !== right);
+export interface CipSipCarrierComparison {
+  hasMismatch: boolean;
+  cipCarriers: string[];
+  sipCarriers: string[];
+  cipEvidence: string[];
+  sipEvidence: string[];
+}
+
+function carrierDisplayNameByGroup(group: string): string {
+  const display: Record<string, string> = {
+    telecom: '中国电信',
+    unicom: '中国联通',
+    mobile: '中国移动',
+    tietong: '中国铁通',
+    cernet: '教育网',
+    broadcast: '中国广电',
+    aliyun: '阿里云',
+    tencent: '腾讯云',
+    huawei: '华为云',
+    cloudflare: 'Cloudflare',
+    google: 'Google',
+    aws: 'AWS',
+    azure: 'Azure',
+  };
+  return display[group] || group;
+}
+
+function carrierSummaryForIps(ips: string[], lookupMap: Map<string, IpLookupResult>) {
+  const byGroup = new Map<string, string[]>();
+  for (const ip of ips) {
+    const result = lookupMap.get(ip);
+    if (!result || result.status !== 'success' || !isChina(result)) continue;
+    const group = getCarrierGroup(result);
+    if (!group) continue;
+    const list = byGroup.get(group) || [];
+    list.push(ip);
+    byGroup.set(group, list);
+  }
+
+  return {
+    groups: new Set(byGroup.keys()),
+    carriers: Array.from(byGroup.keys()).map(carrierDisplayNameByGroup),
+    evidence: Array.from(byGroup.entries()).map(([group, groupIps]) => `${carrierDisplayNameByGroup(group)}：${groupIps.join(', ')}`),
+  };
+}
+
+export function compareCipSipCarriersInRow(
+  row: CipSipEvidenceRow,
+  lookupMap: Map<string, IpLookupResult>
+): CipSipCarrierComparison {
+  const cip = carrierSummaryForIps(row.cipIps, lookupMap);
+  const sip = carrierSummaryForIps(row.sipIps, lookupMap);
+  const hasBothSides = cip.groups.size > 0 && sip.groups.size > 0;
+  const hasMismatch = hasBothSides && (
+    Array.from(cip.groups).some(group => !sip.groups.has(group)) ||
+    Array.from(sip.groups).some(group => !cip.groups.has(group))
+  );
+
+  return {
+    hasMismatch,
+    cipCarriers: cip.carriers,
+    sipCarriers: sip.carriers,
+    cipEvidence: cip.evidence,
+    sipEvidence: sip.evidence,
+  };
 }
 
 function impactText(impact: RequestImpact): string {
@@ -100,14 +161,17 @@ export function buildIpLookupConclusions(
       });
     }
 
-    const cip = row.cipIps.map(ip => lookupMap.get(ip)).find(item => item?.status === 'success');
-    const sip = row.sipIps.map(ip => lookupMap.get(ip)).find(item => item?.status === 'success');
-    if (cip && sip && isChina(cip) && isChina(sip) && isCarrierDifferent(cip, sip)) {
+    const carrierComparison = compareCipSipCarriersInRow(row, lookupMap);
+    if (carrierComparison.hasMismatch) {
       conclusions.push({
         level: 'info',
         title: '客户端出口线索与服务端目标运营商不同',
-        detail: `${row.host} 的 CIP 为 ${formatIpLocation(cip)}，SIP 为 ${formatIpLocation(sip)}，存在跨运营商访问线索。`,
-        evidence: [`CIP：${cip.ip}`, `SIP：${sip.ip}`, `域名：${row.host}`],
+        detail: `${row.host} 的 CIP 侧运营商为 ${carrierComparison.cipCarriers.join('、')}，SIP 侧运营商为 ${carrierComparison.sipCarriers.join('、')}，存在跨运营商访问线索。`,
+        evidence: [
+          `域名：${row.host}`,
+          `CIP：${carrierComparison.cipEvidence.join('；')}`,
+          `SIP：${carrierComparison.sipEvidence.join('；')}`,
+        ],
         nextAction: '该信息不能直接证明故障。请结合用户当前网络运营商、MTR / traceroute 和同网段对比样本确认。',
       });
     }

@@ -6,6 +6,7 @@ import {
   buildIpLookupConclusions,
   buildCipSipRowsText,
   buildIpListText,
+  compareCipSipCarriersInRow,
   collectRowLookupIps,
   formatIpLocation,
   getCarrierDisplayName,
@@ -170,10 +171,11 @@ function copyRowText(row: CipSipEvidenceRow): string {
   ].join('\n');
 }
 
-function lookupRiskText(result: IpLookupResult, roles: string[]): string {
+function lookupRiskText(result: IpLookupResult, roles: string[], hasCrossCarrierContext: boolean): string {
   if (result.status !== 'success') return '查询失败';
   const isChina = result.country === '中国' || result.country === 'China' || result.country === 'CN';
   if ((roles.includes('SIP') || roles.includes('DNS answer')) && !isChina) return '跨境线索';
+  if (hasCrossCarrierContext) return '跨运营商线索';
   if (roles.includes('CIP') && roles.includes('SIP')) return '需结合运营商对照';
   return '暂无明显风险';
 }
@@ -186,6 +188,7 @@ function buildLookupRows(
   const hostByIp = new Map<string, Set<string>>();
   const roleByIp = new Map<string, Set<string>>();
   const impactByIp = new Map<string, Set<string>>();
+  const crossCarrierIps = new Set<string>();
 
   const addContext = (ip: string, role: string, host: string, impact: string) => {
     if (!hostByIp.has(ip)) hostByIp.set(ip, new Set());
@@ -199,6 +202,11 @@ function buildLookupRows(
   for (const row of summary.cipSipRows) {
     row.cipIps.forEach(ip => addContext(ip, 'CIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
     row.sipIps.forEach(ip => addContext(ip, 'SIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
+    const comparison = compareCipSipCarriersInRow(row, lookupMap);
+    if (comparison.hasMismatch) {
+      row.cipIps.forEach(ip => crossCarrierIps.add(ip));
+      row.sipIps.forEach(ip => crossCarrierIps.add(ip));
+    }
   }
   for (const answer of summary.dnsAnswers) {
     answer.ips.forEach(ip => addContext(ip, 'DNS answer', answer.host, 'DNS 解析线索'));
@@ -215,7 +223,7 @@ function buildLookupRows(
       roles,
       hosts: Array.from(hostByIp.get(result.ip) || []),
       impacts: Array.from(impactByIp.get(result.ip) || []),
-      risk: lookupRiskText(result, roles),
+      risk: lookupRiskText(result, roles, crossCarrierIps.has(result.ip)),
     };
   });
 }
@@ -264,7 +272,7 @@ function renderLookupResultCards(rows: LookupTableRow[]) {
                   </Space>
                 </div>
               </div>
-              <Tag color={row.risk.includes('跨境') ? 'orange' : row.risk.includes('失败') ? 'red' : 'blue'} style={{ margin: 0 }}>
+              <Tag color={row.risk.includes('跨境') || row.risk.includes('跨运营商') ? 'orange' : row.risk.includes('失败') ? 'red' : 'blue'} style={{ margin: 0 }}>
                 {row.risk}
               </Tag>
             </div>

@@ -267,6 +267,80 @@ describe('ipEvidence', () => {
     expect(conclusions.some(item => item.title.includes('运营商'))).toBe(true);
   });
 
+  it('同一行 CIP 为移动且 SIP 为移动和电信时，输出跨运营商线索', () => {
+    const lookupMap = new Map<string, IpLookupResult>([
+      ['183.205.137.81', { ip: '183.205.137.81', status: 'success', country: '中国', isp: 'China Mobile', org: '中国移动' }],
+      ['171.8.194.33', { ip: '171.8.194.33', status: 'success', country: '中国', isp: 'Chinanet Henan', org: '中国电信' }],
+    ]);
+
+    const conclusions = buildIpLookupConclusions(lookupSummary({
+      cipSipRows: [{
+        id: '1',
+        host: 'internal-api-security.feishu.cn',
+        hostOrUrl: 'internal-api-security.feishu.cn',
+        impact: 'failed',
+        durationMs: 315,
+        cipIps: ['183.205.137.81'],
+        sipIps: ['183.205.137.81', '171.8.194.33'],
+        representativeRequests: [],
+        descriptions: [],
+      }],
+    }), lookupMap);
+
+    expect(conclusions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: '客户端出口线索与服务端目标运营商不同',
+        detail: expect.stringContaining('CIP 侧运营商为 中国移动，SIP 侧运营商为 中国移动、中国电信'),
+      }),
+    ]));
+  });
+
+  it('同一行 CIP 为移动和电信且 SIP 为移动时，输出跨运营商线索', () => {
+    const lookupMap = new Map<string, IpLookupResult>([
+      ['183.205.137.81', { ip: '183.205.137.81', status: 'success', country: '中国', isp: 'China Mobile', org: '中国移动' }],
+      ['171.8.194.33', { ip: '171.8.194.33', status: 'success', country: '中国', isp: 'Chinanet Henan', org: '中国电信' }],
+    ]);
+
+    const conclusions = buildIpLookupConclusions(lookupSummary({
+      cipSipRows: [{
+        id: '1',
+        host: 'internal-api-security.feishu.cn',
+        hostOrUrl: 'internal-api-security.feishu.cn',
+        impact: 'failed',
+        durationMs: 315,
+        cipIps: ['183.205.137.81', '171.8.194.33'],
+        sipIps: ['183.205.137.81'],
+        representativeRequests: [],
+        descriptions: [],
+      }],
+    }), lookupMap);
+
+    expect(conclusions.some(item => item.detail.includes('CIP 侧运营商为 中国移动、中国电信，SIP 侧运营商为 中国移动'))).toBe(true);
+  });
+
+  it('同一行 CIP/SIP 运营商集合一致时，不输出跨运营商线索', () => {
+    const lookupMap = new Map<string, IpLookupResult>([
+      ['183.205.137.81', { ip: '183.205.137.81', status: 'success', country: '中国', isp: 'China Mobile', org: '中国移动' }],
+      ['171.8.194.33', { ip: '171.8.194.33', status: 'success', country: '中国', isp: 'Chinanet Henan', org: '中国电信' }],
+    ]);
+
+    const conclusions = buildIpLookupConclusions(lookupSummary({
+      cipSipRows: [{
+        id: '1',
+        host: 'internal-api-security.feishu.cn',
+        hostOrUrl: 'internal-api-security.feishu.cn',
+        impact: 'failed',
+        durationMs: 315,
+        cipIps: ['183.205.137.81', '171.8.194.33'],
+        sipIps: ['183.205.137.81', '171.8.194.33'],
+        representativeRequests: [],
+        descriptions: [],
+      }],
+    }), lookupMap);
+
+    expect(conclusions.some(item => item.title.includes('运营商不同'))).toBe(false);
+  });
+
   it('运营商显示中文归一化', () => {
     expect(getCarrierDisplayName({ ip: '1.1.1.1', status: 'success', isp: 'Chinanet Jiangsu' })).toBe('中国电信');
     expect(getCarrierDisplayName({ ip: '1.1.1.1', status: 'success', org: 'China Mobile Communications' })).toBe('中国移动');
