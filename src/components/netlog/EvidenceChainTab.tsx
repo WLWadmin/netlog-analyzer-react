@@ -104,8 +104,8 @@ const EvidenceChainTab: React.FC<EvidenceChainTabProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <NetlogProxyEvidencePanel result={result} />
-      <FailedDomainEvidencePanel result={result} />
       <DnsAndIpEvidencePanel summary={dnsIpEvidence} />
+      <FailedDomainEvidencePanel result={result} />
       <CombinedEvidenceEntry
         harResult={harResult}
         netlogResult={result}
