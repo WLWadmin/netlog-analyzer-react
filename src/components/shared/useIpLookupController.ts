@@ -38,6 +38,7 @@ export function useIpLookupController({
   ) => {
     const uniqueIps = Array.from(new Set(rawIps)).filter(Boolean);
     const publicIps = uniqueIps.filter(shouldLookupIp);
+    const filteredPrivateIps = uniqueIps.length - publicIps.length;
     const missingIps = publicIps.filter(ip => !lookupMap.has(ip));
     const mode = options?.mode;
 
@@ -68,8 +69,8 @@ export function useIpLookupController({
 
       if (summaryResult.stoppedByRateLimit) {
         notify.warning('上游或本地查询频率已触发保护，本轮剩余 IP 已停止查询。');
-      } else if (summaryResult.skipped > 0) {
-        notify.info(`已过滤 ${summaryResult.skipped} 个内网 / 保留地址。`);
+      } else if (filteredPrivateIps > 0) {
+        notify.info(`已过滤 ${filteredPrivateIps} 个内网 / 保留地址。`);
       }
       notify.success('查询完成，已跳转到 IP 归属查询结果');
       scrollToLookupResults();
@@ -108,6 +109,14 @@ export function useIpLookupController({
         notify.warning(result.message || '当前出口 IP 查询失败');
       }
       scrollToLookupResults();
+    } catch (err) {
+      setSelfLookup({
+        ip: '',
+        status: 'fail',
+        message: err instanceof Error ? err.message : '当前出口 IP 查询失败',
+        self: true,
+      });
+      notify.warning(err instanceof Error ? err.message : '当前出口 IP 查询失败');
     } finally {
       setSelfLookupLoading(false);
     }
