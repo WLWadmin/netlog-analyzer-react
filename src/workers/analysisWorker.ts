@@ -18,34 +18,13 @@ import {
   WORKER_RAW_DATA_MAX_ITEMS,
 } from '../constants/analysisThresholds';
 import type { WorkerRequest, WorkerResponse } from './protocols';
+import { createRawDataStore } from './rawDataStore';
 
 /* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
 
 // Worker 内缓存解析后的 rawData，避免 raw 搜索时反复 structured clone 大 JSON
-const rawDataStore = new Map<string, unknown>();
-
-function touchRawData(id: string) {
-  if (!rawDataStore.has(id)) return;
-  const value = rawDataStore.get(id);
-  rawDataStore.delete(id);
-  rawDataStore.set(id, value);
-}
-
-function enforceRawDataLimit() {
-  while (rawDataStore.size > WORKER_RAW_DATA_MAX_ITEMS) {
-    const oldestId = rawDataStore.keys().next().value;
-    if (!oldestId) break;
-    rawDataStore.delete(oldestId);
-  }
-}
-
-function keepRawData(kind: 'har' | 'netlog', rawData: unknown): string {
-  const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  rawDataStore.set(id, rawData);
-  enforceRawDataLimit();
-  return id;
-}
+const rawDataStore = createRawDataStore({ maxItems: WORKER_RAW_DATA_MAX_ITEMS });
 
 function sendResponse(response: WorkerResponse) {
   ctx.postMessage(response);
@@ -56,10 +35,6 @@ function sendProgress(id: string, phase: string, percent?: number) {
 }
 
 function getStoredRawData(id: string): unknown {
-  if (!rawDataStore.has(id)) {
-    throw new Error('Raw data not found or released');
-  }
-  touchRawData(id);
   return rawDataStore.get(id);
 }
 
@@ -91,7 +66,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           : msg.payload;
         sendProgress(msg.id, '正在分析 NetLog 事件...', 40);
         const { events, result } = parseLog(rawData);
-        const rawDataId = keepRawData('netlog', rawData);
+        const rawDataId = rawDataStore.keep('netlog', rawData);
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
@@ -119,7 +94,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
         if (repairInfo) {
           harResult.repairInfo = repairInfo as any;
         }
-        const rawDataId = keepRawData('har', rawData);
+        const rawDataId = rawDataStore.keep('har', rawData);
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
@@ -209,10 +184,9 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       case 'release-raw-data': {
         let released = false;
         if (msg.payload?.all) {
-          released = rawDataStore.size > 0;
-          rawDataStore.clear();
+          released = rawDataStore.releaseAll();
         } else if (msg.payload?.rawDataId) {
-          released = rawDataStore.delete(msg.payload.rawDataId);
+          released = rawDataStore.release(msg.payload.rawDataId);
         }
         const duration = performance.now() - start;
         sendResponse({
@@ -223,7 +197,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
             released,
             rawDataId: msg.payload?.rawDataId,
             all: Boolean(msg.payload?.all),
-            remaining: rawDataStore.size,
+            remaining: rawDataStore.size(),
           },
           duration,
         });
