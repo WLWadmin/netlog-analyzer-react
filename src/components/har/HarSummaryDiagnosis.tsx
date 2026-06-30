@@ -312,7 +312,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
           onChange={keys => setShowExpertDiagnosis((keys as string[]).includes('expert-diagnosis'))}
           style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', borderRadius: 12 }}
         >
-          <Collapse.Panel header={`完整诊断报告（共 ${diagnosisSummary.cards.length} 项）`} key="expert-diagnosis">
+          <Collapse.Panel header={`完整现象分析（共 ${diagnosisSummary.cards.length} 项）`} key="expert-diagnosis">
             <DiagnosisPanel summary={diagnosisSummary} />
           </Collapse.Panel>
         </Collapse>

@@ -2,7 +2,15 @@ import { classifyDnsServer } from './classifyDnsServer';
 import { extractDnsIpEvidenceFromHar, extractDnsIpEvidenceFromNetlog } from './extractDnsIpEvidence';
 import { buildIpLookupConclusions } from './ipLookupDiagnosis';
 import { getCarrierDisplayName } from './ipLookupDiagnosis';
-import { lookupIpViaProxy, lookupIpsWithLimit, resetIpLookupBudgetForTest, shouldLookupIp } from './ipLookupClient';
+import {
+  BUILTIN_IP_LOOKUP_PROXY_URL,
+  getIpLookupProxyUrl,
+  lookupIpViaProxy,
+  lookupIpsWithLimit,
+  resetIpLookupBudgetForTest,
+  shouldLookupIp,
+} from './ipLookupClient';
+import { parseManualIps } from './manualIpInput';
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import type { DnsIpEvidenceSummary } from './ipEvidenceTypes';
@@ -306,6 +314,46 @@ describe('ipEvidence', () => {
     expect(results).toEqual(['58.215.109.83']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
+  });
+
+  it('lookupIpsWithLimit 每轮最多查询 limit 个公网 IP', async () => {
+    resetIpLookupBudgetForTest();
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'success', query: '58.215.109.1', country: '中国' }),
+    } as any);
+    const queried: string[] = [];
+
+    const ips = Array.from({ length: 25 }, (_, index) => `58.215.109.${index + 1}`);
+    const batch = await lookupIpsWithLimit(ips, (ip) => {
+      queried.push(ip);
+    }, { limit: 20, concurrency: 3 });
+
+    expect(batch.requested).toBe(25);
+    expect(batch.queued).toBe(20);
+    expect(queried).toHaveLength(20);
+    expect(fetchMock).toHaveBeenCalledTimes(20);
+    fetchMock.mockRestore();
+    resetIpLookupBudgetForTest();
+  });
+
+  it('IP 查询代理地址仅接受 HTTPS，空值和非 HTTPS 回退内置地址', () => {
+    expect(getIpLookupProxyUrl(undefined)).toBe(BUILTIN_IP_LOOKUP_PROXY_URL);
+    expect(getIpLookupProxyUrl('')).toBe(BUILTIN_IP_LOOKUP_PROXY_URL);
+    expect(getIpLookupProxyUrl('   ')).toBe(BUILTIN_IP_LOOKUP_PROXY_URL);
+    expect(getIpLookupProxyUrl('http://example.com')).toBe(BUILTIN_IP_LOOKUP_PROXY_URL);
+    expect(getIpLookupProxyUrl('https://example.com/')).toBe('https://example.com');
+  });
+
+  it('parseManualIps 支持多种分隔符、trim、去重和过滤空值', () => {
+    expect(parseManualIps(' 1.1.1.1, 8.8.8.8\n1.1.1.1，9.9.9.9； 4.4.4.4; ')).toEqual([
+      '1.1.1.1',
+      '8.8.8.8',
+      '9.9.9.9',
+      '4.4.4.4',
+    ]);
+    expect(parseManualIps('  \n,，;；  ')).toEqual([]);
   });
 
   it('Worker 返回 HTTP 502 但 body 为成功 JSON 时仍展示成功结果', async () => {

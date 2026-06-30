@@ -34,4 +34,10 @@ describe('hashRouting', () => {
     expect(buildAppHash('netlog', 'expert', 'report')).toBe('#netlog/expert/report');
     expect(buildAppHash('har', 'summary')).toBe('#har/summary');
   });
+
+  it('构造上传后的默认入口 hash', () => {
+    expect(buildAppHash('netlog', 'conclusion')).toBe('#netlog/conclusion');
+    expect(buildAppHash('har', 'requests')).toBe('#har/requests');
+    expect(buildAppHash('log', 'overview')).toBe('#log/overview');
+  });
 });

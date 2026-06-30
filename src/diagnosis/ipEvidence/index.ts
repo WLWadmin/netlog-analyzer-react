@@ -44,3 +44,4 @@ export {
   getCarrierDisplayName,
   getCarrierGroup,
 } from './ipLookupDiagnosis';
+export { parseManualIps } from './manualIpInput';

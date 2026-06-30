@@ -11,6 +11,7 @@ import {
   getCarrierDisplayName,
   lookupCurrentClientIp,
   lookupIpsWithLimit,
+  parseManualIps,
   shouldLookupIp,
   type CipSipEvidenceRow,
   type DnsAnswerEvidence,
@@ -220,10 +221,6 @@ function buildLookupRows(
       risk: lookupRiskText(result, roles),
     };
   });
-}
-
-function parseManualIps(value: string): string[] {
-  return Array.from(new Set(value.split(/[\s,，;；]+/).map(item => item.trim()).filter(Boolean)));
 }
 
 function renderLimitedText(items: string[], emptyText = '-') {

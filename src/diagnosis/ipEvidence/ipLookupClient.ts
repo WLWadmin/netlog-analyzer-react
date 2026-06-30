@@ -1,7 +1,16 @@
 import { classifyIpScope } from './ipNormalize';
 import type { IpLookupBatchSummary, IpLookupResult } from './ipLookupTypes';
 
-export const DEFAULT_IP_LOOKUP_PROXY_URL = 'https://netlog-ip-lookup-proxy.a17267750421.workers.dev';
+export const BUILTIN_IP_LOOKUP_PROXY_URL = 'https://netlog-ip-lookup-proxy.a17267750421.workers.dev';
+
+export function getIpLookupProxyUrl(envValue = process.env.REACT_APP_IP_LOOKUP_PROXY_URL): string {
+  const value = envValue?.trim();
+  if (!value) return BUILTIN_IP_LOOKUP_PROXY_URL;
+  if (!/^https:\/\//i.test(value)) return BUILTIN_IP_LOOKUP_PROXY_URL;
+  return value.replace(/\/+$/, '');
+}
+
+export const DEFAULT_IP_LOOKUP_PROXY_URL = getIpLookupProxyUrl();
 
 const LOOKUP_TIMEOUT_MS = 8000;
 const LOOKUP_MAX_PER_MINUTE = 40;
