@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Upload, Button, Alert, Typography, Space } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
-import { parseHar } from '../../harParser';
 import type { HarAnalysisResult } from '../../harParser';
+import { parseBaselineHarFile } from '../../diagnosis/shared/baselineHarUpload';
 import { buildBaselineCompareSummary } from '../../diagnosis/shared/baselineComparator';
 import DiagnosisPanel from './DiagnosisPanel';
 
@@ -11,19 +11,23 @@ const { Text } = Typography;
 const BaselineCompareTab: React.FC = () => {
   const [baseline, setBaseline] = useState<HarAnalysisResult | null>(null);
   const [current, setCurrent] = useState<HarAnalysisResult | null>(null);
+  const [baselineError, setBaselineError] = useState<string | null>(null);
+  const [currentError, setCurrentError] = useState<string | null>(null);
 
-  const handleUpload = (setter: (r: HarAnalysisResult | null) => void) => (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const result = parseHar(text);
+  const handleUpload = (
+    setter: (r: HarAnalysisResult | null) => void,
+    setError: (message: string | null) => void
+  ) => (file: File) => {
+    setError(null);
+    void parseBaselineHarFile(file)
+      .then(result => {
         setter(result);
-      } catch (err) {
-        console.error('解析 HAR 文件失败', err);
-      }
-    };
-    reader.readAsText(file);
+        setError(null);
+      })
+      .catch(err => {
+        setter(null);
+        setError(err instanceof Error ? err.message : 'HAR 解析失败');
+      });
     return false; // 阻止自动上传
   };
 
@@ -46,24 +50,26 @@ const BaselineCompareTab: React.FC = () => {
         <Upload
           accept=".har,.json"
           showUploadList={false}
-          beforeUpload={handleUpload(setBaseline)}
+          beforeUpload={handleUpload(setBaseline, setBaselineError)}
         >
           <Button icon={<UploadOutlined />}>
             上传正常样本（Baseline）
           </Button>
         </Upload>
         {baseline && <Text type="success">已加载 ({baseline.totalRequests} 请求)</Text>}
+        {baselineError && <Text type="danger">Baseline 解析失败：{baselineError}</Text>}
 
         <Upload
           accept=".har,.json"
           showUploadList={false}
-          beforeUpload={handleUpload(setCurrent)}
+          beforeUpload={handleUpload(setCurrent, setCurrentError)}
         >
           <Button icon={<UploadOutlined />}>
             上传异常样本（Current）
           </Button>
         </Upload>
         {current && <Text type="warning">已加载 ({current.totalRequests} 请求)</Text>}
+        {currentError && <Text type="danger">Current 解析失败：{currentError}</Text>}
       </Space>
 
       {summary ? (

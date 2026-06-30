@@ -10,6 +10,7 @@ import { extractDnsIpEvidenceFromNetlog } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel, { FinalDiagnosisReferencePanel } from '../shared/FinalDiagnosisPanel';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
+import { shouldBuildLegacyDiagnosisData } from './diagnosisTabMode';
 
 interface DiagnosisTabProps {
   result: AnalysisResult;
@@ -98,6 +99,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
     const timer = window.setTimeout(() => {
       const handlerStart = performance.now();
       recordDiagnosisTiming(debugTiming, timingRows, 'effect -> setTimeout', effectStart, handlerStart);
+      const shouldBuildLegacy = shouldBuildLegacyDiagnosisData(mode);
 
       let nextSummary = prebuiltSummary;
       if (!nextSummary && !prebuiltLoading) {
@@ -110,9 +112,12 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
         recordDiagnosisTiming(debugTiming, timingRows, 'buildNetlogDiagnosisSummary', summaryStart, undefined, { cards: nextSummary.cards.length });
       }
 
-      const legacyStart = performance.now();
-      const nextLegacyData = buildLegacyDiagnosisData(result);
-      recordDiagnosisTiming(debugTiming, timingRows, 'buildLegacyDiagnosisData', legacyStart, undefined, { legacyIssues: nextLegacyData.groupedIssues.length });
+      let nextLegacyData: LegacyDiagnosisData | undefined;
+      if (shouldBuildLegacy) {
+        const legacyStart = performance.now();
+        nextLegacyData = buildLegacyDiagnosisData(result);
+        recordDiagnosisTiming(debugTiming, timingRows, 'buildLegacyDiagnosisData', legacyStart, undefined, { legacyIssues: nextLegacyData.groupedIssues.length });
+      }
 
       if (cancelled) return;
       const setStateStart = performance.now();
@@ -128,7 +133,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
           rows: timingRows,
           extra: {
             cards: nextSummary?.cards.length || 0,
-            legacyIssues: nextLegacyData.groupedIssues.length,
+            legacyIssues: nextLegacyData?.groupedIssues.length || 0,
             events: events.length,
             urlRequests: result.urlRequests.length,
             totalEvents: result.totalEvents,
@@ -145,7 +150,7 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [result, events, prebuiltSummary, prebuiltLoading]);
+  }, [result, events, mode, prebuiltSummary, prebuiltLoading]);
 
   const finalSummary = useMemo(
     () => diagnosisSummary ? buildFinalDiagnosisSummary(diagnosisSummary, 'netlog') : undefined,
