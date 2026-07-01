@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
-import { isWorkerSupported, releaseRawDataInWorker } from './workers/workerClient';
+import { importNetlogDatasetInWorker, isWorkerSupported, releaseNetlogDatasetInWorker, releaseRawDataInWorker } from './workers/workerClient';
 import { exportReport } from './parsers/netlog';
 
 jest.mock('antd', () => {
@@ -47,7 +47,9 @@ jest.mock('./parsers/netlog', () => ({
 }));
 
 jest.mock('./workers/workerClient', () => ({
+  importNetlogDatasetInWorker: jest.fn(),
   isWorkerSupported: jest.fn(() => false),
+  releaseNetlogDatasetInWorker: jest.fn(),
   releaseRawDataInWorker: jest.fn(),
 }));
 
@@ -104,6 +106,8 @@ jest.mock('./components/raw/RawEvidenceExplorer', () => ({ __esModule: true, def
 
 const parseUploadedInputMock = parseUploadedInput as jest.Mock;
 const isWorkerSupportedMock = isWorkerSupported as jest.Mock;
+const importNetlogDatasetInWorkerMock = importNetlogDatasetInWorker as jest.Mock;
+const releaseNetlogDatasetInWorkerMock = releaseNetlogDatasetInWorker as jest.Mock;
 const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
 const exportReportMock = exportReport as jest.Mock;
 
@@ -114,6 +118,10 @@ describe('App Phase 3 upload behavior', () => {
     isWorkerSupportedMock.mockReturnValue(false);
     releaseRawDataInWorkerMock.mockClear();
     releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
+    importNetlogDatasetInWorkerMock.mockClear();
+    importNetlogDatasetInWorkerMock.mockResolvedValue({ analysisId: 'dataset-1', eventCount: 1 });
+    releaseNetlogDatasetInWorkerMock.mockClear();
+    releaseNetlogDatasetInWorkerMock.mockResolvedValue({ released: true });
     exportReportMock.mockClear();
     exportReportMock.mockReturnValue('# mock report');
     URL.createObjectURL = jest.fn(() => 'blob:mock');
@@ -297,6 +305,7 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('重新上传'));
 
     await waitFor(() => expect(releaseRawDataInWorkerMock).toHaveBeenCalledWith({ all: true }));
+    expect(releaseNetlogDatasetInWorkerMock).toHaveBeenCalledWith({ all: true });
   });
 
   it('导出 Markdown 时会传入当前 IP 查询结论', async () => {

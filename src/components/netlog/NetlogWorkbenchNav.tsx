@@ -47,8 +47,8 @@ export const NETLOG_WORKBENCH_NAV_ITEMS: NetlogWorkbenchNavItem[] = [
   },
   {
     key: 'raw',
-    label: '原始数据',
-    description: '回到 NetLog JSON 和结构化证据',
+    label: '原始事件 / 证据查询',
+    description: '大文件走事件查询入口，小文件保留原始 JSON',
     icon: <FileSearchOutlined />,
   },
 ];

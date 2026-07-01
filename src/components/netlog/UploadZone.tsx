@@ -14,6 +14,7 @@ const { Dragger } = Upload;
 const MB = 1024 * 1024;
 const LARGE_FILE_MB = 20;
 const VERY_LARGE_FILE_MB = 50;
+const LARGE_NETLOG_STREAM_MB = 100;
 
 function formatFileSize(size: number): string {
   if (size >= MB) return `${(size / MB).toFixed(1)}MB`;
@@ -62,6 +63,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
       reader.onerror = () => reject(new Error('文件读取失败'));
       reader.readAsText(file);
     });
+  };
+
+  const isLargeNetlogFile = (file: File) => {
+    return file.name.toLowerCase().endsWith('.json') && file.size >= LARGE_NETLOG_STREAM_MB * MB;
   };
 
   const parseSingleFile = async (
@@ -115,24 +120,43 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
 
     const fileList: File[] = Array.isArray(file) ? file : [file];
 
-    Promise.all(fileList.map(f => readSingleFile(f)))
-      .then(async (results) => {
+    (async () => {
+      try {
+        for (const f of fileList) {
+          if (isLargeNetlogFile(f)) {
+            console.info('[netlog-large]', {
+              event: 'upload:large-netlog-detected',
+              fileName: f.name,
+              fileSize: f.size,
+              fileType: f.type,
+            });
+            notification.info({
+              title: '已启用大文件解析模式',
+              description: `「${f.name}」大小为 ${formatFileSize(f.size)}，将完整扫描 NetLog events；当前首屏展示诊断摘要和关键证据样本。`,
+              placement: 'top',
+              duration: 8,
+            });
+            setReadProgress(100);
+            await onFileLoaded(f, false, undefined, 'netlog');
+            onSuccess?.('ok');
+            continue;
+          }
+
+          const { content, fileName, isTextLog } = await readSingleFile(f);
+          await parseSingleFile(content, fileName, isTextLog, onSuccess);
+        }
+
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = undefined;
         }
         setReadProgress(100);
 
-        for (const { content, fileName, isTextLog } of results) {
-          await parseSingleFile(content, fileName, isTextLog, onSuccess);
-        }
-
         setTimeout(() => {
           setReading(false);
           setReadProgress(0);
         }, 300);
-      })
-      .catch((err) => {
+      } catch (err: any) {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = undefined;
@@ -140,7 +164,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
         setReading(false);
         setReadProgress(0);
         message.error(err.message || '文件读取失败');
-      });
+      }
+    })();
   };
 
   const beforeUpload = (file: File) => {
@@ -163,8 +188,10 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
     const fileSizeMb = file.size / MB;
     if (fileSizeMb >= VERY_LARGE_FILE_MB) {
       notification.warning({
-        title: '文件较大，解析可能较慢',
-        description: `「${file.name}」大小为 ${formatFileSize(file.size)}，解析期间页面可能短暂无响应，请耐心等待。`,
+        title: isLargeNetlogFile(file) ? '大文件将使用流式解析' : '文件较大，解析可能较慢',
+        description: isLargeNetlogFile(file)
+          ? `「${file.name}」大小为 ${formatFileSize(file.size)}，将启用大文件模式，不保留完整原始 JSON。`
+          : `「${file.name}」大小为 ${formatFileSize(file.size)}，解析期间页面可能短暂无响应，请耐心等待。`,
         placement: 'top',
         duration: 6,
       });

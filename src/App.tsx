@@ -22,9 +22,12 @@ import { ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
 import { HarAnalysisResult } from './harParser';
 import { LogAnalysisResult } from './logParser';
 import {
+  importNetlogDatasetInWorker,
   isWorkerSupported,
+  releaseNetlogDatasetInWorker,
   releaseRawDataInWorker,
 } from './workers/workerClient';
+import { unavailableNetlogDatasetState, type NetlogDatasetState } from './workers/netlogDatasetTypes';
 import { parseUploadedInput } from './upload/parseUploadedInput';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
@@ -70,6 +73,8 @@ const AppContent: React.FC = () => {
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
   const [rawUploadDataByType, setRawUploadDataByType] = useState<{ har?: unknown; netlog?: unknown; log?: unknown }>({});
   const [rawDataIdByType, setRawDataIdByType] = useState<{ har?: string; netlog?: string }>({});
+  const [netlogDataset, setNetlogDataset] = useState<NetlogDatasetState>(unavailableNetlogDatasetState);
+  const [currentNetlogFile, setCurrentNetlogFile] = useState<File | null>(null);
   const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
@@ -155,6 +160,9 @@ const AppContent: React.FC = () => {
       if (isWorkerSupported()) {
         void releaseRawDataInWorker({ all: true }).catch(() => {
           // 页面卸载时释放失败不阻塞浏览器关闭流程
+        });
+        void releaseNetlogDatasetInWorker({ all: true }).catch(() => {
+          // Dataset 释放失败不阻塞页面卸载
         });
       }
     };
@@ -251,6 +259,8 @@ const AppContent: React.FC = () => {
       }
       setEvents(parsed.events);
       setResult(parsed.result);
+      setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
+      setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
       if (useWorker && parsed.rawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== parsed.rawDataId) {
@@ -349,6 +359,8 @@ const AppContent: React.FC = () => {
 
       setEvents(parsed.events);
       setResult(parsed.result);
+      setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
+      setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
       if (useWorker && parsed.rawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== parsed.rawDataId) {
@@ -386,8 +398,11 @@ const AppContent: React.FC = () => {
     setLogResult(null);
     setRawUploadDataByType({});
     setRawDataIdByType({});
+    setNetlogDataset(unavailableNetlogDatasetState);
+    setCurrentNetlogFile(null);
     if (useWorker) {
       void releaseRawDataInWorker({ all: true });
+      void releaseNetlogDatasetInWorker({ all: true });
     }
     activeLoadCountRef.current = 0;
     resultRef.current = null;
@@ -404,6 +419,38 @@ const AppContent: React.FC = () => {
     const nextSubTab = key === 'expert' ? (activeSubTab || 'events') : undefined;
     setActiveSubTab(nextSubTab);
     window.location.hash = buildAppHash('netlog', key, nextSubTab);
+  };
+
+  const handleStartDatasetIndexing = async () => {
+    if (!currentNetlogFile) {
+      message.warning('当前没有可用于 Dataset 索引的 NetLog 文件，请重新上传原始文件');
+      return;
+    }
+    if (!useWorker) {
+      message.warning('当前浏览器不支持 Worker Dataset 索引');
+      return;
+    }
+    setNetlogDataset({ status: 'importing' });
+    setLoading(true);
+    setLoadingText('正在构建 NetLog Dataset 索引...');
+    try {
+      const meta = await importNetlogDatasetInWorker(currentNetlogFile, {
+        onProgress: (phase) => setLoadingText(phase),
+      });
+      setNetlogDataset({
+        status: 'ready',
+        analysisId: meta.analysisId,
+      });
+      message.success(`Dataset 索引已就绪：${meta.eventCount ?? 0} 条事件`);
+    } catch (err) {
+      setNetlogDataset({
+        status: 'error',
+        error: (err as Error).message,
+      });
+      message.error('Dataset 索引失败: ' + (err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   };
 
 
@@ -518,6 +565,9 @@ const AppContent: React.FC = () => {
           events={events}
           urlRequests={result.urlRequests}
           activeSubTab={activeSubTab}
+          dataset={netlogDataset}
+          canStartDatasetIndexing={Boolean(currentNetlogFile && useWorker)}
+          onStartDatasetIndexing={handleStartDatasetIndexing}
           onSubTabChange={(subTab) => {
             setActiveSubTab(subTab);
             window.location.hash = buildAppHash('netlog', 'expert', subTab);
@@ -537,8 +587,25 @@ const AppContent: React.FC = () => {
     },
     {
       key: 'raw',
-      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始数据</span>,
-      children: (rawUploadDataByType.netlog || rawDataIdByType.netlog) ? (
+      label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始事件 / 证据查询</span>,
+      children: result?.largeFileMode ? (
+        <div style={{ padding: 24, borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+          <h3 style={{ marginTop: 0, color: 'var(--text-primary)' }}>大文件摘要 fallback 已启用</h3>
+          <p>
+            已完整扫描文件并生成诊断摘要；当前首屏仅展示关键证据样本，未在主线程缓存完整 rawData。
+            完整事件分页查询、Event detail 和 Data Loaded/DNS 状态视图将在 Dataset 模式中提供。
+          </p>
+          <p>
+            Dataset 状态：{netlogDataset.status === 'fallback' ? '摘要 fallback' : netlogDataset.status}
+            {netlogDataset.error ? `（${netlogDataset.error}）` : ''}
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            已读取 {(result.largeFileMode.bytesRead / 1024 / 1024).toFixed(1)}MB，
+            解析事件 {result.largeFileMode.parsedEvents.toLocaleString()} 条，
+            跳过异常事件 {result.largeFileMode.skippedEvents.toLocaleString()} 条。
+          </p>
+        </div>
+      ) : (rawUploadDataByType.netlog || rawDataIdByType.netlog) ? (
         <Suspense fallback={<LazyFallback text="正在加载原始数据模块..." />}>
           <RawEvidenceExplorer rawData={rawUploadDataByType.netlog} rawDataId={rawDataIdByType.netlog} fileName="NetLog 原始数据" />
         </Suspense>
