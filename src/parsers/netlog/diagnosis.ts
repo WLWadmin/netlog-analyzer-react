@@ -997,6 +997,10 @@ export function exportReport(r: AnalysisResult, options: ExportReportOptions = {
   report += `**你现在该做什么：**\n${formatReportList(immediateActions)}\n\n`;
   report += `**是否需要找 IT / 网络团队：** ${r.connectionFailures.length > 0 || r.failedDomains.length > 0 || r.proxyInfo.hasProxy ? '建议联系。请附上本报告、复现时间和受影响域名。' : '可先按上方步骤自查；若仍复现，再联系 IT / 网络团队。'}\n\n`;
 
+  if (r.largeFileMode?.enabled) {
+    report += `> 大文件模式：已完整扫描 ${(r.largeFileMode.bytesRead / 1024 / 1024).toFixed(1)}MB，解析事件 ${r.largeFileMode.parsedEvents.toLocaleString()} 条，跳过异常事件 ${r.largeFileMode.skippedEvents.toLocaleString()} 条。为避免浏览器内存溢出，报告不包含完整原始 JSON。\n\n`;
+  }
+
   report += `## 关键发现\n\n`;
   const findings: string[] = [];
   if (r.failedDomains.length > 0) findings.push(`发现 ${r.failedDomains.length} 个失败域名。`);
@@ -1051,6 +1055,9 @@ export function exportReport(r: AnalysisResult, options: ExportReportOptions = {
   report += `| 警告 | ${r.warnings.length} |\n`;
   report += `| 慢请求(>3s) | ${r.slowRequests.length} |\n`;
   report += `| DNS 服务器 | ${(r.dnsServers || []).join(', ') || '未记录'} |\n`;
+  if (r.largeFileMode?.enabled) {
+    report += `| 大文件模式 | 已启用，关键事件样本${r.largeFileMode.truncatedEventsPreview ? '已截断' : '未截断'} |\n`;
+  }
   if (r.proxyInfo.isVPN) {
     report += `| VPN | ${r.proxyInfo.vpnHints.join(', ')} |\n`;
   } else if (r.proxyInfo.hasProxy) {

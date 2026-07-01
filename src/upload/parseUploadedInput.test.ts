@@ -4,6 +4,7 @@ import { isHarFile, parseHar } from '../harParser';
 import { parseLogFile } from '../logParser';
 import {
   parseHarInWorker,
+  parseLargeNetlogFileInWorker,
   parseLogInWorker,
   parseNetlogInWorker,
 } from '../workers/workerClient';
@@ -23,6 +24,7 @@ jest.mock('../logParser', () => ({
 
 jest.mock('../workers/workerClient', () => ({
   parseHarInWorker: jest.fn(),
+  parseLargeNetlogFileInWorker: jest.fn(),
   parseLogInWorker: jest.fn(),
   parseNetlogInWorker: jest.fn(),
 }));
@@ -32,6 +34,7 @@ const isHarFileMock = isHarFile as jest.Mock;
 const parseHarMock = parseHar as jest.Mock;
 const parseLogFileMock = parseLogFile as jest.Mock;
 const parseHarInWorkerMock = parseHarInWorker as jest.Mock;
+const parseLargeNetlogFileInWorkerMock = parseLargeNetlogFileInWorker as jest.Mock;
 const parseLogInWorkerMock = parseLogInWorker as jest.Mock;
 const parseNetlogInWorkerMock = parseNetlogInWorker as jest.Mock;
 
@@ -97,7 +100,13 @@ describe('parseUploadedInput', () => {
       useWorker: false,
     });
 
-    expect(result).toEqual({ kind: 'netlog', result: netlogResult, events, rawData: netlogData });
+    expect(result).toEqual({
+      kind: 'netlog',
+      result: netlogResult,
+      events,
+      rawData: netlogData,
+      dataset: { status: 'unavailable' },
+    });
     expect(parseLogMock).toHaveBeenCalledWith(netlogData);
   });
 
@@ -107,6 +116,7 @@ describe('parseUploadedInput', () => {
       result: { totalEvents: 1 },
       rawData: { events: [] },
       rawDataId: 'netlog-1',
+      dataset: { status: 'unavailable' },
     });
     const onProgress = jest.fn();
 
@@ -118,6 +128,7 @@ describe('parseUploadedInput', () => {
       result: { totalEvents: 1 },
       rawData: { events: [] },
       rawDataId: 'netlog-1',
+      dataset: { status: 'unavailable' },
     });
     expect(parseNetlogInWorkerMock).toHaveBeenCalledWith({ events: [] }, { onProgress });
   });
@@ -157,5 +168,37 @@ describe('parseUploadedInput', () => {
 
     expect(result).toEqual({ kind: 'log', result: { stats: { total: 1 } } });
     expect(parseLogInWorkerMock).toHaveBeenCalled();
+  });
+
+  it('大 NetLog File 走流式大文件 worker 且不返回 rawDataId', async () => {
+    const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+    parseLargeNetlogFileInWorkerMock.mockResolvedValue({
+      events: [{ id: 1 }],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+    });
+    const onProgress = jest.fn();
+
+    const result = await parseUploadedInput({
+      data: file,
+      fileTypeHint: 'netlog',
+      useWorker: true,
+      onProgress,
+    });
+
+    expect(result).toEqual({
+      kind: 'netlog',
+      events: [{ id: 1 }],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+      rawData: undefined,
+      rawDataId: undefined,
+      largeFileMode: true,
+      dataset: {
+        status: 'fallback',
+        error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
+      },
+    });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress });
+    expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 });

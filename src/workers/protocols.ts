@@ -11,6 +11,15 @@ export interface ParseNetlogRequest {
   payload: string | unknown; // raw file text or parsed JSON data
 }
 
+export interface ParseLargeNetlogFileRequest {
+  type: 'parse-large-netlog-file';
+  id: string;
+  payload: File | {
+    file: File;
+    debug?: boolean;
+  };
+}
+
 export interface ParseHarRequest {
   type: 'parse-har';
   id: string;
@@ -44,6 +53,47 @@ export interface ReleaseRawDataRequest {
   };
 }
 
+export interface ImportNetlogDatasetRequest {
+  type: 'import-netlog-dataset';
+  id: string;
+  payload: {
+    file: File;
+  };
+}
+
+export interface ReleaseNetlogDatasetRequest {
+  type: 'release-netlog-dataset';
+  id: string;
+  payload: {
+    analysisId?: string;
+    all?: boolean;
+  };
+}
+
+export interface QueryNetlogEventsRequest {
+  type: 'query-netlog-events';
+  id: string;
+  payload: {
+    analysisId: string;
+    page?: number;
+    pageSize?: number;
+    typeId?: number;
+    sourceId?: number;
+    sourceTypeId?: number;
+    phase?: number;
+    errorOnly?: boolean;
+  };
+}
+
+export interface GetNetlogEventDetailRequest {
+  type: 'get-netlog-event-detail';
+  id: string;
+  payload: {
+    analysisId: string;
+    eventId: number;
+  };
+}
+
 export interface GetRawStructureRequest {
   type: 'get-raw-structure';
   id: string;
@@ -65,10 +115,15 @@ export interface GetRawValueRequest {
 
 export type WorkerRequest =
   | ParseNetlogRequest
+  | ParseLargeNetlogFileRequest
   | ParseHarRequest
   | ParseLogRequest
   | SearchRawJsonRequest
   | ReleaseRawDataRequest
+  | ImportNetlogDatasetRequest
+  | ReleaseNetlogDatasetRequest
+  | QueryNetlogEventsRequest
+  | GetNetlogEventDetailRequest
   | GetRawStructureRequest
   | GetRawValueRequest;
 
@@ -77,7 +132,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer
@@ -89,6 +144,23 @@ export interface WorkerSuccessResponse {
 export interface RawReleaseResult {
   released: boolean;
   rawDataId?: string;
+  all: boolean;
+  remaining: number;
+}
+
+export interface NetlogDatasetImportResult {
+  analysisId: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  importedAt: number;
+  status: 'ready';
+  eventCount?: number;
+}
+
+export interface NetlogDatasetReleaseResult {
+  released: boolean;
+  analysisId?: string;
   all: boolean;
   remaining: number;
 }

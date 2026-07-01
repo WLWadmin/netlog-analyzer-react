@@ -3,9 +3,17 @@ import { isHarFile, parseHar, type HarAnalysisResult } from '../harParser';
 import { parseLogFile, type LogAnalysisResult } from '../logParser';
 import {
   parseHarInWorker,
+  parseLargeNetlogFileInWorker,
   parseLogInWorker,
   parseNetlogInWorker,
 } from '../workers/workerClient';
+import {
+  fallbackNetlogDatasetState,
+  unavailableNetlogDatasetState,
+  type NetlogDatasetState,
+} from '../workers/netlogDatasetTypes';
+
+const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
 export type UploadFileTypeHint = 'netlog' | 'har' | 'log';
 
@@ -16,6 +24,8 @@ export type UploadedParseResult =
       events: ParsedEvent[];
       rawData?: unknown;
       rawDataId?: string;
+      largeFileMode?: boolean;
+      dataset?: NetlogDatasetState;
     }
   | {
       kind: 'har';
@@ -62,12 +72,34 @@ export async function parseUploadedInput(options: {
     return { kind: 'har', result, rawData: parsedData };
   }
 
+  if (typeof File !== 'undefined' && data instanceof File && fileTypeHint === 'netlog' && data.size >= LARGE_NETLOG_STREAM_BYTES) {
+    if (!useWorker) {
+      throw new Error('当前浏览器不支持 Worker，大文件 NetLog 无法安全解析');
+    }
+    console.info('[netlog-large]', {
+      event: 'parseUploadedInput:large-netlog',
+      fileName: data.name,
+      fileSize: data.size,
+      useWorker,
+    });
+    const { events, result } = await parseLargeNetlogFileInWorker(data, { onProgress });
+    return {
+      kind: 'netlog',
+      result,
+      events,
+      rawData: undefined,
+      rawDataId: undefined,
+      largeFileMode: true,
+      dataset: fallbackNetlogDatasetState,
+    };
+  }
+
   if (useWorker) {
     const { events, result, rawData, rawDataId } = await parseNetlogInWorker(data, { onProgress });
-    return { kind: 'netlog', result, events, rawData, rawDataId };
+    return { kind: 'netlog', result, events, rawData, rawDataId, dataset: unavailableNetlogDatasetState };
   }
 
   const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
   const { events, result } = parseLog(parsedData);
-  return { kind: 'netlog', result, events, rawData: parsedData };
+  return { kind: 'netlog', result, events, rawData: parsedData, dataset: unavailableNetlogDatasetState };
 }

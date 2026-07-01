@@ -133,6 +133,15 @@ export interface AnalysisResult {
     netLogVersion: string | null;
     commandLine: string | null;
   };
+  largeFileMode?: {
+    enabled: true;
+    fileSize: number;
+    bytesRead: number;
+    parsedEvents: number;
+    skippedEvents: number;
+    truncatedEventsPreview: boolean;
+    reachedEventsEnd: boolean;
+  };
 }
 
 

@@ -3,7 +3,16 @@
  * 提供 Promise-based API 调用 Worker，支持进度回调和超时
  */
 
-import type { RawReleaseResult, WorkerRequest, WorkerResponse, WorkerSuccessResponse } from './protocols';
+import type {
+  NetlogDatasetImportResult,
+  NetlogDatasetReleaseResult,
+  QueryNetlogEventsRequest,
+  RawReleaseResult,
+  WorkerRequest,
+  WorkerResponse,
+  WorkerSuccessResponse,
+} from './protocols';
+import type { QueryNetlogEventsResult } from './netlogDatasetQuery';
 import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
@@ -113,6 +122,20 @@ export interface NetlogParseResult {
   duration: number;
 }
 
+function largeNetlogTimeout(fileSize: number): number {
+  const mb = fileSize / (1024 * 1024);
+  const minutes = Math.min(12, 2 + Math.ceil(mb / 100));
+  return minutes * 60_000;
+}
+
+function isLargeNetlogDebugEnabled(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('netlog_large_debug') === '1';
+  } catch {
+    return false;
+  }
+}
+
 export interface HarParseResult {
   result: HarAnalysisResult;
   rawData?: unknown;
@@ -178,6 +201,70 @@ export async function releaseRawDataInWorker(
   return Boolean((response.payload as RawReleaseResult).released);
 }
 
+export async function importNetlogDatasetInWorker(
+  file: File,
+  options?: WorkerClientOptions
+): Promise<NetlogDatasetImportResult> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'import-netlog-dataset',
+      id,
+      payload: { file },
+    },
+    options
+  );
+  return response.payload as NetlogDatasetImportResult;
+}
+
+export async function releaseNetlogDatasetInWorker(
+  payload: { analysisId?: string; all?: boolean },
+  options?: WorkerClientOptions
+): Promise<NetlogDatasetReleaseResult> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'release-netlog-dataset',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as NetlogDatasetReleaseResult;
+}
+
+export async function queryNetlogEventsInWorker(
+  payload: QueryNetlogEventsRequest['payload'],
+  options?: WorkerClientOptions
+): Promise<QueryNetlogEventsResult> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'query-netlog-events',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as QueryNetlogEventsResult;
+}
+
+export async function getNetlogEventDetailInWorker(
+  payload: { analysisId: string; eventId: number },
+  options?: WorkerClientOptions
+): Promise<unknown> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-event-detail',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload;
+}
+
 /**
  * 从 Worker 内 rawData 缓存读取结构概览。
  */
@@ -241,6 +328,38 @@ export async function parseNetlogInWorker(
     result: response.payload as AnalysisResult,
     rawData: response.rawPayload,
     rawDataId: response.rawDataId,
+    duration: response.duration,
+  };
+}
+
+export async function parseLargeNetlogFileInWorker(
+  file: File,
+  options?: WorkerClientOptions
+): Promise<NetlogParseResult> {
+  const id = nextId();
+  const timeout = options?.timeout ?? largeNetlogTimeout(file.size);
+  console.info('[netlog-large]', {
+    taskId: id,
+    event: 'client:dispatch',
+    fileName: file.name,
+    fileSize: file.size,
+    timeout,
+  });
+  const response = await sendToWorker(
+    { type: 'parse-large-netlog-file', id, payload: { file, debug: isLargeNetlogDebugEnabled() } },
+    { ...options, timeout }
+  );
+  console.info('[netlog-large]', {
+    taskId: id,
+    event: 'client:success',
+    duration: response.duration,
+    eventCount: Array.isArray(response.events) ? response.events.length : undefined,
+  });
+  return {
+    events: response.events as ParsedEvent[],
+    result: response.payload as AnalysisResult,
+    rawData: undefined,
+    rawDataId: undefined,
     duration: response.duration,
   };
 }
