@@ -1,6 +1,6 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView } from './netlogDatasetViews';
 
 export interface NetlogDatasetMeta {
   analysisId: string;
@@ -21,6 +21,7 @@ export interface NetlogDataset {
   dataLoaded?: DataLoadedView;
   dnsState?: DnsStateView;
   proxyState?: ProxyStateView;
+  quicState?: QuicStateView;
 }
 
 export interface NetlogDatasetStore {
@@ -30,7 +31,8 @@ export interface NetlogDatasetStore {
     endpointEvidence?: DnsIpEvidenceSummary,
     dataLoaded?: DataLoadedView,
     dnsState?: DnsStateView,
-    proxyState?: ProxyStateView
+    proxyState?: ProxyStateView,
+    quicState?: QuicStateView
   ): NetlogDatasetMeta;
   get(analysisId: string): NetlogDataset | undefined;
   release(analysisId: string): boolean;
@@ -48,7 +50,8 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
     endpointEvidence?: DnsIpEvidenceSummary,
     dataLoaded?: DataLoadedView,
     dnsState?: DnsStateView,
-    proxyState?: ProxyStateView
+    proxyState?: ProxyStateView,
+    quicState?: QuicStateView
   ): NetlogDatasetMeta => {
     counter += 1;
     const analysisId = `netlog-dataset-${Date.now()}-${counter}`;
@@ -61,7 +64,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
       status: 'ready',
       eventCount: eventIndex?.count,
     };
-    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState });
+    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState });
     return meta;
   };
 

@@ -86,3 +86,29 @@ export interface ProxyStateView {
   hasProxyEvidence: boolean;
   evidenceGaps: string[];
 }
+
+export interface QuicStateView {
+  sessions: Array<{
+    sourceId: number;
+    eventCount: number;
+    hosts: string[];
+    peerAddresses: string[];
+    versions: string[];
+    errorCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+  }>;
+  errors: Array<{
+    eventId: number;
+    sourceId: number;
+    typeName: string;
+    error?: number | string;
+    details?: string;
+    byteStart?: number;
+    byteEnd?: number;
+  }>;
+  eventCount: number;
+  http3EventCount: number;
+  quicEventCount: number;
+  evidenceGaps: string[];
+}

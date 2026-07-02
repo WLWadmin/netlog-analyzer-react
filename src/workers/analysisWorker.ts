@@ -475,8 +475,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState);
+          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;
@@ -551,6 +551,20 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'netlog-proxy-state',
           payload: dataset.proxyState,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-quic-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.quicState) throw new Error(`NetLog Dataset QUIC state 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-quic-state',
+          payload: dataset.quicState,
           duration,
         });
         break;
