@@ -88,6 +88,55 @@ function hasDirectEvidence(card: DiagnosticCard): boolean {
   return /ERR_|net_error|错误码|DNS|TLS|SSL|PROXY|代理|握手|连接失败|超时|reset|refused|name_not_resolved/i.test(directText);
 }
 
+function hasExplicitFailureEvidence(card: DiagnosticCard): boolean {
+  const text = [
+    card.title,
+    card.conclusion,
+    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
+  ].join(' ');
+  return /ERR_[A-Z0-9_]+|name_not_resolved|net_error\s*[:：=]?\s*-?\d+|error_code\s*[:：=]?\s*-?\d+|错误码\s*[:：=]?\s*-?\d+|\b-\d{2,4}\b|连接失败|握手失败|reset|refused|timed?\s*out|超时/i.test(text);
+}
+
+function isOnlyDerivedEvidence(card: DiagnosticCard): boolean {
+  return card.evidence.length > 0 && card.evidence.every(e => e.source === 'derived');
+}
+
+function isPureProtocolFact(card: DiagnosticCard): boolean {
+  if (card.category !== 'protocol') return false;
+  return !hasExplicitFailureEvidence(card);
+}
+
+function isProxyConfigOnly(card: DiagnosticCard): boolean {
+  if (card.category !== 'proxy') return false;
+  if (hasExplicitFailureEvidence(card)) return false;
+  const text = [
+    card.title,
+    card.conclusion,
+    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
+  ].join(' ');
+  return /代理|proxy|PAC|VPN|配置|模式|服务器/i.test(text);
+}
+
+function isDnsAnswerSpecialIpOnly(card: DiagnosticCard): boolean {
+  if (card.category !== 'dns') return false;
+  if (hasExplicitFailureEvidence(card)) return false;
+  const text = [
+    card.title,
+    card.conclusion,
+    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
+  ].join(' ');
+  return /(DNS answer|DNS 解析|解析结果|dnsRecords).*(127\.0\.0\.1|0\.0\.0\.0|::1)|(127\.0\.0\.1|0\.0\.0\.0|::1).*(DNS answer|DNS 解析|解析结果|dnsRecords)/i.test(text);
+}
+
+function canBeConfirmedRootCause(card: DiagnosticCard): boolean {
+  if (card.severity === 'info') return false;
+  if (isOnlyDerivedEvidence(card)) return false;
+  if (isPureProtocolFact(card)) return false;
+  if (isProxyConfigOnly(card)) return false;
+  if (isDnsAnswerSpecialIpOnly(card)) return false;
+  return hasExplicitFailureEvidence(card);
+}
+
 function evidenceStrength(card: DiagnosticCard): number {
   let score = 0;
   if (hasDirectEvidence(card)) score += 12;
@@ -173,7 +222,7 @@ function determineConclusionKind(
     return strongCombined ? 'confirmed' : card.confidence === 'low' ? 'needs-more-data' : 'highly-likely';
   }
   if (mode === 'netlog') {
-    if (card.confidence === 'high' && hasDirectEvidence(card)) return 'confirmed';
+    if (card.confidence === 'high' && canBeConfirmedRootCause(card)) return 'confirmed';
     if (card.confidence !== 'low') return 'highly-likely';
   }
   return card.confidence === 'low' ? 'needs-more-data' : 'highly-likely';

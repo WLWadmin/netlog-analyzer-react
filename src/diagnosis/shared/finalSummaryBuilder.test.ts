@@ -82,6 +82,80 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].kind).toBe('confirmed');
   });
 
+  it('HTTP/2 覆盖率低不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'http2-coverage',
+        category: 'protocol',
+        severity: 'warning',
+        confidence: 'high',
+        title: 'HTTP/2 覆盖率偏低',
+        conclusion: '部分请求未使用 HTTP/2，可作为协议能力线索',
+        evidence: [
+          { label: 'HTTP/2 覆盖率', value: '38%', source: 'netlog' },
+          { label: '协议统计', value: '仅统计结果，无错误码', source: 'derived' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('QUIC/HTTP3 使用状态不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'quic-usage',
+        category: 'protocol',
+        severity: 'info',
+        confidence: 'high',
+        title: '检测到 QUIC / HTTP3 使用',
+        conclusion: '当前 NetLog 中存在 QUIC_SESSION 和 HTTP3 事件',
+        evidence: [
+          { label: 'QUIC 事件数量', value: '430', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('仅检测到代理服务器配置不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'proxy-config-only',
+        category: 'proxy',
+        severity: 'warning',
+        confidence: 'high',
+        title: '检测到代理服务器配置',
+        conclusion: '当前环境存在 PAC / 代理配置',
+        evidence: [
+          { label: '代理模式', value: 'pac_script', source: 'netlog' },
+          { label: '代理服务器', value: 'proxy.example.com:8080', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('仅 DNS answer 为特殊 IP 不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'dns-answer-special-ip',
+        category: 'dns',
+        severity: 'warning',
+        confidence: 'high',
+        title: 'DNS answer 指向特殊 IP',
+        conclusion: 'DNS 解析结果包含 127.0.0.1',
+        evidence: [
+          { label: 'DNS answer', value: 'example.com -> 127.0.0.1', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
   it('按综合评分排序而不是只看严重程度', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
