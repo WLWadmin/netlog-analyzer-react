@@ -475,8 +475,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State);
+          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;
@@ -579,6 +579,20 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'netlog-http2-state',
           payload: dataset.http2State,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-sockets-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.socketsState) throw new Error(`NetLog Dataset Sockets state 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-sockets-state',
+          payload: dataset.socketsState,
           duration,
         });
         break;

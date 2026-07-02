@@ -4,7 +4,8 @@ import { createNetlogDnsStateReducer } from './netlogDnsStateReducer';
 import { createNetlogProxyStateReducer } from './netlogProxyStateReducer';
 import { createNetlogQuicStateReducer } from './netlogQuicStateReducer';
 import { createNetlogHttp2StateReducer } from './netlogHttp2StateReducer';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView } from './netlogDatasetViews';
+import { createNetlogSocketsStateReducer } from './netlogSocketsStateReducer';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from './netlogDatasetViews';
 
 export interface CompactEventIndex {
   count: number;
@@ -30,6 +31,7 @@ export interface NetlogDatasetIndexResult {
   proxyState: ProxyStateView;
   quicState: QuicStateView;
   http2State: Http2StateView;
+  socketsState: SocketsStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -211,6 +213,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
   const proxyStateReducer = createNetlogProxyStateReducer();
   const quicStateReducer = createNetlogQuicStateReducer();
   const http2StateReducer = createNetlogHttp2StateReducer();
+  const socketsStateReducer = createNetlogSocketsStateReducer();
   const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
@@ -291,6 +294,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     dnsStateReducer.accept(seed);
     quicStateReducer.accept(seed);
     http2StateReducer.accept(seed);
+    socketsStateReducer.accept(seed);
     objectBytes = [];
     objectStart = -1;
   };
@@ -473,5 +477,6 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     proxyState: proxyStateReducer.finish(),
     quicState: quicStateReducer.finish(),
     http2State: http2StateReducer.finish(),
+    socketsState: socketsStateReducer.finish(),
   };
 }

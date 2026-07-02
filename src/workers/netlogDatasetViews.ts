@@ -154,3 +154,35 @@ export interface Http2StateView {
   windowUpdateCount: number;
   evidenceGaps: string[];
 }
+
+export interface SocketsStateView {
+  sockets: Array<{
+    sourceId: number;
+    sourceTypeName: string;
+    eventCount: number;
+    connectCount: number;
+    tlsCount: number;
+    stallCount: number;
+    errorCount: number;
+    peerAddresses: string[];
+    socketPools: string[];
+    firstEventId?: number;
+    lastEventId?: number;
+  }>;
+  errors: Array<{
+    eventId: number;
+    sourceId: number;
+    typeName: string;
+    error?: number | string;
+    details?: string;
+    peerAddress?: string;
+    byteStart?: number;
+    byteEnd?: number;
+  }>;
+  eventCount: number;
+  connectCount: number;
+  tlsCount: number;
+  stallCount: number;
+  socketPoolCount: number;
+  evidenceGaps: string[];
+}

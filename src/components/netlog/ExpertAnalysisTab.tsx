@@ -13,8 +13,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -579,6 +579,120 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
   );
 };
 
+const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<SocketsStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogSocketsStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset Sockets State 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset Sockets State 视图" />;
+  }
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="Sockets State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Sockets State 展示 connect / tls / pool / error 线索"
+          description="Socket / TLS 事件是连接层事实，不能单独把 peer address、connect error 或候选 IP 当成请求根因；需要结合 source chain、DNS、代理和协议回退判断。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.errors.length > 0 || view.stallCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Socket/TCP/TLS 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Connect">{view.connectCount}</Descriptions.Item>
+          <Descriptions.Item label="TLS">{view.tlsCount}</Descriptions.Item>
+          <Descriptions.Item label="Stall/Timeout">{view.stallCount}</Descriptions.Item>
+          <Descriptions.Item label="Socket Pools">{view.socketPoolCount}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{view.errors.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 140 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Connect', dataIndex: 'connectCount', width: 90 },
+            { title: 'TLS', dataIndex: 'tlsCount', width: 80 },
+            { title: 'Stall', dataIndex: 'stallCount', width: 80 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Peer addresses', dataIndex: 'peerAddresses', render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Socket pools', dataIndex: 'socketPools', render: (value: string[]) => value.join(', ') || '-' },
+          ]}
+          dataSource={view.sockets}
+          locale={{ emptyText: '未发现 Dataset socket / tcp / tls 状态' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.error ?? ''}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 160, ellipsis: true },
+            { title: 'Details', dataIndex: 'details', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.errors}
+          locale={{ emptyText: '未发现 Dataset socket connect / tls error' }}
+        />
+      </Space>
+      <Modal
+        title="Raw Event Detail"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -720,11 +834,15 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
             description="Dataset 未就绪时只能展示摘要中的 HTTP/2 事件；索引完成后会展示 session、stream、GOAWAY、RST_STREAM、WINDOW_UPDATE 和 raw event 跳转。"
           />
         )}
-        <StateGapCard
-          title="Sockets State"
-          dataset={dataset}
-          description="当前只保留摘要中的连接/IP 线索；完整 socket pool、connect job、peer address 状态 reducer 尚未接入。"
-        />
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetSocketsStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="Sockets State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示摘要中的连接/IP 线索；索引完成后会展示 socket pool、connect、tls、stall、peer address 和 raw event 跳转。"
+          />
+        )}
       </div>
     ),
     performance: <PerformanceTab result={result} />,
