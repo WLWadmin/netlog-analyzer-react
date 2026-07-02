@@ -79,21 +79,21 @@ function uniq<T>(items: T[]): T[] {
   return Array.from(new Set(items));
 }
 
-function hasDirectEvidence(card: DiagnosticCard): boolean {
-  const directText = [
+function cardEvidenceText(card: DiagnosticCard): string {
+  return [
     card.title,
     card.conclusion,
     ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
   ].join(' ');
+}
+
+function hasDirectEvidence(card: DiagnosticCard): boolean {
+  const directText = cardEvidenceText(card);
   return /ERR_|net_error|错误码|DNS|TLS|SSL|PROXY|代理|握手|连接失败|超时|reset|refused|name_not_resolved/i.test(directText);
 }
 
 function hasExplicitFailureEvidence(card: DiagnosticCard): boolean {
-  const text = [
-    card.title,
-    card.conclusion,
-    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
-  ].join(' ');
+  const text = cardEvidenceText(card);
   return /ERR_[A-Z0-9_]+|name_not_resolved|net_error\s*[:：=]?\s*-?\d+|error_code\s*[:：=]?\s*-?\d+|错误码\s*[:：=]?\s*-?\d+|\b-\d{2,4}\b|连接失败|握手失败|reset|refused|timed?\s*out|超时/i.test(text);
 }
 
@@ -106,35 +106,66 @@ function isPureProtocolFact(card: DiagnosticCard): boolean {
   return !hasExplicitFailureEvidence(card);
 }
 
+function isTtfbWithoutNetworkFailure(card: DiagnosticCard): boolean {
+  const text = cardEvidenceText(card);
+  if (!/TTFB|Waiting/i.test(text)) return false;
+  if (hasExplicitFailureEvidence(card)) return false;
+  return /未发现同\s*host\s*网络错误|未发现同域名网络错误|无同\s*host\s*(DNS|TCP|TLS|Proxy|net_error)|没有同\s*host\s*(DNS|TCP|TLS|Proxy|net_error)/i.test(text);
+}
+
 function isProxyConfigOnly(card: DiagnosticCard): boolean {
   if (card.category !== 'proxy') return false;
   if (hasExplicitFailureEvidence(card)) return false;
-  const text = [
-    card.title,
-    card.conclusion,
-    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
-  ].join(' ');
+  const text = cardEvidenceText(card);
   return /代理|proxy|PAC|VPN|配置|模式|服务器/i.test(text);
 }
 
 function isDnsAnswerSpecialIpOnly(card: DiagnosticCard): boolean {
   if (card.category !== 'dns') return false;
   if (hasExplicitFailureEvidence(card)) return false;
-  const text = [
-    card.title,
-    card.conclusion,
-    ...card.evidence.flatMap(e => [e.label, e.value, e.detail || '']),
-  ].join(' ');
+  const text = cardEvidenceText(card);
   return /(DNS answer|DNS 解析|解析结果|dnsRecords).*(127\.0\.0\.1|0\.0\.0\.0|::1)|(127\.0\.0\.1|0\.0\.0\.0|::1).*(DNS answer|DNS 解析|解析结果|dnsRecords)/i.test(text);
+}
+
+function isDnsAnswerOrSocketPeerCandidateOnly(card: DiagnosticCard): boolean {
+  if (hasExplicitFailureEvidence(card)) return false;
+  const text = cardEvidenceText(card);
+  return /DNS answer|dnsRecords|socket peer|peer address|x-request-ip|候选 IP|候选IP|解析候选|连接候选/i.test(text);
+}
+
+function isNetworkStateFactOnly(card: DiagnosticCard): boolean {
+  return (
+    isOnlyDerivedEvidence(card) ||
+    isTtfbWithoutNetworkFailure(card) ||
+    isProxyConfigOnly(card) ||
+    isPureProtocolFact(card) ||
+    isDnsAnswerSpecialIpOnly(card) ||
+    isDnsAnswerOrSocketPeerCandidateOnly(card)
+  );
+}
+
+function hasCorrelationAnchor(card: DiagnosticCard): boolean {
+  if (card.navigationTarget) return true;
+  if (card.relatedRequestIds?.length) return true;
+  if (card.relatedSourceIds?.length) return true;
+  if (card.relatedEventIds?.length) return true;
+  if (card.evidence.some(e => e.requestIds?.length || e.sourceIds?.length || e.eventIds?.length)) return true;
+
+  const text = cardEvidenceText(card);
+  return (
+    /host|hostname|域名|requestId|sourceId|eventId|URL|url/i.test(text) ||
+    /\b[a-z0-9.-]+\.[a-z]{2,}\b/i.test(text)
+  );
+}
+
+function hasRequestScopedFailureEvidence(card: DiagnosticCard): boolean {
+  return hasExplicitFailureEvidence(card) && hasCorrelationAnchor(card);
 }
 
 function canBeConfirmedRootCause(card: DiagnosticCard): boolean {
   if (card.severity === 'info') return false;
-  if (isOnlyDerivedEvidence(card)) return false;
-  if (isPureProtocolFact(card)) return false;
-  if (isProxyConfigOnly(card)) return false;
-  if (isDnsAnswerSpecialIpOnly(card)) return false;
-  return hasExplicitFailureEvidence(card);
+  if (isNetworkStateFactOnly(card)) return false;
+  return hasRequestScopedFailureEvidence(card);
 }
 
 function evidenceStrength(card: DiagnosticCard): number {

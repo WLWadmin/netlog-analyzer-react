@@ -38,7 +38,14 @@ function summary(cards: DiagnosticCard[]): DiagnosisSummary {
 describe('buildFinalDiagnosisSummary', () => {
   it('NetLog 高置信直接错误码输出已确认结论', () => {
     const result = buildFinalDiagnosisSummary(summary([
-      card({ severity: 'critical', confidence: 'high', title: 'DNS 解析失败' }),
+      card({
+        severity: 'critical',
+        confidence: 'high',
+        title: 'DNS 解析失败',
+        relatedSourceIds: [1001],
+        relatedEventIds: ['2001'],
+        evidence: [{ label: '错误码', value: 'ERR_NAME_NOT_RESOLVED', source: 'netlog', sourceIds: [1001], eventIds: ['2001'] }],
+      }),
     ]), 'netlog');
 
     expect(result.status).toBe('has-conclusion');
@@ -148,6 +155,51 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].kind).not.toBe('confirmed');
   });
 
+  it('Combined HAR 慢但只有 HTTP/2 / QUIC 状态不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          source: 'combined',
+          category: 'protocol',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: '联合诊断：HAR 慢请求与 HTTP/2 覆盖率偏低同时存在',
+          conclusion: 'HAR 慢请求环境中看到 HTTP/2 覆盖率偏低和 QUIC 使用状态',
+          evidence: [
+            { label: 'HAR 慢请求', value: '6 个', source: 'har', originalSource: 'har' },
+            { label: 'HTTP/2 覆盖率', value: '38%', source: 'netlog', originalSource: 'netlog' },
+            { label: 'QUIC 状态', value: '检测到 HTTP3 事件', source: 'netlog', originalSource: 'netlog' },
+          ],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('Combined HAR 慢但只有 socket peer 候选不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          source: 'combined',
+          category: 'connect',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: '联合诊断：HAR 慢请求与 socket peer 候选同时存在',
+          conclusion: 'HAR 慢请求环境中看到 socket peer 地址，但没有连接失败错误',
+          evidence: [
+            { label: 'HAR 慢请求', value: '4 个', source: 'har', originalSource: 'har' },
+            { label: 'socket peer', value: '203.0.113.10:443', source: 'netlog', originalSource: 'netlog' },
+          ],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
   it('HTTP/2 覆盖率低不能输出 confirmed', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
@@ -220,6 +272,130 @@ describe('buildFinalDiagnosisSummary', () => {
     ]), 'netlog');
 
     expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('NetLog TTFB 慢但无网络栈错误不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'ttfb-no-network-error',
+        category: 'performance',
+        severity: 'warning',
+        confidence: 'high',
+        title: 'TTFB 偏高',
+        conclusion: 'Waiting(TTFB) 明显偏高，但未发现同 host 的 DNS/TCP/TLS/Proxy/net_error',
+        evidence: [
+          { label: 'TTFB', value: '1830ms', source: 'har' },
+          { label: 'NetLog 对齐结果', value: '未发现同 host 网络错误', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('NetLog 只有 socket peer 候选不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'socket-peer-candidate',
+        category: 'connect',
+        severity: 'warning',
+        confidence: 'high',
+        title: '检测到 socket peer 候选 IP',
+        conclusion: '当前 NetLog 中可看到 socket peer 地址，但未发现连接失败错误',
+        evidence: [
+          { label: 'socket peer', value: '203.0.113.10:443', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('NetLog 只有 x-request-ip 候选不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'x-request-ip-candidate',
+        category: 'server',
+        severity: 'warning',
+        confidence: 'high',
+        title: '检测到服务端观察客户端 IP',
+        conclusion: '响应头里包含 x-request-ip，但没有对应网络栈失败证据',
+        evidence: [
+          { label: 'x-request-ip', value: '198.51.100.7', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('NetLog 有错误码但无关联锚点不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'error-without-anchor',
+        category: 'connect',
+        severity: 'critical',
+        confidence: 'high',
+        title: '检测到连接错误',
+        conclusion: '检测到 ERR_CONNECTION_RESET',
+        evidence: [
+          { label: '错误码', value: 'ERR_CONNECTION_RESET', source: 'netlog' },
+        ],
+        relatedRequestIds: [],
+        relatedSourceIds: [],
+        relatedEventIds: [],
+        navigationTarget: undefined,
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('Combined HAR 失败 + NetLog 明确错误 + 关联证据可以输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          id: 'combined-error-with-anchor',
+          source: 'combined',
+          category: 'connect',
+          severity: 'critical',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: 'HAR 失败请求与 NetLog 连接重置吻合',
+          conclusion: 'HAR 失败请求对应的 NetLog source 出现 ERR_CONNECTION_RESET',
+          evidence: [
+            { label: 'HAR 失败请求', value: 'https://api.example.com/data', source: 'har', originalSource: 'har', requestIds: [101] },
+            { label: '错误码', value: 'ERR_CONNECTION_RESET', source: 'netlog', originalSource: 'netlog', sourceIds: [1001], eventIds: ['2001'] },
+          ],
+          relatedRequestIds: [101],
+          relatedSourceIds: [1001],
+          relatedEventIds: ['2001'],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).toBe('confirmed');
+  });
+
+  it('NetLog 有明确错误码和 source 关联可以输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'error-with-source-anchor',
+        category: 'connect',
+        severity: 'critical',
+        confidence: 'high',
+        title: '连接被重置',
+        conclusion: 'NetLog 中检测到 ERR_CONNECTION_RESET，并关联到失败 source',
+        evidence: [
+          { label: '错误码', value: 'ERR_CONNECTION_RESET', source: 'netlog', sourceIds: [1001], eventIds: ['2001'] },
+        ],
+        relatedSourceIds: [1001],
+        relatedEventIds: ['2001'],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).toBe('confirmed');
   });
 
   it('按综合评分排序而不是只看严重程度', () => {
