@@ -24,6 +24,7 @@ import { LogAnalysisResult } from './logParser';
 import {
   importNetlogDatasetInWorker,
   isWorkerSupported,
+  largeNetlogTimeout,
   releaseNetlogDatasetInWorker,
   releaseRawDataInWorker,
 } from './workers/workerClient';
@@ -184,6 +185,7 @@ const AppContent: React.FC = () => {
         onProgress: (phase) => {
           if (!options?.background && token === datasetIndexTaskIdRef.current) setLoadingText(phase);
         },
+        timeout: largeNetlogTimeout(file.size),
       });
       if (token !== datasetIndexTaskIdRef.current) {
         releaseDatasetAnalysisId(meta.analysisId);

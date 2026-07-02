@@ -219,7 +219,7 @@ function determineConclusionKind(
       summary.combinedConfidence === 'high' ||
       (hasHarEvidence && hasNetlogEvidence)
     );
-    return strongCombined ? 'confirmed' : card.confidence === 'low' ? 'needs-more-data' : 'highly-likely';
+    return strongCombined && canBeConfirmedRootCause(card) ? 'confirmed' : card.confidence === 'low' ? 'needs-more-data' : 'highly-likely';
   }
   if (mode === 'netlog') {
     if (card.confidence === 'high' && canBeConfirmedRootCause(card)) return 'confirmed';

@@ -82,6 +82,72 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].kind).toBe('confirmed');
   });
 
+  it('Combined HAR TTFB 慢但无 NetLog 网络错误不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          source: 'combined',
+          category: 'performance',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: '联合诊断：HAR TTFB 慢但 NetLog 未发现同域名网络错误',
+          conclusion: 'HAR 请求主要慢在 TTFB，NetLog 未发现同域名 DNS/TLS/连接错误',
+          evidence: [
+            { label: 'HAR TTFB 慢请求', value: '3 个', source: 'har', originalSource: 'har' },
+            { label: 'NetLog 对齐结果', value: '未发现同域名网络错误', source: 'netlog', originalSource: 'netlog' },
+          ],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('Combined HAR 慢但只有代理配置事实不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          source: 'combined',
+          category: 'proxy',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: '联合诊断：HAR 慢请求与代理配置同时存在',
+          conclusion: 'HAR 慢请求环境中检测到 PAC / 代理配置',
+          evidence: [
+            { label: 'HAR 慢请求', value: '5 个', source: 'har', originalSource: 'har' },
+            { label: '代理模式', value: 'pac_script', source: 'netlog', originalSource: 'netlog' },
+          ],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('Combined HAR 慢但只有 DNS answer 候选不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary({
+      ...summary([
+        card({
+          source: 'combined',
+          category: 'dns',
+          confidence: 'high',
+          mergedSources: ['har', 'netlog'],
+          title: '联合诊断：HAR 慢请求与 DNS answer 候选同时存在',
+          conclusion: 'HAR 慢请求环境中检测到 DNS answer 候选 IP',
+          evidence: [
+            { label: 'HAR 慢请求', value: '5 个', source: 'har', originalSource: 'har' },
+            { label: 'DNS answer', value: 'example.com -> 203.0.113.10', source: 'netlog', originalSource: 'netlog' },
+          ],
+        }),
+      ]),
+      combinedConfidence: 'high',
+    }, 'combined');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
   it('HTTP/2 覆盖率低不能输出 confirmed', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({

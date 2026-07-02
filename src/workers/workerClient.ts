@@ -124,7 +124,7 @@ export interface NetlogParseResult {
   duration: number;
 }
 
-function largeNetlogTimeout(fileSize: number): number {
+export function largeNetlogTimeout(fileSize: number): number {
   const mb = fileSize / (1024 * 1024);
   const minutes = Math.min(12, 2 + Math.ceil(mb / 100));
   return minutes * 60_000;

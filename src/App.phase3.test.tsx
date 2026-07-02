@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
-import { importNetlogDatasetInWorker, isWorkerSupported, releaseNetlogDatasetInWorker, releaseRawDataInWorker } from './workers/workerClient';
+import { importNetlogDatasetInWorker, isWorkerSupported, largeNetlogTimeout, releaseNetlogDatasetInWorker, releaseRawDataInWorker } from './workers/workerClient';
 import { exportReport } from './parsers/netlog';
 
 jest.mock('antd', () => {
@@ -49,6 +49,7 @@ jest.mock('./parsers/netlog', () => ({
 jest.mock('./workers/workerClient', () => ({
   importNetlogDatasetInWorker: jest.fn(),
   isWorkerSupported: jest.fn(() => false),
+  largeNetlogTimeout: jest.fn(() => 180_000),
   releaseNetlogDatasetInWorker: jest.fn(),
   releaseRawDataInWorker: jest.fn(),
 }));
@@ -107,6 +108,7 @@ jest.mock('./components/raw/RawEvidenceExplorer', () => ({ __esModule: true, def
 
 const parseUploadedInputMock = parseUploadedInput as jest.Mock;
 const isWorkerSupportedMock = isWorkerSupported as jest.Mock;
+const largeNetlogTimeoutMock = largeNetlogTimeout as jest.Mock;
 const importNetlogDatasetInWorkerMock = importNetlogDatasetInWorker as jest.Mock;
 const releaseNetlogDatasetInWorkerMock = releaseNetlogDatasetInWorker as jest.Mock;
 const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
@@ -117,6 +119,8 @@ describe('App Phase 3 upload behavior', () => {
     window.location.hash = '';
     parseUploadedInputMock.mockReset();
     isWorkerSupportedMock.mockReturnValue(false);
+    largeNetlogTimeoutMock.mockClear();
+    largeNetlogTimeoutMock.mockReturnValue(180_000);
     releaseRawDataInWorkerMock.mockClear();
     releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
     importNetlogDatasetInWorkerMock.mockClear();
@@ -317,8 +321,9 @@ describe('App Phase 3 upload behavior', () => {
 
     await waitFor(() => expect(importNetlogDatasetInWorkerMock).toHaveBeenCalledWith(
       expect.any(File),
-      expect.objectContaining({ onProgress: expect.any(Function) })
+      expect.objectContaining({ onProgress: expect.any(Function), timeout: 180_000 })
     ));
+    expect(largeNetlogTimeoutMock).toHaveBeenCalledWith(expect.any(Number));
   });
 
   it('worker supported 时重置会释放全部 rawData', async () => {
