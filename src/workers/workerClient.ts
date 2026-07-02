@@ -17,7 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -345,6 +345,22 @@ export async function getNetlogQuicStateInWorker(
     options
   );
   return response.payload as QuicStateView;
+}
+
+export async function getNetlogHttp2StateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<Http2StateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-http2-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as Http2StateView;
 }
 
 /**

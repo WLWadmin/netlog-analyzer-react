@@ -475,8 +475,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState);
+          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;
@@ -565,6 +565,20 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'netlog-quic-state',
           payload: dataset.quicState,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-http2-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.http2State) throw new Error(`NetLog Dataset HTTP/2 state 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-http2-state',
+          payload: dataset.http2State,
           duration,
         });
         break;

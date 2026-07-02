@@ -13,8 +13,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -449,6 +449,136 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
   );
 };
 
+const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<Http2StateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogHttp2StateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset HTTP/2 State 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset HTTP/2 State 视图" />;
+  }
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="HTTP/2 State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="HTTP/2 State 展示 session、stream 与协议错误线索"
+          description="HTTP/2 使用状态是协议事实，不能单独作为请求失败或慢请求根因；GOAWAY、RST_STREAM、error 需要结合 raw event、ALPN、代理兼容性和协议回退判断。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.errors.length > 0 || view.goawayCount > 0 || view.rstStreamCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="HTTP/2 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="GOAWAY">{view.goawayCount}</Descriptions.Item>
+          <Descriptions.Item label="RST_STREAM">{view.rstStreamCount}</Descriptions.Item>
+          <Descriptions.Item label="WINDOW_UPDATE">{view.windowUpdateCount}</Descriptions.Item>
+          <Descriptions.Item label="Sessions">{view.sessions.length}</Descriptions.Item>
+          <Descriptions.Item label="Streams">{view.streams.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Session Source ID', dataIndex: 'sourceId', width: 140 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Streams', dataIndex: 'streamCount', width: 90 },
+            { title: 'GOAWAY', dataIndex: 'goawayCount', width: 90 },
+            { title: 'RST', dataIndex: 'rstStreamCount', width: 90 },
+            { title: 'Window', dataIndex: 'windowUpdateCount', width: 90 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Hosts', dataIndex: 'hosts', render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Protocols', dataIndex: 'protocols', render: (value: string[]) => value.join(', ') || '-' },
+          ]}
+          dataSource={view.sessions}
+          locale={{ emptyText: '未发现 Dataset HTTP/2 session' }}
+        />
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Stream Source ID', dataIndex: 'sourceId', width: 140 },
+            { title: 'Session Source ID', dataIndex: 'sessionSourceId', width: 150, render: (value?: number) => value ?? '-' },
+            { title: 'Stream ID', dataIndex: 'streamId', width: 100, render: (value?: number) => value ?? '-' },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Hosts', dataIndex: 'hosts', render: (value: string[]) => value.join(', ') || '-' },
+          ]}
+          dataSource={view.streams}
+          locale={{ emptyText: '未发现 Dataset HTTP/2 stream' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.streamId ?? ''}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 110, render: (value?: number) => value ?? '-' },
+            { title: 'Stream', dataIndex: 'streamId', width: 90, render: (value?: number) => value ?? '-' },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Details', dataIndex: 'details', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.errors}
+          locale={{ emptyText: '未发现 Dataset HTTP/2 error' }}
+        />
+      </Space>
+      <Modal
+        title="Raw Event Detail"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -581,11 +711,15 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
             description="Dataset 未就绪时只能展示摘要中的 QUIC/HTTP3 事件；索引完成后会展示 QUIC session、版本、peer、error 和 raw event 跳转。"
           />
         )}
-        <StateGapCard
-          title="HTTP/2 State"
-          dataset={dataset}
-          description="当前未从 Dataset reducer 构建 HTTP/2 session / stream 状态；后续应从 HTTP2_SESSION 与 HTTP2_STREAM 事件聚合。"
-        />
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetHttp2StateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="HTTP/2 State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示摘要中的 HTTP/2 事件；索引完成后会展示 session、stream、GOAWAY、RST_STREAM、WINDOW_UPDATE 和 raw event 跳转。"
+          />
+        )}
         <StateGapCard
           title="Sockets State"
           dataset={dataset}

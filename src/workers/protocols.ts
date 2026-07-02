@@ -140,6 +140,14 @@ export interface GetNetlogQuicStateRequest {
   };
 }
 
+export interface GetNetlogHttp2StateRequest {
+  type: 'get-netlog-http2-state';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
 export interface GetRawStructureRequest {
   type: 'get-raw-structure';
   id: string;
@@ -175,6 +183,7 @@ export type WorkerRequest =
   | GetNetlogDnsStateRequest
   | GetNetlogProxyStateRequest
   | GetNetlogQuicStateRequest
+  | GetNetlogHttp2StateRequest
   | GetRawStructureRequest
   | GetRawValueRequest;
 
@@ -183,7 +192,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state' | 'netlog-http2-state';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

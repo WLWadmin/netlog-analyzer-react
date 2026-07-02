@@ -112,3 +112,45 @@ export interface QuicStateView {
   quicEventCount: number;
   evidenceGaps: string[];
 }
+
+export interface Http2StateView {
+  sessions: Array<{
+    sourceId: number;
+    eventCount: number;
+    streamCount: number;
+    hosts: string[];
+    protocols: string[];
+    goawayCount: number;
+    rstStreamCount: number;
+    windowUpdateCount: number;
+    errorCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+  }>;
+  streams: Array<{
+    sourceId: number;
+    sessionSourceId?: number;
+    streamId?: number;
+    eventCount: number;
+    hosts: string[];
+    errorCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+  }>;
+  errors: Array<{
+    eventId: number;
+    sourceId: number;
+    sessionSourceId?: number;
+    streamId?: number;
+    typeName: string;
+    error?: number | string;
+    details?: string;
+    byteStart?: number;
+    byteEnd?: number;
+  }>;
+  eventCount: number;
+  goawayCount: number;
+  rstStreamCount: number;
+  windowUpdateCount: number;
+  evidenceGaps: string[];
+}
