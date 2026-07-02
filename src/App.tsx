@@ -89,6 +89,8 @@ const AppContent: React.FC = () => {
   const resultRef = useRef<AnalysisResult | null>(null);
   const harResultRef = useRef<HarAnalysisResult | null>(null);
   const rawDataIdByTypeRef = useRef(rawDataIdByType);
+  const datasetIndexTaskIdRef = useRef(0);
+  const datasetAnalysisIdRef = useRef<string | undefined>(undefined);
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -154,6 +156,67 @@ const AppContent: React.FC = () => {
       // 释放失败不影响解析和浏览流程，Worker LRU 仍会兜底控制内存上限
     });
   }, []);
+
+  const releaseDatasetAnalysisId = useCallback((analysisId?: string) => {
+    if (!analysisId || !isWorkerSupported()) return;
+    void releaseNetlogDatasetInWorker({ analysisId }).catch(() => {
+      // Dataset 释放失败不影响当前浏览流程，reset/unload 仍会兜底释放全部 Dataset
+    });
+  }, []);
+
+  const startDatasetIndexingForFile = useCallback(async (
+    file: File,
+    options?: { background?: boolean; token?: number }
+  ) => {
+    if (!isWorkerSupported()) {
+      if (!options?.background) message.warning('当前浏览器不支持 Worker Dataset 索引');
+      return;
+    }
+    const token = options?.token ?? ++datasetIndexTaskIdRef.current;
+    const previousAnalysisId = datasetAnalysisIdRef.current;
+    if (!options?.background) {
+      setLoading(true);
+      setLoadingText('正在构建 NetLog Dataset 索引...');
+    }
+    setNetlogDataset({ status: 'importing' });
+    try {
+      const meta = await importNetlogDatasetInWorker(file, {
+        onProgress: (phase) => {
+          if (!options?.background && token === datasetIndexTaskIdRef.current) setLoadingText(phase);
+        },
+      });
+      if (token !== datasetIndexTaskIdRef.current) {
+        releaseDatasetAnalysisId(meta.analysisId);
+        return;
+      }
+      if (previousAnalysisId && previousAnalysisId !== meta.analysisId) {
+        releaseDatasetAnalysisId(previousAnalysisId);
+      }
+      datasetAnalysisIdRef.current = meta.analysisId;
+      setNetlogDataset({
+        status: 'ready',
+        analysisId: meta.analysisId,
+      });
+      if (!options?.background) {
+        message.success(`Dataset 索引已就绪：${meta.eventCount ?? 0} 条事件`);
+      } else {
+        message.info(`Dataset 后台索引已就绪：${meta.eventCount ?? 0} 条事件`);
+      }
+    } catch (err) {
+      if (token !== datasetIndexTaskIdRef.current) return;
+      setNetlogDataset({
+        status: 'error',
+        error: (err as Error).message,
+      });
+      if (!options?.background) {
+        message.error('Dataset 索引失败: ' + (err as Error).message);
+      }
+    } finally {
+      if (!options?.background && token === datasetIndexTaskIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [releaseDatasetAnalysisId]);
 
   useEffect(() => {
     return () => {
@@ -259,6 +322,12 @@ const AppContent: React.FC = () => {
       }
       setEvents(parsed.events);
       setResult(parsed.result);
+      const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
+      if (previousDatasetAnalysisId) {
+        releaseDatasetAnalysisId(previousDatasetAnalysisId);
+        datasetAnalysisIdRef.current = undefined;
+      }
+      const datasetToken = ++datasetIndexTaskIdRef.current;
       setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
       setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
@@ -267,6 +336,9 @@ const AppContent: React.FC = () => {
         releaseRawDataId(previousNetlogRawDataId);
       }
       rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
+      if (data instanceof File && useWorker && parsed.dataset?.status === 'fallback') {
+        void startDatasetIndexingForFile(data, { background: true, token: datasetToken });
+      }
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -359,6 +431,12 @@ const AppContent: React.FC = () => {
 
       setEvents(parsed.events);
       setResult(parsed.result);
+      const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
+      if (previousDatasetAnalysisId) {
+        releaseDatasetAnalysisId(previousDatasetAnalysisId);
+        datasetAnalysisIdRef.current = undefined;
+      }
+      const datasetToken = ++datasetIndexTaskIdRef.current;
       setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
       setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
@@ -367,6 +445,9 @@ const AppContent: React.FC = () => {
         releaseRawDataId(previousNetlogRawDataId);
       }
       rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
+      if (data instanceof File && useWorker && parsed.dataset?.status === 'fallback') {
+        void startDatasetIndexingForFile(data, { background: true, token: datasetToken });
+      }
 
       if (harResultRef.current) {
         setFileType('netlog');
@@ -398,6 +479,8 @@ const AppContent: React.FC = () => {
     setLogResult(null);
     setRawUploadDataByType({});
     setRawDataIdByType({});
+    datasetIndexTaskIdRef.current += 1;
+    datasetAnalysisIdRef.current = undefined;
     setNetlogDataset(unavailableNetlogDatasetState);
     setCurrentNetlogFile(null);
     if (useWorker) {
@@ -426,31 +509,7 @@ const AppContent: React.FC = () => {
       message.warning('当前没有可用于 Dataset 索引的 NetLog 文件，请重新上传原始文件');
       return;
     }
-    if (!useWorker) {
-      message.warning('当前浏览器不支持 Worker Dataset 索引');
-      return;
-    }
-    setNetlogDataset({ status: 'importing' });
-    setLoading(true);
-    setLoadingText('正在构建 NetLog Dataset 索引...');
-    try {
-      const meta = await importNetlogDatasetInWorker(currentNetlogFile, {
-        onProgress: (phase) => setLoadingText(phase),
-      });
-      setNetlogDataset({
-        status: 'ready',
-        analysisId: meta.analysisId,
-      });
-      message.success(`Dataset 索引已就绪：${meta.eventCount ?? 0} 条事件`);
-    } catch (err) {
-      setNetlogDataset({
-        status: 'error',
-        error: (err as Error).message,
-      });
-      message.error('Dataset 索引失败: ' + (err as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    await startDatasetIndexingForFile(currentNetlogFile);
   };
 
 
@@ -553,6 +612,7 @@ const AppContent: React.FC = () => {
           harResult={harResult}
           onUploadMissingFile={handleSecondaryFileLoaded}
           onLookupConclusionsChange={setIpRoutingConclusions}
+          dataset={netlogDataset}
         />
       ) : null,
     },

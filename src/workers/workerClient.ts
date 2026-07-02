@@ -16,6 +16,7 @@ import type { QueryNetlogEventsResult } from './netlogDatasetQuery';
 import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
+import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -265,6 +266,22 @@ export async function getNetlogEventDetailInWorker(
   return response.payload;
 }
 
+export async function getNetlogEndpointEvidenceInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<DnsIpEvidenceSummary> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-endpoint-evidence',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as DnsIpEvidenceSummary;
+}
+
 /**
  * 从 Worker 内 rawData 缓存读取结构概览。
  */
@@ -353,7 +370,9 @@ export async function parseLargeNetlogFileInWorker(
     taskId: id,
     event: 'client:success',
     duration: response.duration,
-    eventCount: Array.isArray(response.events) ? response.events.length : undefined,
+    previewEventCount: Array.isArray(response.events) ? response.events.length : undefined,
+    parsedEvents: (response.payload as AnalysisResult | undefined)?.largeFileMode?.parsedEvents,
+    totalEvents: (response.payload as AnalysisResult | undefined)?.totalEvents,
   });
   return {
     events: response.events as ParsedEvent[],

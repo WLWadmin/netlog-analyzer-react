@@ -14,6 +14,8 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
   const [errorOnly, setErrorOnly] = useState(false);
   const [sourceIdFilter, setSourceIdFilter] = useState('');
   const [typeIdFilter, setTypeIdFilter] = useState('');
+  const [typeNameFilter, setTypeNameFilter] = useState('');
+  const [sourceTypeNameFilter, setSourceTypeNameFilter] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -36,6 +38,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     if (filters.errorOnly || filters.errorCode) setErrorOnly(true);
     if (filters.phase) setPhaseFilter(filters.phase);
     if (filters.eventType && /^\d+$/.test(filters.eventType)) setTypeIdFilter(filters.eventType);
+    else if (filters.eventType) setTypeNameFilter(filters.eventType);
     setPage(1);
     consumeIntent();
   }, [intent, consumeIntent]);
@@ -57,6 +60,8 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       errorOnly,
       sourceId: numericOrUndefined(sourceIdFilter),
       typeId: numericOrUndefined(typeIdFilter),
+      typeName: typeNameFilter.trim() || undefined,
+      sourceTypeName: sourceTypeNameFilter.trim() || undefined,
       phase: numericOrUndefined(phaseFilter),
     })
       .then(result => {
@@ -71,12 +76,14 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     return () => {
       cancelled = true;
     };
-  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, phaseFilter]);
+  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter]);
 
   const clearFilters = () => {
     setErrorOnly(false);
     setSourceIdFilter('');
     setTypeIdFilter('');
+    setTypeNameFilter('');
+    setSourceTypeNameFilter('');
     setPhaseFilter('');
     setPage(1);
   };
@@ -118,6 +125,22 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
           <Input
             allowClear
             size="small"
+            style={{ width: 150 }}
+            placeholder="typeName"
+            value={typeNameFilter}
+            onChange={(event) => { setTypeNameFilter(event.target.value); setPage(1); }}
+          />
+          <Input
+            allowClear
+            size="small"
+            style={{ width: 150 }}
+            placeholder="sourceType"
+            value={sourceTypeNameFilter}
+            onChange={(event) => { setSourceTypeNameFilter(event.target.value); setPage(1); }}
+          />
+          <Input
+            allowClear
+            size="small"
             style={{ width: 90 }}
             placeholder="phase"
             value={phaseFilter}
@@ -131,13 +154,13 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       }
       bordered={false}
     >
-      {(sourceIdFilter || typeIdFilter || phaseFilter || errorOnly) && (
+      {(sourceIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || errorOnly) && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
           message="Dataset 查询条件"
-          description={`sourceId=${sourceIdFilter || '*'}，typeId=${typeIdFilter || '*'}，phase=${phaseFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
+          description={`sourceId=${sourceIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
         />
       )}
       <Table<NetlogEventRow>
@@ -159,7 +182,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
           { title: 'Time', dataIndex: 'time', width: 120 },
           { title: 'Type', dataIndex: 'typeName', render: (_, row) => `${row.typeName} (${row.typeId})` },
           { title: 'Source', dataIndex: 'sourceId', width: 180, render: (_, row) => `${row.sourceId} / ${row.sourceTypeName}` },
-          { title: 'Phase', dataIndex: 'phase', width: 90 },
+          { title: 'Phase', dataIndex: 'phaseName', width: 140, render: (_, row) => `${row.phaseName} (${row.phase})` },
           { title: 'Error', dataIndex: 'hasError', width: 90, render: (value) => value ? <Tag color="red">error</Tag> : <Tag>ok</Tag> },
           {
             title: 'Detail',

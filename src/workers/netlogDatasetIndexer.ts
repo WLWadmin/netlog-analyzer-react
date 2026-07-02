@@ -1,3 +1,6 @@
+import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
+import { createNetlogEndpointEvidenceReducer } from './netlogEndpointEvidenceReducer';
+
 export interface CompactEventIndex {
   count: number;
   time: number[];
@@ -8,6 +11,13 @@ export interface CompactEventIndex {
   flags: number[];
   byteStart: number[];
   byteEnd: number[];
+  eventTypeNames?: Record<number, string>;
+  sourceTypeNames?: Record<number, string>;
+}
+
+export interface NetlogDatasetIndexResult {
+  index: CompactEventIndex;
+  endpointEvidence: DnsIpEvidenceSummary;
 }
 
 export interface NetlogIndexableFile {
@@ -45,7 +55,29 @@ function emptyIndex(): CompactEventIndex {
     flags: [],
     byteStart: [],
     byteEnd: [],
+    eventTypeNames: {},
+    sourceTypeNames: {},
   };
+}
+
+function buildReverseNameMap(raw: unknown): Record<number, string> {
+  const result: Record<number, string> = {};
+  if (!raw || typeof raw !== 'object') return result;
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'number') {
+      result[value] = name;
+    } else if (/^\d+$/.test(name) && typeof value === 'string') {
+      result[Number(name)] = value;
+    }
+  }
+  return result;
+}
+
+function applyConstants(index: CompactEventIndex, constants: unknown) {
+  if (!constants || typeof constants !== 'object') return;
+  const value = constants as Record<string, unknown>;
+  index.eventTypeNames = buildReverseNameMap(value.logEventTypes || value.eventTypes);
+  index.sourceTypeNames = buildReverseNameMap(value.logSourceType || value.sourceTypes || value.logSourceTypes);
 }
 
 function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byteEnd: number) {
@@ -60,6 +92,14 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
   index.byteEnd.push(byteEnd);
 }
 
+function eventName(index: CompactEventIndex, typeId: number): string {
+  return index.eventTypeNames?.[typeId] || `UNKNOWN_${typeId}`;
+}
+
+function sourceTypeName(index: CompactEventIndex, sourceTypeId: number): string {
+  return index.sourceTypeNames?.[sourceTypeId] || (sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC');
+}
+
 export async function readNetlogEventDetail(file: NetlogIndexableFile, index: CompactEventIndex, eventId: number): Promise<unknown> {
   const start = index.byteStart[eventId];
   const end = index.byteEnd[eventId];
@@ -70,8 +110,9 @@ export async function readNetlogEventDetail(file: NetlogIndexableFile, index: Co
   return JSON.parse(text);
 }
 
-export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): Promise<CompactEventIndex> {
+export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): Promise<NetlogDatasetIndexResult> {
   const index = emptyIndex();
+  const endpointReducer = createNetlogEndpointEvidenceReducer();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
 
@@ -86,6 +127,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
   let skipDepth = 0;
   let skipInString = false;
   let skipEscape = false;
+  let skipValueBytes: number[] | null = null;
   let objectDepth = 0;
   let objectInString = false;
   let objectEscape = false;
@@ -97,11 +139,51 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     skipDepth = 0;
     skipInString = false;
     skipEscape = false;
+    skipValueBytes = pendingKey === 'constants' ? [] : null;
+  };
+
+  const finishSkippedValue = () => {
+    if (!skipValueBytes) return;
+    try {
+      const value = JSON.parse(decoder.decode(new Uint8Array(skipValueBytes)));
+      if (pendingKey === 'constants') applyConstants(index, value);
+    } catch {
+      // constants 解析失败不影响事件索引
+    } finally {
+      skipValueBytes = null;
+    }
+  };
+
+  const appendSkipByte = (byte: number) => {
+    if (skipValueBytes !== null) {
+      skipValueBytes.push(byte);
+    }
+  };
+
+  const removeLastSkipByte = () => {
+    if (skipValueBytes !== null) {
+      skipValueBytes.pop();
+    }
   };
 
   const finishObject = async (byteEnd: number) => {
     const eventJson = decoder.decode(new Uint8Array(objectBytes));
-    pushEvent(index, JSON.parse(eventJson), objectStart, byteEnd);
+    const event = JSON.parse(eventJson);
+    const eventId = index.count;
+    pushEvent(index, event, objectStart, byteEnd);
+    const typeId = Number(event?.type) || 0;
+    const sourceTypeId = Number(event?.source?.type ?? event?.source_type) || 0;
+    endpointReducer.accept({
+      eventId,
+      byteStart: objectStart,
+      byteEnd,
+      time: Number(event?.time) || 0,
+      typeName: eventName(index, typeId),
+      sourceId: Number(event?.source?.id ?? event?.source_id) || 0,
+      sourceTypeName: sourceTypeName(index, sourceTypeId),
+      phase: Number(event?.phase) || 0,
+      params: event?.params,
+    });
     objectBytes = [];
     objectStart = -1;
   };
@@ -182,6 +264,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
         if (!skipStarted) {
           if (isWhitespaceByte(byte)) continue;
           skipStarted = true;
+          appendSkipByte(byte);
           if (byte === QUOTE) {
             skipInString = true;
             continue;
@@ -191,15 +274,18 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
             continue;
           }
           if (byte === COMMA) {
+            finishSkippedValue();
             mode = 'find-key';
             continue;
           }
           if (byte === RIGHT_BRACE) {
+            finishSkippedValue();
             mode = 'done';
             continue;
           }
           continue;
         }
+        appendSkipByte(byte);
         if (skipInString) {
           if (skipEscape) skipEscape = false;
           else if (byte === BACKSLASH) skipEscape = true;
@@ -217,12 +303,16 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
         if (byte === RIGHT_BRACE || byte === RIGHT_BRACKET) {
           if (skipDepth > 0) {
             skipDepth--;
+            if (skipDepth === 0) finishSkippedValue();
             continue;
           }
+          finishSkippedValue();
           mode = 'done';
           continue;
         }
         if (skipDepth === 0 && byte === COMMA) {
+          removeLastSkipByte();
+          finishSkippedValue();
           mode = 'find-key';
         }
         continue;
@@ -267,5 +357,8 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     absoluteByteOffset += chunk.length;
   }
 
-  return index;
+  return {
+    index,
+    endpointEvidence: endpointReducer.finish(),
+  };
 }

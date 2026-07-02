@@ -7,6 +7,7 @@ import type {
   DnsAnswerEvidence,
   DnsIpEvidenceSummary,
   DnsServerEvidence,
+  DohCandidateEvidence,
   IpEvidenceItem,
   RequestImpact,
 } from './ipEvidenceTypes';
@@ -54,6 +55,33 @@ function extractSocketIpValues(raw: unknown): unknown[] {
   ].filter(Boolean);
 }
 
+function parseHeaders(headers: unknown): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!headers) return result;
+  if (Array.isArray(headers)) {
+    for (const line of headers) {
+      if (typeof line !== 'string') continue;
+      const idx = line.indexOf(':');
+      if (idx > 0) result[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
+    }
+    return result;
+  }
+  if (typeof headers === 'string') {
+    for (const line of headers.split(/\r?\n/)) {
+      const idx = line.indexOf(':');
+      if (idx > 0) result[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
+    }
+    return result;
+  }
+  if (typeof headers === 'object') {
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (typeof value === 'string') result[key.toLowerCase()] = value;
+      else if (Array.isArray(value)) result[key.toLowerCase()] = value.join(', ');
+    }
+  }
+  return result;
+}
+
 function addIpEvidence(
   map: Map<string, IpEvidenceItem>,
   rawIp: unknown,
@@ -82,6 +110,9 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     host: string;
     cipIps: Set<string>;
     sipIps: Set<string>;
+    socketPeerIps: Set<string>;
+    dnsAnswerIps: Set<string>;
+    serverObservedClientIps: Set<string>;
     items: IpEvidenceItem[];
     descriptions: Set<string>;
   }>();
@@ -93,6 +124,9 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       host: baseHost,
       cipIps: new Set<string>(),
       sipIps: new Set<string>(),
+      socketPeerIps: new Set<string>(),
+      dnsAnswerIps: new Set<string>(),
+      serverObservedClientIps: new Set<string>(),
       items: [],
       descriptions: new Set<string>(),
     };
@@ -100,9 +134,12 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     if (item.role === 'cip') {
       row.cipIps.add(item.ip);
     }
-    if (item.role === 'sip' || item.role === 'socket-peer' || item.role === 'dns-answer') {
+    if (item.role === 'sip') {
       row.sipIps.add(item.ip);
     }
+    if (item.role === 'socket-peer') row.socketPeerIps.add(item.ip);
+    if (item.role === 'dns-answer') row.dnsAnswerIps.add(item.ip);
+    if (item.role === 'server-observed-client-ip') row.serverObservedClientIps.add(item.ip);
     row.items.push(item);
     row.descriptions.add(item.description);
     draftRows.set(provisionalKey, row);
@@ -112,7 +149,17 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
   for (const row of draftRows.values()) {
     const cipIps = Array.from(row.cipIps).sort();
     const sipIps = Array.from(row.sipIps).sort();
-    const key = [row.host, cipIps.join(','), sipIps.join(',')].join('|');
+    const socketPeerIps = Array.from(row.socketPeerIps).sort();
+    const dnsAnswerIps = Array.from(row.dnsAnswerIps).sort();
+    const serverObservedClientIps = Array.from(row.serverObservedClientIps).sort();
+    const key = [
+      row.host,
+      cipIps.join(','),
+      sipIps.join(','),
+      socketPeerIps.join(','),
+      dnsAnswerIps.join(','),
+      serverObservedClientIps.join(','),
+    ].join('|');
     const uniqueItems = Array.from(new Map(row.items.map(item => [
       [item.url || item.host || '-', item.statusCode || '', item.error || '', item.durationMs || ''].join('|'),
       item,
@@ -148,6 +195,9 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       durationMs: representative?.durationMs,
       cipIps,
       sipIps,
+      socketPeerIps,
+      dnsAnswerIps,
+      serverObservedClientIps,
       representativeRequests: nextRequests,
       descriptions: Array.from(row.descriptions).slice(0, 6),
     });
@@ -165,7 +215,7 @@ function buildSummary(
   dnsServers: DnsServerEvidence[],
   dnsAnswers: DnsAnswerEvidence[],
   items: IpEvidenceItem[],
-  options?: { dnsEventCount?: number }
+  options?: { dnsEventCount?: number; dohCandidates?: DohCandidateEvidence[] }
 ): DnsIpEvidenceSummary {
   const copyableIps = Array.from(new Set([
     ...items.map(item => item.ip),
@@ -176,6 +226,7 @@ function buildSummary(
   return {
     dnsServers,
     dnsAnswers,
+    dohCandidates: options?.dohCandidates || [],
     dnsEventCount: options?.dnsEventCount,
     failedOrSlowIps: items,
     cipSipRows: buildRows(items),
@@ -246,6 +297,9 @@ export function extractDnsIpEvidenceFromNetlog(result: AnalysisResult): DnsIpEvi
       time: record.time,
     }))
     .filter(record => record.ips.length > 0);
+  const dohCandidates: DohCandidateEvidence[] = (result.dohCandidates || [])
+    .map(item => ({ value: item.value, source: item.source }))
+    .filter(item => item.value);
 
   for (const req of result.urlRequests || []) {
     if (!isProblemNetlogRequest(req)) continue;
@@ -275,6 +329,14 @@ export function extractDnsIpEvidenceFromNetlog(result: AnalysisResult): DnsIpEvi
 
     for (const evt of req.events || []) {
       const params = evt.params || {};
+      const headers = parseHeaders((params as Record<string, unknown>).headers);
+      addIpEvidence(itemMap, headers['x-request-ip'], {
+        ...base,
+        role: 'server-observed-client-ip',
+        source: 'netlog.headers.x-request-ip',
+        description: `NetLog x-request-ip：${req.method} ${req.statusCode || req.errorDesc || req.error || '-'} ${req.url}`,
+      });
+
       const rawSocketIps = [
         { raw: params.ip_endpoint, source: 'netlog.params.ip_endpoint' as const },
         { raw: params.address, source: 'netlog.params.address' as const },
@@ -307,20 +369,40 @@ export function extractDnsIpEvidenceFromNetlog(result: AnalysisResult): DnsIpEvi
     }
   }
 
+  for (const evt of result.connectEvents || []) {
+    const params = evt.params || {};
+    const rawSocketIps = [
+      { raw: params.ip_endpoint, source: 'netlog.params.ip_endpoint' as const },
+      { raw: params.address, source: 'netlog.params.address' as const },
+      { raw: params.peer_address, source: 'netlog.params.peer_address' as const },
+    ].flatMap(item => extractSocketIpValues(item.raw).map(raw => ({ raw, source: item.source })));
+    for (const item of rawSocketIps) {
+      addIpEvidence(itemMap, item.raw, {
+        host: '未关联到具体请求',
+        impact: 'normal',
+        role: 'socket-peer',
+        source: item.source,
+        description: `NetLog ${evt.typeName || 'connect'}：连接目标候选 IP，未能关联到具体失败/慢请求 source`,
+      });
+    }
+  }
+
   for (const answer of dnsAnswers) {
-    if (!problemHosts.has(answer.host)) continue;
     for (const ip of answer.ips) {
       addIpEvidence(itemMap, ip, {
         host: answer.host,
         impact: 'dns',
         role: 'dns-answer',
         source: 'netlog.dnsRecords.ips',
-        description: `NetLog dnsRecords：${answer.host} -> ${ip}`,
+        description: problemHosts.has(answer.host)
+          ? `NetLog dnsRecords：${answer.host} -> ${ip}`
+          : `NetLog dnsRecords：${answer.host} -> ${ip}（DNS 解析线索，未命中失败/慢请求域名）`,
       });
     }
   }
 
   return buildSummary(dnsServers, dnsAnswers, Array.from(itemMap.values()), {
     dnsEventCount: result.dnsEvents?.length || 0,
+    dohCandidates,
   });
 }

@@ -11,6 +11,9 @@ export function buildCipSipRowsText(rows: CipSipEvidenceRow[]): string {
     `耗时: ${row.durationMs ?? '-'}ms`,
     `CIP: ${row.cipIps.join(', ') || '-'}`,
     `SIP: ${row.sipIps.join(', ') || '-'}`,
+    `Socket peer: ${(row.socketPeerIps || []).join(', ') || '-'}`,
+    `DNS answer: ${(row.dnsAnswerIps || []).join(', ') || '-'}`,
+    `服务端观察客户端 IP: ${(row.serverObservedClientIps || []).join(', ') || '-'}`,
     `代表请求: ${row.representativeRequests.map(req => `${req.url} (${req.durationMs ?? '-'}ms)`).join('；') || '-'}`,
   ].join('\n')).join('\n\n');
 }

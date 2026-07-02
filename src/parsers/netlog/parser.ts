@@ -98,6 +98,11 @@ export interface DnsRecord {
   time?: number;
 }
 
+export interface DohCandidate {
+  value: string;
+  source: 'polledData' | 'dns_event' | 'unknown';
+}
+
 export interface AnalysisResult {
   totalEvents: number;
   uniqueSources: number;
@@ -117,6 +122,7 @@ export interface AnalysisResult {
   hosts: Record<string, string>;
   dnsServers: string[];
   dnsRecords: DnsRecord[];
+  dohCandidates?: DohCandidate[];
   errorSources: Record<string, number>;
   certIssues: SslIssue[];
   sslIssues: SslIssue[];
@@ -188,6 +194,7 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     systemInfo: { os: null, browser: null, netLogVersion: null, commandLine: null },
     dnsServers: [],
     dnsRecords: [],
+    dohCandidates: [],
   };
 
   // Extract events
@@ -386,9 +393,17 @@ const DNS_SERVER_KEYS = new Set([
   'systemnameservers',
   'configurednameservers',
   'effectivenameservers',
+]);
+
+const DOH_CANDIDATE_KEYS = new Set([
   'dohservers',
+  'dohserver',
   'dnsoverhttpsservers',
+  'dnsoverhttpsserver',
   'securednsservers',
+  'securednsserver',
+  'templates',
+  'servertemplates',
 ]);
 
 const DNS_CONFIG_CONTAINER_KEYS = new Set([
@@ -593,12 +608,36 @@ function addDnsServers(result: AnalysisResult, ips: string[]) {
   result.dnsServers = Array.from(next);
 }
 
+function addDohCandidates(result: AnalysisResult, values: unknown[], source: DohCandidate['source']) {
+  const next = new Map((result.dohCandidates || []).map(item => [item.value, item]));
+  const collect = (value: unknown) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) next.set(trimmed, { value: trimmed, source });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).forEach(collect);
+    }
+  };
+  values.forEach(collect);
+  result.dohCandidates = Array.from(next.values());
+}
+
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[-_\s]/g, '');
 }
 
 function isDnsServerConfigKey(key: string): boolean {
   return DNS_SERVER_KEYS.has(normalizeKey(key));
+}
+
+function isDohCandidateKey(key: string): boolean {
+  return DOH_CANDIDATE_KEYS.has(normalizeKey(key));
 }
 
 function isDnsConfigContainerKey(key: string): boolean {
@@ -690,6 +729,7 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
   if (!polledData || typeof polledData !== 'object') return;
 
   const dnsServerIps = new Set<string>();
+  const dohCandidateValues: unknown[] = [];
 
   const collectFromConfigValue = (value: unknown) => {
     extractIpsFromValue(value).forEach(ip => {
@@ -704,11 +744,17 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
 
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
       const isServerKey = isDnsServerConfigKey(key);
+      const isDohKey = isDohCandidateKey(key);
       const isConfigContainer = isDnsConfigContainerKey(key);
 
       // 只在明确 DNS 配置字段中提取 nameservers / dns_servers
       if (isServerKey) {
         collectFromConfigValue(value);
+        continue;
+      }
+
+      if (isDohKey) {
+        dohCandidateValues.push(value);
         continue;
       }
 
@@ -728,6 +774,7 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
   walkConfigOnly(polledData);
 
   addDnsServers(result, Array.from(dnsServerIps));
+  addDohCandidates(result, dohCandidateValues, 'polledData');
 }
 
 function parsePolledData(polledData: any, r: AnalysisResult) {

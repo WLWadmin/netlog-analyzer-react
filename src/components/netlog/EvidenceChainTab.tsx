@@ -1,10 +1,13 @@
-import React, { useMemo } from 'react';
-import { Alert, Card, Collapse, Table } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Card, Collapse, Table, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { HarAnalysisResult } from '../../harParser';
 import type { AnalysisResult, FailedDomain, ParsedEvent } from '../../parsers/netlog/parser';
 import { buildCombinedDiagnosisSummary, buildFinalDiagnosisSummary } from '../../diagnosis/shared';
 import { extractDnsIpEvidenceFromNetlog, type IpRoutingConclusion } from '../../diagnosis/ipEvidence';
+import type { DnsIpEvidenceSummary } from '../../diagnosis/ipEvidence';
+import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
+import { getNetlogEndpointEvidenceInWorker } from '../../workers/workerClient';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
@@ -22,6 +25,7 @@ interface EvidenceChainTabProps {
     fileTypeHint?: 'netlog' | 'har' | 'log'
   ) => void;
   onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
+  dataset?: NetlogDatasetState;
 }
 
 const FailedDomainEvidencePanel: React.FC<{ result: AnalysisResult }> = ({ result }) => {
@@ -100,12 +104,40 @@ const EvidenceChainTab: React.FC<EvidenceChainTabProps> = ({
   harResult,
   onUploadMissingFile,
   onLookupConclusionsChange,
+  dataset,
 }) => {
-  const dnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromNetlog(result), [result]);
+  const fallbackDnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromNetlog(result), [result]);
+  const [datasetDnsIpEvidence, setDatasetDnsIpEvidence] = useState<DnsIpEvidenceSummary | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setDatasetDnsIpEvidence(undefined);
+    if (dataset?.status !== 'ready' || !dataset.analysisId) return () => { cancelled = true; };
+    getNetlogEndpointEvidenceInWorker({ analysisId: dataset.analysisId })
+      .then(summary => {
+        if (!cancelled) setDatasetDnsIpEvidence(summary);
+      })
+      .catch(err => {
+        if (!cancelled) message.warning('Dataset endpoint evidence 读取失败，已回退到摘要证据：' + (err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataset?.status, dataset?.analysisId]);
+
+  const dnsIpEvidence = datasetDnsIpEvidence || fallbackDnsIpEvidence;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <NetlogProxyEvidencePanel result={result} />
+      {datasetDnsIpEvidence && (
+        <Alert
+          type="success"
+          showIcon
+          message="当前 DNS/IP 证据来自 Dataset 全量 reducer"
+          description="该视图不再受 eventsPreview=20000 或 URL_REQUEST.events 截断限制；无法关联具体请求的 socket peer 会标记为候选线索。"
+        />
+      )}
       <DnsAndIpEvidencePanel summary={dnsIpEvidence} onLookupConclusionsChange={onLookupConclusionsChange} />
       <FailedDomainEvidencePanel result={result} />
       <CombinedEvidenceEntry

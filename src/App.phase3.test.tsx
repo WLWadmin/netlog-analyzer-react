@@ -58,6 +58,7 @@ jest.mock('./components/netlog/UploadZone', () => ({
   default: ({ onFileLoaded, compact }: { onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void; compact?: boolean }) => (
     <div>
       <button onClick={() => onFileLoaded({ events: [] }, false, undefined, 'netlog')}>{compact ? '追加 NetLog' : '上传 NetLog'}</button>
+      <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'large-netlog.json', { type: 'application/json' }), false, undefined, 'netlog')}>上传大 NetLog 文件</button>
       <button onClick={() => onFileLoaded({ log: { entries: [] } }, false, undefined, 'har')}>{compact ? '追加 HAR' : '上传 HAR'}</button>
       <button onClick={() => onFileLoaded('[worker] Success GET:https://example.com +10ms', true, undefined, 'log')}>上传 Log</button>
     </div>
@@ -286,6 +287,38 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('从结论追加 NetLog'));
 
     await waitFor(() => expect(releaseRawDataInWorkerMock).toHaveBeenCalledWith({ rawDataId: 'netlog-old' }));
+  });
+
+  it('worker supported 且大文件 fallback 时会后台启动 Dataset 索引', async () => {
+    isWorkerSupportedMock.mockReturnValue(true);
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'netlog',
+      events: [],
+      result: {
+        totalEvents: 100000,
+        uniqueSources: 1,
+        peakConcurrency: 1,
+        urlRequests: [],
+        errors: [],
+        warnings: [],
+        info: [],
+        slowRequests: [],
+      },
+      rawData: undefined,
+      rawDataId: undefined,
+      dataset: {
+        status: 'fallback',
+        error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
+      },
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传大 NetLog 文件'));
+
+    await waitFor(() => expect(importNetlogDatasetInWorkerMock).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ onProgress: expect.any(Function) })
+    ));
   });
 
   it('worker supported 时重置会释放全部 rawData', async () => {

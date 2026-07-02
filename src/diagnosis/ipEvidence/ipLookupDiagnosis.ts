@@ -191,5 +191,11 @@ export function buildIpLookupConclusions(
 }
 
 export function collectRowLookupIps(row: CipSipEvidenceRow): string[] {
-  return Array.from(new Set([...row.cipIps, ...row.sipIps]));
+  return Array.from(new Set([
+    ...row.cipIps,
+    ...row.sipIps,
+    ...(row.socketPeerIps || []),
+    ...(row.dnsAnswerIps || []),
+    ...(row.serverObservedClientIps || []),
+  ]));
 }

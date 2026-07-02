@@ -78,8 +78,10 @@ export interface QueryNetlogEventsRequest {
     page?: number;
     pageSize?: number;
     typeId?: number;
+    typeName?: string;
     sourceId?: number;
     sourceTypeId?: number;
+    sourceTypeName?: string;
     phase?: number;
     errorOnly?: boolean;
   };
@@ -91,6 +93,14 @@ export interface GetNetlogEventDetailRequest {
   payload: {
     analysisId: string;
     eventId: number;
+  };
+}
+
+export interface GetNetlogEndpointEvidenceRequest {
+  type: 'get-netlog-endpoint-evidence';
+  id: string;
+  payload: {
+    analysisId: string;
   };
 }
 
@@ -124,6 +134,7 @@ export type WorkerRequest =
   | ReleaseNetlogDatasetRequest
   | QueryNetlogEventsRequest
   | GetNetlogEventDetailRequest
+  | GetNetlogEndpointEvidenceRequest
   | GetRawStructureRequest
   | GetRawValueRequest;
 
@@ -132,7 +143,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

@@ -7,6 +7,7 @@ export type {
   CipSipEvidenceRow,
   DnsServerEvidence,
   DnsAnswerEvidence,
+  DohCandidateEvidence,
   DnsIpEvidenceSummary,
 } from './ipEvidenceTypes';
 

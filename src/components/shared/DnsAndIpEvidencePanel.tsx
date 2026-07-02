@@ -14,6 +14,7 @@ import {
   type DnsAnswerEvidence,
   type DnsIpEvidenceSummary,
   type DnsServerEvidence,
+  type DohCandidateEvidence,
   type IpLookupResult,
   type IpRoutingConclusion,
   type RequestImpact,
@@ -168,6 +169,9 @@ function copyRowText(row: CipSipEvidenceRow): string {
     `域名: ${row.host}`,
     `CIP: ${row.cipIps.join(', ') || '-'}`,
     `SIP: ${row.sipIps.join(', ') || '-'}`,
+    `Socket peer: ${(row.socketPeerIps || []).join(', ') || '-'}`,
+    `DNS answer: ${(row.dnsAnswerIps || []).join(', ') || '-'}`,
+    `服务端观察客户端 IP: ${(row.serverObservedClientIps || []).join(', ') || '-'}`,
     `代表请求: ${row.representativeRequests.map(req => `${req.url} (${req.durationMs ?? '-'}ms)`).join('；') || '-'}`,
   ].join('\n');
 }
@@ -203,6 +207,9 @@ function buildLookupRows(
   for (const row of summary.cipSipRows) {
     row.cipIps.forEach(ip => addContext(ip, 'CIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
     row.sipIps.forEach(ip => addContext(ip, 'SIP', row.host, IMPACT_LABEL[row.impact] || row.impact));
+    (row.socketPeerIps || []).forEach(ip => addContext(ip, 'Socket peer', row.host, IMPACT_LABEL[row.impact] || row.impact));
+    (row.dnsAnswerIps || []).forEach(ip => addContext(ip, 'DNS answer', row.host, 'DNS 解析线索'));
+    (row.serverObservedClientIps || []).forEach(ip => addContext(ip, '服务端观察客户端 IP', row.host, IMPACT_LABEL[row.impact] || row.impact));
     const comparison = compareCipSipCarriersInRow(row, lookupMap);
     if (comparison.hasMismatch) {
       row.cipIps.forEach(ip => crossCarrierIps.add(ip));
@@ -407,6 +414,17 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
     },
   ], []);
 
+  const dohCandidateColumns = useMemo<ColumnsType<DohCandidateEvidence>>(() => [
+    {
+      title: 'Secure DNS / DoH 候选',
+      dataIndex: 'value',
+      key: 'value',
+      ellipsis: true,
+      render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
+    },
+    { title: '来源', dataIndex: 'source', key: 'source', width: 130 },
+  ], []);
+
   const cipSipColumns = useMemo<ColumnsType<CipSipEvidenceRow>>(() => [
     { title: '域名', dataIndex: 'host', key: 'host', width: 220, ellipsis: true },
     {
@@ -454,11 +472,32 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
       render: ipTags,
     },
     {
-      title: 'SIP（服务端/连接目标）',
+      title: 'SIP（明确服务端）',
       dataIndex: 'sipIps',
       key: 'sipIps',
-      width: 210,
+      width: 180,
       render: ipTags,
+    },
+    {
+      title: 'Socket peer（连接目标候选）',
+      dataIndex: 'socketPeerIps',
+      key: 'socketPeerIps',
+      width: 210,
+      render: (ips?: string[]) => ipTags(ips || []),
+    },
+    {
+      title: 'DNS answer（解析结果）',
+      dataIndex: 'dnsAnswerIps',
+      key: 'dnsAnswerIps',
+      width: 210,
+      render: (ips?: string[]) => ipTags(ips || []),
+    },
+    {
+      title: '服务端观察客户端 IP',
+      dataIndex: 'serverObservedClientIps',
+      key: 'serverObservedClientIps',
+      width: 210,
+      render: (ips?: string[]) => ipTags(ips || []),
     },
     {
       title: '操作',
@@ -598,12 +637,22 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
             scroll={{ x: 900 }}
             locale={{ emptyText: dnsAnswerEmptyText }}
           />
+          <Table
+            size="small"
+            rowKey={(row) => `${row.source}-${row.value}`}
+            columns={dohCandidateColumns}
+            dataSource={summary.dohCandidates || []}
+            pagination={false}
+            scroll={{ x: 760 }}
+            locale={{ emptyText: '未发现 Secure DNS / DoH 候选线索' }}
+            style={{ marginTop: 14 }}
+          />
           <Alert
             style={{ marginTop: 12 }}
             type="info"
             showIcon
             message="DNS server 决定解析入口，DNS answer 是文件中记录到的解析结果。"
-            description="若 DNS server 是海外公共 DNS，或 DNS answer 指向海外 IP，可能影响 CDN 就近调度；该结论只是定位线索，需结合 MTR / traceroute / 出口 IP 确认。"
+            description="Secure DNS / DoH 候选是安全 DNS 配置线索，不等同系统 DNS server。若 DNS server 是海外公共 DNS，或 DNS answer 指向海外 IP，可能影响 CDN 就近调度；该结论只是定位线索，需结合 MTR / traceroute / 出口 IP 确认。"
           />
         </div>
 
@@ -638,7 +687,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
             dataSource={summary.cipSipRows}
             pagination={{ pageSize: 8, showSizeChanger: false }}
             scroll={{ x: 1240 }}
-            locale={{ emptyText: '未发现失败或慢请求关联的 CIP/SIP 证据' }}
+            locale={{ emptyText: '未发现严格 CIP/SIP 字段；如存在 DNS answer、socket peer 或 x-request-ip，会在对应角色列展示为线索。' }}
           />
         </div>
 

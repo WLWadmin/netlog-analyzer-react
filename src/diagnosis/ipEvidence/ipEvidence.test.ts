@@ -114,6 +114,7 @@ function lookupSummary(overrides: Partial<DnsIpEvidenceSummary> = {}): DnsIpEvid
   return {
     dnsServers: [],
     dnsAnswers: [],
+    dohCandidates: [],
     dnsEventCount: 0,
     failedOrSlowIps: [],
     cipSipRows: [],
@@ -156,7 +157,7 @@ describe('ipEvidence', () => {
     expect(summary.copyableIps).not.toContain('9.9.9.9');
   });
 
-  it('NetLog 优先展示 DNS，并提取失败请求 socket SIP', () => {
+  it('NetLog 优先展示 DNS，并将 socket peer 与 SIP 分列', () => {
     const req: URLRequest = {
       id: 1,
       url: 'https://api.example.com/data',
@@ -184,7 +185,113 @@ describe('ipEvidence', () => {
     expect(summary.dnsServers.map(item => item.ip)).toEqual(['8.8.8.8', '192.168.1.1']);
     expect(summary.dnsAnswers[0].ips).toContain('203.0.113.10');
     expect(summary.copyableIps).toEqual(expect.arrayContaining(['58.215.109.83', '58.215.109.84']));
-    expect(summary.cipSipRows[0].sipIps).toEqual(expect.arrayContaining(['58.215.109.83', '58.215.109.84']));
+    expect(summary.cipSipRows[0].sipIps).toEqual(['58.215.109.83']);
+    expect(summary.cipSipRows[0].socketPeerIps).toEqual(expect.arrayContaining(['58.215.109.84']));
+    expect(summary.cipSipRows[0].dnsAnswerIps).toEqual(expect.arrayContaining(['203.0.113.10']));
+  });
+
+  it('小 fixture：DNS answer 可见但不会冒充 DNS server 或 SIP', () => {
+    const summary = extractDnsIpEvidenceFromNetlog({
+      ...netlogResultWithRequest({
+        id: 1,
+        url: 'https://slow.example.com/data',
+        method: 'GET',
+        startTime: 0,
+        duration: 2500,
+        events: [],
+        timeline: {},
+      }),
+      dnsServers: [],
+      dnsRecords: [{ host: 'unrelated.example.com', ips: ['203.0.113.20'], source: 'dns_event' }],
+    });
+
+    expect(summary.dnsServers).toEqual([]);
+    expect(summary.dnsAnswers[0].ips).toContain('203.0.113.20');
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'dns-answer', ip: '203.0.113.20' }),
+    ]));
+    expect(summary.cipSipRows.some(row => row.sipIps.includes('203.0.113.20'))).toBe(false);
+  });
+
+  it('小 fixture：x-request-ip 作为服务端观察客户端 IP 线索', () => {
+    const req: URLRequest = {
+      id: 2,
+      url: 'https://api.example.com/slow',
+      method: 'GET',
+      startTime: 0,
+      duration: 3000,
+      events: [{
+        source: { id: 2, type: 1, typeName: 'URL_REQUEST' },
+        type: 1,
+        typeName: 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS',
+        phase: 0,
+        phaseName: 'PHASE_NONE',
+        time: 0,
+        params: { headers: ['x-request-ip: 198.51.100.7'] },
+      }],
+      timeline: {},
+    };
+
+    const summary = extractDnsIpEvidenceFromNetlog(netlogResultWithRequest(req));
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'server-observed-client-ip',
+        source: 'netlog.headers.x-request-ip',
+        ip: '198.51.100.7',
+      }),
+    ]));
+    expect(summary.cipSipRows[0].serverObservedClientIps).toEqual(['198.51.100.7']);
+  });
+
+  it('小 fixture：全局 connectEvents 无法关联请求时仍展示 socket peer 线索', () => {
+    const summary = extractDnsIpEvidenceFromNetlog({
+      ...netlogResultWithRequest({
+        id: 3,
+        url: 'https://api.example.com/ok',
+        method: 'GET',
+        startTime: 0,
+        statusCode: 200,
+        duration: 100,
+        events: [],
+        timeline: {},
+      }),
+      connectEvents: [{
+        source: { id: 9, type: 3, typeName: 'SOCKET' },
+        type: 3,
+        typeName: 'SOCKET_CONNECT',
+        phase: 0,
+        phaseName: 'PHASE_NONE',
+        time: 1,
+        params: { address: '198.51.100.8:443' },
+      }],
+    });
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'socket-peer', ip: '198.51.100.8', host: '未关联到具体请求' }),
+    ]));
+  });
+
+  it('小 fixture：DoH candidate 可见但不进入 DNS server', () => {
+    const summary = extractDnsIpEvidenceFromNetlog({
+      ...netlogResultWithRequest({
+        id: 4,
+        url: 'https://api.example.com/ok',
+        method: 'GET',
+        startTime: 0,
+        statusCode: 200,
+        duration: 100,
+        events: [],
+        timeline: {},
+      }),
+      dnsServers: [],
+      dohCandidates: [{ value: 'https://dns.google/dns-query', source: 'polledData' }],
+    });
+
+    expect(summary.dnsServers).toEqual([]);
+    expect(summary.dohCandidates).toEqual([
+      { value: 'https://dns.google/dns-query', source: 'polledData' },
+    ]);
   });
 
   it('相同域名和相同 CIP/SIP 去重，并保留耗时最长前三个代表请求', () => {

@@ -116,4 +116,28 @@ describe('netlog dns extraction compatibility', () => {
 
     expect(result.dnsServers).not.toContain('2.2.2.2');
   });
+
+  it('DoH / Secure DNS 只进入候选线索，不进入 DNS server', () => {
+    const { result } = parseLog({
+      constants: {},
+      events: [minimalEvent()],
+      polledData: {
+        hostResolverInfo: {
+          dnsConfig: {
+            nameServers: ['223.5.5.5:53'],
+            dohServers: ['https://dns.google/dns-query', '1.1.1.1'],
+            secureDnsServers: ['https://dns.alidns.com/dns-query'],
+          },
+        },
+      },
+    });
+
+    expect(result.dnsServers).toContain('223.5.5.5');
+    expect(result.dnsServers).not.toContain('1.1.1.1');
+    expect(result.dohCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'https://dns.google/dns-query' }),
+      expect.objectContaining({ value: '1.1.1.1' }),
+      expect.objectContaining({ value: 'https://dns.alidns.com/dns-query' }),
+    ]));
+  });
 });

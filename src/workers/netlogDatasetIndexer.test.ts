@@ -45,17 +45,20 @@ class ChunkedTextFile implements NetlogIndexableFile {
 
 describe('netlogDatasetIndexer', () => {
   it('为 events 建立真实 byteStart/byteEnd，并支持按 eventId 读取 detail', async () => {
-    const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11, 13]);
 
-    const index = await buildNetlogCompactEventIndex(file);
+    const { index, endpointEvidence } = await buildNetlogCompactEventIndex(file);
 
     expect(index.count).toBe(2);
     expect(index.typeId).toEqual([1, 2]);
     expect(index.sourceId).toEqual([10, 11]);
     expect(index.sourceTypeId).toEqual([20, 21]);
+    expect(index.eventTypeNames).toEqual({ 1: 'URL_REQUEST', 2: 'SOCKET_CONNECT' });
+    expect(index.sourceTypeNames).toEqual({ 20: 'URL_REQUEST', 21: 'SOCKET' });
     expect(index.phase).toEqual([0, 2]);
     expect(index.flags).toEqual([0, 1]);
+    expect(endpointEvidence.guidance[0]).toContain('Dataset Endpoint Evidence');
     await expect(readNetlogEventDetail(file, index, 0)).resolves.toEqual({
       time: '1',
       type: 1,
@@ -76,7 +79,7 @@ describe('netlogDatasetIndexer', () => {
     const text = '{"logEvents":[{"time":"1","type":7,"source":{"id":1,"type":2},"params":{"url":"https://例子.example/路径","note":"中文内容"}}]}';
     const file = new ChunkedTextFile(text, [1, 2, 3, 4, 5]);
 
-    const index = await buildNetlogCompactEventIndex(file);
+    const { index } = await buildNetlogCompactEventIndex(file);
     const detail = await readNetlogEventDetail(file, index, 0);
 
     expect(index.count).toBe(1);

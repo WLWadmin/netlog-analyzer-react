@@ -7,6 +7,8 @@ export interface QueryNetlogEventsPayload {
   typeId?: number;
   sourceId?: number;
   sourceTypeId?: number;
+  typeName?: string;
+  sourceTypeName?: string;
   phase?: number;
   errorOnly?: boolean;
 }
@@ -20,6 +22,7 @@ export interface NetlogEventRow {
   sourceTypeId: number;
   sourceTypeName: string;
   phase: number;
+  phaseName: string;
   hasError: boolean;
   byteStart: number;
   byteEnd: number;
@@ -37,23 +40,34 @@ function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEv
   if (query.typeId !== undefined && index.typeId[eventId] !== query.typeId) return false;
   if (query.sourceId !== undefined && index.sourceId[eventId] !== query.sourceId) return false;
   if (query.sourceTypeId !== undefined && index.sourceTypeId[eventId] !== query.sourceTypeId) return false;
+  if (query.typeName && (index.eventTypeNames?.[index.typeId[eventId]] || '').toLowerCase() !== query.typeName.toLowerCase()) return false;
+  if (query.sourceTypeName && (index.sourceTypeNames?.[index.sourceTypeId[eventId]] || '').toLowerCase() !== query.sourceTypeName.toLowerCase()) return false;
   if (query.phase !== undefined && index.phase[eventId] !== query.phase) return false;
   if (query.errorOnly && index.flags[eventId] !== 1) return false;
   return true;
 }
 
+function phaseName(phase: number): string {
+  if (phase === 0) return 'PHASE_BEGIN';
+  if (phase === 1) return 'PHASE_END';
+  if (phase === 2) return 'PHASE_NONE';
+  return `PHASE_${phase}`;
+}
+
 function toRow(index: CompactEventIndex, eventId: number): NetlogEventRow {
   const typeId = index.typeId[eventId] || 0;
   const sourceTypeId = index.sourceTypeId[eventId] || 0;
+  const phase = index.phase[eventId] || 0;
   return {
     eventId,
     time: index.time[eventId] || 0,
     typeId,
-    typeName: `UNKNOWN_${typeId}`,
+    typeName: index.eventTypeNames?.[typeId] || `UNKNOWN_${typeId}`,
     sourceId: index.sourceId[eventId] || 0,
     sourceTypeId,
-    sourceTypeName: sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC',
-    phase: index.phase[eventId] || 0,
+    sourceTypeName: index.sourceTypeNames?.[sourceTypeId] || (sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC'),
+    phase,
+    phaseName: phaseName(phase),
     hasError: index.flags[eventId] === 1,
     byteStart: index.byteStart[eventId],
     byteEnd: index.byteEnd[eventId],

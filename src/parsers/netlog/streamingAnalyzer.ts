@@ -1,7 +1,7 @@
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
-import type { AnalysisResult, DiagnosisIssue, DnsRecord, ParsedEvent, URLRequest } from './parser';
+import type { AnalysisResult, DiagnosisIssue, DnsRecord, DohCandidate, ParsedEvent, URLRequest } from './parser';
 
 const MAX_EVENTS_PREVIEW = 20_000;
 const MAX_REQUEST_EVENTS = 30;
@@ -77,6 +77,7 @@ function createEmptyResult(): AnalysisResult {
     hosts: {},
     dnsServers: [],
     dnsRecords: [],
+    dohCandidates: [],
     errorSources: {},
     certIssues: [],
     sslIssues: [],
@@ -125,9 +126,17 @@ const DNS_SERVER_KEYS = new Set([
   'systemnameservers',
   'configurednameservers',
   'effectivenameservers',
+]);
+
+const DOH_CANDIDATE_KEYS = new Set([
   'dohservers',
+  'dohserver',
   'dnsoverhttpsservers',
+  'dnsoverhttpsserver',
   'securednsservers',
+  'securednsserver',
+  'templates',
+  'servertemplates',
 ]);
 
 const DNS_CONFIG_CONTAINER_KEYS = new Set([
@@ -443,6 +452,26 @@ function addDnsServers(result: AnalysisResult, ips: string[]) {
   result.dnsServers = Array.from(next);
 }
 
+function addDohCandidates(result: AnalysisResult, values: unknown[], source: DohCandidate['source']) {
+  const next = new Map((result.dohCandidates || []).map(item => [item.value, item]));
+  const collect = (value: unknown) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) next.set(trimmed, { value: trimmed, source });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).forEach(collect);
+    }
+  };
+  values.forEach(collect);
+  result.dohCandidates = Array.from(next.values());
+}
+
 function buildReverseNameMap(raw: unknown): Record<number, string> {
   const result: Record<number, string> = {};
   if (!raw || typeof raw !== 'object') return result;
@@ -466,6 +495,10 @@ function isDnsServerConfigKey(key: string): boolean {
   return DNS_SERVER_KEYS.has(normalizeKey(key));
 }
 
+function isDohCandidateKey(key: string): boolean {
+  return DOH_CANDIDATE_KEYS.has(normalizeKey(key));
+}
+
 function isDnsConfigContainerKey(key: string): boolean {
   return DNS_CONFIG_CONTAINER_KEYS.has(normalizeKey(key));
 }
@@ -474,6 +507,7 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
   if (!polledData || typeof polledData !== 'object') return;
 
   const dnsServerIps = new Set<string>();
+  const dohCandidateValues: unknown[] = [];
   const collectFromConfigValue = (value: unknown) => {
     extractIpsFromValue(value).forEach(ip => {
       if (isIpLike(ip)) dnsServerIps.add(normalizeIp(ip));
@@ -484,6 +518,10 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
       if (isDnsServerConfigKey(key)) {
         collectFromConfigValue(value);
+        continue;
+      }
+      if (isDohCandidateKey(key)) {
+        dohCandidateValues.push(value);
         continue;
       }
       if (isDnsConfigContainerKey(key)) {
@@ -498,6 +536,7 @@ function parseDnsServersFromPolledData(result: AnalysisResult, polledData: any) 
 
   walkConfigOnly(polledData);
   addDnsServers(result, Array.from(dnsServerIps));
+  addDohCandidates(result, dohCandidateValues, 'polledData');
 }
 
 function collectDnsCacheEntries(polledData: any): any[] {

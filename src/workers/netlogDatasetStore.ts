@@ -1,4 +1,5 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
+import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
 
 export interface NetlogDatasetMeta {
   analysisId: string;
@@ -15,10 +16,11 @@ export interface NetlogDataset {
   file: File;
   meta: NetlogDatasetMeta;
   eventIndex?: CompactEventIndex;
+  endpointEvidence?: DnsIpEvidenceSummary;
 }
 
 export interface NetlogDatasetStore {
-  importFile(file: File, eventIndex?: CompactEventIndex): NetlogDatasetMeta;
+  importFile(file: File, eventIndex?: CompactEventIndex, endpointEvidence?: DnsIpEvidenceSummary): NetlogDatasetMeta;
   get(analysisId: string): NetlogDataset | undefined;
   release(analysisId: string): boolean;
   releaseAll(): number;
@@ -29,7 +31,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
   let counter = 0;
   const datasets = new Map<string, NetlogDataset>();
 
-  const importFile = (file: File, eventIndex?: CompactEventIndex): NetlogDatasetMeta => {
+  const importFile = (file: File, eventIndex?: CompactEventIndex, endpointEvidence?: DnsIpEvidenceSummary): NetlogDatasetMeta => {
     counter += 1;
     const analysisId = `netlog-dataset-${Date.now()}-${counter}`;
     const meta: NetlogDatasetMeta = {
@@ -41,7 +43,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
       status: 'ready',
       eventCount: eventIndex?.count,
     };
-    datasets.set(analysisId, { analysisId, file, meta, eventIndex });
+    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence });
     return meta;
   };
 

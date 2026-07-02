@@ -13,6 +13,7 @@ export type IpEvidenceRole =
   | 'dns-answer'
   | 'dns-server'
   | 'socket-peer'
+  | 'server-observed-client-ip'
   | 'unknown';
 
 export type IpEvidenceSource =
@@ -26,7 +27,8 @@ export type IpEvidenceSource =
   | 'netlog.dnsServers'
   | 'netlog.params.ip_endpoint'
   | 'netlog.params.address'
-  | 'netlog.params.peer_address';
+  | 'netlog.params.peer_address'
+  | 'netlog.headers.x-request-ip';
 
 export type RequestImpact = 'failed' | 'slow' | 'dns' | 'normal';
 
@@ -41,6 +43,10 @@ export interface IpEvidenceItem {
   statusCode?: number;
   error?: string | number;
   durationMs?: number;
+  sourceId?: number;
+  eventId?: number;
+  byteStart?: number;
+  byteEnd?: number;
   count: number;
   description: string;
 }
@@ -55,6 +61,9 @@ export interface CipSipEvidenceRow {
   durationMs?: number;
   cipIps: string[];
   sipIps: string[];
+  socketPeerIps?: string[];
+  dnsAnswerIps?: string[];
+  serverObservedClientIps?: string[];
   representativeRequests: Array<{
     url: string;
     statusCode?: number;
@@ -84,11 +93,21 @@ export interface DnsAnswerEvidence {
   ips: string[];
   source: 'dns_cache' | 'dns_event' | 'socket_event' | 'unknown';
   time?: number;
+  sourceId?: number;
+  eventId?: number;
+  byteStart?: number;
+  byteEnd?: number;
+}
+
+export interface DohCandidateEvidence {
+  value: string;
+  source: 'polledData' | 'dns_event' | 'unknown';
 }
 
 export interface DnsIpEvidenceSummary {
   dnsServers: DnsServerEvidence[];
   dnsAnswers: DnsAnswerEvidence[];
+  dohCandidates?: DohCandidateEvidence[];
   dnsEventCount?: number;
   failedOrSlowIps: IpEvidenceItem[];
   cipSipRows: CipSipEvidenceRow[];

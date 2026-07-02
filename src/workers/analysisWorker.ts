@@ -469,16 +469,46 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'import-netlog-dataset': {
-        const eventIndex = await buildNetlogCompactEventIndex(msg.payload.file);
-        const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex);
-        const duration = performance.now() - start;
-        sendResponse({
-          type: 'success',
-          id: msg.id,
-          resultType: 'netlog-dataset',
-          payload: meta,
-          duration,
+        logLargeNetlogDebug(msg.id, 'dataset-index:start', {
+          fileName: msg.payload.file?.name,
+          fileSize: msg.payload.file?.size,
+          fileType: msg.payload.file?.type || 'application/json',
         });
+        try {
+          const { index: eventIndex, endpointEvidence } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence);
+          const duration = performance.now() - start;
+          const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
+          const endpointRowCount = endpointEvidence.cipSipRows.length;
+          logLargeNetlogDebug(msg.id, 'dataset-index:endpoint-evidence-summary', {
+            endpointEvidenceCount,
+            endpointRowCount,
+            dnsAnswerCount: endpointEvidence.dnsAnswers.length,
+            dnsServerCount: endpointEvidence.dnsServers.length,
+            copyableIpCount: endpointEvidence.copyableIps.length,
+          });
+          logLargeNetlogDebug(msg.id, 'dataset-index:finish', {
+            analysisId: meta.analysisId,
+            indexBuildMs: duration,
+            eventCount: meta.eventCount,
+            endpointEvidenceCount,
+            endpointRowCount,
+          });
+          sendResponse({
+            type: 'success',
+            id: msg.id,
+            resultType: 'netlog-dataset',
+            payload: meta,
+            duration,
+          });
+        } catch (err) {
+          const duration = performance.now() - start;
+          logLargeNetlogDebug(msg.id, 'dataset-index:error', {
+            indexBuildMs: duration,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        }
         break;
       }
 
@@ -506,6 +536,20 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'netlog-event-detail',
           payload: detail,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-endpoint-evidence': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.endpointEvidence) throw new Error(`NetLog Dataset endpoint evidence 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-endpoint-evidence',
+          payload: dataset.endpointEvidence,
           duration,
         });
         break;
