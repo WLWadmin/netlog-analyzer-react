@@ -132,4 +132,11 @@ export interface DnsIpEvidenceSummary {
   copyableDnsServers: string[];
   guidance: string[];
   limitations: string[];
+  sourceGraphStats?: {
+    socketPeerTotal: number;
+    socketPeerSourceGraphAssociated: number;
+    socketPeerGlobalCandidate: number;
+    sourceDependencyEdges: number;
+    sourceDependencyUnparsed: number;
+  };
 }

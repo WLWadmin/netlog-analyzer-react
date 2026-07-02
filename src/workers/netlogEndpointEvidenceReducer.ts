@@ -116,12 +116,48 @@ function requestImpact(req?: RequestDraft): RequestImpact {
   return 'normal';
 }
 
-function extractDependencySourceId(params: Record<string, unknown>): number | undefined {
-  const raw = params.source_dependency || params.sourceDependency;
-  if (!raw || typeof raw !== 'object') return undefined;
-  const value = raw as Record<string, unknown>;
+function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
   const id = Number(value.id ?? value.source_id ?? value.sourceId);
   return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function extractDependencySourceIds(params: Record<string, unknown>): { ids: number[]; unparsed: number } {
+  const roots = [
+    params.source_dependency,
+    params.sourceDependency,
+    params.source_dependencies,
+    params.sourceDependencies,
+    params.dependencies,
+  ].filter(value => value !== undefined);
+  const ids = new Set<number>();
+  let unparsed = 0;
+  const visit = (node: unknown, depth = 0) => {
+    if (!node || depth > 5) return;
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item, depth + 1));
+      return;
+    }
+    if (typeof node !== 'object') {
+      unparsed += 1;
+      return;
+    }
+    const value = node as Record<string, unknown>;
+    const id = extractSourceIdFromObject(value);
+    if (id) ids.add(id);
+    const nested = [
+      value.source_dependency,
+      value.sourceDependency,
+      value.source_dependencies,
+      value.sourceDependencies,
+      value.dependency,
+      value.dependencies,
+      value.source,
+    ].filter(item => item !== undefined);
+    if (!id && nested.length === 0) unparsed += 1;
+    nested.forEach(item => visit(item, depth + 1));
+  };
+  roots.forEach(root => visit(root));
+  return { ids: Array.from(ids), unparsed };
 }
 
 function addSourceLink(map: Map<number, Set<number>>, from: number, to?: number) {
@@ -239,6 +275,8 @@ export function createNetlogEndpointEvidenceReducer() {
   const sourceLinks = new Map<number, Set<number>>();
   const itemMap = new Map<string, IpEvidenceItem>();
   const dnsAnswerMap = new Map<string, DnsAnswerEvidence>();
+  let sourceDependencyEdges = 0;
+  let sourceDependencyUnparsed = 0;
 
   const findLinkedRequest = (sourceId: number): RequestDraft | undefined => {
     const direct = requests.get(sourceId);
@@ -291,7 +329,14 @@ export function createNetlogEndpointEvidenceReducer() {
 
   const accept = (seed: EventSeed) => {
     const params = seed.params || {};
-    addSourceLink(sourceLinks, seed.sourceId, extractDependencySourceId(params));
+    const dependencies = extractDependencySourceIds(params);
+    sourceDependencyUnparsed += dependencies.unparsed;
+    for (const dependencySourceId of dependencies.ids) {
+      const before = sourceLinks.get(seed.sourceId)?.size || 0;
+      addSourceLink(sourceLinks, seed.sourceId, dependencySourceId);
+      const after = sourceLinks.get(seed.sourceId)?.size || 0;
+      if (after > before) sourceDependencyEdges += 1;
+    }
     let req = seed.sourceTypeName === 'URL_REQUEST' ? requests.get(seed.sourceId) : undefined;
     if (seed.sourceTypeName === 'URL_REQUEST' && (params.url || !req)) {
       req = req || { sourceId: seed.sourceId };
@@ -406,6 +451,13 @@ export function createNetlogEndpointEvidenceReducer() {
       limitations: [
         'socket peer 若无法关联 URL_REQUEST，会作为连接目标候选 IP 展示，不能直接等同 SIP。',
       ],
+      sourceGraphStats: {
+        socketPeerTotal: items.filter(item => item.role === 'socket-peer').length,
+        socketPeerSourceGraphAssociated: items.filter(item => item.role === 'socket-peer' && item.association === 'source-graph').length,
+        socketPeerGlobalCandidate: items.filter(item => item.role === 'socket-peer' && item.association === 'global-candidate').length,
+        sourceDependencyEdges,
+        sourceDependencyUnparsed,
+      },
     };
   };
 

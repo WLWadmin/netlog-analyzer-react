@@ -152,5 +152,95 @@ describe('netlogEndpointEvidenceReducer', () => {
     expect(graphRow?.sipIps).not.toContain('203.0.113.20');
     expect(graphRow?.evidenceAssociations).toContain('source-graph');
     expect(summary.cipSipRows.find(row => row.host === '未关联到具体请求')?.evidenceAssociations).toContain('global-candidate');
+    expect(summary.sourceGraphStats).toEqual({
+      socketPeerTotal: 2,
+      socketPeerSourceGraphAssociated: 1,
+      socketPeerGlobalCandidate: 1,
+      sourceDependencyEdges: 2,
+      sourceDependencyUnparsed: 0,
+    });
+  });
+
+  it('统计数组和嵌套 source dependency 覆盖率，并记录未解析依赖', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 0,
+      byteStart: 0,
+      byteEnd: 99,
+      time: 10,
+      typeName: 'URL_REQUEST_START_JOB',
+      sourceId: 100,
+      sourceTypeName: 'URL_REQUEST',
+      phase: 0,
+      params: { url: 'https://nested.example.com/data' },
+    });
+    reducer.accept({
+      eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
+      time: 20,
+      typeName: 'HTTP_STREAM_JOB',
+      sourceId: 200,
+      sourceTypeName: 'HTTP_STREAM_JOB',
+      phase: 2,
+      params: {
+        source_dependencies: [
+          { id: 100, type: 'URL_REQUEST' },
+          { dependency: { sourceId: 999 } },
+        ],
+      },
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
+      time: 30,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        sourceDependency: { dependencies: [{ source_id: 200 }] },
+        address: '203.0.113.30:443',
+      },
+    });
+    reducer.accept({
+      eventId: 3,
+      byteStart: 300,
+      byteEnd: 399,
+      time: 40,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 400,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        source_dependency: { type: 'BROKEN_DEPENDENCY' },
+        address: '203.0.113.31:443',
+      },
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        ip: '203.0.113.30',
+        host: 'nested.example.com',
+      }),
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'global-candidate',
+        ip: '203.0.113.31',
+      }),
+    ]));
+    expect(summary.sourceGraphStats).toEqual({
+      socketPeerTotal: 2,
+      socketPeerSourceGraphAssociated: 1,
+      socketPeerGlobalCandidate: 1,
+      sourceDependencyEdges: 3,
+      sourceDependencyUnparsed: 1,
+    });
   });
 });
