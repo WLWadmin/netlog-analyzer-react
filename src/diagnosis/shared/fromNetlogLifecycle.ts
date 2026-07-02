@@ -205,7 +205,7 @@ export function netlogLifecycleToCards(
           '生命周期基于 source_dependency 关系追踪；如果 NetLog 缺失依赖边，底层证据可能不完整',
         ],
         relatedRequestIds: [req.id],
-        relatedEventIds: lifecycle.relatedSourceIds.slice(0, 15).map(String),
+        relatedSourceIds: lifecycle.relatedSourceIds.slice(0, 15),
         navigationTarget: { tab: 'requests', requestIds: [req.id], keyword: host },
       });
     }

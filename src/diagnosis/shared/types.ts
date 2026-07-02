@@ -50,7 +50,9 @@ export interface DiagnosticEvidence {
   source: 'har' | 'netlog' | 'derived';
   fieldPath?: string;
   requestIds?: number[];
+  sourceIds?: number[];
   eventIds?: string[];
+  byteRanges?: Array<{ byteStart: number; byteEnd: number }>;
   detail?: string;
   /** 联合诊断：该证据来自哪个原始 source（用于双源融合时区分） */
   originalSource?: 'har' | 'netlog';
@@ -82,6 +84,7 @@ export interface DiagnosticNavigationTarget {
   errorCode?: string;
   errorOnly?: boolean;
   requestIds?: number[];
+  sourceIds?: number[];
   eventIds?: string[];
 }
 
@@ -99,6 +102,7 @@ export interface DiagnosticCard {
   actions: DiagnosticAction[];
   limitations?: string[];
   relatedRequestIds?: number[];
+  relatedSourceIds?: number[];
   relatedEventIds?: string[];
   navigationTarget?: DiagnosticNavigationTarget;
   /** 联合诊断：该卡片融合了哪些原始 source 的证据 */

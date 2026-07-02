@@ -74,4 +74,83 @@ describe('netlogEndpointEvidenceReducer', () => {
       { eventId: 2, sourceId: 200, byteStart: 200, byteEnd: 299 },
     ]);
   });
+
+  it('通过 source graph 关联 URL_REQUEST 与 socket peer，但不把 socket peer 塞进 SIP', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 0,
+      byteStart: 0,
+      byteEnd: 99,
+      time: 10,
+      typeName: 'URL_REQUEST_START_JOB',
+      sourceId: 100,
+      sourceTypeName: 'URL_REQUEST',
+      phase: 0,
+      params: { url: 'https://graph.example.com/data', method: 'GET' },
+    });
+    reducer.accept({
+      eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
+      time: 20,
+      typeName: 'HTTP_STREAM_JOB',
+      sourceId: 200,
+      sourceTypeName: 'HTTP_STREAM_JOB',
+      phase: 2,
+      params: { source_dependency: { id: 100, type: 'URL_REQUEST' } },
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
+      time: 30,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        source_dependency: { id: 200, type: 'HTTP_STREAM_JOB' },
+        address: '203.0.113.20:443',
+      },
+    });
+    reducer.accept({
+      eventId: 3,
+      byteStart: 300,
+      byteEnd: 399,
+      time: 40,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 400,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: { address: '203.0.113.21:443' },
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        ip: '203.0.113.20',
+        host: 'graph.example.com',
+        url: 'https://graph.example.com/data',
+        eventId: 2,
+        sourceId: 300,
+      }),
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'global-candidate',
+        ip: '203.0.113.21',
+        host: '未关联到具体请求',
+        eventId: 3,
+        sourceId: 400,
+      }),
+    ]));
+    const graphRow = summary.cipSipRows.find(row => row.host === 'graph.example.com');
+    expect(graphRow?.socketPeerIps).toContain('203.0.113.20');
+    expect(graphRow?.sipIps).not.toContain('203.0.113.20');
+    expect(graphRow?.evidenceAssociations).toContain('source-graph');
+    expect(summary.cipSipRows.find(row => row.host === '未关联到具体请求')?.evidenceAssociations).toContain('global-candidate');
+  });
 });

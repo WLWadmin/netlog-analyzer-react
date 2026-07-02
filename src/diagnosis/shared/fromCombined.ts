@@ -206,11 +206,11 @@ function collectRequestIds(entries: AlignedEntry[], limit = 10): number[] {
   return entries.slice(0, limit).map(e => e.harEntry.id);
 }
 
-function collectEventIdsFromRequests(entries: AlignedEntry[], limit = 10): string[] {
-  const ids = new Set<string>();
+function collectSourceIdsFromRequests(entries: AlignedEntry[], limit = 10): number[] {
+  const ids = new Set<number>();
   for (const entry of entries) {
     for (const ref of entry.netlogRequests) {
-      ids.add(String(ref.request.id));
+      ids.add(ref.request.id);
       if (ids.size >= limit) return Array.from(ids);
     }
   }
@@ -280,7 +280,7 @@ export function combinedDiagnosisToCards(
         ...(timeLimitation ? [timeLimitation] : []),
       ],
       relatedRequestIds: collectRequestIds(slowWithDnsIssue),
-      relatedEventIds: collectEventIdsFromRequests(slowWithDnsIssue),
+      relatedSourceIds: collectSourceIdsFromRequests(slowWithDnsIssue),
       navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithDnsIssue), keyword: hosts[0] },
       mergedSources: ['har', 'netlog'],
     });
@@ -329,7 +329,7 @@ export function combinedDiagnosisToCards(
         ...(timeLimitation ? [timeLimitation] : []),
       ],
       relatedRequestIds: collectRequestIds(proxySensitiveSlow),
-      relatedEventIds: collectEventIdsFromRequests(proxySensitiveSlow),
+      relatedSourceIds: collectSourceIdsFromRequests(proxySensitiveSlow),
       navigationTarget: { tab: 'events', keyword: 'PROXY' },
       mergedSources: ['har', 'netlog'],
     });
@@ -371,7 +371,7 @@ export function combinedDiagnosisToCards(
         ...(timeLimitation ? [timeLimitation] : []),
       ],
       relatedRequestIds: collectRequestIds(slowWithTls),
-      relatedEventIds: collectEventIdsFromRequests(slowWithTls),
+      relatedSourceIds: collectSourceIdsFromRequests(slowWithTls),
       navigationTarget: { tab: 'events', keyword: hosts[0] || 'SSL', errorOnly: true },
       mergedSources: ['har', 'netlog'],
     });
@@ -414,7 +414,7 @@ export function combinedDiagnosisToCards(
         ...(timeLimitation ? [timeLimitation] : []),
       ],
       relatedRequestIds: collectRequestIds(slowWithoutNetlogCause),
-      relatedEventIds: collectEventIdsFromRequests(slowWithoutNetlogCause),
+      relatedSourceIds: collectSourceIdsFromRequests(slowWithoutNetlogCause),
       navigationTarget: { tab: 'requests', requestIds: collectRequestIds(slowWithoutNetlogCause), keyword: hosts[0] },
       mergedSources: ['har', 'netlog'],
     });

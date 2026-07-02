@@ -32,6 +32,13 @@ export type IpEvidenceSource =
 
 export type RequestImpact = 'failed' | 'slow' | 'dns' | 'normal';
 
+export type IpEvidenceAssociation =
+  | 'direct-url-request'
+  | 'source-graph'
+  | 'global-candidate'
+  | 'dns-only'
+  | 'header-only';
+
 export interface IpEvidenceItem {
   id: string;
   ip: string;
@@ -47,6 +54,7 @@ export interface IpEvidenceItem {
   eventId?: number;
   byteStart?: number;
   byteEnd?: number;
+  association?: IpEvidenceAssociation;
   count: number;
   description: string;
 }
@@ -80,6 +88,7 @@ export interface CipSipEvidenceRow {
   }>;
   descriptions: string[];
   evidenceTraces?: NetlogEvidenceTrace[];
+  evidenceAssociations?: IpEvidenceAssociation[];
 }
 
 export interface DnsServerEvidence {

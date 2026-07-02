@@ -15,6 +15,7 @@ import {
   type DnsIpEvidenceSummary,
   type DnsServerEvidence,
   type DohCandidateEvidence,
+  type IpEvidenceAssociation,
   type IpLookupResult,
   type IpRoutingConclusion,
   type RequestImpact,
@@ -43,6 +44,14 @@ const IMPACT_LABEL: Record<RequestImpact, string> = {
   slow: '原始请求耗时较长',
   dns: 'DNS 解析线索',
   normal: '普通请求',
+};
+
+const ASSOCIATION_LABEL: Record<IpEvidenceAssociation, string> = {
+  'direct-url-request': '直接请求',
+  'source-graph': 'Source graph',
+  'global-candidate': '全局候选',
+  'dns-only': 'DNS only',
+  'header-only': 'Header only',
 };
 
 async function copyWithToast(text: string, label: string) {
@@ -208,6 +217,23 @@ function copyRowText(row: CipSipEvidenceRow): string {
 
 function findTraceEventId(row: CipSipEvidenceRow): number | undefined {
   return row.evidenceTraces?.find(trace => trace.eventId !== undefined)?.eventId;
+}
+
+function associationTags(associations?: IpEvidenceAssociation[]) {
+  if (!associations?.length) return <Typography.Text type="secondary">-</Typography.Text>;
+  return (
+    <Space size={4} wrap>
+      {associations.map(item => (
+        <Tag
+          key={item}
+          color={item === 'source-graph' ? 'green' : item === 'global-candidate' ? 'orange' : 'default'}
+          style={{ marginInlineEnd: 0 }}
+        >
+          {ASSOCIATION_LABEL[item]}
+        </Tag>
+      ))}
+    </Space>
+  );
 }
 
 function lookupRiskText(result: IpLookupResult, roles: string[], hasCrossCarrierContext: boolean): string {
@@ -559,6 +585,13 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
       key: 'serverObservedClientIps',
       width: 210,
       render: (ips?: string[]) => ipTags(ips || [], '全部服务端观察客户端 IP'),
+    },
+    {
+      title: '证据关联',
+      dataIndex: 'evidenceAssociations',
+      key: 'evidenceAssociations',
+      width: 170,
+      render: associationTags,
     },
     {
       title: '操作',

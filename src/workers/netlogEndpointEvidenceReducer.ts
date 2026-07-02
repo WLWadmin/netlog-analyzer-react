@@ -3,6 +3,7 @@ import type {
   DnsAnswerEvidence,
   DnsIpEvidenceSummary,
   IpEvidenceItem,
+  IpEvidenceAssociation,
   IpEvidenceRole,
   IpEvidenceSource,
   RequestImpact,
@@ -33,6 +34,7 @@ interface RequestDraft {
 }
 
 const DEFAULT_SLOW_MS = 1000;
+const MAX_SOURCE_GRAPH_DEPTH = 4;
 
 function hostFromUrl(url?: string): string | undefined {
   if (!url) return undefined;
@@ -114,6 +116,22 @@ function requestImpact(req?: RequestDraft): RequestImpact {
   return 'normal';
 }
 
+function extractDependencySourceId(params: Record<string, unknown>): number | undefined {
+  const raw = params.source_dependency || params.sourceDependency;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const id = Number(value.id ?? value.source_id ?? value.sourceId);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function addSourceLink(map: Map<number, Set<number>>, from: number, to?: number) {
+  if (!to || from === to) return;
+  if (!map.has(from)) map.set(from, new Set());
+  if (!map.has(to)) map.set(to, new Set());
+  map.get(from)!.add(to);
+  map.get(to)!.add(from);
+}
+
 function addEvidence(map: Map<string, IpEvidenceItem>, rawIp: unknown, patch: Omit<IpEvidenceItem, 'id' | 'ip' | 'count'>) {
   const ip = normalizeIp(rawIp);
   if (!ip) return;
@@ -146,6 +164,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     items: IpEvidenceItem[];
     descriptions: Set<string>;
     traceKeys: Set<string>;
+    associations: Set<IpEvidenceAssociation>;
   }>();
 
   for (const item of items) {
@@ -160,6 +179,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       items: [],
       descriptions: new Set(),
       traceKeys: new Set(),
+      associations: new Set(),
     };
     if (item.role === 'cip') row.cipIps.add(item.ip);
     if (item.role === 'sip') row.sipIps.add(item.ip);
@@ -168,6 +188,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     if (item.role === 'server-observed-client-ip') row.serverObservedClientIps.add(item.ip);
     row.items.push(item);
     row.descriptions.add(item.description);
+    if (item.association) row.associations.add(item.association);
     if (item.eventId !== undefined || item.sourceId !== undefined || item.byteStart !== undefined || item.byteEnd !== undefined) {
       row.traceKeys.add([item.eventId ?? '', item.sourceId ?? '', item.byteStart ?? '', item.byteEnd ?? ''].join(':'));
     }
@@ -208,14 +229,37 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       })),
       descriptions: Array.from(row.descriptions).slice(0, 6),
       evidenceTraces,
+      evidenceAssociations: Array.from(row.associations),
     };
   });
 }
 
 export function createNetlogEndpointEvidenceReducer() {
   const requests = new Map<number, RequestDraft>();
+  const sourceLinks = new Map<number, Set<number>>();
   const itemMap = new Map<string, IpEvidenceItem>();
   const dnsAnswerMap = new Map<string, DnsAnswerEvidence>();
+
+  const findLinkedRequest = (sourceId: number): RequestDraft | undefined => {
+    const direct = requests.get(sourceId);
+    if (direct) return direct;
+    const visited = new Set<number>([sourceId]);
+    const queue: Array<{ sourceId: number; depth: number }> = [{ sourceId, depth: 0 }];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.depth >= MAX_SOURCE_GRAPH_DEPTH) continue;
+      const nextIds = sourceLinks.get(current.sourceId);
+      if (!nextIds) continue;
+      for (const nextId of nextIds) {
+        if (visited.has(nextId)) continue;
+        const req = requests.get(nextId);
+        if (req) return req;
+        visited.add(nextId);
+        queue.push({ sourceId: nextId, depth: current.depth + 1 });
+      }
+    }
+    return undefined;
+  };
 
   const addRequestEvidence = (
     req: RequestDraft | undefined,
@@ -236,6 +280,9 @@ export function createNetlogEndpointEvidenceReducer() {
       eventId: seed.eventId,
       byteStart: seed.byteStart,
       byteEnd: seed.byteEnd,
+      association: role === 'server-observed-client-ip' || role === 'cip' || role === 'sip'
+        ? 'header-only'
+        : 'direct-url-request',
       role,
       source,
       description,
@@ -244,6 +291,7 @@ export function createNetlogEndpointEvidenceReducer() {
 
   const accept = (seed: EventSeed) => {
     const params = seed.params || {};
+    addSourceLink(sourceLinks, seed.sourceId, extractDependencySourceId(params));
     let req = seed.sourceTypeName === 'URL_REQUEST' ? requests.get(seed.sourceId) : undefined;
     if (seed.sourceTypeName === 'URL_REQUEST' && (params.url || !req)) {
       req = req || { sourceId: seed.sourceId };
@@ -286,6 +334,7 @@ export function createNetlogEndpointEvidenceReducer() {
           byteEnd: seed.byteEnd,
           role: 'socket-peer',
           source: item.source,
+          association: req ? 'direct-url-request' : 'global-candidate',
           description: req
             ? `Dataset ${seed.typeName}：${req.url}`
             : `Dataset ${seed.typeName}：连接目标候选 IP，未能关联到具体 URL_REQUEST`,
@@ -323,11 +372,25 @@ export function createNetlogEndpointEvidenceReducer() {
           eventId: answer.eventId,
           byteStart: answer.byteStart,
           byteEnd: answer.byteEnd,
+          association: 'dns-only',
           description: `Dataset DNS answer：${answer.host} -> ${ip}`,
         });
       }
     }
     const items = Array.from(itemMap.values());
+    for (const item of items) {
+      if (item.role !== 'socket-peer' || item.association !== 'global-candidate' || item.sourceId === undefined) continue;
+      const linkedReq = findLinkedRequest(item.sourceId);
+      if (!linkedReq) continue;
+      item.host = hostFromUrl(linkedReq.url);
+      item.url = linkedReq.url;
+      item.impact = requestImpact(linkedReq);
+      item.statusCode = linkedReq.statusCode;
+      item.error = linkedReq.error;
+      item.durationMs = linkedReq.durationMs;
+      item.association = 'source-graph';
+      item.description = `Dataset ${item.source}：通过 source graph 关联到 ${linkedReq.url || linkedReq.sourceId}`;
+    }
     return {
       dnsServers: [],
       dnsAnswers,

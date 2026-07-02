@@ -143,7 +143,7 @@ function evidenceStrength(card: DiagnosticCard): number {
   if (card.evidence.length >= 3) score += 8;
   if (card.evidence.some(e => e.source !== 'derived')) score += 6;
   if (card.evidence.every(e => e.source === 'derived')) score += 2;
-  if (card.navigationTarget || card.relatedRequestIds?.length || card.relatedEventIds?.length) score += 4;
+  if (card.navigationTarget || card.relatedRequestIds?.length || card.relatedSourceIds?.length || card.relatedEventIds?.length) score += 4;
   return Math.min(score, 22);
 }
 

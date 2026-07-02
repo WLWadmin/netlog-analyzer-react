@@ -317,9 +317,8 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
     const req = requestLookup.byId.get(id);
     if (req) relatedTimes.add(req.startTime);
   });
-  (card.relatedEventIds || []).forEach(id => {
-    const numeric = Number(id);
-    const evt = eventBySourceId.get(numeric);
+  (card.relatedSourceIds || []).forEach(id => {
+    const evt = eventBySourceId.get(id);
     if (evt) relatedTimes.add(evt.time);
   });
 
@@ -336,7 +335,7 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
     });
   }
 
-  if (!card.relatedRequestIds?.length && !card.relatedEventIds?.length && evidence.length <= 1) {
+  if (!card.relatedRequestIds?.length && !card.relatedSourceIds?.length && !card.relatedEventIds?.length && evidence.length <= 1) {
     negatives.push({ label: '定位粒度不足', impact: 'negative', detail: '尚未关联到具体请求或事件，建议打开原始证据继续核验' });
   }
 
@@ -1084,7 +1083,7 @@ function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
       source: 'netlog' as const,
       fieldPath: `events[source.id=${e.source.id}].params`,
       detail: Object.keys(e.params || {}).slice(0, 8).join(', ') || '无 params 字段',
-      eventIds: [String(e.source.id)],
+      sourceIds: [e.source.id],
     })),
     actions: [
       {
@@ -1098,7 +1097,7 @@ function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
         detail: '对静态资源设置稳定的 max-age/immutable，对接口响应避免错误缓存',
       },
     ],
-    relatedEventIds: result.cacheEvents.slice(0, 20).map(e => String(e.source.id)),
+    relatedSourceIds: result.cacheEvents.slice(0, 20).map(e => e.source.id),
     navigationTarget: { tab: 'events', keyword: 'cache' },
   }, [
     { label: '缓存事件', impact: 'positive', detail: `采集到 ${result.cacheEvents.length} 条缓存事件` },
@@ -1133,7 +1132,7 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
         value: `${formatNetlogTime(e.time)} · ${e.typeName} · source#${e.source.id}`,
         source: 'netlog' as const,
         detail: Object.keys(e.params || {}).slice(0, 8).join(', ') || '无 params 字段',
-        eventIds: [String(e.source.id)],
+        sourceIds: [e.source.id],
       })),
     ],
     actions: [
@@ -1149,7 +1148,7 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
       },
     ],
     relatedRequestIds: relatedFailures.flatMap(f => result.urlRequests.filter(r => r.url === f.url).map(r => r.id)).slice(0, 20),
-    relatedEventIds: result.proxyEvents.slice(0, 20).map(e => String(e.source.id)),
+    relatedSourceIds: result.proxyEvents.slice(0, 20).map(e => e.source.id),
     navigationTarget: { tab: 'events', keyword: 'proxy' },
   }, [
     ...(result.proxyInfo.hasProxy ? [{ label: '代理配置', impact: 'positive' as const, detail: '已解析到有效代理配置' }] : []),
@@ -1188,7 +1187,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
         label: `协议错误 ${i + 1}`,
         value: `${formatNetlogTime(e.time)} · ${e.typeName} · net_error=${e.params.net_error}`,
         source: 'netlog' as const,
-        eventIds: [String(e.source.id)],
+        sourceIds: [e.source.id],
       })),
     ],
     actions: [
@@ -1203,7 +1202,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
         detail: '企业代理或 VPN 可能阻断 QUIC/UDP 或终止 TLS，导致协议回退到 HTTP/1.1',
       },
     ],
-    relatedEventIds: [...result.http2Events, ...result.quicEvents].slice(0, 20).map(e => String(e.source.id)),
+    relatedSourceIds: [...result.http2Events, ...result.quicEvents].slice(0, 20).map(e => e.source.id),
     navigationTarget: { tab: 'ssl-protocol', keyword: 'protocol' },
   }, [
     { label: '协议事件', impact: 'positive', detail: `HTTP/2 ${result.http2Events.length} 条，QUIC ${result.quicEvents.length} 条` },
@@ -1236,7 +1235,7 @@ function buildTlsCertificateEvidenceCard(result: AnalysisResult): DiagnosticCard
       value: `${item.issue.host || '未知主机'} · 错误 ${item.issue.error} · ${item.details.join('；')}`,
       source: 'netlog' as const,
       fieldPath: `events[source.id=${item.issue.event.source.id}].params`,
-      eventIds: [String(item.issue.event.source.id)],
+      sourceIds: [item.issue.event.source.id],
     })),
     actions: [
       {
@@ -1245,7 +1244,7 @@ function buildTlsCertificateEvidenceCard(result: AnalysisResult): DiagnosticCard
         detail: '对照证书 subject/SAN、issuer、有效期和浏览器错误码，确认服务器证书链是否完整且覆盖访问域名',
       },
     ],
-    relatedEventIds: detailedIssues.slice(0, 20).map(item => String(item.issue.event.source.id)),
+    relatedSourceIds: detailedIssues.slice(0, 20).map(item => item.issue.event.source.id),
     navigationTarget: { tab: 'ssl-protocol', keyword: 'certificate' },
   }, [
     { label: '证书字段', impact: 'positive', detail: `${detailedIssues.length} 条异常包含可读证书字段` },

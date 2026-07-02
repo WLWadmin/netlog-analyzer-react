@@ -2,6 +2,7 @@ export type {
   IpScope,
   IpEvidenceRole,
   IpEvidenceSource,
+  IpEvidenceAssociation,
   RequestImpact,
   IpEvidenceItem,
   CipSipEvidenceRow,

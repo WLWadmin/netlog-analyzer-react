@@ -47,14 +47,14 @@ function guessFileTypeForTab(card: DiagnosticCard, tab: string): 'har' | 'netlog
  *
  * 目标：
  * - 让卡片尽可能“一键到证据”：HAR request / NetLog events / Raw JSON fieldPath
- * - 优先复用 card.navigationTarget，其次从 relatedRequestIds / relatedEventIds / evidence.fieldPath 推导
+ * - 优先复用 card.navigationTarget，其次从 relatedRequestIds / relatedSourceIds / evidence.fieldPath 推导
  */
 export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNavigationTarget[] {
   const targets: EvidenceNavigationTarget[] = [];
 
   // 1) card.navigationTarget（最高优先级）
   if (card.navigationTarget) {
-    const { tab, keyword, errorCode, errorOnly, requestIds, eventIds } = card.navigationTarget;
+    const { tab, keyword, errorCode, errorOnly, requestIds, sourceIds } = card.navigationTarget;
     const fileType = guessFileTypeForTab(card, tab);
     targets.push({
       kind: tab as EvidenceNavigationKind,
@@ -72,7 +72,7 @@ export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNa
         },
         highlight: {
           ...(requestIds && { requestIds }),
-          ...(eventIds && { sourceIds: eventIds.map(Number) }),
+          ...(sourceIds && { sourceIds }),
         },
       },
     });
@@ -96,8 +96,8 @@ export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNa
     });
   }
 
-  // 3) NetLog 事件证据
-  if (card.relatedEventIds && card.relatedEventIds.length > 0) {
+  // 3) NetLog source 证据
+  if (card.relatedSourceIds && card.relatedSourceIds.length > 0) {
     targets.push({
       kind: 'events',
       label: '查看事件',
@@ -106,9 +106,9 @@ export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNa
         fileType: 'netlog',
         evidenceSource: 'netlog',
         filters: {
-          ...(card.relatedEventIds.length === 1 && { sourceId: card.relatedEventIds[0] }),
+          ...(card.relatedSourceIds.length === 1 && { sourceId: String(card.relatedSourceIds[0]) }),
         },
-        highlight: { sourceIds: card.relatedEventIds.map(Number) },
+        highlight: { sourceIds: card.relatedSourceIds },
       },
     });
   }
