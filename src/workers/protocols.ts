@@ -80,6 +80,7 @@ export interface QueryNetlogEventsRequest {
     typeId?: number;
     typeName?: string;
     sourceId?: number;
+    sourceChainId?: number;
     sourceTypeId?: number;
     sourceTypeName?: string;
     phase?: number;

@@ -6,6 +6,7 @@ export interface QueryNetlogEventsPayload {
   pageSize?: number;
   typeId?: number;
   sourceId?: number;
+  sourceChainId?: number;
   sourceTypeId?: number;
   typeName?: string;
   sourceTypeName?: string;
@@ -38,9 +39,30 @@ export interface QueryNetlogEventsResult {
   rows: NetlogEventRow[];
 }
 
-function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEventsPayload): boolean {
+function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<number> {
+  const chain = new Set<number>([sourceId]);
+  const queue = [sourceId];
+  const from = index.sourceDependencyFrom || [];
+  const to = index.sourceDependencyTo || [];
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const current = queue[cursor];
+    for (let i = 0; i < from.length; i += 1) {
+      const a = from[i];
+      const b = to[i];
+      const next = a === current ? b : b === current ? a : undefined;
+      if (next && !chain.has(next)) {
+        chain.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return chain;
+}
+
+function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEventsPayload, sourceChain?: Set<number>): boolean {
   if (query.typeId !== undefined && index.typeId[eventId] !== query.typeId) return false;
   if (query.sourceId !== undefined && index.sourceId[eventId] !== query.sourceId) return false;
+  if (sourceChain && !sourceChain.has(index.sourceId[eventId])) return false;
   if (query.sourceTypeId !== undefined && index.sourceTypeId[eventId] !== query.sourceTypeId) return false;
   if (query.typeName && (index.eventTypeNames?.[index.typeId[eventId]] || '').toLowerCase() !== query.typeName.toLowerCase()) return false;
   if (query.sourceTypeName && (index.sourceTypeNames?.[index.sourceTypeId[eventId]] || '').toLowerCase() !== query.sourceTypeName.toLowerCase()) return false;
@@ -85,9 +107,10 @@ export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEv
   const start = (page - 1) * pageSize;
   const rows: NetlogEventRow[] = [];
   let total = 0;
+  const sourceChain = query.sourceChainId !== undefined ? buildSourceChain(index, query.sourceChainId) : undefined;
 
   for (let eventId = 0; eventId < index.count; eventId++) {
-    if (!matches(index, eventId, query)) continue;
+    if (!matches(index, eventId, query, sourceChain)) continue;
     if (total >= start && rows.length < pageSize) {
       rows.push(toRow(index, eventId));
     }

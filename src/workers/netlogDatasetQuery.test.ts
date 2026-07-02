@@ -11,6 +11,8 @@ const index: CompactEventIndex = {
   flags: [0, 1, 0, 1],
   byteStart: [5, 15, 25, 35],
   byteEnd: [14, 24, 34, 44],
+  sourceDependencyFrom: [3],
+  sourceDependencyTo: [1],
   eventTypeNames: {
     10: 'URL_REQUEST',
     20: 'SOCKET_CONNECT',
@@ -51,5 +53,10 @@ describe('queryNetlogEvents', () => {
     expect(queryNetlogEvents(index, { analysisId: 'a1', startTime: 2, endTime: 3 }).rows.map(row => row.eventId)).toEqual([1, 2]);
     expect(queryNetlogEvents(index, { analysisId: 'a1', startTime: 3 }).rows.map(row => row.eventId)).toEqual([2, 3]);
     expect(queryNetlogEvents(index, { analysisId: 'a1', endTime: 2 }).rows.map(row => row.eventId)).toEqual([0, 1]);
+  });
+
+  it('支持 source chain 过滤', () => {
+    expect(queryNetlogEvents(index, { analysisId: 'a1', sourceChainId: 1 }).rows.map(row => row.eventId)).toEqual([0, 1, 3]);
+    expect(queryNetlogEvents(index, { analysisId: 'a1', sourceChainId: 2 }).rows.map(row => row.eventId)).toEqual([2]);
   });
 });

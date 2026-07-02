@@ -1,6 +1,7 @@
 export interface DatasetEventsFilterState {
   errorOnly: boolean;
   sourceIdFilter: string;
+  sourceChainIdFilter: string;
   typeIdFilter: string;
   typeNameFilter: string;
   sourceTypeNameFilter: string;
@@ -13,6 +14,7 @@ export interface DatasetEventsFilterState {
 export const DEFAULT_DATASET_EVENTS_FILTER_STATE: DatasetEventsFilterState = {
   errorOnly: false,
   sourceIdFilter: '',
+  sourceChainIdFilter: '',
   typeIdFilter: '',
   typeNameFilter: '',
   sourceTypeNameFilter: '',
@@ -47,6 +49,7 @@ export function parseDatasetEventsFilterState(raw: string | null): DatasetEvents
     return {
       errorOnly: booleanValue(parsed.errorOnly),
       sourceIdFilter: stringValue(parsed.sourceIdFilter),
+      sourceChainIdFilter: stringValue(parsed.sourceChainIdFilter),
       typeIdFilter: stringValue(parsed.typeIdFilter),
       typeNameFilter: stringValue(parsed.typeNameFilter),
       sourceTypeNameFilter: stringValue(parsed.sourceTypeNameFilter),

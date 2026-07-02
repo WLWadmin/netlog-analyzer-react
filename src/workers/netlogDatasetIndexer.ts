@@ -15,6 +15,8 @@ export interface CompactEventIndex {
   byteEnd: number[];
   eventTypeNames?: Record<number, string>;
   sourceTypeNames?: Record<number, string>;
+  sourceDependencyFrom?: number[];
+  sourceDependencyTo?: number[];
 }
 
 export interface NetlogDatasetIndexResult {
@@ -61,7 +63,48 @@ function emptyIndex(): CompactEventIndex {
     byteEnd: [],
     eventTypeNames: {},
     sourceTypeNames: {},
+    sourceDependencyFrom: [],
+    sourceDependencyTo: [],
   };
+}
+
+function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
+  const id = Number(value.id ?? value.source_id ?? value.sourceId);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function extractDependencySourceIds(params: Record<string, unknown> | undefined): number[] {
+  if (!params || typeof params !== 'object') return [];
+  const roots = [
+    params.source_dependency,
+    params.sourceDependency,
+    params.source_dependencies,
+    params.sourceDependencies,
+    params.dependencies,
+  ].filter(value => value !== undefined);
+  const ids = new Set<number>();
+  const visit = (node: unknown, depth = 0) => {
+    if (!node || depth > 5) return;
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item, depth + 1));
+      return;
+    }
+    if (typeof node !== 'object') return;
+    const value = node as Record<string, unknown>;
+    const id = extractSourceIdFromObject(value);
+    if (id) ids.add(id);
+    [
+      value.source_dependency,
+      value.sourceDependency,
+      value.source_dependencies,
+      value.sourceDependencies,
+      value.dependency,
+      value.dependencies,
+      value.source,
+    ].filter(item => item !== undefined).forEach(item => visit(item, depth + 1));
+  };
+  roots.forEach(root => visit(root));
+  return Array.from(ids);
 }
 
 function buildReverseNameMap(raw: unknown): Record<number, string> {
@@ -85,15 +128,22 @@ function applyConstants(index: CompactEventIndex, constants: unknown) {
 }
 
 function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byteEnd: number) {
+  const sourceId = Number(event?.source?.id ?? event?.source_id) || 0;
   index.count += 1;
   index.time.push(Number(event?.time) || 0);
   index.typeId.push(Number(event?.type) || 0);
   index.sourceTypeId.push(Number(event?.source?.type ?? event?.source_type) || 0);
-  index.sourceId.push(Number(event?.source?.id ?? event?.source_id) || 0);
+  index.sourceId.push(sourceId);
   index.phase.push(Number(event?.phase) || 0);
   index.flags.push(event?.params?.net_error || event?.params?.error_code ? 1 : 0);
   index.byteStart.push(byteStart);
   index.byteEnd.push(byteEnd);
+  for (const dependencySourceId of extractDependencySourceIds(event?.params)) {
+    if (sourceId > 0 && dependencySourceId > 0) {
+      index.sourceDependencyFrom?.push(sourceId);
+      index.sourceDependencyTo?.push(dependencySourceId);
+    }
+  }
 }
 
 function eventName(index: CompactEventIndex, typeId: number): string {

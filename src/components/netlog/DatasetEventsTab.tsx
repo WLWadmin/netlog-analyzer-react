@@ -19,6 +19,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
   const [pageSize, setPageSize] = useState(savedFilterState.pageSize);
   const [errorOnly, setErrorOnly] = useState(savedFilterState.errorOnly);
   const [sourceIdFilter, setSourceIdFilter] = useState(savedFilterState.sourceIdFilter);
+  const [sourceChainIdFilter, setSourceChainIdFilter] = useState(savedFilterState.sourceChainIdFilter);
   const [typeIdFilter, setTypeIdFilter] = useState(savedFilterState.typeIdFilter);
   const [typeNameFilter, setTypeNameFilter] = useState(savedFilterState.typeNameFilter);
   const [sourceTypeNameFilter, setSourceTypeNameFilter] = useState(savedFilterState.sourceTypeNameFilter);
@@ -44,6 +45,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setPageSize(state.pageSize);
     setErrorOnly(state.errorOnly);
     setSourceIdFilter(state.sourceIdFilter);
+    setSourceChainIdFilter(state.sourceChainIdFilter);
     setTypeIdFilter(state.typeIdFilter);
     setTypeNameFilter(state.typeNameFilter);
     setSourceTypeNameFilter(state.sourceTypeNameFilter);
@@ -82,6 +84,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       pageSize,
       errorOnly,
       sourceId: numericOrUndefined(sourceIdFilter),
+      sourceChainId: numericOrUndefined(sourceChainIdFilter),
       typeId: numericOrUndefined(typeIdFilter),
       typeName: typeNameFilter.trim() || undefined,
       sourceTypeName: sourceTypeNameFilter.trim() || undefined,
@@ -101,12 +104,13 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     return () => {
       cancelled = true;
     };
-  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
+  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
 
   useEffect(() => {
     saveDatasetEventsFilterState(analysisId, {
       errorOnly,
       sourceIdFilter,
+      sourceChainIdFilter,
       typeIdFilter,
       typeNameFilter,
       sourceTypeNameFilter,
@@ -115,11 +119,12 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       endTimeFilter,
       pageSize,
     });
-  }, [analysisId, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
+  }, [analysisId, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
 
   const clearFilters = () => {
     setErrorOnly(false);
     setSourceIdFilter('');
+    setSourceChainIdFilter('');
     setTypeIdFilter('');
     setTypeNameFilter('');
     setSourceTypeNameFilter('');
@@ -155,6 +160,14 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
             placeholder="sourceId"
             value={sourceIdFilter}
             onChange={(event) => { setSourceIdFilter(event.target.value); setPage(1); }}
+          />
+          <Input
+            allowClear
+            size="small"
+            style={{ width: 130 }}
+            placeholder="sourceChainId"
+            value={sourceChainIdFilter}
+            onChange={(event) => { setSourceChainIdFilter(event.target.value); setPage(1); }}
           />
           <Input
             allowClear
@@ -212,13 +225,13 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       }
       bordered={false}
     >
-      {(sourceIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || startTimeFilter || endTimeFilter || errorOnly) && (
+      {(sourceIdFilter || sourceChainIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || startTimeFilter || endTimeFilter || errorOnly) && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
           message="Dataset 查询条件"
-          description={`sourceId=${sourceIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，startTime=${startTimeFilter || '*'}，endTime=${endTimeFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
+          description={`sourceId=${sourceIdFilter || '*'}，sourceChainId=${sourceChainIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，startTime=${startTimeFilter || '*'}，endTime=${endTimeFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
         />
       )}
       <Table<NetlogEventRow>

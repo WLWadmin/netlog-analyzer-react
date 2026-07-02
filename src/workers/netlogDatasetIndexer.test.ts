@@ -135,4 +135,14 @@ describe('netlogDatasetIndexer', () => {
     expect(dataLoaded.evidenceGaps).not.toContain('未发现 clientInfo，浏览器客户端版本和平台信息可能缺失。');
     expect(dataLoaded.evidenceGaps).not.toContain('未发现 netLogInfo，NetLog 采集元信息可能缺失。');
   });
+
+  it('从事件 params 提取 source dependency 边到 compact index', async () => {
+    const text = '{"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://chain.example"}},{"time":"2","type":2,"source":{"id":30,"type":40},"phase":2,"params":{"source_dependencies":[{"id":10},{"dependency":{"sourceId":50}}]}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { index } = await buildNetlogCompactEventIndex(file);
+
+    expect(index.sourceDependencyFrom).toEqual([30, 30]);
+    expect(index.sourceDependencyTo).toEqual([10, 50]);
+  });
 });

@@ -24,6 +24,7 @@ describe('datasetEventsFilterState', () => {
     saveDatasetEventsFilterState('a1', {
       errorOnly: true,
       sourceIdFilter: '10',
+      sourceChainIdFilter: '11',
       typeIdFilter: '20',
       typeNameFilter: 'URL_REQUEST',
       sourceTypeNameFilter: 'SOCKET',
@@ -36,6 +37,7 @@ describe('datasetEventsFilterState', () => {
     expect(loadDatasetEventsFilterState('a1')).toEqual({
       errorOnly: true,
       sourceIdFilter: '10',
+      sourceChainIdFilter: '11',
       typeIdFilter: '20',
       typeNameFilter: 'URL_REQUEST',
       sourceTypeNameFilter: 'SOCKET',
@@ -51,6 +53,7 @@ describe('datasetEventsFilterState', () => {
     saveDatasetEventsFilterState('a1', {
       errorOnly: true,
       sourceIdFilter: '10',
+      sourceChainIdFilter: '',
       typeIdFilter: '',
       typeNameFilter: '',
       sourceTypeNameFilter: '',
