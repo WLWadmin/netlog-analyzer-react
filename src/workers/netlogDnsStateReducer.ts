@@ -3,6 +3,8 @@ import type { DnsStateView } from './netlogDatasetViews';
 
 interface EventSeed {
   eventId: number;
+  byteStart?: number;
+  byteEnd?: number;
   time: number;
   typeName: string;
   sourceId: number;
@@ -141,6 +143,8 @@ export function createNetlogDnsStateReducer() {
             expires: value.expiration as string | number | undefined,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
+            byteStart: seed.byteStart,
+            byteEnd: seed.byteEnd,
           });
         }
       }
@@ -171,6 +175,8 @@ export function createNetlogDnsStateReducer() {
             error,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
+            byteStart: seed.byteStart,
+            byteEnd: seed.byteEnd,
           });
         }
       }
@@ -181,6 +187,8 @@ export function createNetlogDnsStateReducer() {
         available: typeof params.ipv6_available === 'boolean' ? params.ipv6_available : undefined,
         sourceId: seed.sourceId,
         eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
       });
     }
   };

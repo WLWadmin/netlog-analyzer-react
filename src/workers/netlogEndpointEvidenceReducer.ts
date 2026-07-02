@@ -145,6 +145,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     serverObservedClientIps: Set<string>;
     items: IpEvidenceItem[];
     descriptions: Set<string>;
+    traceKeys: Set<string>;
   }>();
 
   for (const item of items) {
@@ -158,6 +159,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       serverObservedClientIps: new Set(),
       items: [],
       descriptions: new Set(),
+      traceKeys: new Set(),
     };
     if (item.role === 'cip') row.cipIps.add(item.ip);
     if (item.role === 'sip') row.sipIps.add(item.ip);
@@ -166,12 +168,24 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
     if (item.role === 'server-observed-client-ip') row.serverObservedClientIps.add(item.ip);
     row.items.push(item);
     row.descriptions.add(item.description);
+    if (item.eventId !== undefined || item.sourceId !== undefined || item.byteStart !== undefined || item.byteEnd !== undefined) {
+      row.traceKeys.add([item.eventId ?? '', item.sourceId ?? '', item.byteStart ?? '', item.byteEnd ?? ''].join(':'));
+    }
     rows.set(host, row);
   }
 
   return Array.from(rows.values()).map(row => {
     const sortedItems = row.items.sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0));
     const representative = sortedItems[0];
+    const evidenceTraces = Array.from(row.traceKeys).map(key => {
+      const [eventId, sourceId, byteStart, byteEnd] = key.split(':');
+      return {
+        eventId: eventId === '' ? undefined : Number(eventId),
+        sourceId: sourceId === '' ? undefined : Number(sourceId),
+        byteStart: byteStart === '' ? undefined : Number(byteStart),
+        byteEnd: byteEnd === '' ? undefined : Number(byteEnd),
+      };
+    });
     return {
       id: row.host,
       host: row.host,
@@ -193,6 +207,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
         impact: item.impact,
       })),
       descriptions: Array.from(row.descriptions).slice(0, 6),
+      evidenceTraces,
     };
   });
 }

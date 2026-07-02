@@ -66,5 +66,12 @@ describe('netlogEndpointEvidenceReducer', () => {
     ]);
     expect(summary.cipSipRows.some(row => row.sipIps.includes('203.0.113.8'))).toBe(false);
     expect(summary.cipSipRows.some(row => (row.socketPeerIps || []).includes('203.0.113.8'))).toBe(true);
+    expect(summary.cipSipRows.find(row => row.host === 'api.example.com')?.evidenceTraces).toEqual(expect.arrayContaining([
+      { eventId: 1, sourceId: 100, byteStart: 100, byteEnd: 199 },
+      { eventId: 3, sourceId: 300, byteStart: 300, byteEnd: 399 },
+    ]));
+    expect(summary.cipSipRows.find(row => row.host === '未关联到具体请求')?.evidenceTraces).toEqual([
+      { eventId: 2, sourceId: 200, byteStart: 200, byteEnd: 299 },
+    ]);
   });
 });

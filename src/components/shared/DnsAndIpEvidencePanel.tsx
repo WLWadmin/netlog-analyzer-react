@@ -206,23 +206,8 @@ function copyRowText(row: CipSipEvidenceRow): string {
   ].join('\n');
 }
 
-function findTraceEventId(summary: DnsIpEvidenceSummary, row: CipSipEvidenceRow): number | undefined {
-  const rowIps = new Set([
-    ...row.cipIps,
-    ...row.sipIps,
-    ...(row.socketPeerIps || []),
-    ...(row.dnsAnswerIps || []),
-    ...(row.serverObservedClientIps || []),
-  ]);
-  const item = summary.failedOrSlowIps.find(evidence =>
-    evidence.eventId !== undefined &&
-    rowIps.has(evidence.ip) &&
-    (evidence.host === row.host || evidence.host === row.hostOrUrl || evidence.url === row.hostOrUrl)
-  ) || summary.failedOrSlowIps.find(evidence =>
-    evidence.eventId !== undefined &&
-    rowIps.has(evidence.ip)
-  );
-  return item?.eventId;
+function findTraceEventId(row: CipSipEvidenceRow): number | undefined {
+  return row.evidenceTraces?.find(trace => trace.eventId !== undefined)?.eventId;
 }
 
 function lookupRiskText(result: IpLookupResult, roles: string[], hasCrossCarrierContext: boolean): string {
@@ -580,7 +565,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
       key: 'copy',
       width: 390,
       render: (_, row) => {
-        const traceEventId = findTraceEventId(summary, row);
+        const traceEventId = findTraceEventId(row);
         return (
           <Space size={4} wrap>
             <Button
@@ -598,6 +583,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
             ) : analysisId ? (
               <Tag>无事件 trace</Tag>
             ) : null}
+            {row.evidenceTraces?.length ? <Tag>事件 trace {row.evidenceTraces.length}</Tag> : null}
             <Button size="small" onClick={() => copyWithToast(row.cipIps.join('\n'), 'CIP')}>
               CIP
             </Button>
@@ -611,7 +597,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
         );
       },
     },
-  ], [activeLookupRowId, analysisId, openEventDetail, queryIps, summary]);
+  ], [activeLookupRowId, analysisId, openEventDetail, queryIps]);
 
   return (
     <Card

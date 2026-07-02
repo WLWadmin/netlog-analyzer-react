@@ -51,6 +51,13 @@ export interface IpEvidenceItem {
   description: string;
 }
 
+export interface NetlogEvidenceTrace {
+  eventId?: number;
+  sourceId?: number;
+  byteStart?: number;
+  byteEnd?: number;
+}
+
 export interface CipSipEvidenceRow {
   id: string;
   host: string;
@@ -72,6 +79,7 @@ export interface CipSipEvidenceRow {
     impact: RequestImpact;
   }>;
   descriptions: string[];
+  evidenceTraces?: NetlogEvidenceTrace[];
 }
 
 export interface DnsServerEvidence {

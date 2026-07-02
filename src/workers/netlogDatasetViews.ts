@@ -21,6 +21,8 @@ export interface DnsStateView {
     sourceKey?: string;
     sourceId?: number;
     eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
   }>;
   hostResolverCache: Array<{
     host: string;
@@ -30,6 +32,8 @@ export interface DnsStateView {
     expires?: string | number;
     sourceId?: number;
     eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
   }>;
   taskResults: Array<{
     host: string;
@@ -39,6 +43,8 @@ export interface DnsStateView {
     error?: number;
     sourceId?: number;
     eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
   }>;
   dohCandidates: Array<{
     value: string;
@@ -46,11 +52,15 @@ export interface DnsStateView {
     sourceKey?: string;
     sourceId?: number;
     eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
   }>;
   ipv6ReachabilityChecks: Array<{
     available?: boolean;
     eventId?: number;
     sourceId?: number;
+    byteStart?: number;
+    byteEnd?: number;
   }>;
   evidenceGaps: string[];
 }

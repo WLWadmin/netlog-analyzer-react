@@ -15,6 +15,8 @@ describe('netlogDnsStateReducer', () => {
 
     reducer.accept({
       eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
       time: 10,
       typeName: 'HOST_RESOLVER_MANAGER_CACHE_HIT',
       sourceId: 100,
@@ -30,6 +32,8 @@ describe('netlogDnsStateReducer', () => {
     });
     reducer.accept({
       eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
       time: 20,
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 101,
@@ -45,6 +49,8 @@ describe('netlogDnsStateReducer', () => {
     });
     reducer.accept({
       eventId: 3,
+      byteStart: 300,
+      byteEnd: 399,
       time: 30,
       typeName: 'HOST_RESOLVER_MANAGER_IPV6_REACHABILITY_CHECK',
       sourceId: 102,
@@ -54,6 +60,8 @@ describe('netlogDnsStateReducer', () => {
     });
     reducer.accept({
       eventId: 4,
+      byteStart: 400,
+      byteEnd: 499,
       time: 40,
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 103,
@@ -71,11 +79,11 @@ describe('netlogDnsStateReducer', () => {
     const view = reducer.finish();
 
     expect(view.hostResolverCache).toEqual([
-      expect.objectContaining({ host: 'cache.example.com', ips: ['203.0.113.10'], eventId: 1 }),
+      expect.objectContaining({ host: 'cache.example.com', ips: ['203.0.113.10'], eventId: 1, sourceId: 100, byteStart: 100, byteEnd: 199 }),
     ]);
     expect(view.taskResults).toEqual([
-      expect.objectContaining({ host: 'task.example.com', queryType: 'A', ips: ['203.0.113.11'], eventId: 2 }),
-      expect.objectContaining({ host: 'failed.example.com', queryType: 'AAAA', ips: [], error: -105, eventId: 4 }),
+      expect.objectContaining({ host: 'task.example.com', queryType: 'A', ips: ['203.0.113.11'], eventId: 2, sourceId: 101, byteStart: 200, byteEnd: 299 }),
+      expect.objectContaining({ host: 'failed.example.com', queryType: 'AAAA', ips: [], error: -105, eventId: 4, sourceId: 103, byteStart: 400, byteEnd: 499 }),
     ]);
     expect(view.configServers).toEqual(expect.arrayContaining([
       expect.objectContaining({ ip: '223.5.5.5', source: 'polledData' }),
@@ -86,7 +94,7 @@ describe('netlogDnsStateReducer', () => {
       expect.objectContaining({ value: '1.1.1.1', source: 'polledData' }),
     ]));
     expect(view.ipv6ReachabilityChecks).toEqual([
-      { available: false, sourceId: 102, eventId: 3 },
+      { available: false, sourceId: 102, eventId: 3, byteStart: 300, byteEnd: 399 },
     ]);
     expect(view.evidenceGaps).not.toContain('未发现 DNS server 配置记录，不代表用户没有配置 DNS。');
   });
