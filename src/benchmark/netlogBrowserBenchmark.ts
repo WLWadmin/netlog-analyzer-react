@@ -132,6 +132,7 @@ async function runNetlogBrowserBenchmark() {
     const firstRow = firstQuery.rows[0];
     if (firstRow?.sourceId !== undefined) {
       await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceId: firstRow.sourceId }));
+      await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceChainId: firstRow.sourceId }));
     }
     if (firstRow?.typeId !== undefined) {
       await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, typeId: firstRow.typeId }));

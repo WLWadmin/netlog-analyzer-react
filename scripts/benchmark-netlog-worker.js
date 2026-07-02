@@ -79,12 +79,14 @@ describe('netlog worker benchmark', () => {
     const detailTimes: number[] = [];
     const analysisId = 'benchmark';
     const sampleSourceId = index.sourceId.find(id => id > 0);
+    const sampleSourceChainId = index.sourceDependencyFrom?.find(id => id > 0) || sampleSourceId;
     const sampleTypeId = index.typeId.find(id => id > 0);
     const queries = [
       { analysisId, page: 1, pageSize: 100 },
       { analysisId, page: 10, pageSize: 100 },
       { analysisId, errorOnly: true, page: 1, pageSize: 100 },
       sampleSourceId ? { analysisId, sourceId: sampleSourceId, page: 1, pageSize: 100 } : { analysisId, page: 1, pageSize: 100 },
+      sampleSourceChainId ? { analysisId, sourceChainId: sampleSourceChainId, page: 1, pageSize: 100 } : { analysisId, page: 1, pageSize: 100 },
       sampleTypeId ? { analysisId, typeId: sampleTypeId, page: 1, pageSize: 100 } : { analysisId, page: 1, pageSize: 100 },
     ];
     for (const query of queries) {
