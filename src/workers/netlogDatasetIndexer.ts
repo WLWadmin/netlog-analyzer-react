@@ -132,6 +132,8 @@ function buildDataLoadedView(file: NetlogIndexableFile, index: CompactEventIndex
   };
   if (!view.hasPolledData) view.evidenceGaps.push('未发现 polledData，DNS server、代理配置和系统网络配置可能缺失。');
   if (!view.hasSystemInfo) view.evidenceGaps.push('未发现 systemInfo，操作系统和系统网络环境信息不可用。');
+  if (!view.hasClientInfo) view.evidenceGaps.push('未发现 clientInfo，浏览器客户端版本和平台信息可能缺失。');
+  if (!view.hasNetLogInfo) view.evidenceGaps.push('未发现 netLogInfo，NetLog 采集元信息可能缺失。');
   if (!hasConstants) view.evidenceGaps.push('未发现 constants，事件和 source 名称只能使用 fallback 映射。');
   return view;
 }

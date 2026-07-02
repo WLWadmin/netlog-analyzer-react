@@ -80,6 +80,8 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
         <Descriptions.Item label="constants">{view.hasConstants ? '存在' : '缺失'}</Descriptions.Item>
         <Descriptions.Item label="polledData">{view.hasPolledData ? '存在' : '缺失'}</Descriptions.Item>
         <Descriptions.Item label="systemInfo">{view.hasSystemInfo ? '存在' : '缺失'}</Descriptions.Item>
+        <Descriptions.Item label="clientInfo">{view.hasClientInfo ? '存在' : '缺失'}</Descriptions.Item>
+        <Descriptions.Item label="netLogInfo">{view.hasNetLogInfo ? '存在' : '缺失'}</Descriptions.Item>
       </Descriptions>
       {view.evidenceGaps.length > 0 && (
         <Alert

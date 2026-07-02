@@ -63,9 +63,15 @@ describe('netlogDatasetIndexer', () => {
       fileName: 'chunked-netlog.json',
       eventCount: 2,
       hasConstants: true,
+      hasClientInfo: false,
+      hasNetLogInfo: false,
       eventTypeCount: 2,
       sourceTypeCount: 2,
     }));
+    expect(dataLoaded.evidenceGaps).toEqual(expect.arrayContaining([
+      '未发现 clientInfo，浏览器客户端版本和平台信息可能缺失。',
+      '未发现 netLogInfo，NetLog 采集元信息可能缺失。',
+    ]));
     expect(dataLoaded.topEventTypes).toEqual(expect.arrayContaining([
       { name: 'URL_REQUEST', count: 1 },
       { name: 'SOCKET_CONNECT', count: 1 },
@@ -116,5 +122,17 @@ describe('netlogDatasetIndexer', () => {
       expect.objectContaining({ value: 'https://dns.example/dns-query', source: 'polledData' }),
       expect.objectContaining({ value: '1.1.1.1', source: 'polledData' }),
     ]));
+  });
+
+  it('Data Loaded 标记 clientInfo 和 netLogInfo 顶层字段', async () => {
+    const text = '{"clientInfo":{"name":"Chrome"},"netLogInfo":{"captureMode":"Default"},"constants":{"logEventTypes":{"URL_REQUEST":1},"logSourceType":{"URL_REQUEST":20}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://client.example"}}]}';
+    const file = new ChunkedTextFile(text, [5, 7, 9, 11]);
+
+    const { dataLoaded } = await buildNetlogCompactEventIndex(file);
+
+    expect(dataLoaded.hasClientInfo).toBe(true);
+    expect(dataLoaded.hasNetLogInfo).toBe(true);
+    expect(dataLoaded.evidenceGaps).not.toContain('未发现 clientInfo，浏览器客户端版本和平台信息可能缺失。');
+    expect(dataLoaded.evidenceGaps).not.toContain('未发现 netLogInfo，NetLog 采集元信息可能缺失。');
   });
 });
