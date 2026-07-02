@@ -84,6 +84,8 @@ export interface QueryNetlogEventsRequest {
     sourceTypeName?: string;
     phase?: number;
     errorOnly?: boolean;
+    startTime?: number;
+    endTime?: number;
   };
 }
 

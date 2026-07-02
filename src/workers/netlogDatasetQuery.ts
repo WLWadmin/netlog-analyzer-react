@@ -11,6 +11,8 @@ export interface QueryNetlogEventsPayload {
   sourceTypeName?: string;
   phase?: number;
   errorOnly?: boolean;
+  startTime?: number;
+  endTime?: number;
 }
 
 export interface NetlogEventRow {
@@ -44,6 +46,9 @@ function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEv
   if (query.sourceTypeName && (index.sourceTypeNames?.[index.sourceTypeId[eventId]] || '').toLowerCase() !== query.sourceTypeName.toLowerCase()) return false;
   if (query.phase !== undefined && index.phase[eventId] !== query.phase) return false;
   if (query.errorOnly && index.flags[eventId] !== 1) return false;
+  const time = index.time[eventId] || 0;
+  if (query.startTime !== undefined && time < query.startTime) return false;
+  if (query.endTime !== undefined && time > query.endTime) return false;
   return true;
 }
 

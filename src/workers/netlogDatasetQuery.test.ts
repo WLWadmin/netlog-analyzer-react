@@ -46,4 +46,10 @@ describe('queryNetlogEvents', () => {
       phaseName: 'PHASE_NONE',
     }));
   });
+
+  it('支持 time range 过滤', () => {
+    expect(queryNetlogEvents(index, { analysisId: 'a1', startTime: 2, endTime: 3 }).rows.map(row => row.eventId)).toEqual([1, 2]);
+    expect(queryNetlogEvents(index, { analysisId: 'a1', startTime: 3 }).rows.map(row => row.eventId)).toEqual([2, 3]);
+    expect(queryNetlogEvents(index, { analysisId: 'a1', endTime: 2 }).rows.map(row => row.eventId)).toEqual([0, 1]);
+  });
 });

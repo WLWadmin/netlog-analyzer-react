@@ -17,6 +17,8 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
   const [typeNameFilter, setTypeNameFilter] = useState('');
   const [sourceTypeNameFilter, setSourceTypeNameFilter] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
+  const [startTimeFilter, setStartTimeFilter] = useState('');
+  const [endTimeFilter, setEndTimeFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -63,6 +65,8 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       typeName: typeNameFilter.trim() || undefined,
       sourceTypeName: sourceTypeNameFilter.trim() || undefined,
       phase: numericOrUndefined(phaseFilter),
+      startTime: numericOrUndefined(startTimeFilter),
+      endTime: numericOrUndefined(endTimeFilter),
     })
       .then(result => {
         if (!cancelled) setQueryResult(result);
@@ -76,7 +80,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     return () => {
       cancelled = true;
     };
-  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter]);
+  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
 
   const clearFilters = () => {
     setErrorOnly(false);
@@ -85,6 +89,8 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setTypeNameFilter('');
     setSourceTypeNameFilter('');
     setPhaseFilter('');
+    setStartTimeFilter('');
+    setEndTimeFilter('');
     setPage(1);
   };
 
@@ -146,6 +152,22 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
             value={phaseFilter}
             onChange={(event) => { setPhaseFilter(event.target.value); setPage(1); }}
           />
+          <Input
+            allowClear
+            size="small"
+            style={{ width: 110 }}
+            placeholder="startTime"
+            value={startTimeFilter}
+            onChange={(event) => { setStartTimeFilter(event.target.value); setPage(1); }}
+          />
+          <Input
+            allowClear
+            size="small"
+            style={{ width: 110 }}
+            placeholder="endTime"
+            value={endTimeFilter}
+            onChange={(event) => { setEndTimeFilter(event.target.value); setPage(1); }}
+          />
           <Button type={errorOnly ? 'primary' : 'default'} onClick={() => { setErrorOnly(prev => !prev); setPage(1); }}>
             仅错误事件
           </Button>
@@ -154,13 +176,13 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       }
       bordered={false}
     >
-      {(sourceIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || errorOnly) && (
+      {(sourceIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || startTimeFilter || endTimeFilter || errorOnly) && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
           message="Dataset 查询条件"
-          description={`sourceId=${sourceIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
+          description={`sourceId=${sourceIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，startTime=${startTimeFilter || '*'}，endTime=${endTimeFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
         />
       )}
       <Table<NetlogEventRow>
