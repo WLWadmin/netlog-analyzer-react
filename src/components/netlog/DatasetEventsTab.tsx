@@ -3,6 +3,11 @@ import { Alert, Button, Card, Input, Modal, Space, Table, Tag, message } from 'a
 import { getNetlogEventDetailInWorker, queryNetlogEventsInWorker } from '../../workers/workerClient';
 import type { NetlogEventRow, QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
 import { useNavigation } from '../../contexts/NavigationContext';
+import {
+  clearDatasetEventsFilterState,
+  loadDatasetEventsFilterState,
+  saveDatasetEventsFilterState,
+} from './datasetEventsFilterState';
 
 interface DatasetEventsTabProps {
   analysisId: string;
@@ -10,15 +15,16 @@ interface DatasetEventsTabProps {
 
 const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(100);
-  const [errorOnly, setErrorOnly] = useState(false);
-  const [sourceIdFilter, setSourceIdFilter] = useState('');
-  const [typeIdFilter, setTypeIdFilter] = useState('');
-  const [typeNameFilter, setTypeNameFilter] = useState('');
-  const [sourceTypeNameFilter, setSourceTypeNameFilter] = useState('');
-  const [phaseFilter, setPhaseFilter] = useState('');
-  const [startTimeFilter, setStartTimeFilter] = useState('');
-  const [endTimeFilter, setEndTimeFilter] = useState('');
+  const [savedFilterState, setSavedFilterState] = useState(() => loadDatasetEventsFilterState(analysisId));
+  const [pageSize, setPageSize] = useState(savedFilterState.pageSize);
+  const [errorOnly, setErrorOnly] = useState(savedFilterState.errorOnly);
+  const [sourceIdFilter, setSourceIdFilter] = useState(savedFilterState.sourceIdFilter);
+  const [typeIdFilter, setTypeIdFilter] = useState(savedFilterState.typeIdFilter);
+  const [typeNameFilter, setTypeNameFilter] = useState(savedFilterState.typeNameFilter);
+  const [sourceTypeNameFilter, setSourceTypeNameFilter] = useState(savedFilterState.sourceTypeNameFilter);
+  const [phaseFilter, setPhaseFilter] = useState(savedFilterState.phaseFilter);
+  const [startTimeFilter, setStartTimeFilter] = useState(savedFilterState.startTimeFilter);
+  const [endTimeFilter, setEndTimeFilter] = useState(savedFilterState.endTimeFilter);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -31,6 +37,21 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     rows: [],
   });
   const { intent, consumeIntent } = useNavigation();
+
+  useEffect(() => {
+    const state = loadDatasetEventsFilterState(analysisId);
+    setSavedFilterState(state);
+    setPageSize(state.pageSize);
+    setErrorOnly(state.errorOnly);
+    setSourceIdFilter(state.sourceIdFilter);
+    setTypeIdFilter(state.typeIdFilter);
+    setTypeNameFilter(state.typeNameFilter);
+    setSourceTypeNameFilter(state.sourceTypeNameFilter);
+    setPhaseFilter(state.phaseFilter);
+    setStartTimeFilter(state.startTimeFilter);
+    setEndTimeFilter(state.endTimeFilter);
+    setPage(1);
+  }, [analysisId]);
 
   useEffect(() => {
     if (!intent || intent.tab !== 'expert') return;
@@ -82,6 +103,20 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     };
   }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
 
+  useEffect(() => {
+    saveDatasetEventsFilterState(analysisId, {
+      errorOnly,
+      sourceIdFilter,
+      typeIdFilter,
+      typeNameFilter,
+      sourceTypeNameFilter,
+      phaseFilter,
+      startTimeFilter,
+      endTimeFilter,
+      pageSize,
+    });
+  }, [analysisId, pageSize, errorOnly, sourceIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
+
   const clearFilters = () => {
     setErrorOnly(false);
     setSourceIdFilter('');
@@ -91,6 +126,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setPhaseFilter('');
     setStartTimeFilter('');
     setEndTimeFilter('');
+    clearDatasetEventsFilterState(analysisId);
     setPage(1);
   };
 
