@@ -119,4 +119,41 @@ describe('netlogDnsStateReducer', () => {
     ]));
     expect(view.evidenceGaps).toContain('发现 Secure DNS/DoH 线索，但不能据此推断当前 DNS server 配置。');
   });
+
+  it('仅在 DNS 语义路径下把 templates/serverTemplates 收集为 DoH candidate', () => {
+    const reducer = createNetlogDnsStateReducer();
+
+    reducer.acceptTopLevelConfig('polledData', {
+      hostResolverInfo: {
+        dnsConfig: {
+          serverTemplates: ['https://dns.example/dns-query'],
+        },
+      },
+      secureDns: {
+        templates: ['https://secure.example/dns-query'],
+      },
+      ui: {
+        templates: ['not-a-doh-template'],
+      },
+      proxy: {
+        serverTemplates: ['https://proxy.example/template'],
+      },
+      policy: {
+        templates: ['https://policy.example/template'],
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.dohCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'https://dns.example/dns-query' }),
+      expect.objectContaining({ value: 'https://secure.example/dns-query' }),
+    ]));
+    expect(view.dohCandidates.map(item => item.value)).not.toEqual(expect.arrayContaining([
+      'not-a-doh-template',
+      'https://proxy.example/template',
+      'https://policy.example/template',
+    ]));
+    expect(view.configServers).toEqual([]);
+  });
 });

@@ -62,9 +62,14 @@ const DOH_CANDIDATE_KEYS = new Set([
   'dnsoverhttpsserver',
   'securednsservers',
   'securednsserver',
+]);
+
+const DOH_TEMPLATE_KEYS = new Set([
   'templates',
   'servertemplates',
 ]);
+
+const DOH_PATH_CONTEXT_KEYS = ['dns', 'securedns', 'doh', 'dnsoverhttps', 'hostresolver'];
 
 function isDnsServerKey(key: string): boolean {
   return DNS_SERVER_KEYS.has(normalizeKey(key));
@@ -72,6 +77,14 @@ function isDnsServerKey(key: string): boolean {
 
 function isDohCandidateKey(key: string): boolean {
   return DOH_CANDIDATE_KEYS.has(normalizeKey(key));
+}
+
+function isDohTemplateKey(key: string): boolean {
+  return DOH_TEMPLATE_KEYS.has(normalizeKey(key));
+}
+
+function hasDohPathContext(path: string[]): boolean {
+  return path.map(normalizeKey).some(part => DOH_PATH_CONTEXT_KEYS.some(context => part.includes(context)));
 }
 
 function collectStrings(value: unknown, output: string[] = []): string[] {
@@ -114,7 +127,7 @@ export function createNetlogDnsStateReducer() {
           });
           continue;
         }
-        if (isDohCandidateKey(key)) {
+        if (isDohCandidateKey(key) || (isDohTemplateKey(key) && hasDohPathContext(path))) {
           collectStrings(child).forEach(candidate => {
             dohCandidates.set(`${source}-${sourceKey}-${candidate}`, { value: candidate, source: source === 'systemInfo' ? 'unknown' : source, sourceKey });
           });
