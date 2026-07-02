@@ -13,8 +13,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -279,6 +279,67 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
   );
 };
 
+const DatasetProxyStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<ProxyStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogProxyStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset Proxy State 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset Proxy State 视图" />;
+  }
+
+  return (
+    <Card title="Proxy State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Proxy State 只展示配置快照和候选线索"
+          description="代理配置、PAC URL 或 bypass 规则是环境事实，不能单独作为请求失败或慢请求根因；仍需要结合代理事件、目标 host、错误码或直连对比。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.hasProxyEvidence ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="代理配置项">{view.proxyConfigs.length}</Descriptions.Item>
+          <Descriptions.Item label="PAC URL">{view.pacUrls.length}</Descriptions.Item>
+          <Descriptions.Item label="代理服务器">{view.proxyServers.length}</Descriptions.Item>
+          <Descriptions.Item label="Bypass 规则">{view.bypassRules.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey={(row) => `${row.source}-${row.key}-${row.value}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: '来源', dataIndex: 'source', width: 130 },
+            { title: '配置字段', dataIndex: 'key', width: 260, ellipsis: true },
+            { title: '值', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
+          ]}
+          dataSource={view.proxyConfigs}
+          locale={{ emptyText: '未发现 Dataset 代理配置快照' }}
+        />
+        <Descriptions column={1} size="small">
+          <Descriptions.Item label="PAC URL">{view.pacUrls.length > 0 ? view.pacUrls.join('；') : '未发现'}</Descriptions.Item>
+          <Descriptions.Item label="代理服务器">{view.proxyServers.length > 0 ? view.proxyServers.join('；') : '未发现'}</Descriptions.Item>
+          <Descriptions.Item label="Bypass 规则">{view.bypassRules.length > 0 ? view.bypassRules.join('；') : '未发现'}</Descriptions.Item>
+        </Descriptions>
+      </Space>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -393,11 +454,15 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
             description="Dataset 未就绪时只能展示 summary 中的 DNS 记录；索引完成后会展示 Host Resolver cache、DNS task results 和 IPv6 reachability。"
           />
         )}
-        <StateGapCard
-          title="Proxy State"
-          dataset={dataset}
-          description="当前仅在诊断摘要中展示代理/VPN 线索；完整 Proxy resolver / PAC / fallback chain reducer 尚未接入 Dataset。"
-        />
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetProxyStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="Proxy State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示诊断摘要中的代理/VPN 线索；索引完成后会展示代理配置、PAC URL、代理服务器和 bypass 规则。"
+          />
+        )}
         <StateGapCard
           title="QUIC State"
           dataset={dataset}

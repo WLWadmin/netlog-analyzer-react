@@ -1,7 +1,8 @@
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
 import { createNetlogEndpointEvidenceReducer } from './netlogEndpointEvidenceReducer';
 import { createNetlogDnsStateReducer } from './netlogDnsStateReducer';
-import type { DataLoadedView, DnsStateView } from './netlogDatasetViews';
+import { createNetlogProxyStateReducer } from './netlogProxyStateReducer';
+import type { DataLoadedView, DnsStateView, ProxyStateView } from './netlogDatasetViews';
 
 export interface CompactEventIndex {
   count: number;
@@ -24,6 +25,7 @@ export interface NetlogDatasetIndexResult {
   endpointEvidence: DnsIpEvidenceSummary;
   dataLoaded: DataLoadedView;
   dnsState: DnsStateView;
+  proxyState: ProxyStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -202,6 +204,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
   const index = emptyIndex();
   const endpointReducer = createNetlogEndpointEvidenceReducer();
   const dnsStateReducer = createNetlogDnsStateReducer();
+  const proxyStateReducer = createNetlogProxyStateReducer();
   const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
@@ -239,6 +242,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
       if (pendingKey === 'constants') applyConstants(index, value);
       if (pendingKey === 'polledData' || pendingKey === 'systemInfo') {
         dnsStateReducer.acceptTopLevelConfig(pendingKey, value);
+        proxyStateReducer.acceptTopLevelConfig(pendingKey, pendingKey, value);
       }
     } catch {
       // constants 解析失败不影响事件索引
@@ -458,5 +462,6 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     endpointEvidence: endpointReducer.finish(),
     dataLoaded: buildDataLoadedView(file, index, topLevelKeys),
     dnsState: dnsStateReducer.finish(),
+    proxyState: proxyStateReducer.finish(),
   };
 }

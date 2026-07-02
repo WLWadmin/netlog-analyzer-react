@@ -124,6 +124,14 @@ export interface GetNetlogDnsStateRequest {
   };
 }
 
+export interface GetNetlogProxyStateRequest {
+  type: 'get-netlog-proxy-state';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
 export interface GetRawStructureRequest {
   type: 'get-raw-structure';
   id: string;
@@ -157,6 +165,7 @@ export type WorkerRequest =
   | GetNetlogEndpointEvidenceRequest
   | GetNetlogDataLoadedRequest
   | GetNetlogDnsStateRequest
+  | GetNetlogProxyStateRequest
   | GetRawStructureRequest
   | GetRawValueRequest;
 
@@ -165,7 +174,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

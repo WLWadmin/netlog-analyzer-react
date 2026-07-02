@@ -73,3 +73,16 @@ export interface DnsStateView {
   }>;
   evidenceGaps: string[];
 }
+
+export interface ProxyStateView {
+  proxyConfigs: Array<{
+    key: string;
+    value: string;
+    source: 'polledData' | 'systemInfo' | 'unknown';
+  }>;
+  pacUrls: string[];
+  proxyServers: string[];
+  bypassRules: string[];
+  hasProxyEvidence: boolean;
+  evidenceGaps: string[];
+}
