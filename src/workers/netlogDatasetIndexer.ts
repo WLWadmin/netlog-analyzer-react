@@ -177,7 +177,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     skipDepth = 0;
     skipInString = false;
     skipEscape = false;
-    skipValueBytes = pendingKey === 'constants' ? [] : null;
+    skipValueBytes = ['constants', 'polledData', 'systemInfo'].includes(pendingKey) ? [] : null;
   };
 
   const finishSkippedValue = () => {
@@ -185,6 +185,9 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     try {
       const value = JSON.parse(decoder.decode(new Uint8Array(skipValueBytes)));
       if (pendingKey === 'constants') applyConstants(index, value);
+      if (pendingKey === 'polledData' || pendingKey === 'systemInfo') {
+        dnsStateReducer.acceptTopLevelConfig(pendingKey, value);
+      }
     } catch {
       // constants 解析失败不影响事件索引
     } finally {

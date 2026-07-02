@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Input, Popover, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Input, Modal, Popover, Space, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, GlobalOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -21,10 +21,12 @@ import {
 } from '../../diagnosis/ipEvidence';
 import { copyText } from '../../utils/copyText';
 import { useIpLookupController } from './useIpLookupController';
+import { getNetlogEventDetailInWorker } from '../../workers/workerClient';
 
 interface DnsAndIpEvidencePanelProps {
   summary: DnsIpEvidenceSummary;
   onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
+  analysisId?: string;
 }
 
 interface LookupTableRow {
@@ -52,15 +54,43 @@ async function copyWithToast(text: string, label: string) {
   }
 }
 
-function ipTags(ips: string[]) {
+const IP_PREVIEW_LIMIT = 3;
+
+function fullIpListPopoverContent(ips: string[], title = '全部 IP') {
+  return (
+    <div style={{ width: 360, maxHeight: 280, overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ marginBottom: 10, color: 'var(--text-secondary)', fontSize: 12 }}>
+        {title}：共 {ips.length} 个
+      </div>
+      <Space size={6} wrap>
+        {ips.map(ip => (
+          <Tag key={ip} style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", marginInlineEnd: 0 }}>
+            {ip}
+          </Tag>
+        ))}
+      </Space>
+    </div>
+  );
+}
+
+function ipTags(ips: string[], title = '全部 IP') {
   if (!ips.length) return <Typography.Text type="secondary">-</Typography.Text>;
+  const previewIps = ips.slice(0, IP_PREVIEW_LIMIT);
+  const hiddenCount = Math.max(ips.length - previewIps.length, 0);
   return (
     <Space size={4} wrap>
-      {ips.map(ip => (
+      {previewIps.map(ip => (
         <Tag key={ip} style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", marginInlineEnd: 0 }}>
           {ip}
         </Tag>
       ))}
+      {hiddenCount > 0 && (
+        <Popover trigger="click" placement="bottomLeft" title={title} content={fullIpListPopoverContent(ips, title)}>
+          <Button size="small" type="link" style={{ padding: 0, height: 22 }}>
+            +{hiddenCount}
+          </Button>
+        </Popover>
+      )}
     </Space>
   );
 }
@@ -96,7 +126,7 @@ function groupIpsBySegment(ips: string[]) {
 function compactDnsAnswerIps(ips: string[]) {
   if (!ips.length) return <Typography.Text type="secondary">-</Typography.Text>;
 
-  const previewIps = ips.slice(0, 3);
+  const previewIps = ips.slice(0, IP_PREVIEW_LIMIT);
   const hiddenCount = Math.max(ips.length - previewIps.length, 0);
   const groups = groupIpsBySegment(ips);
 
@@ -157,7 +187,7 @@ function compactDnsAnswerIps(ips: string[]) {
       ))}
       <Popover trigger="click" placement="bottomLeft" title="解析 IP 网段分布" content={content}>
         <Button size="small" type="link" style={{ padding: 0, height: 22 }}>
-          共 {ips.length} 个{hiddenCount > 0 ? `，+${hiddenCount}` : ''}
+          {hiddenCount > 0 ? `+${hiddenCount}` : `共 ${ips.length} 个`}
         </Button>
       </Popover>
     </Space>
@@ -174,6 +204,25 @@ function copyRowText(row: CipSipEvidenceRow): string {
     `服务端观察客户端 IP: ${(row.serverObservedClientIps || []).join(', ') || '-'}`,
     `代表请求: ${row.representativeRequests.map(req => `${req.url} (${req.durationMs ?? '-'}ms)`).join('；') || '-'}`,
   ].join('\n');
+}
+
+function findTraceEventId(summary: DnsIpEvidenceSummary, row: CipSipEvidenceRow): number | undefined {
+  const rowIps = new Set([
+    ...row.cipIps,
+    ...row.sipIps,
+    ...(row.socketPeerIps || []),
+    ...(row.dnsAnswerIps || []),
+    ...(row.serverObservedClientIps || []),
+  ]);
+  const item = summary.failedOrSlowIps.find(evidence =>
+    evidence.eventId !== undefined &&
+    rowIps.has(evidence.ip) &&
+    (evidence.host === row.host || evidence.host === row.hostOrUrl || evidence.url === row.hostOrUrl)
+  ) || summary.failedOrSlowIps.find(evidence =>
+    evidence.eventId !== undefined &&
+    rowIps.has(evidence.ip)
+  );
+  return item?.eventId;
 }
 
 function lookupRiskText(result: IpLookupResult, roles: string[], hasCrossCarrierContext: boolean): string {
@@ -335,8 +384,11 @@ function renderLookupConclusions(conclusions: IpRoutingConclusion[]) {
   );
 }
 
-const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, onLookupConclusionsChange }) => {
+const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, onLookupConclusionsChange, analysisId }) => {
   const [manualIpInput, setManualIpInput] = useState('');
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
   const lookupResultRef = useRef<HTMLDivElement | null>(null);
   const dnsServerEmptyText = '未解析到 DNS server 配置。部分 NetLog 导出不包含 DNS 配置字段，或当前解析器未识别该 Chrome 版本字段。';
   const dnsAnswerEmptyText = summary.dnsEventCount && summary.dnsEventCount > 0
@@ -366,6 +418,21 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
   });
   const lookupConclusions = useMemo(() => buildIpLookupConclusions(summary, lookupMap), [summary, lookupMap]);
   const lookupRows = useMemo(() => buildLookupRows(summary, lookupMap, manualLookupIps), [summary, lookupMap, manualLookupIps]);
+
+  const openEventDetail = useCallback(async (eventId?: number) => {
+    if (!analysisId || eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [analysisId]);
 
   useEffect(() => {
     onLookupConclusionsChange?.(lookupConclusions);
@@ -405,14 +472,23 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 210,
       render: (_, row) => (
-        <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(row.ips.join('\n'), '解析 IP')}>
-          复制全部
-        </Button>
+        <Space size={4} wrap>
+          <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(row.ips.join('\n'), '解析 IP')}>
+            复制全部
+          </Button>
+          {analysisId && row.eventId !== undefined ? (
+            <Button size="small" onClick={() => openEventDetail(row.eventId)}>
+              查看事件
+            </Button>
+          ) : analysisId ? (
+            <Tag>无事件 trace</Tag>
+          ) : null}
+        </Space>
       ),
     },
-  ], []);
+  ], [analysisId, openEventDetail]);
 
   const dohCandidateColumns = useMemo<ColumnsType<DohCandidateEvidence>>(() => [
     {
@@ -469,63 +545,73 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
       dataIndex: 'cipIps',
       key: 'cipIps',
       width: 210,
-      render: ipTags,
+      render: (ips: string[]) => ipTags(ips || [], '全部 CIP'),
     },
     {
       title: 'SIP（明确服务端）',
       dataIndex: 'sipIps',
       key: 'sipIps',
       width: 180,
-      render: ipTags,
+      render: (ips: string[]) => ipTags(ips || [], '全部 SIP'),
     },
     {
       title: 'Socket peer（连接目标候选）',
       dataIndex: 'socketPeerIps',
       key: 'socketPeerIps',
       width: 210,
-      render: (ips?: string[]) => ipTags(ips || []),
+      render: (ips?: string[]) => ipTags(ips || [], '全部 Socket peer'),
     },
     {
       title: 'DNS answer（解析结果）',
       dataIndex: 'dnsAnswerIps',
       key: 'dnsAnswerIps',
       width: 210,
-      render: (ips?: string[]) => ipTags(ips || []),
+      render: (ips?: string[]) => ipTags(ips || [], '全部 DNS answer'),
     },
     {
       title: '服务端观察客户端 IP',
       dataIndex: 'serverObservedClientIps',
       key: 'serverObservedClientIps',
       width: 210,
-      render: (ips?: string[]) => ipTags(ips || []),
+      render: (ips?: string[]) => ipTags(ips || [], '全部服务端观察客户端 IP'),
     },
     {
       title: '操作',
       key: 'copy',
-      width: 310,
-      render: (_, row) => (
-        <Space size={4} wrap>
-          <Button
-            size="small"
-            icon={<GlobalOutlined />}
-            loading={activeLookupRowId === row.id}
-            onClick={() => queryIps(collectRowLookupIps(row), { mode: 'row', rowId: row.id })}
-          >
-            查询本行 IP
-          </Button>
-          <Button size="small" onClick={() => copyWithToast(row.cipIps.join('\n'), 'CIP')}>
-            CIP
-          </Button>
-          <Button size="small" onClick={() => copyWithToast(row.sipIps.join('\n'), 'SIP')}>
-            SIP
-          </Button>
-          <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(copyRowText(row), '本行证据')}>
-            本行
-          </Button>
-        </Space>
-      ),
+      width: 390,
+      render: (_, row) => {
+        const traceEventId = findTraceEventId(summary, row);
+        return (
+          <Space size={4} wrap>
+            <Button
+              size="small"
+              icon={<GlobalOutlined />}
+              loading={activeLookupRowId === row.id}
+              onClick={() => queryIps(collectRowLookupIps(row), { mode: 'row', rowId: row.id })}
+            >
+              查询本行 IP
+            </Button>
+            {analysisId && traceEventId !== undefined ? (
+              <Button size="small" onClick={() => openEventDetail(traceEventId)}>
+                查看事件
+              </Button>
+            ) : analysisId ? (
+              <Tag>无事件 trace</Tag>
+            ) : null}
+            <Button size="small" onClick={() => copyWithToast(row.cipIps.join('\n'), 'CIP')}>
+              CIP
+            </Button>
+            <Button size="small" onClick={() => copyWithToast(row.sipIps.join('\n'), 'SIP')}>
+              SIP
+            </Button>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(copyRowText(row), '本行证据')}>
+              本行
+            </Button>
+          </Space>
+        );
+      },
     },
-  ], [activeLookupRowId, queryIps]);
+  ], [activeLookupRowId, analysisId, openEventDetail, queryIps, summary]);
 
   return (
     <Card
@@ -713,6 +799,17 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
           description="serverIPAddress/remoteIp/socket peer 通常更接近实际连接目标；x-tt-cip、x-lsc-source-ip、resolvedIp 属于客户端、响应头或解析线索。当前列表按域名和 CIP/SIP 聚合，用于降低重复请求噪音。"
         />
       </Space>
+      <Modal
+        title="Raw Event Detail"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
     </Card>
   );
 };

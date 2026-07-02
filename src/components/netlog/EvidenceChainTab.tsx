@@ -138,7 +138,11 @@ const EvidenceChainTab: React.FC<EvidenceChainTabProps> = ({
           description="该视图不再受 eventsPreview=20000 或 URL_REQUEST.events 截断限制；无法关联具体请求的 socket peer 会标记为候选线索。"
         />
       )}
-      <DnsAndIpEvidencePanel summary={dnsIpEvidence} onLookupConclusionsChange={onLookupConclusionsChange} />
+      <DnsAndIpEvidencePanel
+        summary={dnsIpEvidence}
+        onLookupConclusionsChange={onLookupConclusionsChange}
+        analysisId={dataset?.status === 'ready' ? dataset.analysisId : undefined}
+      />
       <FailedDomainEvidencePanel result={result} />
       <CombinedEvidenceEntry
         harResult={harResult}

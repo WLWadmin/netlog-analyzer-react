@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { DiagnosisSummary } from '../../diagnosis/shared';
 import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
@@ -14,7 +14,7 @@ import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
 import type { DataLoadedView, DnsStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker } from '../../workers/workerClient';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -116,6 +116,9 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
 const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const [view, setView] = useState<DnsStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +137,21 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
     return <Alert type="info" showIcon message="正在读取 Dataset DNS State 视图" />;
   }
 
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   const answerRows = [
     ...view.hostResolverCache.map(item => ({
       key: `cache-${item.eventId}`,
@@ -149,6 +167,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
       host: item.host,
       ips: item.ips.join(', '),
       aliases: item.aliases.join(', '),
+      error: item.error,
       eventId: item.eventId,
     })),
   ];
@@ -156,15 +175,46 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
   return (
     <Card title="DNS State" bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="DNS State 依赖 NetLog 中的配置快照和 Host Resolver 事件"
+          description="如果 polledData、systemInfo、Host Resolver cache 或 DNS task 事件缺失，只表示当前文件无法还原完整 DNS 状态，不代表没有发生 DNS 解析。DoH / Secure DNS 候选也不等同于当前 DNS server 配置。"
+        />
         {view.evidenceGaps.length > 0 && (
           <Alert type="warning" showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
         )}
         <Descriptions column={2} size="small">
           <Descriptions.Item label="DNS server 配置">{view.configServers.length}</Descriptions.Item>
+          <Descriptions.Item label="DoH/Secure DNS 候选">{view.dohCandidates.length}</Descriptions.Item>
           <Descriptions.Item label="Host Resolver cache">{view.hostResolverCache.length}</Descriptions.Item>
           <Descriptions.Item label="DNS task results">{view.taskResults.length}</Descriptions.Item>
           <Descriptions.Item label="IPv6 reachability">{view.ipv6ReachabilityChecks.length}</Descriptions.Item>
         </Descriptions>
+        <Table
+          size="small"
+          rowKey={(row) => `${row.source}-${row.sourceKey}-${row.ip}`}
+          pagination={false}
+          columns={[
+            { title: 'DNS Server', dataIndex: 'ip', width: 180, render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
+            { title: '来源', dataIndex: 'source', width: 130 },
+            { title: '配置字段', dataIndex: 'sourceKey', ellipsis: true },
+          ]}
+          dataSource={view.configServers}
+          locale={{ emptyText: '未发现 Dataset DNS server 配置' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.source}-${row.sourceKey}-${row.value}`}
+          pagination={false}
+          columns={[
+            { title: 'DoH / Secure DNS 候选', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
+            { title: '来源', dataIndex: 'source', width: 130 },
+            { title: '配置字段', dataIndex: 'sourceKey', ellipsis: true },
+          ]}
+          dataSource={view.dohCandidates}
+          locale={{ emptyText: '未发现 Dataset DoH / Secure DNS 候选线索' }}
+        />
         <Table
           size="small"
           rowKey="key"
@@ -174,12 +224,32 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
             { title: 'Host', dataIndex: 'host', width: 220 },
             { title: 'IPs', dataIndex: 'ips', render: (value: string) => <Typography.Text code>{value || '-'}</Typography.Text> },
             { title: 'Aliases', dataIndex: 'aliases' },
+            { title: 'Error', dataIndex: 'error', width: 90, render: (value?: number) => value ?? '-' },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
           ]}
           dataSource={answerRows}
           locale={{ emptyText: '未发现 Dataset DNS answer 线索' }}
         />
       </Space>
+      <Modal
+        title="Raw Event Detail"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
     </Card>
   );
 };
@@ -201,6 +271,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   const { loading: diagnosisLoadingState, diagnosisSummary: sharedDiagnosisSummary } = useNetlogDiagnosisSummary(result, events);
   const effectiveDiagnosisSummary = diagnosisSummary || sharedDiagnosisSummary;
   const effectiveDiagnosisLoading = diagnosisLoading ?? diagnosisLoadingState;
+  const canShowDatasetIndexButton = dataset?.status !== 'ready' && Boolean(onStartDatasetIndexing);
 
   const contentByKey: Record<string, React.ReactNode> = {
     'data-loaded': (
@@ -208,7 +279,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         title="Data Loaded"
         bordered={false}
         extra={
-          result.largeFileMode?.enabled && dataset?.status !== 'ready' ? (
+          canShowDatasetIndexButton ? (
             <Button
               type="primary"
               loading={dataset?.status === 'importing'}
@@ -261,8 +332,8 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           style={{ marginTop: 16 }}
           message="Evidence gaps"
           description={
-            result.largeFileMode?.enabled && dataset?.status !== 'ready'
-              ? '当前处于摘要 fallback：可在本页启动 Dataset 索引。索引完成后，后续阶段会把 Events 分页和 Event detail 切换到 Dataset 查询协议。'
+            dataset?.status !== 'ready' && canStartDatasetIndexing
+              ? '当前展示的是解析摘要字段；可在本页手动启动 Dataset 索引。索引完成后，Events 分页、DNS State、证据跳转和 Event detail 会切换到 Dataset 查询协议。'
               : 'Dataset 未启用时，专家视图只能展示当前解析结果中的摘要字段。'
           }
         />

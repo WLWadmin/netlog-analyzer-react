@@ -101,4 +101,20 @@ describe('netlogDatasetIndexer', () => {
       params: { url: 'https://例子.example/路径', note: '中文内容' },
     });
   });
+
+  it('从顶层 polledData 提取 DNS server 与 DoH candidate 到 DNS State', async () => {
+    const text = '{"polledData":{"hostResolverInfo":{"dnsConfig":{"nameServers":["223.5.5.5:53"],"dohServers":["https://dns.example/dns-query","1.1.1.1"]}}},"events":[{"time":"1","type":7,"source":{"id":1,"type":2},"params":{}}]}';
+    const file = new ChunkedTextFile(text, [4, 6, 8, 10]);
+
+    const { dnsState, dataLoaded } = await buildNetlogCompactEventIndex(file);
+
+    expect(dataLoaded.hasPolledData).toBe(true);
+    expect(dnsState.configServers).toEqual([
+      expect.objectContaining({ ip: '223.5.5.5', source: 'polledData' }),
+    ]);
+    expect(dnsState.dohCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'https://dns.example/dns-query', source: 'polledData' }),
+      expect.objectContaining({ value: '1.1.1.1', source: 'polledData' }),
+    ]));
+  });
 });

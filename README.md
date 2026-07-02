@@ -33,8 +33,9 @@
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **NetLog 结论与行动**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成面向普通用户的结论、行动清单和缺失信息。
 - **专家分析保留完整能力**：事件列表、源链路、安全与协议、性能分析、A-B 对比和完整诊断报告收敛到 NetLog「专家分析」二级入口。
+- **Dataset 模式（小文件可手动启用）**：为避免大文件把完整 events 拉回主线程，提供 Worker Dataset 索引与查询协议。大文件会在后台索引；小文件也可在「专家分析 → Data Loaded」手动点击「启动 Dataset 索引」启用。Dataset 就绪后，事件分页查询、DNS State、证据跳转与 Raw Event Detail 都以 Dataset 查询为主，摘要路径作为 fallback。Dataset 状态为 `unavailable` 时表示当前文件未启用 Dataset（或 Worker 不可用），此时专家视图只展示解析摘要字段。
 - **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
-- **DNS 与 CIP/SIP 定位证据**：HAR / NetLog 诊断页在最终诊断摘要后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP；同域名同 CIP/SIP 自动去重并保留最长耗时前三个代表请求。DNS answer 的解析 IP 默认只展示前 3 个示例和总数，点击后按网段分组展开完整 IP，并支持分开复制 CIP / SIP 或复制某个域名的全部解析 IP；IP 归属查询必须由用户显式点击触发，通过 Cloudflare Worker 代理查询公网 IP，内网 / loopback / 保留地址不会外发。查询完成后会自动跳转到 IP 归属查询结果，结果以卡片列表展示中文运营商、归属地、ASN、关联域名和风险线索；模块还支持自助输入 IP 查询。
+- **DNS 与 CIP/SIP 定位证据（支持 Dataset 跳转）**：HAR / NetLog 诊断页在最终诊断摘要后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP；同域名同 CIP/SIP 自动去重并保留最长耗时前三个代表请求。各类 IP 列（CIP/SIP/socket peer/DNS answer/服务端观察客户端 IP）默认只展示前 **3** 个，剩余以 `+N` 收起，点击可展开完整列表；DNS answer 也支持按网段分组展开完整 IP，并支持按行复制全部解析 IP。**当 Dataset 索引就绪时**，DNS answer / 失败慢请求证据可直接点击「查看事件」打开 Raw Event Detail（无 trace 的证据会明确提示）。IP 归属查询必须由用户显式点击触发，通过 Cloudflare Worker 代理查询公网 IP，内网 / loopback / 保留地址不会外发；结果以卡片列表展示中文运营商、归属地、ASN、关联域名和风险线索，并支持自助输入 IP 查询。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。

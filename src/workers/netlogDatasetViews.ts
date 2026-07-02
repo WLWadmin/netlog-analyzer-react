@@ -18,6 +18,7 @@ export interface DnsStateView {
   configServers: Array<{
     ip: string;
     source: 'polledData' | 'systemInfo' | 'unknown';
+    sourceKey?: string;
     sourceId?: number;
     eventId?: number;
   }>;
@@ -42,6 +43,7 @@ export interface DnsStateView {
   dohCandidates: Array<{
     value: string;
     source: 'polledData' | 'dns_event' | 'unknown';
+    sourceKey?: string;
     sourceId?: number;
     eventId?: number;
   }>;
