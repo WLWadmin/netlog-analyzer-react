@@ -142,6 +142,7 @@ const EvidenceChainTab: React.FC<EvidenceChainTabProps> = ({
         summary={dnsIpEvidence}
         onLookupConclusionsChange={onLookupConclusionsChange}
         analysisId={dataset?.status === 'ready' ? dataset.analysisId : undefined}
+        evidenceSource={datasetDnsIpEvidence ? 'dataset' : 'summary'}
       />
       <FailedDomainEvidencePanel result={result} />
       <CombinedEvidenceEntry

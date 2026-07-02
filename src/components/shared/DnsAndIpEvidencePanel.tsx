@@ -28,6 +28,7 @@ interface DnsAndIpEvidencePanelProps {
   summary: DnsIpEvidenceSummary;
   onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
   analysisId?: string;
+  evidenceSource?: 'dataset' | 'summary' | 'unknown';
 }
 
 interface LookupTableRow {
@@ -80,6 +81,10 @@ function fullIpListPopoverContent(ips: string[], title = '全部 IP') {
       </Space>
     </div>
   );
+}
+
+function uniqueIps(ips: Array<string | undefined>): string[] {
+  return Array.from(new Set(ips.filter((ip): ip is string => Boolean(ip))));
 }
 
 function ipTags(ips: string[], title = '全部 IP') {
@@ -234,6 +239,10 @@ function associationTags(associations?: IpEvidenceAssociation[]) {
       ))}
     </Space>
   );
+}
+
+function roleCountTag(label: string, count: number, color?: string) {
+  return <Tag color={color} style={{ marginInlineEnd: 0 }}>{label} {count} 个</Tag>;
 }
 
 function lookupRiskText(result: IpLookupResult, roles: string[], hasCrossCarrierContext: boolean): string {
@@ -395,7 +404,7 @@ function renderLookupConclusions(conclusions: IpRoutingConclusion[]) {
   );
 }
 
-const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, onLookupConclusionsChange, analysisId }) => {
+const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, onLookupConclusionsChange, analysisId, evidenceSource = 'unknown' }) => {
   const [manualIpInput, setManualIpInput] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -429,6 +438,28 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
   });
   const lookupConclusions = useMemo(() => buildIpLookupConclusions(summary, lookupMap), [summary, lookupMap]);
   const lookupRows = useMemo(() => buildLookupRows(summary, lookupMap, manualLookupIps), [summary, lookupMap, manualLookupIps]);
+  const roleIps = useMemo(() => ({
+    cip: uniqueIps(summary.cipSipRows.flatMap(row => row.cipIps)),
+    sip: uniqueIps(summary.cipSipRows.flatMap(row => row.sipIps)),
+    socketPeer: uniqueIps(summary.cipSipRows.flatMap(row => row.socketPeerIps || [])),
+    dnsAnswer: uniqueIps([
+      ...summary.cipSipRows.flatMap(row => row.dnsAnswerIps || []),
+      ...summary.dnsAnswers.flatMap(answer => answer.ips),
+    ]),
+    serverObservedClientIp: uniqueIps(summary.cipSipRows.flatMap(row => row.serverObservedClientIps || [])),
+  }), [summary]);
+  const hasStrictCipSip = roleIps.cip.length > 0 || roleIps.sip.length > 0;
+  const hasCandidateEvidence = roleIps.socketPeer.length > 0 || roleIps.dnsAnswer.length > 0 || roleIps.serverObservedClientIp.length > 0;
+  const evidenceSourceLabel = evidenceSource === 'dataset'
+    ? 'Dataset full index'
+    : evidenceSource === 'summary'
+      ? 'Summary preview fallback'
+      : '当前证据来源';
+  const evidenceSourceDescription = evidenceSource === 'dataset'
+    ? '当前 DNS/IP 证据来自 Worker Dataset 全量 reducer，不受 eventsPreview=20000 或 URL_REQUEST.events 截断限制。'
+    : evidenceSource === 'summary'
+      ? '当前 DNS/IP 证据来自 summary preview fallback，只代表初步线索；完整 Events/DNS/IP 仍需等待 Dataset ready。'
+      : '当前视图按传入分析结果展示 DNS/IP 证据；若未接入 Dataset，可能只代表当前摘要路径。';
 
   const openEventDetail = useCallback(async (eventId?: number) => {
     if (!analysisId || eventId === undefined) return;
@@ -650,6 +681,56 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
           message="默认只整理 HAR / NetLog 中记录的 DNS、CIP、SIP 证据；只有点击查询按钮时才会通过 Cloudflare Worker 代理查询公网 IP。"
           description="内网、loopback、保留地址不会外发。查询结果仅作为跨境、跨运营商或 DNS 调度定位线索，不能直接作为故障根因。"
         />
+        <Alert
+          type={evidenceSource === 'dataset' ? 'success' : evidenceSource === 'summary' ? 'warning' : 'info'}
+          showIcon
+          message={evidenceSourceLabel}
+          description={evidenceSourceDescription}
+        />
+        <div
+          style={{
+            padding: 14,
+            borderRadius: 14,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+          }}
+        >
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Typography.Text strong>DNS/IP 角色计数</Typography.Text>
+            <Space size={6} wrap>
+              {roleCountTag('CIP', roleIps.cip.length, 'blue')}
+              {roleCountTag('SIP', roleIps.sip.length, 'purple')}
+              {roleCountTag('Socket peer', roleIps.socketPeer.length, 'orange')}
+              {roleCountTag('DNS answer', roleIps.dnsAnswer.length, 'cyan')}
+              {roleCountTag('服务端观察客户端 IP', roleIps.serverObservedClientIp.length, 'geekblue')}
+            </Space>
+            <Space size={6} wrap>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(roleIps.cip), '全部 CIP')}>
+                复制全部 CIP
+              </Button>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(roleIps.sip), '全部 SIP')}>
+                复制全部 SIP
+              </Button>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(roleIps.socketPeer), '全部 Socket peer')}>
+                复制全部 Socket peer
+              </Button>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(roleIps.dnsAnswer), '全部 DNS answer')}>
+                复制全部 DNS answer
+              </Button>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyWithToast(buildIpListText(roleIps.serverObservedClientIp), '全部服务端观察客户端 IP')}>
+                复制服务端观察客户端 IP
+              </Button>
+            </Space>
+          </Space>
+        </div>
+        {!hasStrictCipSip && hasCandidateEvidence && (
+          <Alert
+            type="warning"
+            showIcon
+            message="未发现严格 CIP/SIP 字段，但发现其他 IP 线索"
+            description="Socket peer 是连接目标候选，DNS answer 是解析结果，x-request-ip 是服务端观察到的客户端 IP；它们不能被混写为 SIP 或 CIP，但可作为后续 MTR / traceroute / 出口 IP 对照线索。"
+          />
+        )}
         <div
           style={{
             padding: 16,
