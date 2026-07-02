@@ -1,5 +1,5 @@
-import React from 'react';
-import { Alert, Button, Card, Descriptions, Space, Tag } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd';
 import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { DiagnosisSummary } from '../../diagnosis/shared';
 import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
@@ -13,6 +13,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
+import type { DataLoadedView, DnsStateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -45,6 +47,142 @@ const StateGapCard: React.FC<{ title: string; description: string; dataset?: Net
     />
   </Card>
 );
+
+const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<DataLoadedView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogDataLoadedInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset Data Loaded 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset Data Loaded 视图" />;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Descriptions column={2} size="small">
+        <Descriptions.Item label="文件名">{view.fileName}</Descriptions.Item>
+        <Descriptions.Item label="文件大小">{formatMb(view.fileSize)}</Descriptions.Item>
+        <Descriptions.Item label="事件总数">{view.eventCount.toLocaleString()}</Descriptions.Item>
+        <Descriptions.Item label="事件类型数">{view.eventTypeCount}</Descriptions.Item>
+        <Descriptions.Item label="Source 类型数">{view.sourceTypeCount}</Descriptions.Item>
+        <Descriptions.Item label="constants">{view.hasConstants ? '存在' : '缺失'}</Descriptions.Item>
+        <Descriptions.Item label="polledData">{view.hasPolledData ? '存在' : '缺失'}</Descriptions.Item>
+        <Descriptions.Item label="systemInfo">{view.hasSystemInfo ? '存在' : '缺失'}</Descriptions.Item>
+      </Descriptions>
+      {view.evidenceGaps.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Evidence gaps"
+          description={view.evidenceGaps.join('；')}
+        />
+      )}
+      <Table
+        size="small"
+        rowKey="name"
+        pagination={false}
+        columns={[
+          { title: 'Top Event Types', dataIndex: 'name' },
+          { title: 'Count', dataIndex: 'count', width: 120 },
+        ]}
+        dataSource={view.topEventTypes.slice(0, 10)}
+      />
+      <Table
+        size="small"
+        rowKey="name"
+        pagination={false}
+        columns={[
+          { title: 'Top Source Types', dataIndex: 'name' },
+          { title: 'Count', dataIndex: 'count', width: 120 },
+        ]}
+        dataSource={view.topSourceTypes.slice(0, 10)}
+      />
+    </div>
+  );
+};
+
+const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<DnsStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogDnsStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset DNS State 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset DNS State 视图" />;
+  }
+
+  const answerRows = [
+    ...view.hostResolverCache.map(item => ({
+      key: `cache-${item.eventId}`,
+      source: 'Host Resolver Cache',
+      host: item.host,
+      ips: item.ips.join(', '),
+      aliases: item.aliases.join(', '),
+      eventId: item.eventId,
+    })),
+    ...view.taskResults.map(item => ({
+      key: `task-${item.eventId}-${item.host}`,
+      source: 'DNS Task Result',
+      host: item.host,
+      ips: item.ips.join(', '),
+      aliases: item.aliases.join(', '),
+      eventId: item.eventId,
+    })),
+  ];
+
+  return (
+    <Card title="DNS State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        {view.evidenceGaps.length > 0 && (
+          <Alert type="warning" showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="DNS server 配置">{view.configServers.length}</Descriptions.Item>
+          <Descriptions.Item label="Host Resolver cache">{view.hostResolverCache.length}</Descriptions.Item>
+          <Descriptions.Item label="DNS task results">{view.taskResults.length}</Descriptions.Item>
+          <Descriptions.Item label="IPv6 reachability">{view.ipv6ReachabilityChecks.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="key"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: '来源', dataIndex: 'source', width: 170 },
+            { title: 'Host', dataIndex: 'host', width: 220 },
+            { title: 'IPs', dataIndex: 'ips', render: (value: string) => <Typography.Text code>{value || '-'}</Typography.Text> },
+            { title: 'Aliases', dataIndex: 'aliases' },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+          ]}
+          dataSource={answerRows}
+          locale={{ emptyText: '未发现 Dataset DNS answer 线索' }}
+        />
+      </Space>
+    </Card>
+  );
+};
 
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
@@ -82,6 +220,10 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           ) : null
         }
       >
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetDataLoadedCard analysisId={dataset.analysisId} />
+        ) : (
+        <>
         <Descriptions column={1} size="small">
           <Descriptions.Item label="Dataset 状态">
             <Space>
@@ -124,6 +266,8 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
               : 'Dataset 未启用时，专家视图只能展示当前解析结果中的摘要字段。'
           }
         />
+        </>
+        )}
       </Card>
     ),
     events: dataset?.status === 'ready' && dataset.analysisId
@@ -144,6 +288,15 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
     ),
     'network-state': (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetDnsStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="DNS State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示 summary 中的 DNS 记录；索引完成后会展示 Host Resolver cache、DNS task results 和 IPv6 reachability。"
+          />
+        )}
         <StateGapCard
           title="Proxy State"
           dataset={dataset}

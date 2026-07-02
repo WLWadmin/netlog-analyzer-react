@@ -48,7 +48,7 @@ describe('netlogDatasetIndexer', () => {
     const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11, 13]);
 
-    const { index, endpointEvidence } = await buildNetlogCompactEventIndex(file);
+    const { index, endpointEvidence, dataLoaded } = await buildNetlogCompactEventIndex(file);
 
     expect(index.count).toBe(2);
     expect(index.typeId).toEqual([1, 2]);
@@ -59,6 +59,17 @@ describe('netlogDatasetIndexer', () => {
     expect(index.phase).toEqual([0, 2]);
     expect(index.flags).toEqual([0, 1]);
     expect(endpointEvidence.guidance[0]).toContain('Dataset Endpoint Evidence');
+    expect(dataLoaded).toEqual(expect.objectContaining({
+      fileName: 'chunked-netlog.json',
+      eventCount: 2,
+      hasConstants: true,
+      eventTypeCount: 2,
+      sourceTypeCount: 2,
+    }));
+    expect(dataLoaded.topEventTypes).toEqual(expect.arrayContaining([
+      { name: 'URL_REQUEST', count: 1 },
+      { name: 'SOCKET_CONNECT', count: 1 },
+    ]));
     await expect(readNetlogEventDetail(file, index, 0)).resolves.toEqual({
       time: '1',
       type: 1,

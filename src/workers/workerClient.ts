@@ -17,6 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
+import type { DataLoadedView, DnsStateView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -280,6 +281,38 @@ export async function getNetlogEndpointEvidenceInWorker(
     options
   );
   return response.payload as DnsIpEvidenceSummary;
+}
+
+export async function getNetlogDataLoadedInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<DataLoadedView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-data-loaded',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as DataLoadedView;
+}
+
+export async function getNetlogDnsStateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<DnsStateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-dns-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as DnsStateView;
 }
 
 /**

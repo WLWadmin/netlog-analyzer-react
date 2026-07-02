@@ -475,8 +475,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence);
+          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;
@@ -493,6 +493,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
             eventCount: meta.eventCount,
             endpointEvidenceCount,
             endpointRowCount,
+            dnsStateCacheCount: dnsState.hostResolverCache.length,
+            dnsStateTaskCount: dnsState.taskResults.length,
           });
           sendResponse({
             type: 'success',
@@ -509,6 +511,34 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           });
           throw err;
         }
+        break;
+      }
+
+      case 'get-netlog-data-loaded': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.dataLoaded) throw new Error(`NetLog Dataset data loaded view 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-data-loaded',
+          payload: dataset.dataLoaded,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-dns-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.dnsState) throw new Error(`NetLog Dataset DNS state 不存在：${msg.payload.analysisId}`);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-dns-state',
+          payload: dataset.dnsState,
+          duration,
+        });
         break;
       }
 

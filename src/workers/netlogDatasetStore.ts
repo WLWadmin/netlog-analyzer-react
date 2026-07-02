@@ -1,5 +1,6 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
+import type { DataLoadedView, DnsStateView } from './netlogDatasetViews';
 
 export interface NetlogDatasetMeta {
   analysisId: string;
@@ -17,10 +18,18 @@ export interface NetlogDataset {
   meta: NetlogDatasetMeta;
   eventIndex?: CompactEventIndex;
   endpointEvidence?: DnsIpEvidenceSummary;
+  dataLoaded?: DataLoadedView;
+  dnsState?: DnsStateView;
 }
 
 export interface NetlogDatasetStore {
-  importFile(file: File, eventIndex?: CompactEventIndex, endpointEvidence?: DnsIpEvidenceSummary): NetlogDatasetMeta;
+  importFile(
+    file: File,
+    eventIndex?: CompactEventIndex,
+    endpointEvidence?: DnsIpEvidenceSummary,
+    dataLoaded?: DataLoadedView,
+    dnsState?: DnsStateView
+  ): NetlogDatasetMeta;
   get(analysisId: string): NetlogDataset | undefined;
   release(analysisId: string): boolean;
   releaseAll(): number;
@@ -31,7 +40,13 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
   let counter = 0;
   const datasets = new Map<string, NetlogDataset>();
 
-  const importFile = (file: File, eventIndex?: CompactEventIndex, endpointEvidence?: DnsIpEvidenceSummary): NetlogDatasetMeta => {
+  const importFile = (
+    file: File,
+    eventIndex?: CompactEventIndex,
+    endpointEvidence?: DnsIpEvidenceSummary,
+    dataLoaded?: DataLoadedView,
+    dnsState?: DnsStateView
+  ): NetlogDatasetMeta => {
     counter += 1;
     const analysisId = `netlog-dataset-${Date.now()}-${counter}`;
     const meta: NetlogDatasetMeta = {
@@ -43,7 +58,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
       status: 'ready',
       eventCount: eventIndex?.count,
     };
-    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence });
+    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState });
     return meta;
   };
 

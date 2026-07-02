@@ -1,5 +1,7 @@
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
 import { createNetlogEndpointEvidenceReducer } from './netlogEndpointEvidenceReducer';
+import { createNetlogDnsStateReducer } from './netlogDnsStateReducer';
+import type { DataLoadedView, DnsStateView } from './netlogDatasetViews';
 
 export interface CompactEventIndex {
   count: number;
@@ -18,6 +20,8 @@ export interface CompactEventIndex {
 export interface NetlogDatasetIndexResult {
   index: CompactEventIndex;
   endpointEvidence: DnsIpEvidenceSummary;
+  dataLoaded: DataLoadedView;
+  dnsState: DnsStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -100,6 +104,38 @@ function sourceTypeName(index: CompactEventIndex, sourceTypeId: number): string 
   return index.sourceTypeNames?.[sourceTypeId] || (sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC');
 }
 
+function topCounts(ids: number[], names: Record<number, string> | undefined): Array<{ name: string; count: number }> {
+  const counts = new Map<number, number>();
+  ids.forEach(id => counts.set(id, (counts.get(id) || 0) + 1));
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30)
+    .map(([id, count]) => ({ name: names?.[id] || String(id), count }));
+}
+
+function buildDataLoadedView(file: NetlogIndexableFile, index: CompactEventIndex, topLevelKeys: Set<string>): DataLoadedView {
+  const hasConstants = topLevelKeys.has('constants');
+  const view: DataLoadedView = {
+    fileName: file.name || 'netlog.json',
+    fileSize: file.size,
+    eventCount: index.count,
+    hasConstants,
+    hasPolledData: topLevelKeys.has('polledData'),
+    hasSystemInfo: topLevelKeys.has('systemInfo'),
+    hasClientInfo: topLevelKeys.has('clientInfo'),
+    hasNetLogInfo: topLevelKeys.has('netLogInfo'),
+    eventTypeCount: Object.keys(index.eventTypeNames || {}).length,
+    sourceTypeCount: Object.keys(index.sourceTypeNames || {}).length,
+    topEventTypes: topCounts(index.typeId, index.eventTypeNames),
+    topSourceTypes: topCounts(index.sourceTypeId, index.sourceTypeNames),
+    evidenceGaps: [],
+  };
+  if (!view.hasPolledData) view.evidenceGaps.push('未发现 polledData，DNS server、代理配置和系统网络配置可能缺失。');
+  if (!view.hasSystemInfo) view.evidenceGaps.push('未发现 systemInfo，操作系统和系统网络环境信息不可用。');
+  if (!hasConstants) view.evidenceGaps.push('未发现 constants，事件和 source 名称只能使用 fallback 映射。');
+  return view;
+}
+
 export async function readNetlogEventDetail(file: NetlogIndexableFile, index: CompactEventIndex, eventId: number): Promise<unknown> {
   const start = index.byteStart[eventId];
   const end = index.byteEnd[eventId];
@@ -113,6 +149,8 @@ export async function readNetlogEventDetail(file: NetlogIndexableFile, index: Co
 export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): Promise<NetlogDatasetIndexResult> {
   const index = emptyIndex();
   const endpointReducer = createNetlogEndpointEvidenceReducer();
+  const dnsStateReducer = createNetlogDnsStateReducer();
+  const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
 
@@ -173,7 +211,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     pushEvent(index, event, objectStart, byteEnd);
     const typeId = Number(event?.type) || 0;
     const sourceTypeId = Number(event?.source?.type ?? event?.source_type) || 0;
-    endpointReducer.accept({
+    const seed = {
       eventId,
       byteStart: objectStart,
       byteEnd,
@@ -183,7 +221,9 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
       sourceTypeName: sourceTypeName(index, sourceTypeId),
       phase: Number(event?.phase) || 0,
       params: event?.params,
-    });
+    };
+    endpointReducer.accept(seed);
+    dnsStateReducer.accept(seed);
     objectBytes = [];
     objectStart = -1;
   };
@@ -221,6 +261,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
           } else if (byte === QUOTE) {
             readingKey = false;
             pendingKey = decodeAscii(keyBytes);
+            topLevelKeys.add(pendingKey);
             pendingTargetKey = pendingKey === 'events' || pendingKey === 'logEvents';
             keyBytes = [];
             mode = 'after-key';
@@ -360,5 +401,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
   return {
     index,
     endpointEvidence: endpointReducer.finish(),
+    dataLoaded: buildDataLoadedView(file, index, topLevelKeys),
+    dnsState: dnsStateReducer.finish(),
   };
 }
