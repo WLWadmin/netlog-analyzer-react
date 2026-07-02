@@ -96,6 +96,10 @@ describe('netlogDnsStateReducer', () => {
     expect(view.ipv6ReachabilityChecks).toEqual([
       { available: false, sourceId: 102, eventId: 3, byteStart: 300, byteEnd: 399 },
     ]);
+    expect(view.dnsErrors).toEqual([
+      expect.objectContaining({ host: 'failed.example.com', queryType: 'AAAA', error: -105, eventId: 4, sourceId: 103, byteStart: 400, byteEnd: 499 }),
+    ]);
+    expect(view.evidenceGaps).toContain('发现 DNS task error，请结合对应 event detail 判断是否为 DNS 根因。');
     expect(view.evidenceGaps).not.toContain('未发现 DNS server 配置记录，不代表用户没有配置 DNS。');
   });
 
@@ -155,5 +159,50 @@ describe('netlogDnsStateReducer', () => {
       'https://policy.example/template',
     ]));
     expect(view.configServers).toEqual([]);
+  });
+
+  it('无 DNS server 配置但有 DNS answer 和 DNS error 时输出具体 evidence gaps', () => {
+    const reducer = createNetlogDnsStateReducer();
+
+    reducer.accept({
+      eventId: 10,
+      byteStart: 1000,
+      byteEnd: 1099,
+      time: 50,
+      typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
+      sourceId: 501,
+      sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
+      phase: 2,
+      params: {
+        results: [
+          {
+            domain_name: 'answer.example.com',
+            query_type: 'A',
+            endpoints: [{ endpoint_address: '203.0.113.50' }],
+          },
+          {
+            domain_name: 'error.example.com',
+            query_type: 'AAAA',
+            net_error: -105,
+          },
+        ],
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.configServers).toEqual([]);
+    expect(view.taskResults).toEqual(expect.arrayContaining([
+      expect.objectContaining({ host: 'answer.example.com', ips: ['203.0.113.50'] }),
+      expect.objectContaining({ host: 'error.example.com', ips: [], error: -105 }),
+    ]));
+    expect(view.dnsErrors).toEqual([
+      expect.objectContaining({ host: 'error.example.com', queryType: 'AAAA', error: -105, eventId: 10 }),
+    ]);
+    expect(view.evidenceGaps).toEqual(expect.arrayContaining([
+      '未发现 DNS server 配置记录，不代表用户没有配置 DNS。',
+      '未发现 DNS server 配置记录，但发现 DNS answer / Host Resolver 结果；DNS answer 不能反推 DNS server。',
+      '发现 DNS task error，请结合对应 event detail 判断是否为 DNS 根因。',
+    ]));
   });
 });

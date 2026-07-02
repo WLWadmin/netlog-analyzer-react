@@ -46,6 +46,15 @@ export interface DnsStateView {
     byteStart?: number;
     byteEnd?: number;
   }>;
+  dnsErrors: Array<{
+    host: string;
+    queryType?: string;
+    error: number;
+    sourceId?: number;
+    eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
+  }>;
   dohCandidates: Array<{
     value: string;
     source: 'polledData' | 'dns_event' | 'unknown';

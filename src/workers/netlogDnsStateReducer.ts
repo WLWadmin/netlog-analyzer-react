@@ -108,6 +108,7 @@ export function createNetlogDnsStateReducer() {
   const dohCandidates = new Map<string, DnsStateView['dohCandidates'][number]>();
   const hostResolverCache = new Map<string, DnsStateView['hostResolverCache'][number]>();
   const taskResults = new Map<string, DnsStateView['taskResults'][number]>();
+  const dnsErrors = new Map<string, DnsStateView['dnsErrors'][number]>();
   const ipv6ReachabilityChecks: DnsStateView['ipv6ReachabilityChecks'] = [];
 
   const acceptTopLevelConfig = (rootKey: string, value: unknown) => {
@@ -191,6 +192,17 @@ export function createNetlogDnsStateReducer() {
             byteStart: seed.byteStart,
             byteEnd: seed.byteEnd,
           });
+          if (error !== undefined) {
+            dnsErrors.set(`${host}-${value.query_type || ''}-${error}-${seed.eventId}`, {
+              host,
+              queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
+              error,
+              sourceId: seed.sourceId,
+              eventId: seed.eventId,
+              byteStart: seed.byteStart,
+              byteEnd: seed.byteEnd,
+            });
+          }
         }
       }
     }
@@ -211,12 +223,20 @@ export function createNetlogDnsStateReducer() {
       configServers: Array.from(configServers.values()),
       hostResolverCache: Array.from(hostResolverCache.values()),
       taskResults: Array.from(taskResults.values()),
+      dnsErrors: Array.from(dnsErrors.values()),
       dohCandidates: Array.from(dohCandidates.values()),
       ipv6ReachabilityChecks,
       evidenceGaps: [],
     };
+    const dnsAnswerCount = view.hostResolverCache.length + view.taskResults.filter(item => item.ips.length > 0 || item.aliases.length > 0).length;
     if (view.configServers.length === 0) {
       view.evidenceGaps.push('未发现 DNS server 配置记录，不代表用户没有配置 DNS。');
+    }
+    if (view.configServers.length === 0 && dnsAnswerCount > 0) {
+      view.evidenceGaps.push('未发现 DNS server 配置记录，但发现 DNS answer / Host Resolver 结果；DNS answer 不能反推 DNS server。');
+    }
+    if (view.dnsErrors.length > 0) {
+      view.evidenceGaps.push('发现 DNS task error，请结合对应 event detail 判断是否为 DNS 根因。');
     }
     if (view.hostResolverCache.length === 0 && view.taskResults.length === 0) {
       view.evidenceGaps.push('未发现 Host Resolver cache 或 DNS task result，DNS answer 可能只能从 summary fallback 查看。');

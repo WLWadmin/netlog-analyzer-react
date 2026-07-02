@@ -189,6 +189,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
           <Descriptions.Item label="DoH/Secure DNS 候选">{view.dohCandidates.length}</Descriptions.Item>
           <Descriptions.Item label="Host Resolver cache">{view.hostResolverCache.length}</Descriptions.Item>
           <Descriptions.Item label="DNS task results">{view.taskResults.length}</Descriptions.Item>
+          <Descriptions.Item label="DNS errors">{view.dnsErrors.length}</Descriptions.Item>
           <Descriptions.Item label="IPv6 reachability">{view.ipv6ReachabilityChecks.length}</Descriptions.Item>
         </Descriptions>
         <Table
@@ -237,6 +238,28 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
           ]}
           dataSource={answerRows}
           locale={{ emptyText: '未发现 Dataset DNS answer 线索' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.host}-${row.queryType}-${row.error}-${row.eventId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Host', dataIndex: 'host', width: 240 },
+            { title: 'Query Type', dataIndex: 'queryType', width: 120, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 100, render: (value: number) => <Tag color="red">{value}</Tag> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
+          ]}
+          dataSource={view.dnsErrors}
+          locale={{ emptyText: '未发现 Dataset DNS task error' }}
         />
       </Space>
       <Modal
