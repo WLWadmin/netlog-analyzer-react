@@ -87,6 +87,7 @@ export interface QueryNetlogEventsRequest {
     errorOnly?: boolean;
     startTime?: number;
     endTime?: number;
+    searchText?: string;
   };
 }
 

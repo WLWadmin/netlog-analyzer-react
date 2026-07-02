@@ -26,6 +26,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
   const [phaseFilter, setPhaseFilter] = useState(savedFilterState.phaseFilter);
   const [startTimeFilter, setStartTimeFilter] = useState(savedFilterState.startTimeFilter);
   const [endTimeFilter, setEndTimeFilter] = useState(savedFilterState.endTimeFilter);
+  const [searchTextFilter, setSearchTextFilter] = useState(savedFilterState.searchTextFilter);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -52,6 +53,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setPhaseFilter(state.phaseFilter);
     setStartTimeFilter(state.startTimeFilter);
     setEndTimeFilter(state.endTimeFilter);
+    setSearchTextFilter(state.searchTextFilter);
     setPage(1);
   }, [analysisId]);
 
@@ -91,6 +93,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       phase: numericOrUndefined(phaseFilter),
       startTime: numericOrUndefined(startTimeFilter),
       endTime: numericOrUndefined(endTimeFilter),
+      searchText: searchTextFilter.trim() || undefined,
     })
       .then(result => {
         if (!cancelled) setQueryResult(result);
@@ -104,7 +107,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     return () => {
       cancelled = true;
     };
-  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
+  }, [analysisId, page, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter, searchTextFilter]);
 
   useEffect(() => {
     saveDatasetEventsFilterState(analysisId, {
@@ -117,9 +120,10 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       phaseFilter,
       startTimeFilter,
       endTimeFilter,
+      searchTextFilter,
       pageSize,
     });
-  }, [analysisId, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter]);
+  }, [analysisId, pageSize, errorOnly, sourceIdFilter, sourceChainIdFilter, typeIdFilter, typeNameFilter, sourceTypeNameFilter, phaseFilter, startTimeFilter, endTimeFilter, searchTextFilter]);
 
   const clearFilters = () => {
     setErrorOnly(false);
@@ -131,6 +135,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setPhaseFilter('');
     setStartTimeFilter('');
     setEndTimeFilter('');
+    setSearchTextFilter('');
     clearDatasetEventsFilterState(analysisId);
     setPage(1);
   };
@@ -217,6 +222,14 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
             value={endTimeFilter}
             onChange={(event) => { setEndTimeFilter(event.target.value); setPage(1); }}
           />
+          <Input.Search
+            allowClear
+            size="small"
+            style={{ width: 180 }}
+            placeholder="text/params 搜索"
+            value={searchTextFilter}
+            onChange={(event) => { setSearchTextFilter(event.target.value); setPage(1); }}
+          />
           <Button type={errorOnly ? 'primary' : 'default'} onClick={() => { setErrorOnly(prev => !prev); setPage(1); }}>
             仅错误事件
           </Button>
@@ -225,13 +238,22 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       }
       bordered={false}
     >
-      {(sourceIdFilter || sourceChainIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || startTimeFilter || endTimeFilter || errorOnly) && (
+      {(sourceIdFilter || sourceChainIdFilter || typeIdFilter || typeNameFilter || sourceTypeNameFilter || phaseFilter || startTimeFilter || endTimeFilter || searchTextFilter || errorOnly) && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
           message="Dataset 查询条件"
-          description={`sourceId=${sourceIdFilter || '*'}，sourceChainId=${sourceChainIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，startTime=${startTimeFilter || '*'}，endTime=${endTimeFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
+          description={`sourceId=${sourceIdFilter || '*'}，sourceChainId=${sourceChainIdFilter || '*'}，typeId=${typeIdFilter || '*'}，typeName=${typeNameFilter || '*'}，sourceType=${sourceTypeNameFilter || '*'}，phase=${phaseFilter || '*'}，startTime=${startTimeFilter || '*'}，endTime=${endTimeFilter || '*'}，searchText=${searchTextFilter || '*'}，errorOnly=${errorOnly ? 'true' : 'false'}`}
+        />
+      )}
+      {searchTextFilter && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="text/params 搜索会按需读取原始 event JSON"
+          description="该搜索不把 params 文本常驻内存；在超大 NetLog 中会比 compact index 条件慢，建议配合 type/source/time 条件缩小范围。"
         />
       )}
       <Table<NetlogEventRow>

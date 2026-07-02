@@ -1,5 +1,5 @@
-import { queryNetlogEvents } from './netlogDatasetQuery';
-import type { CompactEventIndex } from './netlogDatasetIndexer';
+import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
+import type { CompactEventIndex, NetlogIndexableFile } from './netlogDatasetIndexer';
 
 const index: CompactEventIndex = {
   count: 4,
@@ -58,5 +58,29 @@ describe('queryNetlogEvents', () => {
   it('支持 source chain 过滤', () => {
     expect(queryNetlogEvents(index, { analysisId: 'a1', sourceChainId: 1 }).rows.map(row => row.eventId)).toEqual([0, 1, 3]);
     expect(queryNetlogEvents(index, { analysisId: 'a1', sourceChainId: 2 }).rows.map(row => row.eventId)).toEqual([2]);
+  });
+
+  it('支持按需读取 raw event 做 text/params 搜索', async () => {
+    const events = [
+      '{"params":{"url":"https://api.example.com","method":"GET"}}',
+      '{"params":{"net_error":-105,"host":"dns.example.com"}}',
+      '{"params":{"address":"203.0.113.10:443"}}',
+      '{"params":{"protocol":"h2","host":"api.example.com"}}',
+    ];
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: events.join('').length,
+      stream: () => new Blob([]).stream(),
+      slice: (start?: number) => {
+        const eventId = index.byteStart.indexOf(start || 0);
+        return { text: async () => events[eventId] || '{}' } as Blob;
+      },
+    };
+
+    const result = await queryNetlogEventsWithRawSearch(file, index, { analysisId: 'a1', searchText: 'NET_ERROR' });
+    const combined = await queryNetlogEventsWithRawSearch(file, index, { analysisId: 'a1', searchText: 'api.example.com', sourceChainId: 1 });
+
+    expect(result.rows.map(row => row.eventId)).toEqual([1]);
+    expect(combined.rows.map(row => row.eventId)).toEqual([0, 3]);
   });
 });

@@ -1,4 +1,5 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
+import type { NetlogIndexableFile } from './netlogDatasetIndexer';
 
 export interface QueryNetlogEventsPayload {
   analysisId: string;
@@ -14,6 +15,7 @@ export interface QueryNetlogEventsPayload {
   errorOnly?: boolean;
   startTime?: number;
   endTime?: number;
+  searchText?: string;
 }
 
 export interface NetlogEventRow {
@@ -111,6 +113,47 @@ export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEv
 
   for (let eventId = 0; eventId < index.count; eventId++) {
     if (!matches(index, eventId, query, sourceChain)) continue;
+    if (total >= start && rows.length < pageSize) {
+      rows.push(toRow(index, eventId));
+    }
+    total += 1;
+  }
+
+  return {
+    analysisId: query.analysisId,
+    page,
+    pageSize,
+    total,
+    rows,
+  };
+}
+
+async function rawEventMatches(file: NetlogIndexableFile, index: CompactEventIndex, eventId: number, needle: string): Promise<boolean> {
+  const start = index.byteStart[eventId];
+  const end = index.byteEnd[eventId];
+  if (start === undefined || end === undefined) return false;
+  const text = await file.slice(start, end).text();
+  return text.toLowerCase().includes(needle);
+}
+
+export async function queryNetlogEventsWithRawSearch(
+  file: NetlogIndexableFile,
+  index: CompactEventIndex,
+  query: QueryNetlogEventsPayload
+): Promise<QueryNetlogEventsResult> {
+  const searchText = query.searchText?.trim().toLowerCase();
+  if (!searchText) return queryNetlogEvents(index, query);
+
+  const page = Math.max(1, query.page || 1);
+  const pageSize = Math.min(500, Math.max(1, query.pageSize || 100));
+  const start = (page - 1) * pageSize;
+  const rows: NetlogEventRow[] = [];
+  let total = 0;
+  const sourceChain = query.sourceChainId !== undefined ? buildSourceChain(index, query.sourceChainId) : undefined;
+
+  for (let eventId = 0; eventId < index.count; eventId++) {
+    if (!matches(index, eventId, query, sourceChain)) continue;
+    if (!(await rawEventMatches(file, index, eventId, searchText))) continue;
     if (total >= start && rows.length < pageSize) {
       rows.push(toRow(index, eventId));
     }

@@ -22,7 +22,7 @@ import type { WorkerRequest, WorkerResponse } from './protocols';
 import { createRawDataStore } from './rawDataStore';
 import { createNetlogDatasetStore } from './netlogDatasetStore';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail } from './netlogDatasetIndexer';
-import { queryNetlogEvents } from './netlogDatasetQuery';
+import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
 
@@ -545,12 +545,15 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       case 'query-netlog-events': {
         const dataset = netlogDatasetStore.get(msg.payload.analysisId);
         if (!dataset?.eventIndex) throw new Error(`NetLog Dataset 不存在或未完成索引：${msg.payload.analysisId}`);
+        const payload = msg.payload.searchText?.trim()
+          ? await queryNetlogEventsWithRawSearch(dataset.file, dataset.eventIndex, msg.payload)
+          : queryNetlogEvents(dataset.eventIndex, msg.payload);
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',
           id: msg.id,
           resultType: 'netlog-events-query',
-          payload: queryNetlogEvents(dataset.eventIndex, msg.payload),
+          payload,
           duration,
         });
         break;

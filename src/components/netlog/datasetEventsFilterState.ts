@@ -8,6 +8,7 @@ export interface DatasetEventsFilterState {
   phaseFilter: string;
   startTimeFilter: string;
   endTimeFilter: string;
+  searchTextFilter: string;
   pageSize: number;
 }
 
@@ -21,6 +22,7 @@ export const DEFAULT_DATASET_EVENTS_FILTER_STATE: DatasetEventsFilterState = {
   phaseFilter: '',
   startTimeFilter: '',
   endTimeFilter: '',
+  searchTextFilter: '',
   pageSize: 100,
 };
 
@@ -56,6 +58,7 @@ export function parseDatasetEventsFilterState(raw: string | null): DatasetEvents
       phaseFilter: stringValue(parsed.phaseFilter),
       startTimeFilter: stringValue(parsed.startTimeFilter),
       endTimeFilter: stringValue(parsed.endTimeFilter),
+      searchTextFilter: stringValue(parsed.searchTextFilter),
       pageSize: pageSizeValue(parsed.pageSize),
     };
   } catch {

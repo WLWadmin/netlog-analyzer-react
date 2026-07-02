@@ -31,6 +31,7 @@ describe('datasetEventsFilterState', () => {
       phaseFilter: '2',
       startTimeFilter: '100',
       endTimeFilter: '200',
+      searchTextFilter: 'net_error',
       pageSize: 250,
     });
 
@@ -44,6 +45,7 @@ describe('datasetEventsFilterState', () => {
       phaseFilter: '2',
       startTimeFilter: '100',
       endTimeFilter: '200',
+      searchTextFilter: 'net_error',
       pageSize: 250,
     });
     expect(loadDatasetEventsFilterState('a2').sourceIdFilter).toBe('');
@@ -60,6 +62,7 @@ describe('datasetEventsFilterState', () => {
       phaseFilter: '',
       startTimeFilter: '',
       endTimeFilter: '',
+      searchTextFilter: '',
       pageSize: 100,
     });
 
