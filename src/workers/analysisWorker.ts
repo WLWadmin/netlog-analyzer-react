@@ -24,6 +24,7 @@ import { createNetlogDatasetStore } from './netlogDatasetStore';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail } from './netlogDatasetIndexer';
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
 import { buildNetlogSourceChainView } from './netlogSourceChainView';
+import { buildNetlogRawEvidenceStructureView, queryNetlogRawEvidenceEvents } from './netlogRawEvidenceView';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
 
@@ -468,6 +469,36 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-source-chain',
+          payload,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-raw-evidence-structure': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.eventIndex || !dataset.dataLoaded) throw new Error(`NetLog Dataset Raw Evidence 不存在：${msg.payload.analysisId}`);
+        const payload = buildNetlogRawEvidenceStructureView(dataset.dataLoaded, dataset.eventIndex);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-raw-evidence-structure',
+          payload,
+          duration,
+        });
+        break;
+      }
+
+      case 'query-netlog-raw-evidence-events': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.eventIndex) throw new Error(`NetLog Dataset Raw Evidence events 不存在：${msg.payload.analysisId}`);
+        const payload = queryNetlogRawEvidenceEvents(msg.payload.analysisId, dataset.eventIndex, msg.payload.page, msg.payload.pageSize);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-raw-evidence-events',
           payload,
           duration,
         });

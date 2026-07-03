@@ -51,6 +51,7 @@ const { Header, Content } = Layout;
 const HarResultPage = lazy(() => import('./components/har/HarResultPage'));
 const LogResultPage = lazy(() => import('./components/log/LogResultPage'));
 const RawEvidenceExplorer = lazy(() => import('./components/raw/RawEvidenceExplorer'));
+const DatasetRawEvidenceExplorer = lazy(() => import('./components/raw/DatasetRawEvidenceExplorer'));
 
 const LazyFallback: React.FC<{ text?: string }> = ({ text = '正在加载模块...' }) => (
   <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -817,12 +818,16 @@ const AppContent: React.FC = () => {
     {
       key: 'raw',
       label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearchOutlined />原始事件 / 证据查询</span>,
-      children: result?.largeFileMode ? (
+      children: netlogDataset.status === 'ready' && netlogDataset.analysisId ? (
+        <Suspense fallback={<LazyFallback text="正在加载 Dataset Raw Evidence..." />}>
+          <DatasetRawEvidenceExplorer analysisId={netlogDataset.analysisId} fileName="NetLog Dataset Raw Evidence" />
+        </Suspense>
+      ) : result?.largeFileMode ? (
         <div style={{ padding: 24, borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
           <h3 style={{ marginTop: 0, color: 'var(--text-primary)' }}>大文件摘要 fallback 已启用</h3>
           <p>
             已完整扫描文件并生成诊断摘要；当前首屏仅展示关键证据样本，未在主线程缓存完整 rawData。
-            完整事件分页查询、Event detail 和 Data Loaded/DNS 状态视图将在 Dataset 模式中提供。
+            完整事件分页查询、Event detail、Data Loaded/DNS 状态视图和 Raw Evidence 虚拟树将在 Dataset 模式中提供。
           </p>
           <p>
             Dataset 状态：{netlogDataset.status === 'fallback' ? '摘要 fallback' : netlogDataset.status}

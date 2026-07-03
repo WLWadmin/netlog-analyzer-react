@@ -167,6 +167,24 @@ export interface GetNetlogSourceChainRequest {
   };
 }
 
+export interface GetNetlogRawEvidenceStructureRequest {
+  type: 'get-netlog-raw-evidence-structure';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
+export interface QueryNetlogRawEvidenceEventsRequest {
+  type: 'query-netlog-raw-evidence-events';
+  id: string;
+  payload: {
+    analysisId: string;
+    page?: number;
+    pageSize?: number;
+  };
+}
+
 export interface GetRawStructureRequest {
   type: 'get-raw-structure';
   id: string;
@@ -205,6 +223,8 @@ export type WorkerRequest =
   | GetNetlogHttp2StateRequest
   | GetNetlogSocketsStateRequest
   | GetNetlogSourceChainRequest
+  | GetNetlogRawEvidenceStructureRequest
+  | QueryNetlogRawEvidenceEventsRequest
   | GetRawStructureRequest
   | GetRawValueRequest;
 
@@ -213,7 +233,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state' | 'netlog-http2-state' | 'netlog-sockets-state' | 'netlog-source-chain';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state' | 'netlog-http2-state' | 'netlog-sockets-state' | 'netlog-source-chain' | 'netlog-raw-evidence-structure' | 'netlog-raw-evidence-events';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

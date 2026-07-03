@@ -280,3 +280,15 @@ export interface NetlogSourceChainView {
     duration: number;
   }>;
 }
+
+export interface NetlogRawEvidenceStructureView {
+  topLevelNodes: Array<{
+    key: 'constants' | 'polledData' | 'systemInfo' | 'clientInfo' | 'netLogInfo' | 'events';
+    label: string;
+    available: boolean;
+    kind: 'metadata' | 'virtual-events';
+    description: string;
+    eventCount?: number;
+  }>;
+  evidenceGaps: string[];
+}
