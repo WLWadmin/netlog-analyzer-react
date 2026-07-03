@@ -8,6 +8,7 @@ import {
   releaseNetlogDatasetInWorker,
 } from '../workers/workerClient';
 import { parseUploadedInput } from '../upload/parseUploadedInput';
+import { buildUploadPhase6DecisionReport, type UploadPhase6DecisionReport } from './netlogUploadPhase6Decision';
 
 interface BrowserBenchmarkMetrics {
   benchmark: 'netlog-browser-worker';
@@ -90,6 +91,7 @@ interface BrowserBenchmarkMetrics {
   eventsPreview?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
+  phase6Decision?: UploadPhase6DecisionReport;
   errors: string[];
 }
 
@@ -410,7 +412,7 @@ async function collectDatasetMetrics(options: {
   const mainThread = probe.stop();
   await releaseNetlogDatasetInWorker({ analysisId }).catch(() => undefined);
 
-  return {
+  const metrics: BrowserBenchmarkMetrics = {
     benchmark: 'netlog-browser-worker',
     runtime: 'browser-worker',
     label,
@@ -493,6 +495,24 @@ async function collectDatasetMetrics(options: {
     backgroundDatasetImportExpected: options.backgroundDatasetImportExpected,
     errors: [],
   };
+  metrics.phase6Decision = buildUploadPhase6DecisionReport({
+    mode,
+    datasetEventCount,
+    singleScanDatasetReady: metrics.singleScanDatasetReady,
+    backgroundDatasetImportExpected: metrics.backgroundDatasetImportExpected,
+    completeEventScanCount: metrics.completeEventScanCount,
+    rawDetailReadbackOk,
+    rawDetailRowsHaveByteRange,
+    rawSearchWorstCaseHasMoreMatchesUnknown: rawSearchWorstCase.hasMoreMatchesUnknown,
+    rawSearchFilteredHasMoreMatchesUnknown: rawSearchFiltered?.hasMoreMatchesUnknown,
+    dnsAnswerEndpointOnlyCount: metrics.dnsAnswerEndpointOnlyCount,
+    dnsAnswerStateOnlyCount: metrics.dnsAnswerStateOnlyCount,
+    socketPeerHostTimeCandidate,
+    forbiddenConfirmedMatchesCount: 0,
+    memoryPeakEstimateMb: metrics.memoryPeakEstimateMb,
+    sampleCount: 1,
+  });
+  return metrics;
 }
 
 async function timed<T>(bucket: number[], fn: () => Promise<T>): Promise<T> {
