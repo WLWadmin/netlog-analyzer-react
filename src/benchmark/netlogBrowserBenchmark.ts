@@ -34,6 +34,11 @@ interface BrowserBenchmarkMetrics {
   socketPeerGlobalCandidate?: number;
   sourceDependencyEdges?: number;
   sourceDependencyUnparsed?: number;
+  globalCandidateByTypeName?: Record<string, number>;
+  globalCandidateBySourceTypeName?: Record<string, number>;
+  globalCandidateParamKeys?: Record<string, number>;
+  sourceGraphDepthHit?: Record<string, number>;
+  sourceGraphUnresolvedReasons?: Record<string, number>;
   dnsAnswerCandidateCount?: number;
   dnsAnswerUniqueHostIpPairs?: number;
   dnsAnswerMissingTraceCount?: number;
@@ -183,6 +188,11 @@ async function runNetlogBrowserBenchmark() {
       socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
       sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
       sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
+      globalCandidateByTypeName: endpointEvidence.sourceGraphStats?.globalCandidateByTypeName,
+      globalCandidateBySourceTypeName: endpointEvidence.sourceGraphStats?.globalCandidateBySourceTypeName,
+      globalCandidateParamKeys: endpointEvidence.sourceGraphStats?.globalCandidateParamKeys,
+      sourceGraphDepthHit: endpointEvidence.sourceGraphStats?.sourceGraphDepthHit,
+      sourceGraphUnresolvedReasons: endpointEvidence.sourceGraphStats?.sourceGraphUnresolvedReasons,
       dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
       dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
       dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,

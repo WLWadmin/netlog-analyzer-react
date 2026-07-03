@@ -50,6 +50,7 @@ const IMPACT_LABEL: Record<RequestImpact, string> = {
 const ASSOCIATION_LABEL: Record<IpEvidenceAssociation, string> = {
   'direct-url-request': '直接请求',
   'source-graph': 'Source graph',
+  'host-time-candidate': 'Host/time 候选',
   'global-candidate': '全局候选',
   'dns-only': 'DNS only',
   'header-only': 'Header only',
@@ -231,7 +232,7 @@ function associationTags(associations?: IpEvidenceAssociation[]) {
       {associations.map(item => (
         <Tag
           key={item}
-          color={item === 'source-graph' ? 'green' : item === 'global-candidate' ? 'orange' : 'default'}
+          color={item === 'source-graph' ? 'green' : item === 'global-candidate' || item === 'host-time-candidate' ? 'orange' : 'default'}
           style={{ marginInlineEnd: 0 }}
         >
           {ASSOCIATION_LABEL[item]}

@@ -165,6 +165,11 @@ describe('netlogEndpointEvidenceReducer', () => {
       socketPeerGlobalCandidate: 1,
       sourceDependencyEdges: 2,
       sourceDependencyUnparsed: 0,
+      globalCandidateByTypeName: { SOCKET_CONNECT: 1 },
+      globalCandidateBySourceTypeName: { SOCKET: 1 },
+      globalCandidateParamKeys: { address: 1 },
+      sourceGraphDepthHit: { '2': 1 },
+      sourceGraphUnresolvedReasons: { noSourceLink: 1 },
     });
   });
 
@@ -248,6 +253,86 @@ describe('netlogEndpointEvidenceReducer', () => {
       socketPeerGlobalCandidate: 1,
       sourceDependencyEdges: 3,
       sourceDependencyUnparsed: 1,
+      globalCandidateByTypeName: { SOCKET_CONNECT: 1 },
+      globalCandidateBySourceTypeName: { SOCKET: 1 },
+      globalCandidateParamKeys: { address: 1, source_dependency: 1 },
+      sourceGraphDepthHit: { '2': 1 },
+      sourceGraphUnresolvedReasons: { noSourceLink: 1 },
+    });
+  });
+
+  it('通过明确 source id 字段建立 source graph，并保留未关联原因统计', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 0,
+      byteStart: 0,
+      byteEnd: 99,
+      time: 10,
+      typeName: 'URL_REQUEST_START_JOB',
+      sourceId: 100,
+      sourceTypeName: 'URL_REQUEST',
+      phase: 0,
+      params: { url: 'https://source-id.example.com/data' },
+    });
+    reducer.accept({
+      eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
+      time: 20,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        url_request_source_id: 100,
+        peer_address: '203.0.113.40:443',
+      },
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
+      time: 30,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 400,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        source_dependency: { type: 'SOCKET_POOL' },
+        peer_address: '203.0.113.41:443',
+      },
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        associationReason: 'sourceDependency',
+        ip: '203.0.113.40',
+        host: 'source-id.example.com',
+      }),
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'global-candidate',
+        unresolvedReason: 'noSourceLink',
+        ip: '203.0.113.41',
+      }),
+    ]));
+    expect(summary.cipSipRows.find(row => row.host === 'source-id.example.com')?.sipIps).not.toContain('203.0.113.40');
+    expect(summary.sourceGraphStats).toEqual({
+      socketPeerTotal: 2,
+      socketPeerSourceGraphAssociated: 1,
+      socketPeerGlobalCandidate: 1,
+      sourceDependencyEdges: 1,
+      sourceDependencyUnparsed: 1,
+      globalCandidateByTypeName: { SOCKET_CONNECT: 1 },
+      globalCandidateBySourceTypeName: { SOCKET: 1 },
+      globalCandidateParamKeys: { peer_address: 1, source_dependency: 1 },
+      sourceGraphDepthHit: { '1': 1 },
+      sourceGraphUnresolvedReasons: { noSourceLink: 1 },
     });
   });
 });

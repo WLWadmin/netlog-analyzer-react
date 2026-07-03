@@ -35,6 +35,7 @@ export type RequestImpact = 'failed' | 'slow' | 'dns' | 'normal';
 export type IpEvidenceAssociation =
   | 'direct-url-request'
   | 'source-graph'
+  | 'host-time-candidate'
   | 'global-candidate'
   | 'dns-only'
   | 'header-only';
@@ -55,6 +56,8 @@ export interface IpEvidenceItem {
   byteStart?: number;
   byteEnd?: number;
   association?: IpEvidenceAssociation;
+  associationReason?: string;
+  unresolvedReason?: string;
   count: number;
   description: string;
 }
@@ -138,6 +141,11 @@ export interface DnsIpEvidenceSummary {
     socketPeerGlobalCandidate: number;
     sourceDependencyEdges: number;
     sourceDependencyUnparsed: number;
+    globalCandidateByTypeName?: Record<string, number>;
+    globalCandidateBySourceTypeName?: Record<string, number>;
+    globalCandidateParamKeys?: Record<string, number>;
+    sourceGraphDepthHit?: Record<string, number>;
+    sourceGraphUnresolvedReasons?: Record<string, number>;
   };
   dnsAnswerSourceStats?: {
     candidateCount: number;
