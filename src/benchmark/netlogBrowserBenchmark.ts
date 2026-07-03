@@ -46,8 +46,18 @@ interface BrowserBenchmarkMetrics {
   dnsAnswerBySourceKind?: Record<string, number>;
   dnsAnswerByTypeName?: Record<string, number>;
   mode?: 'dataset-import' | 'upload-single-scan';
+  evidencePackageVersion?: string;
+  uploadToFirstDiagnosisMs?: number;
+  summaryScanMs?: number;
+  datasetAutoStartMs?: number;
   summaryReadyMs?: number;
   datasetReadyMs?: number;
+  datasetTakesOverEventsMs?: number;
+  datasetTakesOverStateViewsMs?: number;
+  completeEventScanCount?: number;
+  rawDetailReadbackOk?: boolean;
+  rawDetailRowsHaveByteRange?: boolean;
+  rawDetailCheckedEventIds?: number[];
   eventsPreview?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
@@ -159,8 +169,14 @@ async function runNetlogBrowserBenchmark() {
         label,
         probe,
         mode,
+        uploadToFirstDiagnosisMs: datasetReadyMs,
+        summaryScanMs: datasetReadyMs,
+        datasetAutoStartMs: 0,
         summaryReadyMs: datasetReadyMs,
         datasetReadyMs,
+        datasetTakesOverEventsMs: 0,
+        datasetTakesOverStateViewsMs: 0,
+        completeEventScanCount: 1,
         eventsPreview: parsed.events.length,
         singleScanDatasetReady: true,
         backgroundDatasetImportExpected: false,
@@ -183,6 +199,7 @@ async function runNetlogBrowserBenchmark() {
       label,
       probe,
       mode,
+      completeEventScanCount: 1,
     });
     await postResult(metrics);
   } catch (error) {
@@ -202,6 +219,12 @@ async function collectDatasetMetrics(options: {
   mode: 'dataset-import' | 'upload-single-scan';
   summaryReadyMs?: number;
   datasetReadyMs?: number;
+  uploadToFirstDiagnosisMs?: number;
+  summaryScanMs?: number;
+  datasetAutoStartMs?: number;
+  datasetTakesOverEventsMs?: number;
+  datasetTakesOverStateViewsMs?: number;
+  completeEventScanCount?: number;
   eventsPreview?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
@@ -230,14 +253,27 @@ async function collectDatasetMetrics(options: {
     await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, typeId: firstRow.typeId }));
   }
 
+  const detailRows = [
+    firstQuery.rows[0],
+    firstQuery.rows[Math.floor(firstQuery.rows.length / 2)],
+  ].filter((row, index, rows): row is NonNullable<typeof row> => Boolean(row) && rows.findIndex(item => item?.eventId === row.eventId) === index);
   const detailIds = [
     firstQuery.rows[0]?.eventId,
     firstQuery.rows[Math.floor(firstQuery.rows.length / 2)]?.eventId,
     datasetEventCount > 0 ? datasetEventCount - 1 : undefined,
   ].filter((id, index, ids): id is number => typeof id === 'number' && ids.indexOf(id) === index);
+  let rawDetailReadbackOk = true;
   for (const eventId of detailIds) {
-    await timed(detailTimes, () => getNetlogEventDetailInWorker({ analysisId, eventId }));
+    const detail = await timed(detailTimes, () => getNetlogEventDetailInWorker({ analysisId, eventId }));
+    if (!detail || typeof detail !== 'object') {
+      rawDetailReadbackOk = false;
+    }
   }
+  const rawDetailRowsHaveByteRange = detailRows.length > 0 && detailRows.every(row =>
+    Number.isFinite(row.byteStart) &&
+    Number.isFinite(row.byteEnd) &&
+    row.byteEnd > row.byteStart
+  );
 
   const endpointEvidence = await getNetlogEndpointEvidenceInWorker({ analysisId });
   const mainThread = probe.stop();
@@ -281,8 +317,18 @@ async function collectDatasetMetrics(options: {
     dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
     dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
     mode,
+    evidencePackageVersion: '2026-07-03-upload-observability-v1',
+    uploadToFirstDiagnosisMs: options.uploadToFirstDiagnosisMs,
+    summaryScanMs: options.summaryScanMs,
+    datasetAutoStartMs: options.datasetAutoStartMs,
     summaryReadyMs: options.summaryReadyMs,
     datasetReadyMs: options.datasetReadyMs,
+    datasetTakesOverEventsMs: options.datasetTakesOverEventsMs,
+    datasetTakesOverStateViewsMs: options.datasetTakesOverStateViewsMs,
+    completeEventScanCount: options.completeEventScanCount,
+    rawDetailReadbackOk,
+    rawDetailRowsHaveByteRange,
+    rawDetailCheckedEventIds: detailIds,
     eventsPreview: options.eventsPreview,
     singleScanDatasetReady: options.singleScanDatasetReady,
     backgroundDatasetImportExpected: options.backgroundDatasetImportExpected,

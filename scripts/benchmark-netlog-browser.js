@@ -20,6 +20,16 @@ const file = argValue('--file');
 const label = argValue('--label') || 'manual';
 const timeoutMs = Number(argValue('--timeout-ms') || 15 * 60_000);
 const mode = argValue('--mode') || (hasFlag('--upload-single-scan') ? 'upload-single-scan' : 'dataset-import');
+if (mode === 'upload-ab') {
+  console.error('upload-ab is a comparison workflow, not a single browser mode. Run both commands explicitly:');
+  console.error('  npm run benchmark:netlog-browser -- --file <file> --label dataset-import-baseline --mode dataset-import --no-build --timeout-ms 1200000');
+  console.error('  npm run benchmark:netlog-browser -- --file <file> --label upload-single-scan-check --mode upload-single-scan --no-build --timeout-ms 1200000');
+  process.exit(2);
+}
+if (!['dataset-import', 'upload-single-scan'].includes(mode)) {
+  console.error(`Unsupported --mode: ${mode}. Expected dataset-import or upload-single-scan.`);
+  process.exit(2);
+}
 
 if (!file) {
   console.error('Usage: npm run benchmark:netlog-browser -- --file /path/to/chrome-net-export-log.json --label real-326mb [--no-launch]');
