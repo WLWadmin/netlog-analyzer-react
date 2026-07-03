@@ -499,6 +499,8 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
           <Descriptions.Item label="Handshake">{view.stateEvents.filter(item => item.kind === 'handshake').length}</Descriptions.Item>
           <Descriptions.Item label="Version negotiation">{view.stateEvents.filter(item => item.kind === 'version-negotiation').length}</Descriptions.Item>
           <Descriptions.Item label="Migration">{view.stateEvents.filter(item => item.kind === 'migration').length}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -519,6 +521,31 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
           ]}
           dataSource={view.sessions}
           locale={{ emptyText: '未发现 Dataset QUIC / HTTP3 session' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.kind}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 170 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 110 },
+            { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">protocol fact</Tag> },
+            { title: 'Host', dataIndex: 'host', width: 180, ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 180, render: (value?: string) => value || '-' },
+            { title: 'Version', dataIndex: 'version', width: 120, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 160, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: 'Unresolved', dataIndex: 'unresolvedReason', ellipsis: true, render: (value?: string) => value || '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 QUIC / HTTP3 impact summary' }}
         />
         <Table
           size="small"

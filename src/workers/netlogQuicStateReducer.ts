@@ -64,10 +64,15 @@ function classifyStateEvent(typeName: string): QuicStateView['stateEvents'][numb
   return undefined;
 }
 
+function isRequestScoped(seed: EventSeed): boolean {
+  return /URL_REQUEST/i.test(seed.typeName) || /URL_REQUEST/i.test(seed.sourceTypeName);
+}
+
 export function createNetlogQuicStateReducer() {
   const sessions = new Map<number, SessionDraft>();
   const errors: QuicStateView['errors'] = [];
   const stateEvents: QuicStateView['stateEvents'] = [];
+  const impactSummaries: QuicStateView['impactSummaries'] = [];
   let quicEventCount = 0;
   let http3EventCount = 0;
 
@@ -107,7 +112,8 @@ export function createNetlogQuicStateReducer() {
     draft.lastByteEnd = Math.max(draft.lastByteEnd ?? seed.byteEnd, seed.byteEnd);
     draft.firstTime = Math.min(draft.firstTime ?? seedTime, seedTime);
     draft.lastTime = Math.max(draft.lastTime ?? seedTime, seedTime);
-    addString(draft.hosts, firstString(params.host, params.hostname, params.server_name, params.origin, params.url));
+    const host = firstString(params.host, params.hostname, params.server_name, params.origin, params.url);
+    addString(draft.hosts, host);
     const peerAddress = firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint);
     const version = firstString(params.version, params.quic_version, params.negotiated_version, params.alpn);
     addString(draft.peerAddresses, peerAddress);
@@ -130,10 +136,33 @@ export function createNetlogQuicStateReducer() {
         peerAddress,
         summary: [seed.typeName, version ? `version=${version}` : undefined, peerAddress ? `peer=${peerAddress}` : undefined].filter(Boolean).join('；'),
       });
+      const requestScoped = isRequestScoped(seed);
+      impactSummaries.push({
+        sourceId: seed.sourceId,
+        sessionSourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seedTime,
+        typeName: seed.typeName,
+        kind: stateKind,
+        host,
+        peerAddress,
+        version,
+        requestScoped,
+        summary: [
+          seed.typeName,
+          host ? `host=${host}` : undefined,
+          version ? `version=${version}` : undefined,
+          peerAddress ? `peer=${peerAddress}` : undefined,
+        ].filter(Boolean).join('；'),
+        unresolvedReason: requestScoped ? undefined : '缺少 URL_REQUEST/source 级 QUIC 锚点；只能作为协议状态或候选线索。',
+      });
     }
 
     const error = errorValue(params);
     if (error !== undefined) {
+      const requestScoped = isRequestScoped(seed);
       draft.errorCount += 1;
       errors.push({
         eventId: seed.eventId,
@@ -144,6 +173,30 @@ export function createNetlogQuicStateReducer() {
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
         time: seedTime,
+      });
+      impactSummaries.push({
+        sourceId: seed.sourceId,
+        sessionSourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seedTime,
+        typeName: seed.typeName,
+        kind: 'error',
+        host,
+        peerAddress,
+        version,
+        error,
+        details: detailsValue(params),
+        requestScoped,
+        summary: [
+          seed.typeName,
+          host ? `host=${host}` : undefined,
+          peerAddress ? `peer=${peerAddress}` : undefined,
+          version ? `version=${version}` : undefined,
+          `error=${error}`,
+        ].filter(Boolean).join('；'),
+        unresolvedReason: requestScoped ? undefined : '缺少 URL_REQUEST/source 级 QUIC 错误锚点；只能作为协议错误候选线索。',
       });
     }
     sessions.set(seed.sourceId, draft);
@@ -169,6 +222,8 @@ export function createNetlogQuicStateReducer() {
         migrationEventCount: session.migrationEventCount,
       })),
       stateEvents,
+      impactSummaries,
+      requestScopedCandidateCount: impactSummaries.filter(item => item.requestScoped).length,
       errors,
       eventCount: quicEventCount + http3EventCount,
       http3EventCount,
@@ -182,6 +237,9 @@ export function createNetlogQuicStateReducer() {
     }
     if (view.errors.length > 0) {
       view.evidenceGaps.push('发现 QUIC / HTTP3 error，请结合对应 raw event、目标 host、网络环境和 HTTP 回退情况判断影响。');
+    }
+    if (view.impactSummaries.some(item => !item.requestScoped)) {
+      view.evidenceGaps.push('部分 QUIC / HTTP3 impact 只有协议 session 锚点，缺少 URL_REQUEST 关联；只能作为协议候选线索。');
     }
     if (view.eventCount > 0 && view.stateEvents.length === 0) {
       view.evidenceGaps.push('未发现 QUIC handshake、version negotiation 或 migration trace；只能说明存在 QUIC/HTTP3 事件，不能推断协议协商过程。');

@@ -164,6 +164,19 @@ export interface QuicStateView {
     version?: string;
     peerAddress?: string;
   }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'handshake' | 'version-negotiation' | 'migration' | 'error';
+    sessionSourceId: number;
+    host?: string;
+    peerAddress?: string;
+    version?: string;
+    error?: number | string;
+    details?: string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  requestScopedCandidateCount: number;
   errors: Array<{
     eventId: number;
     sourceId: number;

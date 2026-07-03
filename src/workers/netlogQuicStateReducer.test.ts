@@ -126,10 +126,67 @@ describe('createNetlogQuicStateReducer', () => {
       expect.objectContaining({ eventId: 2, sourceId: 100, kind: 'version-negotiation', version: 'h3-29' }),
       expect.objectContaining({ eventId: 3, sourceId: 100, kind: 'migration', peerAddress: '203.0.113.11:443' }),
     ]));
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 1,
+        kind: 'handshake',
+        sessionSourceId: 100,
+        requestScoped: false,
+        unresolvedReason: '缺少 URL_REQUEST/source 级 QUIC 锚点；只能作为协议状态或候选线索。',
+      }),
+      expect.objectContaining({
+        eventId: 4,
+        kind: 'error',
+        sessionSourceId: 100,
+        error: 'QUIC_NETWORK_IDLE_TIMEOUT',
+        requestScoped: false,
+        unresolvedReason: '缺少 URL_REQUEST/source 级 QUIC 错误锚点；只能作为协议错误候选线索。',
+      }),
+    ]));
+    expect(view.requestScopedCandidateCount).toBe(0);
     expect(view.evidenceGaps).toEqual(expect.arrayContaining([
       'QUIC / HTTP3 使用状态是协议事实，不能单独作为请求失败或慢请求根因。',
       '发现 QUIC / HTTP3 error，请结合对应 raw event、目标 host、网络环境和 HTTP 回退情况判断影响。',
+      '部分 QUIC / HTTP3 impact 只有协议 session 锚点，缺少 URL_REQUEST 关联；只能作为协议候选线索。',
     ]));
+  });
+
+  it('URL_REQUEST 级 HTTP3 错误会作为 request-scoped candidate', () => {
+    const reducer = createNetlogQuicStateReducer();
+
+    reducer.accept({
+      eventId: 7,
+      byteStart: 70,
+      byteEnd: 80,
+      time: 70,
+      typeName: 'HTTP3_URL_REQUEST_FAILED',
+      sourceId: 400,
+      sourceTypeName: 'URL_REQUEST',
+      params: {
+        url: 'https://h3.example.com/api',
+        negotiated_version: 'h3',
+        net_error: -7,
+        details: 'timeout',
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.requestScopedCandidateCount).toBe(1);
+    expect(view.impactSummaries).toEqual([
+      expect.objectContaining({
+        eventId: 7,
+        kind: 'error',
+        sourceId: 400,
+        sessionSourceId: 400,
+        host: 'https://h3.example.com/api',
+        version: 'h3',
+        error: -7,
+        details: 'timeout',
+        requestScoped: true,
+        unresolvedReason: undefined,
+      }),
+    ]);
   });
 
   it('缺少 QUIC/HTTP3 事件时输出 evidence gap', () => {
