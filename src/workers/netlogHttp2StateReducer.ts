@@ -121,11 +121,20 @@ function detailValue(params: Record<string, unknown> | undefined): string | unde
   return firstString(params?.details, params?.description, params?.reason, params?.net_error_details);
 }
 
+function impactKind(typeName: string, error: number | string | undefined): Http2StateView['impactSummaries'][number]['kind'] | undefined {
+  const upper = typeName.toUpperCase();
+  if (upper.includes('GOAWAY')) return 'goaway';
+  if (upper.includes('RST_STREAM') || upper.includes('RESET_STREAM')) return 'rst-stream';
+  if (error !== undefined) return 'error';
+  return undefined;
+}
+
 export function createNetlogHttp2StateReducer() {
   const sessions = new Map<number, SessionDraft>();
   const streams = new Map<number, StreamDraft>();
   const streamToSession = new Map<number, number>();
   const errors: Http2StateView['errors'] = [];
+  const impactSummaries: Http2StateView['impactSummaries'] = [];
   const sourceLinks = new Map<string, Http2StateView['sourceLinks'][number]>();
   let eventCount = 0;
   let goawayCount = 0;
@@ -281,6 +290,7 @@ export function createNetlogHttp2StateReducer() {
     }
 
     if (error !== undefined) {
+      const kind = impactKind(seed.typeName, error);
       errors.push({
         eventId: seed.eventId,
         sourceId: seed.sourceId,
@@ -294,6 +304,28 @@ export function createNetlogHttp2StateReducer() {
         time: seedTime,
         sourceDependencyIds: dependencySourceIds,
       });
+      if (kind) {
+        const requestScoped = streamSourceId !== undefined && (sessionSourceId !== undefined || dependencySourceIds.length > 0);
+        impactSummaries.push({
+          sessionSourceId,
+          streamSourceId,
+          streamId,
+          kind,
+          eventId: seed.eventId,
+          byteStart: seed.byteStart,
+          byteEnd: seed.byteEnd,
+          time: seedTime,
+          requestScoped,
+          unresolvedReason: requestScoped ? undefined : '缺少 stream->session 或 source_dependency 锚点，不能安全外推到具体请求。',
+          summary: [
+            seed.typeName,
+            streamSourceId !== undefined ? `streamSource=${streamSourceId}` : undefined,
+            sessionSourceId !== undefined ? `sessionSource=${sessionSourceId}` : undefined,
+            streamId !== undefined ? `streamId=${streamId}` : undefined,
+            error !== undefined ? `error=${error}` : undefined,
+          ].filter(Boolean).join('；'),
+        });
+      }
     }
   };
 
@@ -334,12 +366,17 @@ export function createNetlogHttp2StateReducer() {
       })),
       sourceLinks: Array.from(sourceLinks.values()),
       errors,
+      impactSummaries,
+      unlinkedStreamCount: 0,
+      requestScopedCandidateCount: 0,
       eventCount,
       goawayCount,
       rstStreamCount,
       windowUpdateCount,
       evidenceGaps: [],
     };
+    view.unlinkedStreamCount = view.streams.filter(stream => stream.sessionSourceId === undefined).length;
+    view.requestScopedCandidateCount = view.impactSummaries.filter(item => item.requestScoped).length;
     if (view.eventCount === 0) {
       view.evidenceGaps.push('未发现 HTTP/2 事件；不代表浏览器或服务端不支持 HTTP/2，只表示当前 Dataset 未捕获相关事件。');
     } else {
@@ -350,6 +387,9 @@ export function createNetlogHttp2StateReducer() {
     }
     if (view.streams.some(stream => stream.sessionSourceId === undefined)) {
       view.evidenceGaps.push('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
+    }
+    if (view.impactSummaries.some(item => !item.requestScoped)) {
+      view.evidenceGaps.push('部分 HTTP/2 impact 只有协议事件锚点，缺少 request/source chain 关联；只能作为协议候选线索。');
     }
     if (view.sourceLinks.length === 0 && view.eventCount > 0) {
       view.evidenceGaps.push('未发现 HTTP/2 显式 source dependency 边；session/stream 影响范围仅限已解析字段。');

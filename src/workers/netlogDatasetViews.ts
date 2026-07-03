@@ -207,6 +207,21 @@ export interface Http2StateView {
     time?: number;
     sourceDependencyIds?: number[];
   }>;
+  impactSummaries: Array<{
+    sessionSourceId?: number;
+    streamSourceId?: number;
+    streamId?: number;
+    kind: 'goaway' | 'rst-stream' | 'error';
+    eventId: number;
+    byteStart?: number;
+    byteEnd?: number;
+    time?: number;
+    summary: string;
+    requestScoped: boolean;
+    unresolvedReason?: string;
+  }>;
+  unlinkedStreamCount: number;
+  requestScopedCandidateCount: number;
   eventCount: number;
   goawayCount: number;
   rstStreamCount: number;

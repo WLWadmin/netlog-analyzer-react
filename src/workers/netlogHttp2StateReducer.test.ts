@@ -134,6 +134,25 @@ describe('createNetlogHttp2StateReducer', () => {
         eventId: 2,
       }),
     ]));
+    expect(view.requestScopedCandidateCount).toBe(1);
+    expect(view.unlinkedStreamCount).toBe(0);
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'rst-stream',
+        eventId: 3,
+        sessionSourceId: 100,
+        streamSourceId: 200,
+        streamId: 3,
+        requestScoped: true,
+      }),
+      expect.objectContaining({
+        kind: 'goaway',
+        eventId: 4,
+        sessionSourceId: 100,
+        requestScoped: false,
+        unresolvedReason: '缺少 stream->session 或 source_dependency 锚点，不能安全外推到具体请求。',
+      }),
+    ]));
   });
 
   it('缺少 HTTP/2 事件时输出 evidence gap', () => {
@@ -186,7 +205,18 @@ describe('createNetlogHttp2StateReducer', () => {
         lastTime: 1000,
       }),
     ]);
+    expect(view.unlinkedStreamCount).toBe(1);
+    expect(view.requestScopedCandidateCount).toBe(0);
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 10,
+        kind: 'rst-stream',
+        requestScoped: false,
+        unresolvedReason: '缺少 stream->session 或 source_dependency 锚点，不能安全外推到具体请求。',
+      }),
+    ]));
     expect(view.evidenceGaps).toContain('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
+    expect(view.evidenceGaps).toContain('部分 HTTP/2 impact 只有协议事件锚点，缺少 request/source chain 关联；只能作为协议候选线索。');
   });
 
   it('通过显式 source dependency 将 stream 安全关联到已知 session', () => {
@@ -243,6 +273,7 @@ describe('createNetlogHttp2StateReducer', () => {
         kind: 'stream-session',
       }),
     ]));
+    expect(view.requestScopedCandidateCount).toBe(0);
     expect(view.evidenceGaps).not.toContain('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
   });
 });

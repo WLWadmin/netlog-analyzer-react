@@ -595,6 +595,9 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
           <Descriptions.Item label="Sessions">{view.sessions.length}</Descriptions.Item>
           <Descriptions.Item label="Streams">{view.streams.length}</Descriptions.Item>
           <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
+          <Descriptions.Item label="Unlinked streams">{view.unlinkedStreamCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -632,6 +635,29 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
           ]}
           dataSource={view.streams}
           locale={{ emptyText: '未发现 Dataset HTTP/2 stream' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sessionSourceId ?? ''}-${row.streamSourceId ?? ''}-${row.streamId ?? ''}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 120 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 110, render: (value?: number) => value ?? '-' },
+            { title: 'Stream Source', dataIndex: 'streamSourceId', width: 130, render: (value?: number) => value ?? '-' },
+            { title: 'Stream ID', dataIndex: 'streamId', width: 100, render: (value?: number) => value ?? '-' },
+            { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">protocol fact</Tag> },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: 'Unresolved', dataIndex: 'unresolvedReason', ellipsis: true, render: (value?: string) => value || '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 HTTP/2 impact summary' }}
         />
         <Table
           size="small"
