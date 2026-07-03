@@ -460,6 +460,9 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
           <Descriptions.Item label="QUIC 事件">{view.quicEventCount}</Descriptions.Item>
           <Descriptions.Item label="HTTP3 事件">{view.http3EventCount}</Descriptions.Item>
           <Descriptions.Item label="错误事件">{view.errors.length}</Descriptions.Item>
+          <Descriptions.Item label="Handshake">{view.stateEvents.filter(item => item.kind === 'handshake').length}</Descriptions.Item>
+          <Descriptions.Item label="Version negotiation">{view.stateEvents.filter(item => item.kind === 'version-negotiation').length}</Descriptions.Item>
+          <Descriptions.Item label="Migration">{view.stateEvents.filter(item => item.kind === 'migration').length}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -469,6 +472,9 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
             { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Handshake', dataIndex: 'handshakeEventCount', width: 110 },
+            { title: 'Version', dataIndex: 'versionNegotiationEventCount', width: 100 },
+            { title: 'Migration', dataIndex: 'migrationEventCount', width: 100 },
             { title: 'Hosts', dataIndex: 'hosts', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Peer addresses', dataIndex: 'peerAddresses', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Versions', dataIndex: 'versions', render: (value: string[]) => value.join(', ') || '-' },
@@ -477,6 +483,21 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
           ]}
           dataSource={view.sessions}
           locale={{ emptyText: '未发现 Dataset QUIC / HTTP3 session' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.kind}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 170 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'Version', dataIndex: 'version', width: 120, render: (value?: string) => value || '-' },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 180, render: (value?: string) => value || '-' },
+          ]}
+          dataSource={view.stateEvents}
+          locale={{ emptyText: '未发现 QUIC handshake / version negotiation / migration trace' }}
         />
         <Table
           size="small"

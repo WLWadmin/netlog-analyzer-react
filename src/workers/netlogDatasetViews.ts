@@ -129,6 +129,15 @@ export interface QuicStateView {
     lastByteEnd?: number;
     firstTime?: number;
     lastTime?: number;
+    handshakeEventCount?: number;
+    versionNegotiationEventCount?: number;
+    migrationEventCount?: number;
+  }>;
+  stateEvents: Array<NetlogStateTrace & {
+    kind: 'handshake' | 'version-negotiation' | 'migration';
+    summary: string;
+    version?: string;
+    peerAddress?: string;
   }>;
   errors: Array<{
     eventId: number;

@@ -24,6 +24,9 @@ interface SessionDraft {
   lastByteEnd?: number;
   firstTime?: number;
   lastTime?: number;
+  handshakeEventCount: number;
+  versionNegotiationEventCount: number;
+  migrationEventCount: number;
 }
 
 function isQuicEvent(seed: EventSeed): boolean {
@@ -53,9 +56,18 @@ function detailsValue(params: Record<string, unknown> | undefined): string | und
   return firstString(params?.details, params?.reason, params?.description, params?.net_error_details);
 }
 
+function classifyStateEvent(typeName: string): QuicStateView['stateEvents'][number]['kind'] | undefined {
+  const upper = typeName.toUpperCase();
+  if (upper.includes('VERSION') || upper.includes('NEGOTIATION')) return 'version-negotiation';
+  if (upper.includes('MIGRATION') || upper.includes('PATH_VALIDATION') || upper.includes('NETWORK_CHANGED')) return 'migration';
+  if (upper.includes('HANDSHAKE') || upper.includes('CRYPTO') || upper.includes('CONNECTED')) return 'handshake';
+  return undefined;
+}
+
 export function createNetlogQuicStateReducer() {
   const sessions = new Map<number, SessionDraft>();
   const errors: QuicStateView['errors'] = [];
+  const stateEvents: QuicStateView['stateEvents'] = [];
   let quicEventCount = 0;
   let http3EventCount = 0;
 
@@ -84,6 +96,9 @@ export function createNetlogQuicStateReducer() {
       lastByteEnd: seed.byteEnd,
       firstTime: seedTime,
       lastTime: seedTime,
+      handshakeEventCount: 0,
+      versionNegotiationEventCount: 0,
+      migrationEventCount: 0,
     };
     draft.eventCount += 1;
     draft.firstEventId = Math.min(draft.firstEventId ?? seed.eventId, seed.eventId);
@@ -93,8 +108,29 @@ export function createNetlogQuicStateReducer() {
     draft.firstTime = Math.min(draft.firstTime ?? seedTime, seedTime);
     draft.lastTime = Math.max(draft.lastTime ?? seedTime, seedTime);
     addString(draft.hosts, firstString(params.host, params.hostname, params.server_name, params.origin, params.url));
-    addString(draft.peerAddresses, firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint));
-    addString(draft.versions, firstString(params.version, params.quic_version, params.negotiated_version, params.alpn));
+    const peerAddress = firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint);
+    const version = firstString(params.version, params.quic_version, params.negotiated_version, params.alpn);
+    addString(draft.peerAddresses, peerAddress);
+    addString(draft.versions, version);
+
+    const stateKind = classifyStateEvent(seed.typeName);
+    if (stateKind) {
+      if (stateKind === 'handshake') draft.handshakeEventCount += 1;
+      if (stateKind === 'version-negotiation') draft.versionNegotiationEventCount += 1;
+      if (stateKind === 'migration') draft.migrationEventCount += 1;
+      stateEvents.push({
+        sourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seedTime,
+        typeName: seed.typeName,
+        kind: stateKind,
+        version,
+        peerAddress,
+        summary: [seed.typeName, version ? `version=${version}` : undefined, peerAddress ? `peer=${peerAddress}` : undefined].filter(Boolean).join('；'),
+      });
+    }
 
     const error = errorValue(params);
     if (error !== undefined) {
@@ -128,7 +164,11 @@ export function createNetlogQuicStateReducer() {
         lastByteEnd: session.lastByteEnd,
         firstTime: session.firstTime,
         lastTime: session.lastTime,
+        handshakeEventCount: session.handshakeEventCount,
+        versionNegotiationEventCount: session.versionNegotiationEventCount,
+        migrationEventCount: session.migrationEventCount,
       })),
+      stateEvents,
       errors,
       eventCount: quicEventCount + http3EventCount,
       http3EventCount,
@@ -142,6 +182,9 @@ export function createNetlogQuicStateReducer() {
     }
     if (view.errors.length > 0) {
       view.evidenceGaps.push('发现 QUIC / HTTP3 error，请结合对应 raw event、目标 host、网络环境和 HTTP 回退情况判断影响。');
+    }
+    if (view.eventCount > 0 && view.stateEvents.length === 0) {
+      view.evidenceGaps.push('未发现 QUIC handshake、version negotiation 或 migration trace；只能说明存在 QUIC/HTTP3 事件，不能推断协议协商过程。');
     }
     return view;
   };
