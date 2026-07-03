@@ -39,10 +39,17 @@ const parseLogInWorkerMock = parseLogInWorker as jest.Mock;
 const parseNetlogInWorkerMock = parseNetlogInWorker as jest.Mock;
 
 describe('parseUploadedInput', () => {
+  let consoleWarnSpy: jest.SpyInstance;
+
   beforeEach(() => {
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     jest.clearAllMocks();
     isHarFileMock.mockReturnValue(false);
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    consoleWarnSpy.mockRestore();
   });
 
   it('log 文本走 log 分支', async () => {
@@ -245,5 +252,45 @@ describe('parseUploadedInput', () => {
     });
     expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: true });
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it('single scan flag 开启但失败时回退到大文件摘要 fallback', async () => {
+    const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+    window.localStorage.setItem('netlog_single_scan_dataset', '1');
+    parseLargeNetlogFileInWorkerMock
+      .mockRejectedValueOnce(new Error('single scan failed'))
+      .mockResolvedValueOnce({
+        events: [{ id: 1 }],
+        result: { totalEvents: 1, largeFileMode: { enabled: true } },
+      });
+    const onProgress = jest.fn();
+
+    const result = await parseUploadedInput({
+      data: file,
+      fileTypeHint: 'netlog',
+      useWorker: true,
+      onProgress,
+    });
+
+    expect(result).toEqual({
+      kind: 'netlog',
+      events: [{ id: 1 }],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+      rawData: undefined,
+      rawDataId: undefined,
+      largeFileMode: true,
+      dataset: {
+        status: 'fallback',
+        error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
+      },
+    });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenNthCalledWith(1, file, { onProgress, singleScanDataset: true });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenNthCalledWith(2, file, { onProgress, singleScanDataset: false });
+    expect(onProgress).toHaveBeenCalledWith('Single scan Dataset 构建失败，正在回退到大文件摘要解析...');
+    expect(consoleWarnSpy).toHaveBeenCalledWith('[netlog-large]', expect.objectContaining({
+      event: 'parseUploadedInput:single-scan-fallback',
+      error: 'single scan failed',
+    }));
   });
 });

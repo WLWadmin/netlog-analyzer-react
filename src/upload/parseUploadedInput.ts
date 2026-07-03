@@ -91,10 +91,28 @@ export async function parseUploadedInput(options: {
       fileSize: data.size,
       useWorker,
     });
-    const { events, result, datasetMeta } = await parseLargeNetlogFileInWorker(data, {
-      onProgress,
-      singleScanDataset: isSingleScanDatasetEnabled(),
-    });
+    const singleScanDataset = isSingleScanDatasetEnabled();
+    let largeNetlogResult: Awaited<ReturnType<typeof parseLargeNetlogFileInWorker>>;
+    try {
+      largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
+        onProgress,
+        singleScanDataset,
+      });
+    } catch (error) {
+      if (!singleScanDataset) throw error;
+      console.warn('[netlog-large]', {
+        event: 'parseUploadedInput:single-scan-fallback',
+        fileName: data.name,
+        fileSize: data.size,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      onProgress?.('Single scan Dataset 构建失败，正在回退到大文件摘要解析...');
+      largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
+        onProgress,
+        singleScanDataset: false,
+      });
+    }
+    const { events, result, datasetMeta } = largeNetlogResult;
     return {
       kind: 'netlog',
       result,
