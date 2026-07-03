@@ -39,7 +39,7 @@ interface RequestDraft {
 }
 
 const DEFAULT_SLOW_MS = 1000;
-const MAX_SOURCE_GRAPH_DEPTH = 4;
+const MAX_SOURCE_GRAPH_DEPTH = 8;
 const DIRECT_SOURCE_ID_KEYS = [
   'source_id',
   'sourceId',
@@ -193,6 +193,10 @@ function increment(map: Record<string, number>, key: string | undefined) {
 
 function paramKeyStats(params: Record<string, unknown>): string[] {
   return Object.keys(params).sort();
+}
+
+function isLocalAddressEvent(typeName: string): boolean {
+  return typeName.includes('LOCAL_ADDRESS');
 }
 
 function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
@@ -372,7 +376,7 @@ export function createNetlogEndpointEvidenceReducer() {
       { raw: params.address, source: 'netlog.params.address' as const },
       { raw: params.peer_address, source: 'netlog.params.peer_address' as const },
     ].flatMap(item => extractSocketIpValues(item.raw).map(raw => ({ raw, source: item.source })));
-    if (socketIps.length > 0 && /SOCKET|CONNECT|UDP|TCP/.test(seed.typeName)) {
+    if (socketIps.length > 0 && /SOCKET|CONNECT|UDP|TCP/.test(seed.typeName) && !isLocalAddressEvent(seed.typeName)) {
       for (const item of socketIps) {
         const evidence = addEvidence(itemMap, item.raw, {
           host: req ? hostFromUrl(req.url) : '未关联到具体请求',

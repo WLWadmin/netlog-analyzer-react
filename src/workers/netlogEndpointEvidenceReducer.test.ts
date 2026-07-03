@@ -335,4 +335,84 @@ describe('netlogEndpointEvidenceReducer', () => {
       sourceGraphUnresolvedReasons: { noSourceLink: 1 },
     });
   });
+
+  it('跳过 LOCAL_ADDRESS，并允许较深的显式 source graph 回链', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 0,
+      byteStart: 0,
+      byteEnd: 99,
+      time: 10,
+      typeName: 'URL_REQUEST_START_JOB',
+      sourceId: 100,
+      sourceTypeName: 'URL_REQUEST',
+      phase: 0,
+      params: { url: 'https://deep.example.com/data' },
+    });
+    for (let index = 0; index < 6; index += 1) {
+      reducer.accept({
+        eventId: index + 1,
+        byteStart: 100 + index * 100,
+        byteEnd: 199 + index * 100,
+        time: 20 + index,
+        typeName: 'SOCKET_ALIVE',
+        sourceId: 200 + index,
+        sourceTypeName: 'SOCKET',
+        phase: 2,
+        params: { source_dependency: { id: index === 0 ? 100 : 199 + index } },
+      });
+    }
+    reducer.accept({
+      eventId: 10,
+      byteStart: 1000,
+      byteEnd: 1099,
+      time: 40,
+      typeName: 'UDP_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'UDP_SOCKET',
+      phase: 2,
+      params: {
+        source_dependency: { id: 205 },
+        address: '203.0.113.50:443',
+      },
+    });
+    reducer.accept({
+      eventId: 11,
+      byteStart: 1100,
+      byteEnd: 1199,
+      time: 41,
+      typeName: 'UDP_LOCAL_ADDRESS',
+      sourceId: 301,
+      sourceTypeName: 'UDP_SOCKET',
+      phase: 2,
+      params: { address: '192.168.0.2:55000' },
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        ip: '203.0.113.50',
+        host: 'deep.example.com',
+      }),
+    ]));
+    expect(summary.failedOrSlowIps).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'socket-peer', ip: '192.168.0.2' }),
+    ]));
+    expect(summary.sourceGraphStats).toEqual({
+      socketPeerTotal: 1,
+      socketPeerSourceGraphAssociated: 1,
+      socketPeerGlobalCandidate: 0,
+      sourceDependencyEdges: 7,
+      sourceDependencyUnparsed: 0,
+      globalCandidateByTypeName: {},
+      globalCandidateBySourceTypeName: {},
+      globalCandidateParamKeys: {},
+      sourceGraphDepthHit: { '7': 1 },
+      sourceGraphUnresolvedReasons: {},
+    });
+  });
 });
