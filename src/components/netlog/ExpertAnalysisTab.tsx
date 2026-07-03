@@ -348,19 +348,52 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string }> = ({ analysisId })
           <Descriptions.Item label="PAC URL">{view.pacUrls.length}</Descriptions.Item>
           <Descriptions.Item label="代理服务器">{view.proxyServers.length}</Descriptions.Item>
           <Descriptions.Item label="Bypass 规则">{view.bypassRules.length}</Descriptions.Item>
+          <Descriptions.Item label="代理事件">{view.proxyEvents.length}</Descriptions.Item>
+          <Descriptions.Item label="请求级代理错误候选">{view.requestScopedErrors.length}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
-          rowKey={(row) => `${row.source}-${row.key}-${row.value}`}
+          rowKey={(row) => `${row.source}-${row.key}-${row.value}-${row.eventId ?? 'top'}`}
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: '来源', dataIndex: 'source', width: 130 },
             { title: '配置字段', dataIndex: 'key', width: 260, ellipsis: true },
             { title: '值', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
+            { title: 'Event', dataIndex: 'eventId', width: 90, render: (value?: number) => value ?? '-' },
           ]}
           dataSource={view.proxyConfigs}
           locale={{ emptyText: '未发现 Dataset 代理配置快照' }}
         />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}`}
+          pagination={{ pageSize: 6, showSizeChanger: false }}
+          columns={[
+            { title: '类型', dataIndex: 'kind', width: 130 },
+            { title: 'Event', dataIndex: 'eventId', width: 90 },
+            { title: 'Source', dataIndex: 'sourceId', width: 90 },
+            { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
+            { title: '错误', dataIndex: 'error', width: 90, render: (value?: number | string) => value ?? '-' },
+            { title: '摘要', dataIndex: 'summary', ellipsis: true },
+          ]}
+          dataSource={view.proxyEvents}
+          locale={{ emptyText: '未发现 Dataset 代理事件 trace' }}
+        />
+        {view.requestScopedErrors.length > 0 && (
+          <Table
+            size="small"
+            rowKey={(row) => `${row.eventId}-${row.error}`}
+            pagination={{ pageSize: 6, showSizeChanger: false }}
+            columns={[
+              { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
+              { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
+              { title: '错误', dataIndex: 'error', width: 90 },
+              { title: 'Event', dataIndex: 'eventId', width: 90 },
+              { title: '说明', dataIndex: 'reason', ellipsis: true },
+            ]}
+            dataSource={view.requestScopedErrors}
+          />
+        )}
         <Descriptions column={1} size="small">
           <Descriptions.Item label="PAC URL">{view.pacUrls.length > 0 ? view.pacUrls.join('；') : '未发现'}</Descriptions.Item>
           <Descriptions.Item label="代理服务器">{view.proxyServers.length > 0 ? view.proxyServers.join('；') : '未发现'}</Descriptions.Item>

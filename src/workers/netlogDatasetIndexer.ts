@@ -292,6 +292,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     };
     endpointReducer.accept(seed);
     dnsStateReducer.accept(seed);
+    proxyStateReducer.accept(seed);
     quicStateReducer.accept(seed);
     http2StateReducer.accept(seed);
     socketsStateReducer.accept(seed);

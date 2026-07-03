@@ -1,3 +1,12 @@
+export interface NetlogStateTrace {
+  sourceId?: number;
+  eventId?: number;
+  byteStart?: number;
+  byteEnd?: number;
+  time?: number;
+  typeName?: string;
+}
+
 export interface DataLoadedView {
   fileName: string;
   fileSize: number;
@@ -79,6 +88,25 @@ export interface ProxyStateView {
     key: string;
     value: string;
     source: 'polledData' | 'systemInfo' | 'unknown';
+    sourceId?: number;
+    eventId?: number;
+    byteStart?: number;
+    byteEnd?: number;
+    time?: number;
+    typeName?: string;
+  }>;
+  proxyEvents: Array<NetlogStateTrace & {
+    kind: 'decision' | 'pac' | 'bad-proxy' | 'fallback' | 'tunnel-failure' | 'proxy-event';
+    summary: string;
+    proxyServer?: string;
+    url?: string;
+    error?: number | string;
+  }>;
+  requestScopedErrors: Array<NetlogStateTrace & {
+    url?: string;
+    proxyServer?: string;
+    error?: number | string;
+    reason: string;
   }>;
   pacUrls: string[];
   proxyServers: string[];
