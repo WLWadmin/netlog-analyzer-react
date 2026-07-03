@@ -74,6 +74,19 @@ interface BrowserBenchmarkMetrics {
   rawDetailReadbackOk?: boolean;
   rawDetailRowsHaveByteRange?: boolean;
   rawDetailCheckedEventIds?: number[];
+  rawSearchWorstCaseMs?: number;
+  rawSearchWorstCaseScanned?: number;
+  rawSearchWorstCaseTotal?: number;
+  rawSearchWorstCaseScanLimitHit?: boolean;
+  rawSearchWorstCaseTimeLimitHit?: boolean;
+  rawSearchWorstCaseHasMoreMatchesUnknown?: boolean;
+  rawSearchFilteredMs?: number;
+  rawSearchFilteredScanned?: number;
+  rawSearchFilteredTotal?: number;
+  rawSearchFilteredScanLimitHit?: boolean;
+  rawSearchFilteredTimeLimitHit?: boolean;
+  rawSearchFilteredHasMoreMatchesUnknown?: boolean;
+  rawSearchFilteredSourceId?: number;
   eventsPreview?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
@@ -355,6 +368,31 @@ async function collectDatasetMetrics(options: {
     Number.isFinite(row.byteEnd) &&
     row.byteEnd > row.byteStart
   );
+  const rawSearchWorstCaseStartedAt = nowMs();
+  const rawSearchWorstCase = await queryNetlogEventsInWorker({
+    analysisId,
+    page: 1,
+    pageSize: 10,
+    searchText: '__netlog_benchmark_no_match__',
+    rawSearchScanLimit: 2_000,
+    rawSearchTimeLimitMs: 10_000,
+  });
+  const rawSearchWorstCaseMs = Math.round(nowMs() - rawSearchWorstCaseStartedAt);
+
+  const rawSearchFilteredSourceId = firstRow?.sourceId;
+  const rawSearchFilteredStartedAt = nowMs();
+  const rawSearchFiltered = rawSearchFilteredSourceId === undefined
+    ? undefined
+    : await queryNetlogEventsInWorker({
+      analysisId,
+      page: 1,
+      pageSize: 10,
+      sourceId: rawSearchFilteredSourceId,
+      searchText: '__netlog_benchmark_no_match__',
+      rawSearchScanLimit: 2_000,
+      rawSearchTimeLimitMs: 10_000,
+    });
+  const rawSearchFilteredMs = rawSearchFiltered ? Math.round(nowMs() - rawSearchFilteredStartedAt) : undefined;
 
   const endpointEvidence = await getNetlogEndpointEvidenceInWorker({ analysisId });
   const dnsState = await getNetlogDnsStateInWorker({ analysisId });
@@ -437,6 +475,19 @@ async function collectDatasetMetrics(options: {
     rawDetailReadbackOk,
     rawDetailRowsHaveByteRange,
     rawDetailCheckedEventIds: detailIds,
+    rawSearchWorstCaseMs,
+    rawSearchWorstCaseScanned: rawSearchWorstCase.scanned,
+    rawSearchWorstCaseTotal: rawSearchWorstCase.total,
+    rawSearchWorstCaseScanLimitHit: rawSearchWorstCase.scanLimitHit,
+    rawSearchWorstCaseTimeLimitHit: rawSearchWorstCase.timeLimitHit,
+    rawSearchWorstCaseHasMoreMatchesUnknown: rawSearchWorstCase.hasMoreMatchesUnknown,
+    rawSearchFilteredMs,
+    rawSearchFilteredScanned: rawSearchFiltered?.scanned,
+    rawSearchFilteredTotal: rawSearchFiltered?.total,
+    rawSearchFilteredScanLimitHit: rawSearchFiltered?.scanLimitHit,
+    rawSearchFilteredTimeLimitHit: rawSearchFiltered?.timeLimitHit,
+    rawSearchFilteredHasMoreMatchesUnknown: rawSearchFiltered?.hasMoreMatchesUnknown,
+    rawSearchFilteredSourceId,
     eventsPreview: options.eventsPreview,
     singleScanDatasetReady: options.singleScanDatasetReady,
     backgroundDatasetImportExpected: options.backgroundDatasetImportExpected,

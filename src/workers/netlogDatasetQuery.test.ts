@@ -163,4 +163,42 @@ describe('queryNetlogEvents', () => {
     expect(result.scanned).toBe(2);
     expect(result.hasMoreMatchesUnknown).toBe(false);
   });
+
+  it('raw search 的扫描上限只作用于结构化过滤后的候选集', async () => {
+    const events = [
+      '{"params":{"url":"https://api.example.com/a"}}',
+      '{"params":{"url":"https://api.example.com/b"}}',
+      '{"params":{"url":"https://api.example.com/c"}}',
+      '{"params":{"url":"https://api.example.com/d"}}',
+    ];
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: events.join('').length,
+      stream: () => new Blob([]).stream(),
+      slice: (start?: number) => {
+        const eventId = index.byteStart.indexOf(start || 0);
+        return { text: async () => events[eventId] || '{}' } as Blob;
+      },
+    };
+
+    const unfiltered = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      rawSearchScanLimit: 1,
+    });
+    const filtered = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      sourceId: 2,
+      rawSearchScanLimit: 1,
+    });
+
+    expect(unfiltered.scanned).toBe(1);
+    expect(unfiltered.scanLimitHit).toBe(true);
+    expect(unfiltered.hasMoreMatchesUnknown).toBe(true);
+    expect(filtered.rows.map(row => row.eventId)).toEqual([2]);
+    expect(filtered.scanned).toBe(1);
+    expect(filtered.scanLimitHit).toBe(false);
+    expect(filtered.hasMoreMatchesUnknown).toBe(false);
+  });
 });
