@@ -32,8 +32,12 @@ interface BrowserBenchmarkMetrics {
   sourceGraphAssociatedCount: number;
   globalCandidateCount: number;
   socketPeerTotal?: number;
+  socketPeerDirectUrlRequest?: number;
   socketPeerSourceGraphAssociated?: number;
   socketPeerGlobalCandidate?: number;
+  socketPeerHostTimeCandidate?: number;
+  socketPeerAssociationRate?: number;
+  socketPeerUnresolvedRate?: number;
   sourceDependencyEdges?: number;
   sourceDependencyUnparsed?: number;
   globalCandidateByTypeName?: Record<string, number>;
@@ -41,6 +45,11 @@ interface BrowserBenchmarkMetrics {
   globalCandidateParamKeys?: Record<string, number>;
   sourceGraphDepthHit?: Record<string, number>;
   sourceGraphUnresolvedReasons?: Record<string, number>;
+  topGlobalCandidateTypeNames?: Array<{ key: string; count: number }>;
+  topGlobalCandidateSourceTypeNames?: Array<{ key: string; count: number }>;
+  topGlobalCandidateParamKeys?: Array<{ key: string; count: number }>;
+  topSourceGraphDepthHit?: Array<{ key: string; count: number }>;
+  topSourceGraphUnresolvedReasons?: Array<{ key: string; count: number }>;
   dnsAnswerCandidateCount?: number;
   dnsAnswerUniqueHostIpPairs?: number;
   dnsAnswerMissingTraceCount?: number;
@@ -177,6 +186,19 @@ function compareSets(left: Set<string>, right: Set<string>) {
     if (!left.has(key)) rightOnly += 1;
   }
   return { both, leftOnly, rightOnly };
+}
+
+function safeRate(part: number | undefined, total: number | undefined): number | undefined {
+  if (!total || part === undefined) return undefined;
+  return Math.round((part / total) * 10000) / 10000;
+}
+
+function topEntries(map: Record<string, number> | undefined, limit = 10): Array<{ key: string; count: number }> | undefined {
+  if (!map) return undefined;
+  return Object.entries(map)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .slice(0, limit);
 }
 
 async function postResult(result: BrowserBenchmarkMetrics | { errors: string[] }) {
@@ -339,6 +361,14 @@ async function collectDatasetMetrics(options: {
   const endpointDnsKeys = dnsAnswerKeysFromEndpointEvidence(endpointEvidence);
   const stateDns = dnsAnswerKeysFromDnsState(dnsState);
   const dnsDiff = compareSets(endpointDnsKeys, stateDns.keys);
+  const socketPeers = endpointEvidence.failedOrSlowIps.filter(item => item.role === 'socket-peer');
+  const socketPeerTotal = endpointEvidence.sourceGraphStats?.socketPeerTotal ?? socketPeers.length;
+  const socketPeerDirectUrlRequest = socketPeers.filter(item => item.association === 'direct-url-request').length;
+  const socketPeerSourceGraphAssociated = endpointEvidence.sourceGraphStats?.socketPeerSourceGraphAssociated ??
+    socketPeers.filter(item => item.association === 'source-graph').length;
+  const socketPeerGlobalCandidate = endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate ??
+    socketPeers.filter(item => item.association === 'global-candidate').length;
+  const socketPeerHostTimeCandidate = socketPeers.filter(item => item.association === 'host-time-candidate').length;
   const mainThread = probe.stop();
   await releaseNetlogDatasetInWorker({ analysisId }).catch(() => undefined);
 
@@ -360,13 +390,17 @@ async function collectDatasetMetrics(options: {
     endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
     endpointRowCount: endpointEvidence.cipSipRows.length,
     dnsAnswerCount: endpointEvidence.dnsAnswers.length,
-    socketPeerCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'socket-peer').length,
+    socketPeerCount: socketPeers.length,
     serverObservedClientIpCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'server-observed-client-ip').length,
     sourceGraphAssociatedCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'source-graph').length,
     globalCandidateCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'global-candidate').length,
-    socketPeerTotal: endpointEvidence.sourceGraphStats?.socketPeerTotal,
-    socketPeerSourceGraphAssociated: endpointEvidence.sourceGraphStats?.socketPeerSourceGraphAssociated,
-    socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
+    socketPeerTotal,
+    socketPeerDirectUrlRequest,
+    socketPeerSourceGraphAssociated,
+    socketPeerGlobalCandidate,
+    socketPeerHostTimeCandidate,
+    socketPeerAssociationRate: safeRate(socketPeerDirectUrlRequest + socketPeerSourceGraphAssociated, socketPeerTotal),
+    socketPeerUnresolvedRate: safeRate(socketPeerGlobalCandidate, socketPeerTotal),
     sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
     sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
     globalCandidateByTypeName: endpointEvidence.sourceGraphStats?.globalCandidateByTypeName,
@@ -374,6 +408,11 @@ async function collectDatasetMetrics(options: {
     globalCandidateParamKeys: endpointEvidence.sourceGraphStats?.globalCandidateParamKeys,
     sourceGraphDepthHit: endpointEvidence.sourceGraphStats?.sourceGraphDepthHit,
     sourceGraphUnresolvedReasons: endpointEvidence.sourceGraphStats?.sourceGraphUnresolvedReasons,
+    topGlobalCandidateTypeNames: topEntries(endpointEvidence.sourceGraphStats?.globalCandidateByTypeName),
+    topGlobalCandidateSourceTypeNames: topEntries(endpointEvidence.sourceGraphStats?.globalCandidateBySourceTypeName),
+    topGlobalCandidateParamKeys: topEntries(endpointEvidence.sourceGraphStats?.globalCandidateParamKeys),
+    topSourceGraphDepthHit: topEntries(endpointEvidence.sourceGraphStats?.sourceGraphDepthHit),
+    topSourceGraphUnresolvedReasons: topEntries(endpointEvidence.sourceGraphStats?.sourceGraphUnresolvedReasons),
     dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
     dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
     dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
