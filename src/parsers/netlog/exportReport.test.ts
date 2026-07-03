@@ -180,4 +180,40 @@ describe('exportReport', () => {
     expect(report).toContain('客户端出口线索与服务端目标运营商不同');
     expect(report).toContain('配置同运营商网络线路');
   });
+
+  it('只有代理配置和协议状态时不导出失败域名或连接失败结论', () => {
+    const report = exportReport(result({
+      totalEvents: 100,
+      urlRequests: [
+        request({ id: 1, url: 'https://api.example.com/data', status: 'success', statusCode: 200, duration: 120 }),
+      ],
+      protocols: { 'HTTP/1.1': 1 },
+      proxyEvents: [{
+        time: 1,
+        type: 1,
+        typeName: 'PROXY_CONFIG_CHANGED',
+        source: { id: 10, type: 1, typeName: 'PROXY_CONFIG' },
+        phase: 0,
+        phaseName: 'PHASE_BEGIN',
+        params: { proxy_server: 'proxy.example.com:8080' },
+      }],
+      proxyInfo: {
+        hasProxy: true,
+        proxyType: 'pac_script',
+        proxySettings: null,
+        effectiveProxy: null,
+        originalProxy: null,
+        pacUrl: null,
+        proxyList: ['PROXY proxy.example.com:8080'],
+        proxyFallback: null,
+        isVPN: false,
+        vpnHints: [],
+      },
+    }));
+
+    expect(report).toContain('检测到代理配置');
+    expect(report).not.toContain('发现 1 个失败域名');
+    expect(report).not.toContain('发现 1 条连接失败记录');
+    expect(report).not.toContain('## 受影响域名');
+  });
 });

@@ -1,5 +1,9 @@
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
+import { buildNetlogDiagnosisSummary } from './fromNetlog';
+import { buildCombinedDiagnosisSummary } from './fromCombined';
 import type { DiagnosticCard, DiagnosisSummary } from './types';
+import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import type { AnalysisResult, ParsedEvent, ProxyInfo, URLRequest } from '../../parsers/netlog/parser';
 
 function card(overrides: Partial<DiagnosticCard>): DiagnosticCard {
   return {
@@ -32,6 +36,140 @@ function summary(cards: DiagnosticCard[]): DiagnosisSummary {
       isDiagnosable: true,
       issues: [],
     },
+  };
+}
+
+function netlogEvent(overrides: Partial<ParsedEvent>): ParsedEvent {
+  return {
+    time: 1,
+    type: 1,
+    typeName: 'PROXY_CONFIG_CHANGED',
+    source: { id: 10, type: 1, typeName: 'PROXY_CONFIG' },
+    phase: 0,
+    phaseName: 'PHASE_BEGIN',
+    params: {},
+    ...overrides,
+  };
+}
+
+function urlRequest(overrides: Partial<URLRequest> = {}): URLRequest {
+  return {
+    id: 1,
+    url: 'https://api.example.com/data',
+    method: 'GET',
+    startTime: 0,
+    endTime: 1200,
+    duration: 1200,
+    status: 'success',
+    statusCode: 200,
+    events: [],
+    timeline: {},
+    resolvedIp: null,
+    remoteIp: null,
+    ...overrides,
+  };
+}
+
+function proxyInfo(overrides: Partial<ProxyInfo> = {}): ProxyInfo {
+  return {
+    hasProxy: false,
+    proxyType: null,
+    proxySettings: null,
+    effectiveProxy: null,
+    originalProxy: null,
+    pacUrl: null,
+    proxyList: [],
+    proxyFallback: null,
+    isVPN: false,
+    vpnHints: [],
+    ...overrides,
+  };
+}
+
+function analysisResult(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
+  return {
+    totalEvents: 100,
+    uniqueSources: 10,
+    peakConcurrency: 1,
+    urlRequests: [],
+    sslEvents: [],
+    quicEvents: [],
+    http2Events: [],
+    dnsEvents: [],
+    connectEvents: [],
+    proxyEvents: [],
+    errors: [],
+    warnings: [],
+    info: [],
+    timeRange: { start: 0, end: 5000 },
+    protocols: {},
+    hosts: {},
+    dnsServers: [],
+    dnsRecords: [],
+    dohCandidates: [],
+    errorSources: {},
+    certIssues: [],
+    sslIssues: [],
+    connectionFailures: [],
+    stalledRequests: [],
+    slowRequests: [],
+    cacheEvents: [],
+    networkChanges: [],
+    proxyInfo: proxyInfo(),
+    failedDomains: [],
+    systemInfo: { os: null, browser: null, netLogVersion: null, commandLine: null },
+    ...overrides,
+  };
+}
+
+function harEntry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
+  return {
+    id: 1,
+    name: 'api.example.com/data',
+    url: 'https://api.example.com/data',
+    method: 'GET',
+    status: 200,
+    statusText: 'OK',
+    protocol: 'h2',
+    domain: 'api.example.com',
+    remoteAddress: '203.0.113.10',
+    category: 'xhr',
+    rawType: 'xhr',
+    mimeType: 'application/json',
+    size: 100,
+    contentSize: 100,
+    time: 2500,
+    startedDateTime: '2026-07-03T00:00:00.000Z',
+    startMs: 0,
+    timings: { blocked: 10, dns: 10, connect: 10, ssl: 10, send: 1, wait: 2400, receive: 59 },
+    requestHeaders: [],
+    responseHeaders: [],
+    responseBody: '',
+    responseEncoding: '',
+    queryString: [],
+    serverTiming: [],
+    xTtLogid: '',
+    xTtCip: '',
+    xLscSourceIp: '',
+    isFailed: false,
+    isSlow: true,
+    ...overrides,
+  };
+}
+
+function harResult(overrides: Partial<HarAnalysisResult> = {}): HarAnalysisResult {
+  const entries = overrides.entries || [harEntry()];
+  return {
+    entries,
+    totalRequests: entries.length,
+    failedCount: entries.filter(entry => entry.isFailed).length,
+    slowCount: entries.filter(entry => entry.isSlow).length,
+    totalSize: entries.reduce((sum, entry) => sum + entry.size, 0),
+    totalTime: entries.reduce((sum, entry) => sum + entry.time, 0),
+    creator: 'jest',
+    typeCounts: { xhr: entries.length, doc: 0, css: 0, js: 0, font: 0, img: 0, media: 0, other: 0 },
+    bodyRetention: { mode: 'full', omittedCount: 0, omittedBytes: 0 },
+    ...overrides,
   };
 }
 
@@ -176,6 +314,79 @@ describe('buildFinalDiagnosisSummary', () => {
     }, 'combined');
 
     expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('fromNetlog 生成的代理配置状态卡片不能输出 confirmed', () => {
+    const proxyEvent = netlogEvent({
+      time: 100,
+      typeName: 'PROXY_CONFIG_CHANGED',
+      source: { id: 20, type: 2, typeName: 'PROXY_CONFIG' },
+      params: { proxy_server: 'proxy.example.com:8080', mode: 'pac_script' },
+    });
+    const diagnosis = buildNetlogDiagnosisSummary(analysisResult({
+      totalEvents: 100,
+      proxyInfo: proxyInfo({
+        hasProxy: true,
+        proxyType: 'pac_script',
+        pacUrl: 'https://proxy.example.com/proxy.pac',
+        proxyList: ['PROXY proxy.example.com:8080'],
+      }),
+      proxyEvents: [proxyEvent],
+      urlRequests: [urlRequest()],
+    }), [], [proxyEvent]);
+
+    const generated = diagnosis.cards.find(item => item.id.startsWith('netlog-proxy'));
+    expect(generated).toBeDefined();
+
+    const result = buildFinalDiagnosisSummary(diagnosis, 'netlog');
+
+    expect(result.headline.some(item => item.title.includes('检测到代理服务器配置') && item.kind === 'confirmed')).toBe(false);
+  });
+
+  it('fromNetlog 生成的协议状态卡片不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(analysisResult({
+      totalEvents: 100,
+      urlRequests: Array.from({ length: 12 }, (_, index) => urlRequest({
+        id: index + 1,
+        url: `https://api.example.com/data/${index}`,
+        statusCode: 200,
+        status: 'success',
+      })),
+      protocols: { 'HTTP/1.1': 12 },
+    }), []), 'netlog');
+
+    expect(result.headline.some(item => item.title.includes('HTTP/2 协议覆盖率偏低') && item.kind === 'confirmed')).toBe(false);
+  });
+
+  it('fromCombined 只有 HAR 慢请求和代理状态事实不能输出 confirmed', () => {
+    const netlog = analysisResult({
+      totalEvents: 100,
+      proxyInfo: proxyInfo({
+        hasProxy: true,
+        proxyType: 'pac_script',
+        proxyList: ['PROXY proxy.example.com:8080'],
+      }),
+      proxyEvents: [netlogEvent({
+        typeName: 'PROXY_CONFIG_CHANGED',
+        params: { proxy_server: 'proxy.example.com:8080' },
+      })],
+      urlRequests: [urlRequest({ id: 1, url: 'https://api.example.com/data' })],
+    });
+    const diagnosis = buildCombinedDiagnosisSummary(harResult({
+      entries: [harEntry({
+        id: 1,
+        url: 'https://api.example.com/data',
+        timings: { blocked: 20, dns: 5, connect: 5, ssl: 5, send: 1, wait: 2500, receive: 5 },
+        time: 2541,
+        isSlow: true,
+      })],
+    }), netlog);
+
+    expect(diagnosis.cards.some(item => item.id === 'combined-proxy-slow')).toBe(true);
+
+    const result = buildFinalDiagnosisSummary(diagnosis, 'combined');
+
+    expect(result.headline.some(item => item.id === 'combined-proxy-slow' && item.kind === 'confirmed')).toBe(false);
   });
 
   it('Combined HAR 慢但只有 socket peer 候选不能输出 confirmed', () => {
