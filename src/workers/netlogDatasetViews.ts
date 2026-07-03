@@ -108,6 +108,31 @@ export interface ProxyStateView {
     error?: number | string;
     reason: string;
   }>;
+  resolutionChains: Array<{
+    sourceId: number;
+    eventCount: number;
+    kinds: string[];
+    proxyServers: string[];
+    pacUrls: string[];
+    errors: Array<number | string>;
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'bad-proxy' | 'fallback' | 'tunnel-failure' | 'request-scoped-error' | 'pac' | 'decision' | 'proxy-event';
+    proxyServer?: string;
+    url?: string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  requestScopedCandidateCount: number;
   pacUrls: string[];
   proxyServers: string[];
   bypassRules: string[];

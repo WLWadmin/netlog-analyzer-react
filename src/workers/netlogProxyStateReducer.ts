@@ -17,6 +17,21 @@ interface EventSeed {
   params?: Record<string, unknown>;
 }
 
+interface ResolutionChainDraft {
+  sourceId: number;
+  eventCount: number;
+  kinds: Set<string>;
+  proxyServers: Set<string>;
+  pacUrls: Set<string>;
+  errors: Set<number | string>;
+  firstEventId?: number;
+  lastEventId?: number;
+  firstByteStart?: number;
+  lastByteEnd?: number;
+  firstTime?: number;
+  lastTime?: number;
+}
+
 function normalizeKey(key: string): string {
   return key.replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
@@ -108,6 +123,29 @@ export function createNetlogProxyStateReducer() {
   const bypassRules = new Set<string>();
   const proxyEvents = new Map<string, ProxyStateView['proxyEvents'][number]>();
   const requestScopedErrors = new Map<string, ProxyStateView['requestScopedErrors'][number]>();
+  const resolutionChains = new Map<number, ResolutionChainDraft>();
+  const impactSummaries = new Map<string, ProxyStateView['impactSummaries'][number]>();
+
+  const ensureResolutionChain = (seed: EventSeed): ResolutionChainDraft => {
+    const existing = resolutionChains.get(seed.sourceId);
+    if (existing) return existing;
+    const created: ResolutionChainDraft = {
+      sourceId: seed.sourceId,
+      eventCount: 0,
+      kinds: new Set<string>(),
+      proxyServers: new Set<string>(),
+      pacUrls: new Set<string>(),
+      errors: new Set<number | string>(),
+      firstEventId: seed.eventId,
+      lastEventId: seed.eventId,
+      firstByteStart: seed.byteStart,
+      lastByteEnd: seed.byteEnd,
+      firstTime: seed.time,
+      lastTime: seed.time,
+    };
+    resolutionChains.set(seed.sourceId, created);
+    return created;
+  };
 
   const acceptTopLevelConfig = (source: 'polledData' | 'systemInfo' | 'unknown', key: string, value: unknown) => {
     const visit = (node: unknown, path: string[]) => {
@@ -153,6 +191,18 @@ export function createNetlogProxyStateReducer() {
     addUnique(proxyServers, proxyServer);
     addUnique(pacUrls, pacUrl);
     addUnique(bypassRules, bypass);
+    const chain = ensureResolutionChain(seed);
+    chain.eventCount += 1;
+    chain.kinds.add(kind);
+    addUnique(chain.proxyServers, proxyServer);
+    addUnique(chain.pacUrls, pacUrl);
+    if (error !== undefined) chain.errors.add(error);
+    chain.firstEventId = Math.min(chain.firstEventId ?? seed.eventId, seed.eventId);
+    chain.lastEventId = Math.max(chain.lastEventId ?? seed.eventId, seed.eventId);
+    chain.firstByteStart = Math.min(chain.firstByteStart ?? seed.byteStart, seed.byteStart);
+    chain.lastByteEnd = Math.max(chain.lastByteEnd ?? seed.byteEnd, seed.byteEnd);
+    chain.firstTime = Math.min(chain.firstTime ?? seed.time, seed.time);
+    chain.lastTime = Math.max(chain.lastTime ?? seed.time, seed.time);
     const summary = [
       seed.typeName,
       proxyServer ? `proxy=${proxyServer}` : undefined,
@@ -167,6 +217,17 @@ export function createNetlogProxyStateReducer() {
       proxyServer,
       url,
       error,
+    });
+    const requestScoped = error !== undefined && (seed.sourceTypeName === 'URL_REQUEST' || /URL_REQUEST/i.test(seed.typeName));
+    impactSummaries.set(`${seed.eventId}-${kind}`, {
+      ...traceFromSeed(seed),
+      kind,
+      proxyServer,
+      url,
+      error,
+      requestScoped,
+      summary,
+      unresolvedReason: requestScoped ? undefined : '缺少 URL_REQUEST/source 级代理错误锚点；只能作为代理状态或候选线索。',
     });
     if (error !== undefined && (seed.sourceTypeName === 'URL_REQUEST' || /URL_REQUEST/i.test(seed.typeName))) {
       requestScopedErrors.set(`${seed.eventId}-${error}`, {
@@ -184,6 +245,28 @@ export function createNetlogProxyStateReducer() {
       proxyConfigs: Array.from(proxyConfigs.values()),
       proxyEvents: Array.from(proxyEvents.values()),
       requestScopedErrors: Array.from(requestScopedErrors.values()),
+      resolutionChains: Array.from(resolutionChains.values()).map(chain => ({
+        sourceId: chain.sourceId,
+        eventCount: chain.eventCount,
+        kinds: Array.from(chain.kinds),
+        proxyServers: Array.from(chain.proxyServers),
+        pacUrls: Array.from(chain.pacUrls),
+        errors: Array.from(chain.errors),
+        firstEventId: chain.firstEventId,
+        lastEventId: chain.lastEventId,
+        firstByteStart: chain.firstByteStart,
+        lastByteEnd: chain.lastByteEnd,
+        firstTime: chain.firstTime,
+        lastTime: chain.lastTime,
+        summary: [
+          Array.from(chain.kinds).join(' -> ') || 'proxy-event',
+          Array.from(chain.proxyServers).length ? `proxy=${Array.from(chain.proxyServers).join(', ')}` : undefined,
+          Array.from(chain.pacUrls).length ? `pac=${Array.from(chain.pacUrls).join(', ')}` : undefined,
+          Array.from(chain.errors).length ? `errors=${Array.from(chain.errors).join(', ')}` : undefined,
+        ].filter(Boolean).join('；'),
+      })),
+      impactSummaries: Array.from(impactSummaries.values()),
+      requestScopedCandidateCount: Array.from(impactSummaries.values()).filter(item => item.requestScoped).length,
       pacUrls: Array.from(pacUrls),
       proxyServers: Array.from(proxyServers),
       bypassRules: Array.from(bypassRules),
@@ -201,6 +284,9 @@ export function createNetlogProxyStateReducer() {
     }
     if (view.proxyEvents.length > 0 && view.requestScopedErrors.length === 0) {
       view.evidenceGaps.push('发现代理事件，但未发现可安全关联到 URL_REQUEST 的代理错误；不能推断具体请求失败原因。');
+    }
+    if (view.impactSummaries.some(item => !item.requestScoped)) {
+      view.evidenceGaps.push('部分代理 impact 只有代理服务或环境事件锚点，缺少 URL_REQUEST 关联；只能作为代理候选线索。');
     }
     return view;
   };

@@ -103,7 +103,38 @@ describe('createNetlogProxyStateReducer', () => {
       }),
     ]));
     expect(view.requestScopedErrors).toEqual([]);
+    expect(view.resolutionChains).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceId: 200,
+        kinds: ['decision'],
+        proxyServers: ['PROXY proxy.example.com:8080'],
+        pacUrls: ['https://proxy.example.com/proxy.pac'],
+        errors: [],
+      }),
+      expect.objectContaining({
+        sourceId: 201,
+        kinds: ['bad-proxy'],
+        proxyServers: ['PROXY bad.example.com:8080'],
+        errors: [-130],
+      }),
+    ]));
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 1,
+        kind: 'decision',
+        requestScoped: false,
+        unresolvedReason: '缺少 URL_REQUEST/source 级代理错误锚点；只能作为代理状态或候选线索。',
+      }),
+      expect.objectContaining({
+        eventId: 2,
+        kind: 'bad-proxy',
+        error: -130,
+        requestScoped: false,
+      }),
+    ]));
+    expect(view.requestScopedCandidateCount).toBe(0);
     expect(view.evidenceGaps).toContain('发现代理事件，但未发现可安全关联到 URL_REQUEST 的代理错误；不能推断具体请求失败原因。');
+    expect(view.evidenceGaps).toContain('部分代理 impact 只有代理服务或环境事件锚点，缺少 URL_REQUEST 关联；只能作为代理候选线索。');
   });
 
   it('只有 URL_REQUEST source 上的代理错误才输出 request-scoped error', () => {
@@ -139,6 +170,16 @@ describe('createNetlogProxyStateReducer', () => {
         error: -130,
       }),
     ]);
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 3,
+        kind: 'decision',
+        error: -130,
+        requestScoped: true,
+        unresolvedReason: undefined,
+      }),
+    ]));
+    expect(view.requestScopedCandidateCount).toBe(1);
     expect(view.evidenceGaps).not.toContain('发现代理事件，但未发现可安全关联到 URL_REQUEST 的代理错误；不能推断具体请求失败原因。');
   });
 });
