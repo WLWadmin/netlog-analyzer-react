@@ -17,6 +17,15 @@ const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
 export type UploadFileTypeHint = 'netlog' | 'har' | 'log';
 
+function isSingleScanDatasetEnabled(): boolean {
+  if (process.env.REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET === '1') return true;
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('netlog_single_scan_dataset') === '1';
+  } catch {
+    return false;
+  }
+}
+
 export type UploadedParseResult =
   | {
       kind: 'netlog';
@@ -82,7 +91,10 @@ export async function parseUploadedInput(options: {
       fileSize: data.size,
       useWorker,
     });
-    const { events, result } = await parseLargeNetlogFileInWorker(data, { onProgress });
+    const { events, result, datasetMeta } = await parseLargeNetlogFileInWorker(data, {
+      onProgress,
+      singleScanDataset: isSingleScanDatasetEnabled(),
+    });
     return {
       kind: 'netlog',
       result,
@@ -90,7 +102,14 @@ export async function parseUploadedInput(options: {
       rawData: undefined,
       rawDataId: undefined,
       largeFileMode: true,
-      dataset: fallbackNetlogDatasetState,
+      dataset: datasetMeta
+        ? {
+            status: 'ready',
+            analysisId: datasetMeta.analysisId,
+            eventCount: datasetMeta.eventCount,
+            updatedAt: Date.now(),
+          }
+        : fallbackNetlogDatasetState,
     };
   }
 

@@ -41,6 +41,11 @@ export interface NetlogIndexableFile {
   slice(start?: number, end?: number): Blob;
 }
 
+export interface NetlogCompactEventIndexOptions {
+  onTopLevelField?: (key: string, value: unknown) => void;
+  onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number }) => void;
+}
+
 const QUOTE = 34;
 const BACKSLASH = 92;
 const LEFT_BRACE = 123;
@@ -206,7 +211,10 @@ export async function readNetlogEventDetail(file: NetlogIndexableFile, index: Co
   return JSON.parse(text);
 }
 
-export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): Promise<NetlogDatasetIndexResult> {
+export async function buildNetlogCompactEventIndex(
+  file: NetlogIndexableFile,
+  options: NetlogCompactEventIndexOptions = {}
+): Promise<NetlogDatasetIndexResult> {
   const index = emptyIndex();
   const endpointReducer = createNetlogEndpointEvidenceReducer();
   const dnsStateReducer = createNetlogDnsStateReducer();
@@ -253,6 +261,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
         dnsStateReducer.acceptTopLevelConfig(pendingKey, value);
         proxyStateReducer.acceptTopLevelConfig(pendingKey, pendingKey, value);
       }
+      options.onTopLevelField?.(pendingKey, value);
     } catch {
       // constants 解析失败不影响事件索引
     } finally {
@@ -277,6 +286,7 @@ export async function buildNetlogCompactEventIndex(file: NetlogIndexableFile): P
     const event = JSON.parse(eventJson);
     const eventId = index.count;
     pushEvent(index, event, objectStart, byteEnd);
+    options.onEvent?.(event, { eventId, byteStart: objectStart, byteEnd });
     const typeId = Number(event?.type) || 0;
     const sourceTypeId = Number(event?.source?.type ?? event?.source_type) || 0;
     const seed = {

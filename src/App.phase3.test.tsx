@@ -362,6 +362,67 @@ describe('App Phase 3 upload behavior', () => {
     expect(largeNetlogTimeoutMock).toHaveBeenCalledWith(expect.any(Number));
   });
 
+  it('大文件 single scan 已返回 ready Dataset 时不再后台二次索引', async () => {
+    isWorkerSupportedMock.mockReturnValue(true);
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'netlog',
+      events: [],
+      result: {
+        totalEvents: 123,
+        uniqueSources: 1,
+        peakConcurrency: 1,
+        largeFileMode: {
+          enabled: true,
+          fileSize: 326_930_225,
+          bytesRead: 326_930_225,
+          parsedEvents: 123,
+          skippedEvents: 0,
+          truncatedEventsPreview: true,
+          reachedEventsEnd: true,
+        },
+        urlRequests: [],
+        errors: [],
+        warnings: [],
+        info: [],
+        slowRequests: [],
+      },
+      rawData: undefined,
+      rawDataId: undefined,
+      dataset: {
+        status: 'ready',
+        analysisId: 'netlog-dataset-single-scan',
+        eventCount: 123,
+        updatedAt: Date.now(),
+      },
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传大 NetLog 文件'));
+
+    await waitFor(() => expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({
+        event: 'upload-flow:dataset-ready',
+        analysisId: 'netlog-dataset-single-scan',
+        datasetEventCount: 123,
+        singleScanDataset: true,
+      })
+    ));
+    expect(importNetlogDatasetInWorkerMock).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:dataset-auto-start' })
+    );
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({
+        event: 'upload-flow:dataset-takeover',
+        analysisId: 'netlog-dataset-single-scan',
+        singleScanDataset: true,
+      })
+    );
+  });
+
   it('worker supported 时重置会释放全部 rawData', async () => {
     isWorkerSupportedMock.mockReturnValue(true);
     parseUploadedInputMock.mockResolvedValue({

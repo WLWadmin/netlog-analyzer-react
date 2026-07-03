@@ -132,13 +132,17 @@ function stringifyPreview(value: unknown, maxChars: number): { text: string; tru
   return { text: `${text.slice(0, maxChars)}\n...(内容过长已截断)`, truncated: true };
 }
 
-function normalizeLargeNetlogPayload(payload: File | { file: File; debug?: boolean }) {
+function normalizeLargeNetlogPayload(payload: File | { file: File; debug?: boolean; singleScanDataset?: boolean }) {
   if (payload instanceof File) return { file: payload, debug: false };
-  return { file: payload.file, debug: Boolean(payload.debug) };
+  return {
+    file: payload.file,
+    debug: Boolean(payload.debug),
+    singleScanDataset: Boolean((payload as { singleScanDataset?: boolean }).singleScanDataset),
+  };
 }
 
-async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolean }, id: string, start: number) {
-  const { file, debug } = normalizeLargeNetlogPayload(payload);
+async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolean; singleScanDataset?: boolean }, id: string, start: number) {
+  const { file, debug, singleScanDataset } = normalizeLargeNetlogPayload(payload);
   if (!file.stream) {
     throw new Error('当前浏览器不支持大文件流式读取，请升级 Chrome/Edge 后重试');
   }
@@ -148,7 +152,52 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     fileSize: file.size,
     fileType: file.type,
     hasStream: Boolean(file.stream),
+    singleScanDataset,
   });
+  if (singleScanDataset) {
+    sendProgress(id, '正在单次扫描 NetLog 并构建 Dataset...', 1);
+    const analyzer = createNetlogStreamingAnalyzer();
+    const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState } = await buildNetlogCompactEventIndex(file, {
+      onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
+      onEvent: (event) => {
+        try {
+          analyzer.accept(event);
+        } catch {
+          // 单个事件 summary 解析失败不应中断 Dataset 构建
+        }
+      },
+    });
+    sendProgress(id, '正在生成单次扫描诊断结果...', 96);
+    const { result, eventsPreview, meta } = analyzer.finish();
+    result.largeFileMode = {
+      enabled: true,
+      fileSize: file.size,
+      bytesRead: file.size,
+      parsedEvents: eventIndex.count,
+      skippedEvents: meta.skippedEvents,
+      truncatedEventsPreview: meta.truncatedEventsPreview,
+      reachedEventsEnd: true,
+    };
+    const datasetMeta = netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState);
+    const duration = performance.now() - start;
+    logLargeNetlogDebug(id, 'worker:single-scan-success', {
+      duration,
+      analysisId: datasetMeta.analysisId,
+      datasetEventCount: datasetMeta.eventCount,
+      dnsAnswerCount: endpointEvidence.dnsAnswers.length,
+      endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
+    });
+    sendResponse({
+      type: 'success',
+      id,
+      resultType: 'netlog',
+      payload: result,
+      events: eventsPreview,
+      datasetMeta,
+      duration,
+    });
+    return;
+  }
   sendProgress(id, '正在启动大文件流式解析...', 1);
   const analyzer = createNetlogStreamingAnalyzer();
   const topLevelMetaStats = {

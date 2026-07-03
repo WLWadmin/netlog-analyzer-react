@@ -437,6 +437,26 @@ const AppContent: React.FC = () => {
       }
       const datasetToken = ++datasetIndexTaskIdRef.current;
       setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
+      if (parsed.dataset?.status === 'ready' && parsed.dataset.analysisId) {
+        datasetAnalysisIdRef.current = parsed.dataset.analysisId;
+        logUploadFlow('upload-flow:dataset-ready', {
+          analysisId: parsed.dataset.analysisId,
+          datasetStatus: 'ready',
+          datasetEventCount: parsed.dataset.eventCount,
+          datasetImportMs: 0,
+          datasetReadyMs: uploadFlowRef.current.uploadStartedAt
+            ? Math.round(nowMs() - uploadFlowRef.current.uploadStartedAt)
+            : undefined,
+          singleScanDataset: true,
+        });
+        logUploadFlow('upload-flow:dataset-takeover', {
+          analysisId: parsed.dataset.analysisId,
+          datasetStatus: 'ready',
+          datasetEventCount: parsed.dataset.eventCount,
+          activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
+          singleScanDataset: true,
+        });
+      }
       setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
@@ -567,6 +587,26 @@ const AppContent: React.FC = () => {
       }
       const datasetToken = ++datasetIndexTaskIdRef.current;
       setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
+      if (parsed.dataset?.status === 'ready' && parsed.dataset.analysisId) {
+        datasetAnalysisIdRef.current = parsed.dataset.analysisId;
+        logUploadFlow('upload-flow:dataset-ready', {
+          analysisId: parsed.dataset.analysisId,
+          datasetStatus: 'ready',
+          datasetEventCount: parsed.dataset.eventCount,
+          datasetImportMs: 0,
+          datasetReadyMs: uploadFlowRef.current.uploadStartedAt
+            ? Math.round(nowMs() - uploadFlowRef.current.uploadStartedAt)
+            : undefined,
+          singleScanDataset: true,
+        });
+        logUploadFlow('upload-flow:dataset-takeover', {
+          analysisId: parsed.dataset.analysisId,
+          datasetStatus: 'ready',
+          datasetEventCount: parsed.dataset.eventCount,
+          activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
+          singleScanDataset: true,
+        });
+      }
       setCurrentNetlogFile(data instanceof File ? data : null);
       resultRef.current = parsed.result;
       const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;

@@ -121,6 +121,7 @@ export interface NetlogParseResult {
   result: AnalysisResult;
   rawData?: unknown;
   rawDataId?: string;
+  datasetMeta?: NetlogDatasetImportResult;
   duration: number;
 }
 
@@ -448,7 +449,7 @@ export async function parseNetlogInWorker(
 
 export async function parseLargeNetlogFileInWorker(
   file: File,
-  options?: WorkerClientOptions
+  options?: WorkerClientOptions & { singleScanDataset?: boolean }
 ): Promise<NetlogParseResult> {
   const id = nextId();
   const timeout = options?.timeout ?? largeNetlogTimeout(file.size);
@@ -458,9 +459,18 @@ export async function parseLargeNetlogFileInWorker(
     fileName: file.name,
     fileSize: file.size,
     timeout,
+    singleScanDataset: Boolean(options?.singleScanDataset),
   });
   const response = await sendToWorker(
-    { type: 'parse-large-netlog-file', id, payload: { file, debug: isLargeNetlogDebugEnabled() } },
+    {
+      type: 'parse-large-netlog-file',
+      id,
+      payload: {
+        file,
+        debug: isLargeNetlogDebugEnabled(),
+        singleScanDataset: Boolean(options?.singleScanDataset),
+      },
+    },
     { ...options, timeout }
   );
   console.info('[netlog-large]', {
@@ -470,12 +480,15 @@ export async function parseLargeNetlogFileInWorker(
     previewEventCount: Array.isArray(response.events) ? response.events.length : undefined,
     parsedEvents: (response.payload as AnalysisResult | undefined)?.largeFileMode?.parsedEvents,
     totalEvents: (response.payload as AnalysisResult | undefined)?.totalEvents,
+    datasetAnalysisId: response.datasetMeta?.analysisId,
+    datasetEventCount: response.datasetMeta?.eventCount,
   });
   return {
     events: response.events as ParsedEvent[],
     result: response.payload as AnalysisResult,
     rawData: undefined,
     rawDataId: undefined,
+    datasetMeta: response.datasetMeta,
     duration: response.duration,
   };
 }

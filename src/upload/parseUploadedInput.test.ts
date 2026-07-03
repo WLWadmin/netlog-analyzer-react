@@ -42,6 +42,7 @@ describe('parseUploadedInput', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     isHarFileMock.mockReturnValue(false);
+    window.localStorage.clear();
   });
 
   it('log 文本走 log 分支', async () => {
@@ -198,7 +199,51 @@ describe('parseUploadedInput', () => {
         error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
       },
     });
-    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: false });
+    expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it('single scan flag 开启时大 NetLog 返回 ready Dataset 状态', async () => {
+    const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+    window.localStorage.setItem('netlog_single_scan_dataset', '1');
+    parseLargeNetlogFileInWorkerMock.mockResolvedValue({
+      events: [],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+      datasetMeta: {
+        analysisId: 'netlog-dataset-1',
+        fileName: 'large-netlog.json',
+        fileSize: 101 * 1024 * 1024,
+        fileType: 'application/json',
+        importedAt: 1,
+        status: 'ready',
+        eventCount: 123,
+      },
+    });
+    const onProgress = jest.fn();
+
+    const result = await parseUploadedInput({
+      data: file,
+      fileTypeHint: 'netlog',
+      useWorker: true,
+      onProgress,
+    });
+
+    expect(result).toEqual({
+      kind: 'netlog',
+      events: [],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+      rawData: undefined,
+      rawDataId: undefined,
+      largeFileMode: true,
+      dataset: {
+        status: 'ready',
+        analysisId: 'netlog-dataset-1',
+        eventCount: 123,
+        updatedAt: expect.any(Number),
+      },
+    });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: true });
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 });

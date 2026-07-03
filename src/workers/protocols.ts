@@ -17,6 +17,7 @@ export interface ParseLargeNetlogFileRequest {
   payload: File | {
     file: File;
     debug?: boolean;
+    singleScanDataset?: boolean;
   };
 }
 
@@ -209,6 +210,8 @@ export interface WorkerSuccessResponse {
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer
   /** rawPayload 在 Worker 内部的缓存 ID，用于后续 raw 搜索避免 structured clone 大 JSON */
   rawDataId?: string;
+  /** 大文件 single scan 路径可随 summary 一起返回 Dataset meta；默认路径为空 */
+  datasetMeta?: NetlogDatasetImportResult;
   duration: number; // parsing time in ms
 }
 
