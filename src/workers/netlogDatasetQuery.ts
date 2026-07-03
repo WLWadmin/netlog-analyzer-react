@@ -16,6 +16,8 @@ export interface QueryNetlogEventsPayload {
   startTime?: number;
   endTime?: number;
   searchText?: string;
+  rawSearchScanLimit?: number;
+  rawSearchTimeLimitMs?: number;
 }
 
 export interface NetlogEventRow {
@@ -39,7 +41,15 @@ export interface QueryNetlogEventsResult {
   pageSize: number;
   total: number;
   rows: NetlogEventRow[];
+  scanned?: number;
+  scanLimitHit?: boolean;
+  timeLimitHit?: boolean;
+  hasMoreMatchesUnknown?: boolean;
 }
+
+const DEFAULT_RAW_SEARCH_SCAN_LIMIT = 10_000;
+const FILTERED_RAW_SEARCH_SCAN_LIMIT = 50_000;
+const DEFAULT_RAW_SEARCH_TIME_LIMIT_MS = 2_000;
 
 function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<number> {
   const chain = new Set<number>([sourceId]);
@@ -103,6 +113,19 @@ function toRow(index: CompactEventIndex, eventId: number): NetlogEventRow {
   };
 }
 
+function hasStructuredRawSearchFilter(query: QueryNetlogEventsPayload): boolean {
+  return query.typeId !== undefined ||
+    query.sourceId !== undefined ||
+    query.sourceChainId !== undefined ||
+    query.sourceTypeId !== undefined ||
+    Boolean(query.typeName) ||
+    Boolean(query.sourceTypeName) ||
+    query.phase !== undefined ||
+    Boolean(query.errorOnly) ||
+    query.startTime !== undefined ||
+    query.endTime !== undefined;
+}
+
 export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEventsPayload): QueryNetlogEventsResult {
   const page = Math.max(1, query.page || 1);
   const pageSize = Math.min(500, Math.max(1, query.pageSize || 100));
@@ -149,10 +172,25 @@ export async function queryNetlogEventsWithRawSearch(
   const start = (page - 1) * pageSize;
   const rows: NetlogEventRow[] = [];
   let total = 0;
+  let scanned = 0;
+  let scanLimitHit = false;
+  let timeLimitHit = false;
+  const scanLimit = Math.max(1, query.rawSearchScanLimit ?? (hasStructuredRawSearchFilter(query) ? FILTERED_RAW_SEARCH_SCAN_LIMIT : DEFAULT_RAW_SEARCH_SCAN_LIMIT));
+  const timeLimitMs = Math.max(0, query.rawSearchTimeLimitMs ?? DEFAULT_RAW_SEARCH_TIME_LIMIT_MS);
+  const startedAt = Date.now();
   const sourceChain = query.sourceChainId !== undefined ? buildSourceChain(index, query.sourceChainId) : undefined;
 
   for (let eventId = 0; eventId < index.count; eventId++) {
     if (!matches(index, eventId, query, sourceChain)) continue;
+    if (scanned >= scanLimit) {
+      scanLimitHit = true;
+      break;
+    }
+    if (Date.now() - startedAt >= timeLimitMs) {
+      timeLimitHit = true;
+      break;
+    }
+    scanned += 1;
     if (!(await rawEventMatches(file, index, eventId, searchText))) continue;
     if (total >= start && rows.length < pageSize) {
       rows.push(toRow(index, eventId));
@@ -166,5 +204,9 @@ export async function queryNetlogEventsWithRawSearch(
     pageSize,
     total,
     rows,
+    scanned,
+    scanLimitHit,
+    timeLimitHit,
+    hasMoreMatchesUnknown: scanLimitHit || timeLimitHit,
   };
 }

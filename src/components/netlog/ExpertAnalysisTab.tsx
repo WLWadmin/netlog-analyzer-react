@@ -40,13 +40,44 @@ const formatMb = (value?: number) => {
 const StateGapCard: React.FC<{ title: string; description: string; dataset?: NetlogDatasetState }> = ({ title, description, dataset }) => (
   <Card title={title} bordered={false}>
     <Alert
-      type={dataset?.status === 'ready' ? 'warning' : 'info'}
+      type={dataset?.status === 'error' ? 'warning' : 'info'}
       showIcon
-      message="Dataset reducer 尚未覆盖"
+      message={dataset?.status === 'importing' ? 'Dataset 正在后台索引' : dataset?.status === 'error' ? 'Dataset 索引失败，当前保留 summary preview' : 'Dataset 尚未接管该视图'}
       description={description}
     />
   </Card>
 );
+
+function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'success' | 'info' | 'warning' | 'error'; message: string; description: string } {
+  if (dataset?.status === 'ready') {
+    return {
+      type: 'success',
+      message: 'Dataset 已接管专家证据视图',
+      description: `Dataset 已完成索引${dataset.eventCount !== undefined ? `（${dataset.eventCount.toLocaleString()} 条事件）` : ''}，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 可基于全量事件查询。注意：状态事实仍只是证据浏览，不等同于已确认根因。`,
+    };
+  }
+  if (dataset?.status === 'importing') {
+    return {
+      type: 'info',
+      message: 'Dataset 正在后台索引全量 NetLog 事件',
+      description: dataset.phase
+        ? `${dataset.phase}。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。`
+        : '索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。',
+    };
+  }
+  if (dataset?.status === 'error') {
+    return {
+      type: 'error',
+      message: 'Dataset 索引失败，当前保留 summary preview',
+      description: `专家证据可能不完整。请重试索引或查看错误信息${dataset.error ? `：${dataset.error}` : '。'}`,
+    };
+  }
+  return {
+    type: 'warning',
+    message: '当前展示的是大文件 summary preview',
+    description: '已生成初步摘要，但 Events、DNS、Proxy、QUIC、HTTP/2、Sockets 等专家证据尚未由完整 Dataset 接管。系统将自动在后台构建 Dataset 索引。',
+  };
+}
 
 const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const [view, setView] = useState<DataLoadedView | undefined>();
@@ -772,7 +803,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           message="Evidence gaps"
           description={
             dataset?.status !== 'ready' && canStartDatasetIndexing
-              ? '当前展示的是解析摘要字段；可在本页手动启动 Dataset 索引。索引完成后，Events 分页、DNS State、证据跳转和 Event detail 会切换到 Dataset 查询协议。'
+              ? '当前展示的是解析摘要字段；可在本页手动启动 Dataset 索引。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 会切换到 Dataset 查询协议。'
               : 'Dataset 未启用时，专家视图只能展示当前解析结果中的摘要字段。'
           }
         />
@@ -871,17 +902,18 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   return (
     <div>
       {result.largeFileMode?.enabled && (
-        <Alert
-          type={dataset?.status === 'ready' ? 'success' : 'info'}
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={dataset?.status === 'ready' ? 'Dataset 模式已就绪' : '当前为大文件摘要 fallback'}
-          description={
-            dataset?.status === 'ready'
-              ? '完整事件分页查询、Event detail 和状态视图可用。'
-              : '已完整扫描 NetLog 并生成诊断摘要；当前专家视图展示关键事件样本，完整 Dataset 查询将在后续阶段启用。'
-          }
-        />
+        (() => {
+          const status = datasetStatusDescription(dataset);
+          return (
+            <Alert
+              type={status.type}
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={status.message}
+              description={status.description}
+            />
+          );
+        })()
       )}
       <ExpertSegmentNav activeKey={activeKey} onChange={onSubTabChange} />
       {contentByKey[activeKey]}

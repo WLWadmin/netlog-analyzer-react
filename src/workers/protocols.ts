@@ -88,6 +88,8 @@ export interface QueryNetlogEventsRequest {
     startTime?: number;
     endTime?: number;
     searchText?: string;
+    rawSearchScanLimit?: number;
+    rawSearchTimeLimitMs?: number;
   };
 }
 

@@ -4,6 +4,10 @@ export interface NetlogDatasetState {
   analysisId?: string;
   status: NetlogDatasetStatus;
   error?: string;
+  phase?: string;
+  eventCount?: number;
+  startedAt?: number;
+  updatedAt?: number;
 }
 
 export const unavailableNetlogDatasetState: NetlogDatasetState = {

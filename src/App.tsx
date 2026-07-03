@@ -58,6 +58,33 @@ const LazyFallback: React.FC<{ text?: string }> = ({ text = '正在加载模块.
   </div>
 );
 
+type UploadFlowEvent =
+  | 'upload-flow:upload-start'
+  | 'upload-flow:summary-ready'
+  | 'upload-flow:dataset-auto-start'
+  | 'upload-flow:dataset-progress'
+  | 'upload-flow:dataset-ready'
+  | 'upload-flow:dataset-error'
+  | 'upload-flow:dataset-takeover';
+
+interface UploadFlowState {
+  uploadStartedAt?: number;
+  summaryReadyAt?: number;
+  datasetStartedAt?: number;
+  fileName?: string;
+  fileSize?: number;
+  eventsPreview?: number;
+}
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function safeErrorMessage(error: unknown): string {
+  const messageText = error instanceof Error ? error.message : String(error);
+  return messageText.replace(/https?:\/\/\S+/g, '<URL>').slice(0, 240);
+}
+
 /** 各 fileType 合法的 tab key 集合 */
 const VALID_TABS: Record<string, string[]> = {
   netlog: ['conclusion', 'requests', 'evidence', 'expert', 'raw'],
@@ -92,6 +119,7 @@ const AppContent: React.FC = () => {
   const rawDataIdByTypeRef = useRef(rawDataIdByType);
   const datasetIndexTaskIdRef = useRef(0);
   const datasetAnalysisIdRef = useRef<string | undefined>(undefined);
+  const uploadFlowRef = useRef<UploadFlowState>({});
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -165,6 +193,16 @@ const AppContent: React.FC = () => {
     });
   }, []);
 
+  const logUploadFlow = useCallback((event: UploadFlowEvent, details: Record<string, unknown> = {}) => {
+    const flow = uploadFlowRef.current;
+    console.info('[netlog-upload-flow]', {
+      event,
+      fileName: flow.fileName,
+      fileSize: flow.fileSize,
+      ...details,
+    });
+  }, []);
+
   const startDatasetIndexingForFile = useCallback(async (
     file: File,
     options?: { background?: boolean; token?: number }
@@ -175,15 +213,38 @@ const AppContent: React.FC = () => {
     }
     const token = options?.token ?? ++datasetIndexTaskIdRef.current;
     const previousAnalysisId = datasetAnalysisIdRef.current;
+    const datasetStartedAt = nowMs();
+    uploadFlowRef.current.datasetStartedAt = datasetStartedAt;
+    if (options?.background) {
+      logUploadFlow('upload-flow:dataset-auto-start', {
+        datasetAutoStartDelayMs: uploadFlowRef.current.summaryReadyAt
+          ? Math.round(datasetStartedAt - uploadFlowRef.current.summaryReadyAt)
+          : undefined,
+        datasetStatus: 'importing',
+      });
+    }
     if (!options?.background) {
       setLoading(true);
       setLoadingText('正在构建 NetLog Dataset 索引...');
     }
-    setNetlogDataset({ status: 'importing' });
+    setNetlogDataset({ status: 'importing', phase: '正在构建 NetLog Dataset 索引...', startedAt: Date.now(), updatedAt: Date.now() });
     try {
       const meta = await importNetlogDatasetInWorker(file, {
         onProgress: (phase) => {
           if (!options?.background && token === datasetIndexTaskIdRef.current) setLoadingText(phase);
+          if (token === datasetIndexTaskIdRef.current) {
+            setNetlogDataset(prev => ({
+              ...prev,
+              status: 'importing',
+              phase,
+              updatedAt: Date.now(),
+            }));
+            logUploadFlow('upload-flow:dataset-progress', {
+              phase,
+              datasetStatus: 'importing',
+              elapsedMs: Math.round(nowMs() - datasetStartedAt),
+            });
+          }
         },
         timeout: largeNetlogTimeout(file.size),
       });
@@ -195,9 +256,27 @@ const AppContent: React.FC = () => {
         releaseDatasetAnalysisId(previousAnalysisId);
       }
       datasetAnalysisIdRef.current = meta.analysisId;
+      const readyAt = nowMs();
       setNetlogDataset({
         status: 'ready',
         analysisId: meta.analysisId,
+        eventCount: meta.eventCount,
+        updatedAt: Date.now(),
+      });
+      logUploadFlow('upload-flow:dataset-ready', {
+        analysisId: meta.analysisId,
+        datasetStatus: 'ready',
+        datasetEventCount: meta.eventCount,
+        datasetImportMs: Math.round(readyAt - datasetStartedAt),
+        datasetReadyMs: uploadFlowRef.current.uploadStartedAt
+          ? Math.round(readyAt - uploadFlowRef.current.uploadStartedAt)
+          : undefined,
+      });
+      logUploadFlow('upload-flow:dataset-takeover', {
+        analysisId: meta.analysisId,
+        datasetStatus: 'ready',
+        datasetEventCount: meta.eventCount,
+        activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
       });
       if (!options?.background) {
         message.success(`Dataset 索引已就绪：${meta.eventCount ?? 0} 条事件`);
@@ -208,7 +287,13 @@ const AppContent: React.FC = () => {
       if (token !== datasetIndexTaskIdRef.current) return;
       setNetlogDataset({
         status: 'error',
-        error: (err as Error).message,
+        error: safeErrorMessage(err),
+        updatedAt: Date.now(),
+      });
+      logUploadFlow('upload-flow:dataset-error', {
+        datasetStatus: 'error',
+        datasetImportMs: Math.round(nowMs() - datasetStartedAt),
+        error: safeErrorMessage(err),
       });
       if (!options?.background) {
         message.error('Dataset 索引失败: ' + (err as Error).message);
@@ -218,7 +303,7 @@ const AppContent: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [releaseDatasetAnalysisId]);
+  }, [logUploadFlow, releaseDatasetAnalysisId]);
 
   useEffect(() => {
     return () => {
@@ -251,6 +336,14 @@ const AppContent: React.FC = () => {
     setLoading(true);
     setLoadingText('正在识别文件类型...');
     setIpRoutingConclusions([]);
+    if (data instanceof File && fileTypeHint === 'netlog') {
+      uploadFlowRef.current = {
+        uploadStartedAt: nowMs(),
+        fileName: data.name,
+        fileSize: data.size,
+      };
+      logUploadFlow('upload-flow:upload-start', { datasetStatus: 'fallback' });
+    }
 
     try {
       const parsed = await parseUploadedInput({
@@ -322,6 +415,19 @@ const AppContent: React.FC = () => {
         finishLoad();
         return;
       }
+      if (data instanceof File && parsed.dataset?.status === 'fallback') {
+        const summaryReadyAt = nowMs();
+        uploadFlowRef.current.summaryReadyAt = summaryReadyAt;
+        uploadFlowRef.current.eventsPreview = parsed.events.length;
+        logUploadFlow('upload-flow:summary-ready', {
+          datasetStatus: 'fallback',
+          summaryScanMs: uploadFlowRef.current.uploadStartedAt
+            ? Math.round(summaryReadyAt - uploadFlowRef.current.uploadStartedAt)
+            : undefined,
+          eventsPreview: parsed.events.length,
+          datasetEventCount: parsed.result.largeFileMode?.parsedEvents,
+        });
+      }
       setEvents(parsed.events);
       setResult(parsed.result);
       const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
@@ -380,6 +486,14 @@ const AppContent: React.FC = () => {
     activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在解析追加文件...');
+    if (data instanceof File && fileTypeHint === 'netlog') {
+      uploadFlowRef.current = {
+        uploadStartedAt: nowMs(),
+        fileName: data.name,
+        fileSize: data.size,
+      };
+      logUploadFlow('upload-flow:upload-start', { datasetStatus: 'fallback' });
+    }
 
     try {
       if ((isTextLog || fileTypeHint === 'log') && typeof data === 'string') {
@@ -433,6 +547,19 @@ const AppContent: React.FC = () => {
 
       setEvents(parsed.events);
       setResult(parsed.result);
+      if (data instanceof File && parsed.dataset?.status === 'fallback') {
+        const summaryReadyAt = nowMs();
+        uploadFlowRef.current.summaryReadyAt = summaryReadyAt;
+        uploadFlowRef.current.eventsPreview = parsed.events.length;
+        logUploadFlow('upload-flow:summary-ready', {
+          datasetStatus: 'fallback',
+          summaryScanMs: uploadFlowRef.current.uploadStartedAt
+            ? Math.round(summaryReadyAt - uploadFlowRef.current.uploadStartedAt)
+            : undefined,
+          eventsPreview: parsed.events.length,
+          datasetEventCount: parsed.result.largeFileMode?.parsedEvents,
+        });
+      }
       const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
       if (previousDatasetAnalysisId) {
         releaseDatasetAnalysisId(previousDatasetAnalysisId);

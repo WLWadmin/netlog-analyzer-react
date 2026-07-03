@@ -115,7 +115,10 @@ const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
 const exportReportMock = exportReport as jest.Mock;
 
 describe('App Phase 3 upload behavior', () => {
+  let consoleInfoSpy: jest.SpyInstance;
+
   beforeEach(() => {
+    consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     window.location.hash = '';
     parseUploadedInputMock.mockReset();
     isWorkerSupportedMock.mockReturnValue(false);
@@ -131,6 +134,10 @@ describe('App Phase 3 upload behavior', () => {
     exportReportMock.mockReturnValue('# mock report');
     URL.createObjectURL = jest.fn(() => 'blob:mock');
     URL.revokeObjectURL = jest.fn();
+  });
+
+  afterEach(() => {
+    consoleInfoSpy.mockRestore();
   });
 
   it('NetLog 首次上传后进入结论入口', async () => {
@@ -302,6 +309,15 @@ describe('App Phase 3 upload behavior', () => {
         totalEvents: 100000,
         uniqueSources: 1,
         peakConcurrency: 1,
+        largeFileMode: {
+          enabled: true,
+          fileSize: 326_930_225,
+          bytesRead: 326_930_225,
+          parsedEvents: 123,
+          skippedEvents: 0,
+          truncatedEventsPreview: true,
+          reachedEventsEnd: true,
+        },
         urlRequests: [],
         errors: [],
         warnings: [],
@@ -323,6 +339,26 @@ describe('App Phase 3 upload behavior', () => {
       expect.any(File),
       expect.objectContaining({ onProgress: expect.any(Function), timeout: 180_000 })
     ));
+    await waitFor(() => expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:dataset-ready', datasetEventCount: 1 })
+    ));
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:upload-start', fileName: 'large-netlog.json' })
+    );
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:summary-ready', eventsPreview: 0 })
+    );
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:dataset-auto-start', datasetStatus: 'importing' })
+    );
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      '[netlog-upload-flow]',
+      expect.objectContaining({ event: 'upload-flow:dataset-takeover', activeExpertViews: expect.arrayContaining(['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence']) })
+    );
     expect(largeNetlogTimeoutMock).toHaveBeenCalledWith(expect.any(Number));
   });
 

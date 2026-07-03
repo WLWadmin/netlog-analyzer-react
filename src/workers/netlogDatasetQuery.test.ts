@@ -82,5 +82,85 @@ describe('queryNetlogEvents', () => {
 
     expect(result.rows.map(row => row.eventId)).toEqual([1]);
     expect(combined.rows.map(row => row.eventId)).toEqual([0, 3]);
+    expect(result.scanned).toBe(4);
+    expect(result.hasMoreMatchesUnknown).toBe(false);
+  });
+
+  it('raw search 达到扫描上限时标记结果可能不完整', async () => {
+    const events = [
+      '{"params":{"url":"https://api.example.com/a"}}',
+      '{"params":{"url":"https://api.example.com/b"}}',
+      '{"params":{"url":"https://api.example.com/c"}}',
+      '{"params":{"url":"https://api.example.com/d"}}',
+    ];
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: events.join('').length,
+      stream: () => new Blob([]).stream(),
+      slice: (start?: number) => {
+        const eventId = index.byteStart.indexOf(start || 0);
+        return { text: async () => events[eventId] || '{}' } as Blob;
+      },
+    };
+
+    const result = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      rawSearchScanLimit: 2,
+    });
+
+    expect(result.rows.map(row => row.eventId)).toEqual([0, 1]);
+    expect(result.total).toBe(2);
+    expect(result.scanned).toBe(2);
+    expect(result.scanLimitHit).toBe(true);
+    expect(result.hasMoreMatchesUnknown).toBe(true);
+  });
+
+  it('raw search 达到耗时上限时标记结果可能不完整', async () => {
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: 100,
+      stream: () => new Blob([]).stream(),
+      slice: () => ({ text: async () => '{"params":{"url":"https://api.example.com"}}' } as Blob),
+    };
+
+    const result = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      rawSearchTimeLimitMs: 0,
+    });
+
+    expect(result.rows).toEqual([]);
+    expect(result.scanned).toBe(0);
+    expect(result.timeLimitHit).toBe(true);
+    expect(result.hasMoreMatchesUnknown).toBe(true);
+  });
+
+  it('raw search 只扫描结构化过滤后的候选集', async () => {
+    const events = [
+      '{"params":{"url":"https://api.example.com/a"}}',
+      '{"params":{"url":"https://api.example.com/b"}}',
+      '{"params":{"url":"https://api.example.com/c"}}',
+      '{"params":{"url":"https://api.example.com/d"}}',
+    ];
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: events.join('').length,
+      stream: () => new Blob([]).stream(),
+      slice: (start?: number) => {
+        const eventId = index.byteStart.indexOf(start || 0);
+        return { text: async () => events[eventId] || '{}' } as Blob;
+      },
+    };
+
+    const result = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      sourceId: 1,
+    });
+
+    expect(result.rows.map(row => row.eventId)).toEqual([0, 1]);
+    expect(result.scanned).toBe(2);
+    expect(result.hasMoreMatchesUnknown).toBe(false);
   });
 });

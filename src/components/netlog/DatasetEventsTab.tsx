@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Input, Modal, Space, Table, Tag, message } from 'antd';
 import { getNetlogEventDetailInWorker, queryNetlogEventsInWorker } from '../../workers/workerClient';
 import type { NetlogEventRow, QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
@@ -38,6 +38,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     total: 0,
     rows: [],
   });
+  const querySeqRef = useRef(0);
   const { intent, consumeIntent } = useNavigation();
 
   useEffect(() => {
@@ -79,6 +80,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const querySeq = ++querySeqRef.current;
     setLoading(true);
     queryNetlogEventsInWorker({
       analysisId,
@@ -96,13 +98,13 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       searchText: searchTextFilter.trim() || undefined,
     })
       .then(result => {
-        if (!cancelled) setQueryResult(result);
+        if (!cancelled && querySeq === querySeqRef.current) setQueryResult(result);
       })
       .catch(err => {
-        if (!cancelled) message.error('Dataset 事件查询失败: ' + (err as Error).message);
+        if (!cancelled && querySeq === querySeqRef.current) message.error('Dataset 事件查询失败: ' + (err as Error).message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && querySeq === querySeqRef.current) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -139,6 +141,18 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     clearDatasetEventsFilterState(analysisId);
     setPage(1);
   };
+
+  const hasStructuredSearchFilter = Boolean(
+    sourceIdFilter.trim() ||
+    sourceChainIdFilter.trim() ||
+    typeIdFilter.trim() ||
+    typeNameFilter.trim() ||
+    sourceTypeNameFilter.trim() ||
+    phaseFilter.trim() ||
+    startTimeFilter.trim() ||
+    endTimeFilter.trim() ||
+    errorOnly
+  );
 
   const openDetail = async (eventId: number) => {
     setDetailLoading(true);
@@ -249,11 +263,24 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       )}
       {searchTextFilter && (
         <Alert
-          type="warning"
+          type={hasStructuredSearchFilter ? 'info' : 'warning'}
           showIcon
           style={{ marginBottom: 12 }}
           message="text/params 搜索会按需读取原始 event JSON"
-          description="该搜索不把 params 文本常驻内存；在超大 NetLog 中会比 compact index 条件慢，建议配合 type/source/time 条件缩小范围。"
+          description={hasStructuredSearchFilter
+            ? '该搜索只在结构化条件筛选后的候选事件中读取原始 JSON；达到扫描或耗时上限时，结果会标记为可能不完整。'
+            : '当前未设置 type/source/time/error/sourceChain 等结构化过滤，系统只会扫描有限候选事件。建议先缩小范围后再搜索。'}
+        />
+      )}
+      {queryResult.scanned !== undefined && searchTextFilter && (
+        <Alert
+          type={queryResult.hasMoreMatchesUnknown ? 'warning' : 'success'}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={queryResult.hasMoreMatchesUnknown ? 'Raw search 结果可能不完整' : 'Raw search 扫描完成'}
+          description={queryResult.hasMoreMatchesUnknown
+            ? `当前结果只来自已扫描的 ${queryResult.scanned.toLocaleString()} 个候选事件，可能还有更多命中。请增加 type/source/time/error/sourceChain 过滤条件后重试。`
+            : `已扫描 ${queryResult.scanned.toLocaleString()} 个候选事件。`}
         />
       )}
       <Table<NetlogEventRow>
@@ -264,6 +291,9 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
           current: page,
           pageSize,
           total: queryResult.total,
+          showTotal: (total) => queryResult.hasMoreMatchesUnknown
+            ? `当前已找到 ${total} 条，可能还有更多`
+            : `共 ${total} 条`,
           showSizeChanger: true,
           onChange: (nextPage, nextPageSize) => {
             setPage(nextPage);
