@@ -6,6 +6,7 @@ import {
   queryNetlogEventsInWorker,
   releaseNetlogDatasetInWorker,
 } from '../workers/workerClient';
+import { parseUploadedInput } from '../upload/parseUploadedInput';
 
 interface BrowserBenchmarkMetrics {
   benchmark: 'netlog-browser-worker';
@@ -44,6 +45,12 @@ interface BrowserBenchmarkMetrics {
   dnsAnswerMissingTraceCount?: number;
   dnsAnswerBySourceKind?: Record<string, number>;
   dnsAnswerByTypeName?: Record<string, number>;
+  mode?: 'dataset-import' | 'upload-single-scan';
+  summaryReadyMs?: number;
+  datasetReadyMs?: number;
+  eventsPreview?: number;
+  singleScanDatasetReady?: boolean;
+  backgroundDatasetImportExpected?: boolean;
   errors: string[];
 }
 
@@ -116,9 +123,10 @@ async function runNetlogBrowserBenchmark() {
   const label = params.get('label') || 'manual';
   const fileName = params.get('fileName') || 'chrome-net-export-log.json';
   const timeoutMs = Number(params.get('timeoutMs') || 15 * 60_000);
+  const mode = params.get('mode') === 'upload-single-scan' ? 'upload-single-scan' : 'dataset-import';
   const root = document.getElementById('root');
   if (root) {
-    root.innerHTML = '<div style="font:14px system-ui;padding:24px">Running NetLog browser benchmark...</div>';
+    root.innerHTML = `<div style="font:14px system-ui;padding:24px">Running NetLog browser benchmark (${mode})...</div>`;
   }
 
   const probe = startMainThreadProbe();
@@ -128,82 +136,158 @@ async function runNetlogBrowserBenchmark() {
     const blob = await response.blob();
     const file = new File([blob], fileName, { type: 'application/json' });
 
+    if (mode === 'upload-single-scan') {
+      window.localStorage.setItem('netlog_single_scan_dataset', '1');
+      const uploadStartedAt = nowMs();
+      const parsed = await parseUploadedInput({
+        data: file,
+        fileTypeHint: 'netlog',
+        useWorker: true,
+        onProgress: () => undefined,
+      });
+      const datasetReadyMs = Math.round(nowMs() - uploadStartedAt);
+      if (parsed.kind !== 'netlog') throw new Error(`Unexpected parse kind: ${parsed.kind}`);
+      if (parsed.dataset?.status !== 'ready' || !parsed.dataset.analysisId) {
+        throw new Error(`single scan did not return ready Dataset: ${parsed.dataset?.status || 'missing'}`);
+      }
+      const metrics = await collectDatasetMetrics({
+        analysisId: parsed.dataset.analysisId,
+        datasetEventCount: parsed.dataset.eventCount ?? 0,
+        datasetImportMs: 0,
+        file,
+        fileName,
+        label,
+        probe,
+        mode,
+        summaryReadyMs: datasetReadyMs,
+        datasetReadyMs,
+        eventsPreview: parsed.events.length,
+        singleScanDatasetReady: true,
+        backgroundDatasetImportExpected: false,
+      });
+      await postResult(metrics);
+      return;
+    }
+
     const importStartedAt = nowMs();
     const meta = await importNetlogDatasetInWorker(file, { timeout: Math.max(timeoutMs, largeNetlogTimeout(file.size)) });
     const datasetImportMs = Math.round(nowMs() - importStartedAt);
     const analysisId = meta.analysisId;
     const datasetEventCount = meta.eventCount ?? 0;
-
-    const queryTimes: number[] = [];
-    const detailTimes: number[] = [];
-    const firstQuery = await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100 }));
-    await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 10, pageSize: 100 }));
-    await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, errorOnly: true }));
-    const firstRow = firstQuery.rows[0];
-    if (firstRow?.sourceId !== undefined) {
-      await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceId: firstRow.sourceId }));
-      await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceChainId: firstRow.sourceId }));
-    }
-    if (firstRow?.typeId !== undefined) {
-      await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, typeId: firstRow.typeId }));
-    }
-
-    const detailIds = [
-      firstQuery.rows[0]?.eventId,
-      firstQuery.rows[Math.floor(firstQuery.rows.length / 2)]?.eventId,
-      datasetEventCount > 0 ? datasetEventCount - 1 : undefined,
-    ].filter((id, index, ids): id is number => typeof id === 'number' && ids.indexOf(id) === index);
-    for (const eventId of detailIds) {
-      await timed(detailTimes, () => getNetlogEventDetailInWorker({ analysisId, eventId }));
-    }
-
-    const endpointEvidence = await getNetlogEndpointEvidenceInWorker({ analysisId });
-    const mainThread = probe.stop();
-    await releaseNetlogDatasetInWorker({ analysisId }).catch(() => undefined);
-
-    await postResult({
-      benchmark: 'netlog-browser-worker',
-      runtime: 'browser-worker',
-      label,
-      fileName,
-      fileSize: file.size,
-      datasetImportMs,
+    const metrics = await collectDatasetMetrics({
+      analysisId,
       datasetEventCount,
-      queryP50: percentile(queryTimes, 50),
-      queryP95: percentile(queryTimes, 95),
-      detailP50: percentile(detailTimes, 50),
-      detailP95: percentile(detailTimes, 95),
-      mainThreadBlockedMs: mainThread.mainThreadBlockedMs,
-      rafMaxDelayMs: mainThread.rafMaxDelayMs,
-      memoryPeakEstimateMb: memoryEstimateMb(),
-      endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
-      endpointRowCount: endpointEvidence.cipSipRows.length,
-      dnsAnswerCount: endpointEvidence.dnsAnswers.length,
-      socketPeerCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'socket-peer').length,
-      serverObservedClientIpCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'server-observed-client-ip').length,
-      sourceGraphAssociatedCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'source-graph').length,
-      globalCandidateCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'global-candidate').length,
-      socketPeerTotal: endpointEvidence.sourceGraphStats?.socketPeerTotal,
-      socketPeerSourceGraphAssociated: endpointEvidence.sourceGraphStats?.socketPeerSourceGraphAssociated,
-      socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
-      sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
-      sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
-      globalCandidateByTypeName: endpointEvidence.sourceGraphStats?.globalCandidateByTypeName,
-      globalCandidateBySourceTypeName: endpointEvidence.sourceGraphStats?.globalCandidateBySourceTypeName,
-      globalCandidateParamKeys: endpointEvidence.sourceGraphStats?.globalCandidateParamKeys,
-      sourceGraphDepthHit: endpointEvidence.sourceGraphStats?.sourceGraphDepthHit,
-      sourceGraphUnresolvedReasons: endpointEvidence.sourceGraphStats?.sourceGraphUnresolvedReasons,
-      dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
-      dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
-      dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
-      dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
-      dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
-      errors: [],
+      datasetImportMs,
+      file,
+      fileName,
+      label,
+      probe,
+      mode,
     });
+    await postResult(metrics);
   } catch (error) {
     probe.stop();
     await postResult({ errors: [(error as Error).message] });
   }
+}
+
+async function collectDatasetMetrics(options: {
+  analysisId: string;
+  datasetEventCount: number;
+  datasetImportMs: number;
+  file: File;
+  fileName: string;
+  label: string;
+  probe: ReturnType<typeof startMainThreadProbe>;
+  mode: 'dataset-import' | 'upload-single-scan';
+  summaryReadyMs?: number;
+  datasetReadyMs?: number;
+  eventsPreview?: number;
+  singleScanDatasetReady?: boolean;
+  backgroundDatasetImportExpected?: boolean;
+}): Promise<BrowserBenchmarkMetrics> {
+  const {
+    analysisId,
+    datasetEventCount,
+    datasetImportMs,
+    file,
+    fileName,
+    label,
+    probe,
+    mode,
+  } = options;
+  const queryTimes: number[] = [];
+  const detailTimes: number[] = [];
+  const firstQuery = await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100 }));
+  await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 10, pageSize: 100 }));
+  await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, errorOnly: true }));
+  const firstRow = firstQuery.rows[0];
+  if (firstRow?.sourceId !== undefined) {
+    await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceId: firstRow.sourceId }));
+    await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, sourceChainId: firstRow.sourceId }));
+  }
+  if (firstRow?.typeId !== undefined) {
+    await timed(queryTimes, () => queryNetlogEventsInWorker({ analysisId, page: 1, pageSize: 100, typeId: firstRow.typeId }));
+  }
+
+  const detailIds = [
+    firstQuery.rows[0]?.eventId,
+    firstQuery.rows[Math.floor(firstQuery.rows.length / 2)]?.eventId,
+    datasetEventCount > 0 ? datasetEventCount - 1 : undefined,
+  ].filter((id, index, ids): id is number => typeof id === 'number' && ids.indexOf(id) === index);
+  for (const eventId of detailIds) {
+    await timed(detailTimes, () => getNetlogEventDetailInWorker({ analysisId, eventId }));
+  }
+
+  const endpointEvidence = await getNetlogEndpointEvidenceInWorker({ analysisId });
+  const mainThread = probe.stop();
+  await releaseNetlogDatasetInWorker({ analysisId }).catch(() => undefined);
+
+  return {
+    benchmark: 'netlog-browser-worker',
+    runtime: 'browser-worker',
+    label,
+    fileName,
+    fileSize: file.size,
+    datasetImportMs,
+    datasetEventCount,
+    queryP50: percentile(queryTimes, 50),
+    queryP95: percentile(queryTimes, 95),
+    detailP50: percentile(detailTimes, 50),
+    detailP95: percentile(detailTimes, 95),
+    mainThreadBlockedMs: mainThread.mainThreadBlockedMs,
+    rafMaxDelayMs: mainThread.rafMaxDelayMs,
+    memoryPeakEstimateMb: memoryEstimateMb(),
+    endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
+    endpointRowCount: endpointEvidence.cipSipRows.length,
+    dnsAnswerCount: endpointEvidence.dnsAnswers.length,
+    socketPeerCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'socket-peer').length,
+    serverObservedClientIpCount: endpointEvidence.failedOrSlowIps.filter(item => item.role === 'server-observed-client-ip').length,
+    sourceGraphAssociatedCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'source-graph').length,
+    globalCandidateCount: endpointEvidence.failedOrSlowIps.filter(item => item.association === 'global-candidate').length,
+    socketPeerTotal: endpointEvidence.sourceGraphStats?.socketPeerTotal,
+    socketPeerSourceGraphAssociated: endpointEvidence.sourceGraphStats?.socketPeerSourceGraphAssociated,
+    socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
+    sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
+    sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
+    globalCandidateByTypeName: endpointEvidence.sourceGraphStats?.globalCandidateByTypeName,
+    globalCandidateBySourceTypeName: endpointEvidence.sourceGraphStats?.globalCandidateBySourceTypeName,
+    globalCandidateParamKeys: endpointEvidence.sourceGraphStats?.globalCandidateParamKeys,
+    sourceGraphDepthHit: endpointEvidence.sourceGraphStats?.sourceGraphDepthHit,
+    sourceGraphUnresolvedReasons: endpointEvidence.sourceGraphStats?.sourceGraphUnresolvedReasons,
+    dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
+    dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
+    dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
+    dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
+    dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
+    mode,
+    summaryReadyMs: options.summaryReadyMs,
+    datasetReadyMs: options.datasetReadyMs,
+    eventsPreview: options.eventsPreview,
+    singleScanDatasetReady: options.singleScanDatasetReady,
+    backgroundDatasetImportExpected: options.backgroundDatasetImportExpected,
+    errors: [],
+  };
 }
 
 async function timed<T>(bucket: number[], fn: () => Promise<T>): Promise<T> {

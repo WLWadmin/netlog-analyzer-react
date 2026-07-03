@@ -27,6 +27,7 @@ interface SessionDraft {
   lastByteEnd?: number;
   firstTime?: number;
   lastTime?: number;
+  sourceDependencyIds: Set<number>;
 }
 
 interface StreamDraft {
@@ -42,6 +43,7 @@ interface StreamDraft {
   lastByteEnd?: number;
   firstTime?: number;
   lastTime?: number;
+  sourceDependencyIds: Set<number>;
 }
 
 function isHttp2Event(seed: EventSeed): boolean {
@@ -75,6 +77,46 @@ function errorValue(params: Record<string, unknown> | undefined): number | strin
   return undefined;
 }
 
+function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
+  const id = Number(value.id ?? value.source_id ?? value.sourceId);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function extractDependencySourceIds(params: Record<string, unknown> | undefined): number[] {
+  if (!params) return [];
+  const roots = [
+    params.source,
+    params.source_dependency,
+    params.sourceDependency,
+    params.source_dependencies,
+    params.sourceDependencies,
+    params.dependencies,
+  ].filter(value => value !== undefined);
+  const ids = new Set<number>();
+  const visit = (node: unknown, depth = 0) => {
+    if (!node || depth > 5) return;
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item, depth + 1));
+      return;
+    }
+    if (typeof node !== 'object') return;
+    const value = node as Record<string, unknown>;
+    const id = extractSourceIdFromObject(value);
+    if (id) ids.add(id);
+    [
+      value.source,
+      value.source_dependency,
+      value.sourceDependency,
+      value.source_dependencies,
+      value.sourceDependencies,
+      value.dependency,
+      value.dependencies,
+    ].filter(item => item !== undefined).forEach(item => visit(item, depth + 1));
+  };
+  roots.forEach(root => visit(root));
+  return Array.from(ids);
+}
+
 function detailValue(params: Record<string, unknown> | undefined): string | undefined {
   return firstString(params?.details, params?.description, params?.reason, params?.net_error_details);
 }
@@ -84,6 +126,7 @@ export function createNetlogHttp2StateReducer() {
   const streams = new Map<number, StreamDraft>();
   const streamToSession = new Map<number, number>();
   const errors: Http2StateView['errors'] = [];
+  const sourceLinks = new Map<string, Http2StateView['sourceLinks'][number]>();
   let eventCount = 0;
   let goawayCount = 0;
   let rstStreamCount = 0;
@@ -108,6 +151,7 @@ export function createNetlogHttp2StateReducer() {
       lastByteEnd: seed.byteEnd,
       firstTime: seed.time ?? 0,
       lastTime: seed.time ?? 0,
+      sourceDependencyIds: new Set<number>(),
     };
     sessions.set(sourceId, created);
     return created;
@@ -127,6 +171,7 @@ export function createNetlogHttp2StateReducer() {
       lastByteEnd: seed.byteEnd,
       firstTime: seed.time ?? 0,
       lastTime: seed.time ?? 0,
+      sourceDependencyIds: new Set<number>(),
     };
     streams.set(sourceId, created);
     return created;
@@ -141,14 +186,30 @@ export function createNetlogHttp2StateReducer() {
     const upperSource = seed.sourceTypeName.toUpperCase();
     const isSession = upperSource.includes('HTTP2_SESSION');
     const isStream = upperSource.includes('HTTP2_STREAM') || upperType.includes('HTTP2_STREAM');
+    const dependencySourceIds = extractDependencySourceIds(params).filter(id => id !== seed.sourceId);
     const sessionSourceId = isSession
       ? seed.sourceId
-      : firstNumber(params.session_id, params.sessionId, params.session_source_id, params.sessionSourceId) ?? streamToSession.get(seed.sourceId);
+      : firstNumber(params.session_id, params.sessionId, params.session_source_id, params.sessionSourceId) ??
+        streamToSession.get(seed.sourceId) ??
+        dependencySourceIds.find(id => sessions.has(id));
     const streamSourceId = isStream ? seed.sourceId : firstNumber(params.stream_source_id, params.streamSourceId);
     const streamId = firstNumber(params.stream_id, params.streamId, params.id);
     const host = firstString(params.host, params.hostname, params.origin, params.url, params.server_name);
     const protocol = firstString(params.protocol, params.alpn, params.negotiated_protocol);
     const error = errorValue(params);
+    for (const dependencySourceId of dependencySourceIds) {
+      sourceLinks.set(`${seed.sourceId}-${dependencySourceId}-source-dependency`, {
+        sourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seed.time,
+        typeName: seed.typeName,
+        fromSourceId: seed.sourceId,
+        toSourceId: dependencySourceId,
+        kind: 'source-dependency',
+      });
+    }
 
     if (sessionSourceId !== undefined) {
       const session = ensureSession(sessionSourceId, seed);
@@ -161,6 +222,7 @@ export function createNetlogHttp2StateReducer() {
       session.lastTime = Math.max(session.lastTime ?? seedTime, seedTime);
       addString(session.hosts, host);
       addString(session.protocols, protocol);
+      dependencySourceIds.forEach(id => session.sourceDependencyIds.add(id));
       if (upperType.includes('GOAWAY')) {
         session.goawayCount += 1;
         goawayCount += 1;
@@ -195,11 +257,26 @@ export function createNetlogHttp2StateReducer() {
       stream.sessionSourceId = sessionSourceId ?? stream.sessionSourceId;
       stream.streamId = streamId ?? stream.streamId;
       addString(stream.hosts, host);
+      dependencySourceIds.forEach(id => stream.sourceDependencyIds.add(id));
       if (error !== undefined) stream.errorCount += 1;
       streams.set(streamSourceId, stream);
       if (sessionSourceId !== undefined) {
         streamToSession.set(streamSourceId, sessionSourceId);
         ensureSession(sessionSourceId, seed).streamSourceIds.add(streamSourceId);
+        const linkKey = `${streamSourceId}-${sessionSourceId}-stream-session`;
+        if (!sourceLinks.has(linkKey)) {
+          sourceLinks.set(linkKey, {
+            sourceId: seed.sourceId,
+            eventId: seed.eventId,
+            byteStart: seed.byteStart,
+            byteEnd: seed.byteEnd,
+            time: seed.time,
+            typeName: seed.typeName,
+            fromSourceId: streamSourceId,
+            toSourceId: sessionSourceId,
+            kind: 'stream-session',
+          });
+        }
       }
     }
 
@@ -215,6 +292,7 @@ export function createNetlogHttp2StateReducer() {
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
         time: seedTime,
+        sourceDependencyIds: dependencySourceIds,
       });
     }
   };
@@ -237,6 +315,7 @@ export function createNetlogHttp2StateReducer() {
         lastByteEnd: session.lastByteEnd,
         firstTime: session.firstTime,
         lastTime: session.lastTime,
+        sourceDependencyIds: Array.from(session.sourceDependencyIds),
       })),
       streams: Array.from(streams.values()).map(stream => ({
         sourceId: stream.sourceId,
@@ -251,7 +330,9 @@ export function createNetlogHttp2StateReducer() {
         lastByteEnd: stream.lastByteEnd,
         firstTime: stream.firstTime,
         lastTime: stream.lastTime,
+        sourceDependencyIds: Array.from(stream.sourceDependencyIds),
       })),
+      sourceLinks: Array.from(sourceLinks.values()),
       errors,
       eventCount,
       goawayCount,
@@ -269,6 +350,9 @@ export function createNetlogHttp2StateReducer() {
     }
     if (view.streams.some(stream => stream.sessionSourceId === undefined)) {
       view.evidenceGaps.push('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
+    }
+    if (view.sourceLinks.length === 0 && view.eventCount > 0) {
+      view.evidenceGaps.push('未发现 HTTP/2 显式 source dependency 边；session/stream 影响范围仅限已解析字段。');
     }
     return view;
   };

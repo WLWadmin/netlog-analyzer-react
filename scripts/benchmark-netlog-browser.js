@@ -19,6 +19,7 @@ function hasFlag(name) {
 const file = argValue('--file');
 const label = argValue('--label') || 'manual';
 const timeoutMs = Number(argValue('--timeout-ms') || 15 * 60_000);
+const mode = argValue('--mode') || (hasFlag('--upload-single-scan') ? 'upload-single-scan' : 'dataset-import');
 
 if (!file) {
   console.error('Usage: npm run benchmark:netlog-browser -- --file /path/to/chrome-net-export-log.json --label real-326mb [--no-launch]');
@@ -147,7 +148,7 @@ server = http.createServer((req, res) => {
 server.listen(0, '127.0.0.1', () => {
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
-  const url = `http://127.0.0.1:${port}/?netlogBrowserBenchmark=1&label=${encodeURIComponent(label)}&fileName=${encodeURIComponent(path.basename(absoluteFile))}&timeoutMs=${timeoutMs}`;
+  const url = `http://127.0.0.1:${port}/?netlogBrowserBenchmark=1&label=${encodeURIComponent(label)}&fileName=${encodeURIComponent(path.basename(absoluteFile))}&timeoutMs=${timeoutMs}&mode=${encodeURIComponent(mode)}`;
   if (noLaunch) {
     console.error(`Open this URL in a Chromium browser to run the benchmark:\n${url}`);
     timeoutTimer = setTimeout(() => {

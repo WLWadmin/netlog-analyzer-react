@@ -88,6 +88,7 @@ describe('createNetlogSocketsStateReducer', () => {
         lastByteEnd: 60,
         firstTime: 10,
         lastTime: 50,
+        sourceDependencyIds: [],
       }),
     ]);
     expect(view.errors).toEqual([
@@ -98,6 +99,7 @@ describe('createNetlogSocketsStateReducer', () => {
         error: -102,
         details: 'connection refused',
         time: 50,
+        sourceDependencyIds: [],
       }),
     ]);
   });
@@ -120,5 +122,49 @@ describe('createNetlogSocketsStateReducer', () => {
     expect(view.eventCount).toBe(0);
     expect(view.sockets).toEqual([]);
     expect(view.evidenceGaps).toContain('未发现 Socket / TCP / TLS 事件；不代表没有建立连接，只表示当前 Dataset 未捕获连接层事件。');
+  });
+
+  it('记录 Socket 显式 source dependency 边，不用 peer address 猜请求范围', () => {
+    const reducer = createNetlogSocketsStateReducer();
+
+    reducer.accept({
+      eventId: 10,
+      byteStart: 100,
+      byteEnd: 120,
+      time: 1000,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 700,
+      sourceTypeName: 'SOCKET',
+      params: {
+        source_dependency: { id: 300, type: 'CONNECT_JOB' },
+        address: '203.0.113.70:443',
+        net_error: -102,
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.sockets).toEqual([
+      expect.objectContaining({
+        sourceId: 700,
+        sourceDependencyIds: [300],
+      }),
+    ]);
+    expect(view.errors).toEqual([
+      expect.objectContaining({
+        eventId: 10,
+        sourceId: 700,
+        sourceDependencyIds: [300],
+      }),
+    ]);
+    expect(view.sourceLinks).toEqual([
+      expect.objectContaining({
+        fromSourceId: 700,
+        toSourceId: 300,
+        kind: 'source-dependency',
+        eventId: 10,
+      }),
+    ]);
+    expect(view.evidenceGaps).not.toContain('未发现 Socket 显式 source dependency 边；连接层影响范围不能用 peer address 或时间邻近直接外推。');
   });
 });

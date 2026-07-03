@@ -163,6 +163,7 @@ export interface Http2StateView {
     lastByteEnd?: number;
     firstTime?: number;
     lastTime?: number;
+    sourceDependencyIds?: number[];
   }>;
   streams: Array<{
     sourceId: number;
@@ -177,6 +178,12 @@ export interface Http2StateView {
     lastByteEnd?: number;
     firstTime?: number;
     lastTime?: number;
+    sourceDependencyIds?: number[];
+  }>;
+  sourceLinks: Array<NetlogStateTrace & {
+    fromSourceId: number;
+    toSourceId: number;
+    kind: 'source-dependency' | 'stream-session';
   }>;
   errors: Array<{
     eventId: number;
@@ -189,6 +196,7 @@ export interface Http2StateView {
     byteStart?: number;
     byteEnd?: number;
     time?: number;
+    sourceDependencyIds?: number[];
   }>;
   eventCount: number;
   goawayCount: number;
@@ -214,6 +222,12 @@ export interface SocketsStateView {
     lastByteEnd?: number;
     firstTime?: number;
     lastTime?: number;
+    sourceDependencyIds?: number[];
+  }>;
+  sourceLinks: Array<NetlogStateTrace & {
+    fromSourceId: number;
+    toSourceId: number;
+    kind: 'source-dependency';
   }>;
   errors: Array<{
     eventId: number;
@@ -225,6 +239,7 @@ export interface SocketsStateView {
     byteStart?: number;
     byteEnd?: number;
     time?: number;
+    sourceDependencyIds?: number[];
   }>;
   eventCount: number;
   connectCount: number;

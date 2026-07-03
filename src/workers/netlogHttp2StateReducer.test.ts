@@ -126,6 +126,14 @@ describe('createNetlogHttp2StateReducer', () => {
         error: 0,
       }),
     ]));
+    expect(view.sourceLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fromSourceId: 200,
+        toSourceId: 100,
+        kind: 'stream-session',
+        eventId: 2,
+      }),
+    ]));
   });
 
   it('缺少 HTTP/2 事件时输出 evidence gap', () => {
@@ -179,5 +187,62 @@ describe('createNetlogHttp2StateReducer', () => {
       }),
     ]);
     expect(view.evidenceGaps).toContain('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
+  });
+
+  it('通过显式 source dependency 将 stream 安全关联到已知 session', () => {
+    const reducer = createNetlogHttp2StateReducer();
+
+    reducer.accept({
+      eventId: 1,
+      byteStart: 10,
+      byteEnd: 20,
+      time: 10,
+      typeName: 'HTTP2_SESSION_INITIALIZED',
+      sourceId: 500,
+      sourceTypeName: 'HTTP2_SESSION',
+      params: { host: 'api.example.com' },
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 20,
+      byteEnd: 30,
+      time: 20,
+      typeName: 'HTTP2_STREAM_SEND_HEADERS',
+      sourceId: 600,
+      sourceTypeName: 'HTTP2_STREAM',
+      params: {
+        source_dependency: { id: 500, type: 'HTTP2_SESSION' },
+        stream_id: 9,
+        url: 'https://api.example.com/data',
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.streams).toEqual([
+      expect.objectContaining({
+        sourceId: 600,
+        sessionSourceId: 500,
+        streamId: 9,
+        sourceDependencyIds: [500],
+      }),
+    ]);
+    expect(view.sessions[0]).toEqual(expect.objectContaining({
+      sourceId: 500,
+      streamCount: 1,
+    }));
+    expect(view.sourceLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fromSourceId: 600,
+        toSourceId: 500,
+        kind: 'source-dependency',
+      }),
+      expect.objectContaining({
+        fromSourceId: 600,
+        toSourceId: 500,
+        kind: 'stream-session',
+      }),
+    ]));
+    expect(view.evidenceGaps).not.toContain('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
   });
 });

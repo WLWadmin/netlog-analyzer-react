@@ -27,6 +27,7 @@ interface SocketDraft {
   lastByteEnd?: number;
   firstTime?: number;
   lastTime?: number;
+  sourceDependencyIds: Set<number>;
 }
 
 function isSocketEvent(seed: EventSeed): boolean {
@@ -52,10 +53,51 @@ function detailValue(params: Record<string, unknown> | undefined): string | unde
   return firstString(params?.details, params?.description, params?.reason, params?.net_error_details);
 }
 
+function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
+  const id = Number(value.id ?? value.source_id ?? value.sourceId);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function extractDependencySourceIds(params: Record<string, unknown> | undefined): number[] {
+  if (!params) return [];
+  const roots = [
+    params.source,
+    params.source_dependency,
+    params.sourceDependency,
+    params.source_dependencies,
+    params.sourceDependencies,
+    params.dependencies,
+  ].filter(value => value !== undefined);
+  const ids = new Set<number>();
+  const visit = (node: unknown, depth = 0) => {
+    if (!node || depth > 5) return;
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item, depth + 1));
+      return;
+    }
+    if (typeof node !== 'object') return;
+    const value = node as Record<string, unknown>;
+    const id = extractSourceIdFromObject(value);
+    if (id) ids.add(id);
+    [
+      value.source,
+      value.source_dependency,
+      value.sourceDependency,
+      value.source_dependencies,
+      value.sourceDependencies,
+      value.dependency,
+      value.dependencies,
+    ].filter(item => item !== undefined).forEach(item => visit(item, depth + 1));
+  };
+  roots.forEach(root => visit(root));
+  return Array.from(ids);
+}
+
 export function createNetlogSocketsStateReducer() {
   const sockets = new Map<number, SocketDraft>();
   const socketPools = new Set<string>();
   const errors: SocketsStateView['errors'] = [];
+  const sourceLinks = new Map<string, SocketsStateView['sourceLinks'][number]>();
   let eventCount = 0;
   let connectCount = 0;
   let tlsCount = 0;
@@ -80,6 +122,7 @@ export function createNetlogSocketsStateReducer() {
       lastByteEnd: seed.byteEnd,
       firstTime: seed.time ?? 0,
       lastTime: seed.time ?? 0,
+      sourceDependencyIds: new Set<number>(),
     };
     sockets.set(seed.sourceId, created);
     return created;
@@ -91,6 +134,7 @@ export function createNetlogSocketsStateReducer() {
     const seedTime = seed.time ?? 0;
     const upperType = seed.typeName.toUpperCase();
     const params = seed.params || {};
+    const dependencySourceIds = extractDependencySourceIds(params).filter(id => id !== seed.sourceId);
     const draft = ensureSocket(seed);
     draft.eventCount += 1;
     draft.firstEventId = Math.min(draft.firstEventId ?? seed.eventId, seed.eventId);
@@ -99,6 +143,20 @@ export function createNetlogSocketsStateReducer() {
     draft.lastByteEnd = Math.max(draft.lastByteEnd ?? seed.byteEnd, seed.byteEnd);
     draft.firstTime = Math.min(draft.firstTime ?? seedTime, seedTime);
     draft.lastTime = Math.max(draft.lastTime ?? seedTime, seedTime);
+    dependencySourceIds.forEach(id => draft.sourceDependencyIds.add(id));
+    for (const dependencySourceId of dependencySourceIds) {
+      sourceLinks.set(`${seed.sourceId}-${dependencySourceId}-source-dependency`, {
+        sourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seed.time,
+        typeName: seed.typeName,
+        fromSourceId: seed.sourceId,
+        toSourceId: dependencySourceId,
+        kind: 'source-dependency',
+      });
+    }
 
     const peerAddress = firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint);
     if (peerAddress) draft.peerAddresses.add(peerAddress);
@@ -141,6 +199,7 @@ export function createNetlogSocketsStateReducer() {
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
         time: seedTime,
+        sourceDependencyIds: dependencySourceIds,
       });
     }
     sockets.set(seed.sourceId, draft);
@@ -164,7 +223,9 @@ export function createNetlogSocketsStateReducer() {
         lastByteEnd: socket.lastByteEnd,
         firstTime: socket.firstTime,
         lastTime: socket.lastTime,
+        sourceDependencyIds: Array.from(socket.sourceDependencyIds),
       })),
+      sourceLinks: Array.from(sourceLinks.values()),
       errors,
       eventCount,
       connectCount,
@@ -180,6 +241,9 @@ export function createNetlogSocketsStateReducer() {
     }
     if (view.errors.length > 0 || view.stallCount > 0) {
       view.evidenceGaps.push('发现 connect error / stall / timeout 时，仍需结合请求 source chain、DNS、代理和协议回退判断影响范围。');
+    }
+    if (view.sourceLinks.length === 0 && view.eventCount > 0) {
+      view.evidenceGaps.push('未发现 Socket 显式 source dependency 边；连接层影响范围不能用 peer address 或时间邻近直接外推。');
     }
     return view;
   };

@@ -572,6 +572,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
           <Descriptions.Item label="WINDOW_UPDATE">{view.windowUpdateCount}</Descriptions.Item>
           <Descriptions.Item label="Sessions">{view.sessions.length}</Descriptions.Item>
           <Descriptions.Item label="Streams">{view.streams.length}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -631,6 +632,20 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
           ]}
           dataSource={view.errors}
           locale={{ emptyText: '未发现 Dataset HTTP/2 error' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.fromSourceId}-${row.toSourceId}-${row.kind}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 150 },
+            { title: 'From', dataIndex: 'fromSourceId', width: 100 },
+            { title: 'To', dataIndex: 'toSourceId', width: 100 },
+            { title: 'Event', dataIndex: 'eventId', width: 90 },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+          ]}
+          dataSource={view.sourceLinks}
+          locale={{ emptyText: '未发现 HTTP/2 显式 source link' }}
         />
       </Space>
       <Modal
@@ -706,6 +721,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
           <Descriptions.Item label="Stall/Timeout">{view.stallCount}</Descriptions.Item>
           <Descriptions.Item label="Socket Pools">{view.socketPoolCount}</Descriptions.Item>
           <Descriptions.Item label="Errors">{view.errors.length}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -747,6 +763,20 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
           ]}
           dataSource={view.errors}
           locale={{ emptyText: '未发现 Dataset socket connect / tls error' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.fromSourceId}-${row.toSourceId}-${row.kind}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 160 },
+            { title: 'From', dataIndex: 'fromSourceId', width: 100 },
+            { title: 'To', dataIndex: 'toSourceId', width: 100 },
+            { title: 'Event', dataIndex: 'eventId', width: 90 },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+          ]}
+          dataSource={view.sourceLinks}
+          locale={{ emptyText: '未发现 Socket 显式 source link' }}
         />
       </Space>
       <Modal
