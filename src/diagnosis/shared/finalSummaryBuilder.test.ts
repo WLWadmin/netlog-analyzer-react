@@ -522,6 +522,25 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].kind).not.toBe('confirmed');
   });
 
+  it('NetLog 只有 host-time socket peer 候选不能输出 confirmed', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'socket-peer-host-time-candidate',
+        category: 'connect',
+        severity: 'warning',
+        confidence: 'high',
+        title: '检测到 host/time socket peer 候选',
+        conclusion: 'socket peer 仅通过 host/time window 与请求相近，没有 source graph 锚点',
+        evidence: [
+          { label: 'association', value: 'host-time-candidate', source: 'netlog' },
+          { label: 'socket peer', value: '203.0.113.11:443', source: 'netlog' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
   it('NetLog 只有 x-request-ip 候选不能输出 confirmed', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({

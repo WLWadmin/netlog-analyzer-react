@@ -415,4 +415,51 @@ describe('netlogEndpointEvidenceReducer', () => {
       sourceGraphUnresolvedReasons: {},
     });
   });
+
+  it('有 source link 但无法回到 URL_REQUEST 时保留 sourceGraphNoUrlRequest 原因', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
+      time: 20,
+      typeName: 'HTTP_STREAM_JOB',
+      sourceId: 200,
+      sourceTypeName: 'HTTP_STREAM_JOB',
+      phase: 2,
+      params: { source_dependency: { id: 201, type: 'SOCKET_POOL' } },
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
+      time: 30,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      params: {
+        source_dependency: { id: 200, type: 'HTTP_STREAM_JOB' },
+        address: '203.0.113.60:443',
+      },
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'global-candidate',
+        unresolvedReason: 'sourceGraphNoUrlRequest',
+        ip: '203.0.113.60',
+      }),
+    ]));
+    expect(summary.sourceGraphStats).toEqual(expect.objectContaining({
+      socketPeerTotal: 1,
+      socketPeerSourceGraphAssociated: 0,
+      socketPeerGlobalCandidate: 1,
+      sourceGraphUnresolvedReasons: { sourceGraphNoUrlRequest: 1 },
+    }));
+  });
 });
