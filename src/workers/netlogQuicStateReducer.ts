@@ -4,6 +4,7 @@ interface EventSeed {
   eventId: number;
   byteStart: number;
   byteEnd: number;
+  time?: number;
   typeName: string;
   sourceId: number;
   sourceTypeName: string;
@@ -19,6 +20,10 @@ interface SessionDraft {
   errorCount: number;
   firstEventId?: number;
   lastEventId?: number;
+  firstByteStart?: number;
+  lastByteEnd?: number;
+  firstTime?: number;
+  lastTime?: number;
 }
 
 function isQuicEvent(seed: EventSeed): boolean {
@@ -65,6 +70,7 @@ export function createNetlogQuicStateReducer() {
     }
 
     const params = seed.params || {};
+    const seedTime = seed.time ?? 0;
     const draft = sessions.get(seed.sourceId) || {
       sourceId: seed.sourceId,
       eventCount: 0,
@@ -74,10 +80,18 @@ export function createNetlogQuicStateReducer() {
       errorCount: 0,
       firstEventId: seed.eventId,
       lastEventId: seed.eventId,
+      firstByteStart: seed.byteStart,
+      lastByteEnd: seed.byteEnd,
+      firstTime: seedTime,
+      lastTime: seedTime,
     };
     draft.eventCount += 1;
     draft.firstEventId = Math.min(draft.firstEventId ?? seed.eventId, seed.eventId);
     draft.lastEventId = Math.max(draft.lastEventId ?? seed.eventId, seed.eventId);
+    draft.firstByteStart = Math.min(draft.firstByteStart ?? seed.byteStart, seed.byteStart);
+    draft.lastByteEnd = Math.max(draft.lastByteEnd ?? seed.byteEnd, seed.byteEnd);
+    draft.firstTime = Math.min(draft.firstTime ?? seedTime, seedTime);
+    draft.lastTime = Math.max(draft.lastTime ?? seedTime, seedTime);
     addString(draft.hosts, firstString(params.host, params.hostname, params.server_name, params.origin, params.url));
     addString(draft.peerAddresses, firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint));
     addString(draft.versions, firstString(params.version, params.quic_version, params.negotiated_version, params.alpn));
@@ -93,6 +107,7 @@ export function createNetlogQuicStateReducer() {
         details: detailsValue(params),
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
+        time: seedTime,
       });
     }
     sessions.set(seed.sourceId, draft);
@@ -109,6 +124,10 @@ export function createNetlogQuicStateReducer() {
         errorCount: session.errorCount,
         firstEventId: session.firstEventId,
         lastEventId: session.lastEventId,
+        firstByteStart: session.firstByteStart,
+        lastByteEnd: session.lastByteEnd,
+        firstTime: session.firstTime,
+        lastTime: session.lastTime,
       })),
       errors,
       eventCount: quicEventCount + http3EventCount,

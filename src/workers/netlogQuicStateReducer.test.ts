@@ -8,6 +8,7 @@ describe('createNetlogQuicStateReducer', () => {
       eventId: 1,
       byteStart: 10,
       byteEnd: 20,
+      time: 10,
       typeName: 'QUIC_SESSION_PACKET_SENT',
       sourceId: 100,
       sourceTypeName: 'QUIC_SESSION',
@@ -21,6 +22,7 @@ describe('createNetlogQuicStateReducer', () => {
       eventId: 2,
       byteStart: 20,
       byteEnd: 30,
+      time: 20,
       typeName: 'QUIC_SESSION_CLOSE_ON_ERROR',
       sourceId: 100,
       sourceTypeName: 'QUIC_SESSION',
@@ -33,6 +35,7 @@ describe('createNetlogQuicStateReducer', () => {
       eventId: 3,
       byteStart: 30,
       byteEnd: 40,
+      time: 30,
       typeName: 'HTTP3_HEADERS_RECEIVED',
       sourceId: 200,
       sourceTypeName: 'HTTP3_SESSION',
@@ -66,6 +69,10 @@ describe('createNetlogQuicStateReducer', () => {
         errorCount: 1,
         firstEventId: 1,
         lastEventId: 2,
+        firstByteStart: 10,
+        lastByteEnd: 30,
+        firstTime: 10,
+        lastTime: 20,
       }),
       expect.objectContaining({
         sourceId: 200,
@@ -82,6 +89,7 @@ describe('createNetlogQuicStateReducer', () => {
         details: 'idle timeout',
         byteStart: 20,
         byteEnd: 30,
+        time: 20,
       }),
     ]);
     expect(view.evidenceGaps).toEqual(expect.arrayContaining([

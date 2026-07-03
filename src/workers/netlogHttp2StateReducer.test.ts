@@ -8,6 +8,7 @@ describe('createNetlogHttp2StateReducer', () => {
       eventId: 1,
       byteStart: 10,
       byteEnd: 20,
+      time: 10,
       typeName: 'HTTP2_SESSION_INITIALIZED',
       sourceId: 100,
       sourceTypeName: 'HTTP2_SESSION',
@@ -20,6 +21,7 @@ describe('createNetlogHttp2StateReducer', () => {
       eventId: 2,
       byteStart: 20,
       byteEnd: 30,
+      time: 20,
       typeName: 'HTTP2_STREAM_SEND_HEADERS',
       sourceId: 200,
       sourceTypeName: 'HTTP2_STREAM',
@@ -33,6 +35,7 @@ describe('createNetlogHttp2StateReducer', () => {
       eventId: 3,
       byteStart: 30,
       byteEnd: 40,
+      time: 30,
       typeName: 'HTTP2_STREAM_RST_STREAM',
       sourceId: 200,
       sourceTypeName: 'HTTP2_STREAM',
@@ -47,6 +50,7 @@ describe('createNetlogHttp2StateReducer', () => {
       eventId: 4,
       byteStart: 40,
       byteEnd: 50,
+      time: 40,
       typeName: 'HTTP2_SESSION_SEND_GOAWAY',
       sourceId: 100,
       sourceTypeName: 'HTTP2_SESSION',
@@ -58,6 +62,7 @@ describe('createNetlogHttp2StateReducer', () => {
       eventId: 5,
       byteStart: 50,
       byteEnd: 60,
+      time: 50,
       typeName: 'HTTP2_SESSION_UPDATE_RECV_WINDOW',
       sourceId: 100,
       sourceTypeName: 'HTTP2_SESSION',
@@ -83,6 +88,10 @@ describe('createNetlogHttp2StateReducer', () => {
         errorCount: 2,
         firstEventId: 1,
         lastEventId: 5,
+        firstByteStart: 10,
+        lastByteEnd: 60,
+        firstTime: 10,
+        lastTime: 50,
       }),
     ]);
     expect(view.streams).toEqual([
@@ -95,6 +104,10 @@ describe('createNetlogHttp2StateReducer', () => {
         errorCount: 1,
         firstEventId: 2,
         lastEventId: 3,
+        firstByteStart: 20,
+        lastByteEnd: 40,
+        firstTime: 20,
+        lastTime: 30,
       }),
     ]);
     expect(view.errors).toEqual(expect.arrayContaining([
@@ -105,6 +118,7 @@ describe('createNetlogHttp2StateReducer', () => {
         streamId: 3,
         error: 'PROTOCOL_ERROR',
         details: 'rst by peer',
+        time: 30,
       }),
       expect.objectContaining({
         eventId: 4,
@@ -132,5 +146,38 @@ describe('createNetlogHttp2StateReducer', () => {
     expect(view.eventCount).toBe(0);
     expect(view.sessions).toEqual([]);
     expect(view.evidenceGaps).toContain('未发现 HTTP/2 事件；不代表浏览器或服务端不支持 HTTP/2，只表示当前 Dataset 未捕获相关事件。');
+  });
+
+  it('stream 无法关联 session 时输出 evidence gap，不推断影响范围', () => {
+    const reducer = createNetlogHttp2StateReducer();
+
+    reducer.accept({
+      eventId: 10,
+      byteStart: 100,
+      byteEnd: 120,
+      time: 1000,
+      typeName: 'HTTP2_STREAM_RST_STREAM',
+      sourceId: 300,
+      sourceTypeName: 'HTTP2_STREAM',
+      params: {
+        stream_id: 7,
+        error_code: 'REFUSED_STREAM',
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.streams).toEqual([
+      expect.objectContaining({
+        sourceId: 300,
+        sessionSourceId: undefined,
+        streamId: 7,
+        firstByteStart: 100,
+        lastByteEnd: 120,
+        firstTime: 1000,
+        lastTime: 1000,
+      }),
+    ]);
+    expect(view.evidenceGaps).toContain('存在未关联到 HTTP/2 session 的 stream；不能用相同 host 或相近时间直接推断影响范围。');
   });
 });

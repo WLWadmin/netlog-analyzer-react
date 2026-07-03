@@ -125,6 +125,10 @@ export interface QuicStateView {
     errorCount: number;
     firstEventId?: number;
     lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
   }>;
   errors: Array<{
     eventId: number;
@@ -134,6 +138,7 @@ export interface QuicStateView {
     details?: string;
     byteStart?: number;
     byteEnd?: number;
+    time?: number;
   }>;
   eventCount: number;
   http3EventCount: number;
@@ -154,6 +159,10 @@ export interface Http2StateView {
     errorCount: number;
     firstEventId?: number;
     lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
   }>;
   streams: Array<{
     sourceId: number;
@@ -164,6 +173,10 @@ export interface Http2StateView {
     errorCount: number;
     firstEventId?: number;
     lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
   }>;
   errors: Array<{
     eventId: number;
@@ -175,6 +188,7 @@ export interface Http2StateView {
     details?: string;
     byteStart?: number;
     byteEnd?: number;
+    time?: number;
   }>;
   eventCount: number;
   goawayCount: number;
@@ -196,6 +210,10 @@ export interface SocketsStateView {
     socketPools: string[];
     firstEventId?: number;
     lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
   }>;
   errors: Array<{
     eventId: number;
@@ -206,6 +224,7 @@ export interface SocketsStateView {
     peerAddress?: string;
     byteStart?: number;
     byteEnd?: number;
+    time?: number;
   }>;
   eventCount: number;
   connectCount: number;

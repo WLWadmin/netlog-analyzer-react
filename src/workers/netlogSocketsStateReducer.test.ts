@@ -8,6 +8,7 @@ describe('createNetlogSocketsStateReducer', () => {
       eventId: 1,
       byteStart: 10,
       byteEnd: 20,
+      time: 10,
       typeName: 'SOCKET_POOL_BOUND_TO_CONNECT_JOB',
       sourceId: 100,
       sourceTypeName: 'SOCKET',
@@ -19,6 +20,7 @@ describe('createNetlogSocketsStateReducer', () => {
       eventId: 2,
       byteStart: 20,
       byteEnd: 30,
+      time: 20,
       typeName: 'TCP_CONNECT',
       sourceId: 100,
       sourceTypeName: 'SOCKET',
@@ -30,6 +32,7 @@ describe('createNetlogSocketsStateReducer', () => {
       eventId: 3,
       byteStart: 30,
       byteEnd: 40,
+      time: 30,
       typeName: 'SSL_CONNECT',
       sourceId: 100,
       sourceTypeName: 'SSL_CONNECT_JOB',
@@ -41,6 +44,7 @@ describe('createNetlogSocketsStateReducer', () => {
       eventId: 4,
       byteStart: 40,
       byteEnd: 50,
+      time: 40,
       typeName: 'SOCKET_STALLED_MAX_SOCKETS_PER_GROUP',
       sourceId: 100,
       sourceTypeName: 'SOCKET',
@@ -50,6 +54,7 @@ describe('createNetlogSocketsStateReducer', () => {
       eventId: 5,
       byteStart: 50,
       byteEnd: 60,
+      time: 50,
       typeName: 'TCP_CONNECT_ATTEMPT',
       sourceId: 100,
       sourceTypeName: 'SOCKET',
@@ -79,6 +84,10 @@ describe('createNetlogSocketsStateReducer', () => {
         socketPools: ['ssl/www.example.com:443'],
         firstEventId: 1,
         lastEventId: 5,
+        firstByteStart: 10,
+        lastByteEnd: 60,
+        firstTime: 10,
+        lastTime: 50,
       }),
     ]);
     expect(view.errors).toEqual([
@@ -88,6 +97,7 @@ describe('createNetlogSocketsStateReducer', () => {
         typeName: 'TCP_CONNECT_ATTEMPT',
         error: -102,
         details: 'connection refused',
+        time: 50,
       }),
     ]);
   });

@@ -4,6 +4,7 @@ interface EventSeed {
   eventId: number;
   byteStart: number;
   byteEnd: number;
+  time?: number;
   typeName: string;
   sourceId: number;
   sourceTypeName: string;
@@ -22,6 +23,10 @@ interface SocketDraft {
   socketPools: Set<string>;
   firstEventId?: number;
   lastEventId?: number;
+  firstByteStart?: number;
+  lastByteEnd?: number;
+  firstTime?: number;
+  lastTime?: number;
 }
 
 function isSocketEvent(seed: EventSeed): boolean {
@@ -71,6 +76,10 @@ export function createNetlogSocketsStateReducer() {
       socketPools: new Set<string>(),
       firstEventId: seed.eventId,
       lastEventId: seed.eventId,
+      firstByteStart: seed.byteStart,
+      lastByteEnd: seed.byteEnd,
+      firstTime: seed.time ?? 0,
+      lastTime: seed.time ?? 0,
     };
     sockets.set(seed.sourceId, created);
     return created;
@@ -79,12 +88,17 @@ export function createNetlogSocketsStateReducer() {
   const accept = (seed: EventSeed) => {
     if (!isSocketEvent(seed)) return;
     eventCount += 1;
+    const seedTime = seed.time ?? 0;
     const upperType = seed.typeName.toUpperCase();
     const params = seed.params || {};
     const draft = ensureSocket(seed);
     draft.eventCount += 1;
     draft.firstEventId = Math.min(draft.firstEventId ?? seed.eventId, seed.eventId);
     draft.lastEventId = Math.max(draft.lastEventId ?? seed.eventId, seed.eventId);
+    draft.firstByteStart = Math.min(draft.firstByteStart ?? seed.byteStart, seed.byteStart);
+    draft.lastByteEnd = Math.max(draft.lastByteEnd ?? seed.byteEnd, seed.byteEnd);
+    draft.firstTime = Math.min(draft.firstTime ?? seedTime, seedTime);
+    draft.lastTime = Math.max(draft.lastTime ?? seedTime, seedTime);
 
     const peerAddress = firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint);
     if (peerAddress) draft.peerAddresses.add(peerAddress);
@@ -126,6 +140,7 @@ export function createNetlogSocketsStateReducer() {
         peerAddress,
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
+        time: seedTime,
       });
     }
     sockets.set(seed.sourceId, draft);
@@ -145,6 +160,10 @@ export function createNetlogSocketsStateReducer() {
         socketPools: Array.from(socket.socketPools),
         firstEventId: socket.firstEventId,
         lastEventId: socket.lastEventId,
+        firstByteStart: socket.firstByteStart,
+        lastByteEnd: socket.lastByteEnd,
+        firstTime: socket.firstTime,
+        lastTime: socket.lastTime,
       })),
       errors,
       eventCount,

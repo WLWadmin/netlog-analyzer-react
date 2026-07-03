@@ -473,6 +473,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) 
             { title: 'Peer addresses', dataIndex: 'peerAddresses', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Versions', dataIndex: 'versions', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+            { title: 'Byte range', key: 'bytes', width: 150, render: (_, row) => `${row.firstByteStart ?? '-'} - ${row.lastByteEnd ?? '-'}` },
           ]}
           dataSource={view.sessions}
           locale={{ emptyText: '未发现 Dataset QUIC / HTTP3 session' }}
@@ -586,6 +587,8 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Hosts', dataIndex: 'hosts', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Protocols', dataIndex: 'protocols', render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+            { title: 'Byte range', key: 'bytes', width: 150, render: (_, row) => `${row.firstByteStart ?? '-'} - ${row.lastByteEnd ?? '-'}` },
           ]}
           dataSource={view.sessions}
           locale={{ emptyText: '未发现 Dataset HTTP/2 session' }}
@@ -601,6 +604,8 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string }> = ({ analysisId })
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Hosts', dataIndex: 'hosts', render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+            { title: 'Byte range', key: 'bytes', width: 150, render: (_, row) => `${row.firstByteStart ?? '-'} - ${row.lastByteEnd ?? '-'}` },
           ]}
           dataSource={view.streams}
           locale={{ emptyText: '未发现 Dataset HTTP/2 stream' }}
@@ -716,6 +721,8 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Peer addresses', dataIndex: 'peerAddresses', render: (value: string[]) => value.join(', ') || '-' },
             { title: 'Socket pools', dataIndex: 'socketPools', render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+            { title: 'Byte range', key: 'bytes', width: 150, render: (_, row) => `${row.firstByteStart ?? '-'} - ${row.lastByteEnd ?? '-'}` },
           ]}
           dataSource={view.sockets}
           locale={{ emptyText: '未发现 Dataset socket / tcp / tls 状态' }}
