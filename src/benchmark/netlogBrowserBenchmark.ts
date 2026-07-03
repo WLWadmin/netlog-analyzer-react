@@ -1,5 +1,6 @@
 import {
   getNetlogEndpointEvidenceInWorker,
+  getNetlogDnsStateInWorker,
   getNetlogEventDetailInWorker,
   importNetlogDatasetInWorker,
   largeNetlogTimeout,
@@ -45,6 +46,12 @@ interface BrowserBenchmarkMetrics {
   dnsAnswerMissingTraceCount?: number;
   dnsAnswerBySourceKind?: Record<string, number>;
   dnsAnswerByTypeName?: Record<string, number>;
+  dnsAnswerEndpointCount?: number;
+  dnsAnswerStateCount?: number;
+  dnsAnswerBothCount?: number;
+  dnsAnswerEndpointOnlyCount?: number;
+  dnsAnswerStateOnlyCount?: number;
+  dnsAnswerStateMissingTraceCount?: number;
   mode?: 'dataset-import' | 'upload-single-scan';
   evidencePackageVersion?: string;
   uploadToFirstDiagnosisMs?: number;
@@ -118,6 +125,58 @@ function memoryEstimateMb(): number | null {
   const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number } }).memory;
   const bytes = memory?.usedJSHeapSize ?? memory?.totalJSHeapSize;
   return bytes ? Math.round(bytes / 1024 / 1024) : null;
+}
+
+function normalizeDnsKeyHost(host: string | undefined): string {
+  return (host || '').trim().toLowerCase();
+}
+
+function dnsAnswerKeysFromEndpointEvidence(endpointEvidence: Awaited<ReturnType<typeof getNetlogEndpointEvidenceInWorker>>): Set<string> {
+  const keys = new Set<string>();
+  for (const answer of endpointEvidence.dnsAnswers) {
+    const host = normalizeDnsKeyHost(answer.host);
+    for (const ip of answer.ips || []) {
+      const value = `${host}|${ip}`;
+      if (host && ip) keys.add(value);
+    }
+  }
+  return keys;
+}
+
+function dnsAnswerKeysFromDnsState(dnsState: Awaited<ReturnType<typeof getNetlogDnsStateInWorker>>): { keys: Set<string>; missingTraceCount: number } {
+  const keys = new Set<string>();
+  let missingTraceCount = 0;
+  const add = (hostValue: string, ips: string[], eventId?: number, sourceId?: number, byteStart?: number, byteEnd?: number) => {
+    const host = normalizeDnsKeyHost(hostValue);
+    if (!host || ips.length === 0) return;
+    if (eventId === undefined || sourceId === undefined || byteStart === undefined || byteEnd === undefined) {
+      missingTraceCount += 1;
+    }
+    for (const ip of ips) {
+      if (ip) keys.add(`${host}|${ip}`);
+    }
+  };
+  for (const item of dnsState.hostResolverCache) {
+    add(item.host, item.ips, item.eventId, item.sourceId, item.byteStart, item.byteEnd);
+  }
+  for (const item of dnsState.taskResults) {
+    add(item.host, item.ips, item.eventId, item.sourceId, item.byteStart, item.byteEnd);
+  }
+  return { keys, missingTraceCount };
+}
+
+function compareSets(left: Set<string>, right: Set<string>) {
+  let both = 0;
+  let leftOnly = 0;
+  let rightOnly = 0;
+  for (const key of left) {
+    if (right.has(key)) both += 1;
+    else leftOnly += 1;
+  }
+  for (const key of right) {
+    if (!left.has(key)) rightOnly += 1;
+  }
+  return { both, leftOnly, rightOnly };
 }
 
 async function postResult(result: BrowserBenchmarkMetrics | { errors: string[] }) {
@@ -276,6 +335,10 @@ async function collectDatasetMetrics(options: {
   );
 
   const endpointEvidence = await getNetlogEndpointEvidenceInWorker({ analysisId });
+  const dnsState = await getNetlogDnsStateInWorker({ analysisId });
+  const endpointDnsKeys = dnsAnswerKeysFromEndpointEvidence(endpointEvidence);
+  const stateDns = dnsAnswerKeysFromDnsState(dnsState);
+  const dnsDiff = compareSets(endpointDnsKeys, stateDns.keys);
   const mainThread = probe.stop();
   await releaseNetlogDatasetInWorker({ analysisId }).catch(() => undefined);
 
@@ -316,6 +379,12 @@ async function collectDatasetMetrics(options: {
     dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
     dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
     dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
+    dnsAnswerEndpointCount: endpointDnsKeys.size,
+    dnsAnswerStateCount: stateDns.keys.size,
+    dnsAnswerBothCount: dnsDiff.both,
+    dnsAnswerEndpointOnlyCount: dnsDiff.leftOnly,
+    dnsAnswerStateOnlyCount: dnsDiff.rightOnly,
+    dnsAnswerStateMissingTraceCount: stateDns.missingTraceCount,
     mode,
     evidencePackageVersion: '2026-07-03-upload-observability-v1',
     uploadToFirstDiagnosisMs: options.uploadToFirstDiagnosisMs,
