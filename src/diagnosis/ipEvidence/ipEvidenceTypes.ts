@@ -139,4 +139,11 @@ export interface DnsIpEvidenceSummary {
     sourceDependencyEdges: number;
     sourceDependencyUnparsed: number;
   };
+  dnsAnswerSourceStats?: {
+    candidateCount: number;
+    uniqueHostIpPairs: number;
+    missingTraceCount: number;
+    bySourceKind: Record<string, number>;
+    byTypeName: Record<string, number>;
+  };
 }

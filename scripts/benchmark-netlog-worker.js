@@ -130,6 +130,11 @@ describe('netlog worker benchmark', () => {
       socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
       sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
       sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
+      dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
+      dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
+      dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
+      dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
+      dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
       errors: [],
       notes: ['mainThreadBlockedMs 需要浏览器 PerformanceObserver 才能测量；此命令只作为 Dataset index/query/detail baseline。'],
     };

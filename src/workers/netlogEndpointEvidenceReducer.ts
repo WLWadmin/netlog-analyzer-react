@@ -9,6 +9,11 @@ import type {
   RequestImpact,
 } from '../diagnosis/ipEvidence';
 import { normalizeIp } from '../diagnosis/ipEvidence';
+import {
+  extractDnsAnswerCandidates as extractSharedDnsAnswerCandidates,
+  summarizeDnsAnswerCandidates,
+  type DnsAnswerCandidate,
+} from '../parsers/netlog/dnsAnswerCandidates';
 
 interface EventSeed {
   eventId: number;
@@ -74,39 +79,6 @@ function extractSocketIpValues(raw: unknown): unknown[] {
     value.ip_endpoint,
     value.endpoint_address,
   ].filter(Boolean);
-}
-
-function extractDnsAnswerCandidates(params: Record<string, unknown>): Array<{ host: string; ips: string[] }> {
-  const candidates: Array<{ host: string; ips: string[] }> = [];
-  const add = (host: unknown, ips: unknown[]) => {
-    if (typeof host !== 'string' || !host.trim()) return;
-    const cleanIps = Array.from(new Set(ips.map(normalizeIp).filter((ip): ip is string => Boolean(ip))));
-    if (cleanIps.length > 0) candidates.push({ host: host.trim(), ips: cleanIps });
-  };
-
-  const results = params.results;
-  if (results && typeof results === 'object' && !Array.isArray(results)) {
-    const value = results as Record<string, unknown>;
-    const host = (value.aliases as unknown[])?.[0] || params.host || params.hostname || params.domain_name;
-    const ipEndpoints = Array.isArray(value.ip_endpoints) ? value.ip_endpoints : [];
-    add(host, ipEndpoints.flatMap(item => extractSocketIpValues(item)));
-  }
-  if (Array.isArray(results)) {
-    for (const item of results) {
-      if (!item || typeof item !== 'object') continue;
-      const value = item as Record<string, unknown>;
-      const endpoints = Array.isArray(value.endpoints) ? value.endpoints : [];
-      add(value.domain_name, endpoints.flatMap(endpoint => extractSocketIpValues(endpoint)));
-    }
-  }
-  add(params.host || params.hostname || params.domain_name || params.qname, [
-    params.address,
-    params.address_list,
-    params.endpoint_results,
-    params.ip_endpoints,
-  ].flatMap(value => Array.isArray(value) ? value.flatMap(extractSocketIpValues) : extractSocketIpValues(value)));
-
-  return candidates;
 }
 
 function requestImpact(req?: RequestDraft): RequestImpact {
@@ -275,6 +247,7 @@ export function createNetlogEndpointEvidenceReducer() {
   const sourceLinks = new Map<number, Set<number>>();
   const itemMap = new Map<string, IpEvidenceItem>();
   const dnsAnswerMap = new Map<string, DnsAnswerEvidence>();
+  const dnsAnswerCandidates: DnsAnswerCandidate[] = [];
   let sourceDependencyEdges = 0;
   let sourceDependencyUnparsed = 0;
 
@@ -387,7 +360,9 @@ export function createNetlogEndpointEvidenceReducer() {
       }
     }
 
-    for (const candidate of extractDnsAnswerCandidates(params)) {
+    for (const candidate of extractSharedDnsAnswerCandidates(params, seed)) {
+      if (!candidate.host) continue;
+      dnsAnswerCandidates.push(candidate);
       const key = candidate.host;
       const existing = dnsAnswerMap.get(key);
       const ips = existing ? Array.from(new Set([...existing.ips, ...candidate.ips])) : candidate.ips;
@@ -458,6 +433,7 @@ export function createNetlogEndpointEvidenceReducer() {
         sourceDependencyEdges,
         sourceDependencyUnparsed,
       },
+      dnsAnswerSourceStats: summarizeDnsAnswerCandidates(dnsAnswerCandidates),
     };
   };
 

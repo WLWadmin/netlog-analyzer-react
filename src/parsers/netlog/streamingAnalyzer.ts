@@ -1,6 +1,7 @@
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
+import { extractDnsAnswerCandidates as extractSharedDnsAnswerCandidates } from './dnsAnswerCandidates';
 import type { AnalysisResult, DiagnosisIssue, DnsRecord, DohCandidate, ParsedEvent, URLRequest } from './parser';
 
 const MAX_EVENTS_PREVIEW = 20_000;
@@ -353,94 +354,14 @@ function addDnsRecord(result: AnalysisResult, host: string | null, ips: string[]
   result.dnsRecords.push({ host, ips: cleanIps, source, time });
 }
 
-function firstHostCandidate(values: unknown[]): string | null {
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      const hit = firstHostCandidate(value);
-      if (hit) return hit;
-      continue;
-    }
-    const host = normalizeHostCandidate(value);
-    if (host) return host;
-  }
-  return null;
-}
-
-function extractDnsRecordCandidates(params: any): Array<{ host: string | null; ips: string[] }> {
-  const candidates: Array<{ host: string | null; ips: string[] }> = [];
-  const directHost = extractHostFromParams(params);
-  const directIps = extractIpsFromValue(params);
-  if (directHost && directIps.length > 0) candidates.push({ host: directHost, ips: directIps });
-
-  const results = params?.results;
-  if (Array.isArray(results)) {
-    const aliasTargetByName = new Map<string, string>();
-    for (const item of results) {
-      if (!item || typeof item !== 'object') continue;
-      const domainName = normalizeHostCandidate((item as any).domain_name);
-      const aliasTarget = normalizeHostCandidate((item as any).alias_target);
-      if (domainName && aliasTarget) aliasTargetByName.set(aliasTarget, domainName);
-    }
-
-    for (const item of results) {
-      if (!item || typeof item !== 'object') continue;
-      const domainName = normalizeHostCandidate((item as any).domain_name);
-      const ips = extractIpsFromValue([(item as any).endpoints, (item as any).hosts, (item as any).address, (item as any).addresses]);
-      if (domainName && ips.length > 0) {
-        candidates.push({ host: domainName, ips });
-        const originalAlias = aliasTargetByName.get(domainName);
-        if (originalAlias) candidates.push({ host: originalAlias, ips });
-      }
-    }
-  } else if (results && typeof results === 'object') {
-    const resultHost =
-      normalizeHostCandidate(results.host) ||
-      normalizeHostCandidate(results.hostname) ||
-      normalizeHostCandidate(results.domain_name) ||
-      normalizeHostCandidate(results.qname) ||
-      firstHostCandidate([results.aliases, results.canonical_names]) ||
-      directHost;
-    const resultIps = extractIpsFromValue([
-      results.ip_endpoints,
-      results.endpoint_address,
-      results.endpoints,
-      results.addresses,
-      results.address_list,
-      results.hostname_results,
-    ]);
-    if (resultHost && resultIps.length > 0) candidates.push({ host: resultHost, ips: resultIps });
-  }
-
-  const hostPorts = params?.host_ports || params?.hosts;
-  const ipEndpoints = params?.ip_endpoints || params?.endpoints || params?.endpoint_results;
-  if (hostPorts && ipEndpoints) {
-    const hosts = Array.isArray(hostPorts) ? hostPorts : [hostPorts];
-    const endpoints = Array.isArray(ipEndpoints) ? ipEndpoints : [ipEndpoints];
-    hosts.forEach((hostValue, index) => {
-      const host = normalizeHostCandidate(
-        typeof hostValue === 'object' && hostValue ? (hostValue as any).host || (hostValue as any).hostname || (hostValue as any).name : hostValue
-      );
-      const ips = extractIpsFromValue(endpoints[index] ?? endpoints);
-      if (host && ips.length > 0) candidates.push({ host, ips });
-    });
-  }
-
-  const hostnameResults = params?.hostname_results;
-  if (hostnameResults && typeof hostnameResults === 'object') {
-    for (const [hostKey, value] of Object.entries(hostnameResults as Record<string, unknown>)) {
-      const host = normalizeHostCandidate(hostKey) || extractHostFromParams(value);
-      const ips = extractIpsFromValue(value);
-      if (host && ips.length > 0) candidates.push({ host, ips });
-    }
-  }
-
-  const seen = new Set<string>();
-  return candidates.filter(candidate => {
-    const key = `${candidate.host}|${candidate.ips.sort().join(',')}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+function extractDnsRecordCandidates(evt: ParsedEvent): Array<{ host: string | null; ips: string[] }> {
+  return extractSharedDnsAnswerCandidates(evt.params, {
+    eventId: undefined,
+    sourceId: evt.source.id,
+    time: evt.time,
+    typeName: evt.typeName,
+    sourceTypeName: evt.source.typeName,
+  }).map(candidate => ({ host: candidate.host || null, ips: candidate.ips }));
 }
 
 function addDnsServers(result: AnalysisResult, ips: string[]) {
@@ -820,7 +741,7 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
 
     if (isDnsRelatedEvent(parsed)) {
       addBounded(result.dnsEvents, parsed);
-      extractDnsRecordCandidates(parsed.params).forEach(candidate => {
+      extractDnsRecordCandidates(parsed).forEach(candidate => {
         addDnsRecord(result, candidate.host, candidate.ips, 'dns_event', parsed.time);
       });
     }

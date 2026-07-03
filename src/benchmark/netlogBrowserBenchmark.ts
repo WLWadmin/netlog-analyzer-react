@@ -34,6 +34,11 @@ interface BrowserBenchmarkMetrics {
   socketPeerGlobalCandidate?: number;
   sourceDependencyEdges?: number;
   sourceDependencyUnparsed?: number;
+  dnsAnswerCandidateCount?: number;
+  dnsAnswerUniqueHostIpPairs?: number;
+  dnsAnswerMissingTraceCount?: number;
+  dnsAnswerBySourceKind?: Record<string, number>;
+  dnsAnswerByTypeName?: Record<string, number>;
   errors: string[];
 }
 
@@ -178,6 +183,11 @@ async function runNetlogBrowserBenchmark() {
       socketPeerGlobalCandidate: endpointEvidence.sourceGraphStats?.socketPeerGlobalCandidate,
       sourceDependencyEdges: endpointEvidence.sourceGraphStats?.sourceDependencyEdges,
       sourceDependencyUnparsed: endpointEvidence.sourceGraphStats?.sourceDependencyUnparsed,
+      dnsAnswerCandidateCount: endpointEvidence.dnsAnswerSourceStats?.candidateCount,
+      dnsAnswerUniqueHostIpPairs: endpointEvidence.dnsAnswerSourceStats?.uniqueHostIpPairs,
+      dnsAnswerMissingTraceCount: endpointEvidence.dnsAnswerSourceStats?.missingTraceCount,
+      dnsAnswerBySourceKind: endpointEvidence.dnsAnswerSourceStats?.bySourceKind,
+      dnsAnswerByTypeName: endpointEvidence.dnsAnswerSourceStats?.byTypeName,
       errors: [],
     });
   } catch (error) {

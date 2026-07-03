@@ -1,4 +1,5 @@
 import { normalizeIp } from '../diagnosis/ipEvidence';
+import { extractDnsAnswerCandidates } from '../parsers/netlog/dnsAnswerCandidates';
 import type { DnsStateView } from './netlogDatasetViews';
 
 interface EventSeed {
@@ -13,26 +14,8 @@ interface EventSeed {
   params?: Record<string, unknown>;
 }
 
-function extractSocketIpValues(raw: unknown): unknown[] {
-  if (!raw || typeof raw !== 'object') return [raw];
-  const value = raw as Record<string, unknown>;
-  return [
-    value.ip,
-    value.address,
-    value.ip_address,
-    value.endpoint,
-    value.ip_endpoint,
-    value.endpoint_address,
-  ].filter(Boolean);
-}
-
 function normalizeIpList(values: unknown[]): string[] {
   return Array.from(new Set(values.map(normalizeIp).filter((ip): ip is string => Boolean(ip))));
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
 }
 
 function firstString(...values: unknown[]): string | undefined {
@@ -142,19 +125,41 @@ export function createNetlogDnsStateReducer() {
 
   const accept = (seed: EventSeed) => {
     const params = seed.params || {};
-    if (seed.typeName === 'HOST_RESOLVER_MANAGER_CACHE_HIT') {
-      const results = params.results;
-      if (results && typeof results === 'object' && !Array.isArray(results)) {
-        const value = results as Record<string, unknown>;
-        const aliases = stringList(value.aliases);
-        const host = aliases[0] || firstString(params.host, params.hostname, params.domain_name) || `source:${seed.sourceId}`;
-        const ips = normalizeIpList((Array.isArray(value.ip_endpoints) ? value.ip_endpoints : []).flatMap(extractSocketIpValues));
-        if (ips.length > 0 || aliases.length > 0) {
-          hostResolverCache.set(`${host}-${seed.eventId}`, {
-            host,
-            ips,
-            aliases,
-            expires: value.expiration as string | number | undefined,
+    const dnsAnswerCandidates = extractDnsAnswerCandidates(params, seed);
+    for (const candidate of dnsAnswerCandidates) {
+      if (!candidate.host) continue;
+      if (candidate.sourceKind === 'hostResolverCache') {
+        const results = params.results && typeof params.results === 'object' && !Array.isArray(params.results)
+          ? params.results as Record<string, unknown>
+          : {};
+        hostResolverCache.set(`${candidate.host}-${seed.eventId}`, {
+          host: candidate.host,
+          ips: candidate.ips,
+          aliases: candidate.aliases || [],
+          expires: results.expiration as string | number | undefined,
+          sourceId: seed.sourceId,
+          eventId: seed.eventId,
+          byteStart: seed.byteStart,
+          byteEnd: seed.byteEnd,
+        });
+      }
+      if (candidate.sourceKind === 'dnsTaskResult') {
+        taskResults.set(`${candidate.host}-${candidate.queryType || ''}-${seed.eventId}`, {
+          host: candidate.host,
+          queryType: candidate.queryType,
+          ips: candidate.ips,
+          aliases: candidate.aliases || [],
+          error: candidate.error,
+          sourceId: seed.sourceId,
+          eventId: seed.eventId,
+          byteStart: seed.byteStart,
+          byteEnd: seed.byteEnd,
+        });
+        if (candidate.error !== undefined) {
+          dnsErrors.set(`${candidate.host}-${candidate.queryType || ''}-${candidate.error}-${seed.eventId}`, {
+            host: candidate.host,
+            queryType: candidate.queryType,
+            error: candidate.error,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
             byteStart: seed.byteStart,
@@ -170,9 +175,6 @@ export function createNetlogDnsStateReducer() {
         if (!item || typeof item !== 'object') continue;
         const value = item as Record<string, unknown>;
         const host = firstString(value.domain_name, value.alias_target, params.host, params.hostname) || `source:${seed.sourceId}`;
-        const endpoints = Array.isArray(value.endpoints) ? value.endpoints : [];
-        const ips = normalizeIpList(endpoints.flatMap(extractSocketIpValues));
-        const aliases = [value.alias_target].filter((entry): entry is string => typeof entry === 'string');
         const error = typeof value.error === 'number'
           ? value.error
           : typeof value.error_code === 'number'
@@ -180,29 +182,27 @@ export function createNetlogDnsStateReducer() {
             : typeof value.net_error === 'number'
               ? value.net_error
               : undefined;
-        if (ips.length > 0 || aliases.length > 0 || error !== undefined) {
+        if (error !== undefined) {
           taskResults.set(`${host}-${value.query_type || ''}-${seed.eventId}`, {
             host,
             queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
-            ips,
-            aliases,
+            ips: [],
+            aliases: [],
             error,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
             byteStart: seed.byteStart,
             byteEnd: seed.byteEnd,
           });
-          if (error !== undefined) {
-            dnsErrors.set(`${host}-${value.query_type || ''}-${error}-${seed.eventId}`, {
-              host,
-              queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
-              error,
-              sourceId: seed.sourceId,
-              eventId: seed.eventId,
-              byteStart: seed.byteStart,
-              byteEnd: seed.byteEnd,
-            });
-          }
+          dnsErrors.set(`${host}-${value.query_type || ''}-${error}-${seed.eventId}`, {
+            host,
+            queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
+            error,
+            sourceId: seed.sourceId,
+            eventId: seed.eventId,
+            byteStart: seed.byteStart,
+            byteEnd: seed.byteEnd,
+          });
         }
       }
     }

@@ -64,6 +64,13 @@ describe('netlogEndpointEvidenceReducer', () => {
     expect(summary.dnsAnswers).toEqual([
       expect.objectContaining({ host: 'api.example.com', ips: ['203.0.113.9'], eventId: 3, sourceId: 300, byteStart: 300, byteEnd: 399 }),
     ]);
+    expect(summary.dnsAnswerSourceStats).toEqual({
+      candidateCount: 1,
+      uniqueHostIpPairs: 1,
+      missingTraceCount: 0,
+      bySourceKind: { dnsTaskResult: 1 },
+      byTypeName: { HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS: 1 },
+    });
     expect(summary.cipSipRows.some(row => row.sipIps.includes('203.0.113.8'))).toBe(false);
     expect(summary.cipSipRows.some(row => (row.socketPeerIps || []).includes('203.0.113.8'))).toBe(true);
     expect(summary.cipSipRows.find(row => row.host === 'api.example.com')?.evidenceTraces).toEqual(expect.arrayContaining([
