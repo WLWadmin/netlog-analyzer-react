@@ -17,7 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, NetlogSourceChainView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -378,6 +378,22 @@ export async function getNetlogSocketsStateInWorker(
     options
   );
   return response.payload as SocketsStateView;
+}
+
+export async function getNetlogSourceChainInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<NetlogSourceChainView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-source-chain',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as NetlogSourceChainView;
 }
 
 /**

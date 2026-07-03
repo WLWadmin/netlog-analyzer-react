@@ -6,6 +6,7 @@ import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
 import { useNetlogDiagnosisSummary } from '../../hooks/useNetlogDiagnosisSummary';
 import EventsTab from './EventsTab';
 import DatasetEventsTab from './DatasetEventsTab';
+import DatasetSourceChainViewer from './DatasetSourceChainViewer';
 import SourceChainViewer from './SourceChainViewer';
 import SSLTab from './SSLTab';
 import ProtocolTab from './ProtocolTab';
@@ -906,11 +907,20 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
       ? <DatasetEventsTab analysisId={dataset.analysisId} />
       : <EventsTab events={events} />,
     'source-chain': (
-      <SourceChainViewer
-        events={events}
-        urlRequests={urlRequests}
-        onNavigateToSource={(sourceId) => onNavigateToSource(sourceId)}
-      />
+      dataset?.status === 'ready' && dataset.analysisId
+        ? (
+          <DatasetSourceChainViewer
+            analysisId={dataset.analysisId}
+            onNavigateToSource={(sourceId) => onNavigateToSource(sourceId)}
+          />
+        )
+        : (
+          <SourceChainViewer
+            events={events}
+            urlRequests={urlRequests}
+            onNavigateToSource={(sourceId) => onNavigateToSource(sourceId)}
+          />
+        )
     ),
     security: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>

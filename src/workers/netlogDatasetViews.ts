@@ -257,3 +257,26 @@ export interface SocketsStateView {
   socketPoolCount: number;
   evidenceGaps: string[];
 }
+
+export interface NetlogSourceChainNodeView {
+  id: number;
+  type: string;
+  url?: string;
+  startTime: number;
+  endTime: number;
+  eventCount: number;
+  hasError: boolean;
+  errorCode?: number;
+}
+
+export interface NetlogSourceChainView {
+  roots: number[];
+  chains: Array<{
+    rootId: number;
+    url: string;
+    path: NetlogSourceChainNodeView[];
+    depth: number;
+    hasError: boolean;
+    duration: number;
+  }>;
+}

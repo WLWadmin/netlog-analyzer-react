@@ -23,6 +23,7 @@ import { createRawDataStore } from './rawDataStore';
 import { createNetlogDatasetStore } from './netlogDatasetStore';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail } from './netlogDatasetIndexer';
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
+import { buildNetlogSourceChainView } from './netlogSourceChainView';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
 
@@ -453,6 +454,21 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'raw-search',
           payload: matches,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-source-chain': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.eventIndex) throw new Error(`NetLog Dataset Source Chain 不存在：${msg.payload.analysisId}`);
+        const payload = buildNetlogSourceChainView(dataset.eventIndex);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-source-chain',
+          payload,
           duration,
         });
         break;
