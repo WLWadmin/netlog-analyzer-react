@@ -145,4 +145,50 @@ describe('netlogDatasetIndexer', () => {
     expect(index.sourceDependencyFrom).toEqual([30, 30]);
     expect(index.sourceDependencyTo).toEqual([10, 50]);
   });
+
+  it('构建 Dataset 时生成 Cache State', async () => {
+    const text = '{"constants":{"logEventTypes":{"HTTP_CACHE_OPEN_ENTRY":1,"HTTP_CACHE_READ_DATA":2},"logSourceType":{"URL_REQUEST":20}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://cache.example/app.css"}},{"time":"2","type":2,"source":{"id":10,"type":20},"phase":2,"params":{"url":"https://cache.example/app.css","net_error":-2}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { cacheState } = await buildNetlogCompactEventIndex(file);
+
+    expect(cacheState.eventCount).toBe(2);
+    expect(cacheState.openCount).toBe(1);
+    expect(cacheState.readCount).toBe(1);
+    expect(cacheState.errorCount).toBe(1);
+    expect(cacheState.entries).toEqual([
+      expect.objectContaining({
+        sourceId: 10,
+        urls: ['https://cache.example/app.css'],
+        operationKinds: expect.arrayContaining(['open', 'read']),
+      }),
+    ]);
+    expect(cacheState.impactSummaries).toEqual([
+      expect.objectContaining({
+        kind: 'error',
+        requestScoped: true,
+        error: -2,
+      }),
+    ]);
+  });
+
+  it('构建 Dataset 时生成 Alt-Svc 和 StreamPool State', async () => {
+    const text = '{"constants":{"logEventTypes":{"HTTP_STREAM_JOB_CONTROLLER_ALT_SVC_FOUND":1,"HTTP_STREAM_JOB_WAITING_FOR_TRANSPORT_POOL":2,"SOCKET_POOL_STALLED_MAX_SOCKETS_PER_GROUP":3},"logSourceType":{"HTTP_STREAM_JOB_CONTROLLER":20,"HTTP_STREAM_JOB":21,"SOCKET_POOL":22}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"host":"alt.example","protocol":"h3","alternative_service":"alt.example:443"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"url":"https://alt.example/api","source_dependency":{"id":10}}},{"time":"3","type":3,"source":{"id":11,"type":22},"phase":0,"params":{"group_name":"ssl/alt.example:443","net_error":-7}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { altSvcState, streamPoolState } = await buildNetlogCompactEventIndex(file);
+
+    expect(altSvcState.eventCount).toBe(1);
+    expect(altSvcState.foundCount).toBe(1);
+    expect(altSvcState.alternatives).toEqual([
+      expect.objectContaining({ host: 'alt.example', protocol: 'h3' }),
+    ]);
+    expect(streamPoolState.eventCount).toBe(2);
+    expect(streamPoolState.waitCount).toBe(1);
+    expect(streamPoolState.stalledCount).toBe(1);
+    expect(streamPoolState.errorCount).toBe(1);
+    expect(streamPoolState.sourceLinks).toEqual([
+      expect.objectContaining({ fromSourceId: 11, toSourceId: 10 }),
+    ]);
+  });
 });

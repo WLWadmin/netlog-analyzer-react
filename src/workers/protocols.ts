@@ -159,6 +159,30 @@ export interface GetNetlogSocketsStateRequest {
   };
 }
 
+export interface GetNetlogCacheStateRequest {
+  type: 'get-netlog-cache-state';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
+export interface GetNetlogAltSvcStateRequest {
+  type: 'get-netlog-alt-svc-state';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
+export interface GetNetlogStreamPoolStateRequest {
+  type: 'get-netlog-stream-pool-state';
+  id: string;
+  payload: {
+    analysisId: string;
+  };
+}
+
 export interface GetNetlogSourceChainRequest {
   type: 'get-netlog-source-chain';
   id: string;
@@ -222,6 +246,9 @@ export type WorkerRequest =
   | GetNetlogQuicStateRequest
   | GetNetlogHttp2StateRequest
   | GetNetlogSocketsStateRequest
+  | GetNetlogCacheStateRequest
+  | GetNetlogAltSvcStateRequest
+  | GetNetlogStreamPoolStateRequest
   | GetNetlogSourceChainRequest
   | GetNetlogRawEvidenceStructureRequest
   | QueryNetlogRawEvidenceEventsRequest
@@ -233,7 +260,7 @@ export type WorkerRequest =
 export interface WorkerSuccessResponse {
   type: 'success';
   id: string;
-  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state' | 'netlog-http2-state' | 'netlog-sockets-state' | 'netlog-source-chain' | 'netlog-raw-evidence-structure' | 'netlog-raw-evidence-events';
+  resultType: 'netlog' | 'har' | 'log' | 'raw-search' | 'raw-release' | 'raw-structure' | 'raw-value' | 'netlog-dataset' | 'netlog-dataset-release' | 'netlog-events-query' | 'netlog-event-detail' | 'netlog-endpoint-evidence' | 'netlog-data-loaded' | 'netlog-dns-state' | 'netlog-proxy-state' | 'netlog-quic-state' | 'netlog-http2-state' | 'netlog-sockets-state' | 'netlog-cache-state' | 'netlog-alt-svc-state' | 'netlog-stream-pool-state' | 'netlog-source-chain' | 'netlog-raw-evidence-structure' | 'netlog-raw-evidence-events';
   payload: unknown; // Parsed result (AnalysisResult | HarAnalysisResult | LogAnalysisResult)
   events?: unknown; // Only for netlog: ParsedEvent[]
   rawPayload?: unknown; // Parsed original JSON for raw evidence explorer

@@ -311,6 +311,153 @@ export interface SocketsStateView {
   evidenceGaps: string[];
 }
 
+export interface CacheStateView {
+  entries: Array<{
+    sourceId: number;
+    sourceTypeName: string;
+    eventCount: number;
+    operationKinds: string[];
+    urls: string[];
+    cacheKeys: string[];
+    errorCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+    sourceDependencyIds?: number[];
+  }>;
+  operations: Array<NetlogStateTrace & {
+    kind: 'open' | 'create' | 'read' | 'write' | 'doom' | 'validation' | 'bypass' | 'network' | 'cache-event';
+    url?: string;
+    cacheKey?: string;
+    error?: number | string;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'miss' | 'error' | 'doom' | 'bypass' | 'validation' | 'cache-event';
+    url?: string;
+    cacheKey?: string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  eventCount: number;
+  openCount: number;
+  createCount: number;
+  readCount: number;
+  writeCount: number;
+  doomCount: number;
+  bypassCount: number;
+  validationCount: number;
+  errorCount: number;
+  requestScopedCandidateCount: number;
+  evidenceGaps: string[];
+}
+
+export interface AltSvcStateView {
+  alternatives: Array<{
+    key: string;
+    host?: string;
+    origin?: string;
+    protocol?: string;
+    alternativeService?: string;
+    port?: number | string;
+    expiration?: string | number;
+    eventCount: number;
+    brokenCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+  }>;
+  events: Array<NetlogStateTrace & {
+    kind: 'found' | 'used' | 'broken' | 'cleared' | 'mapped' | 'alt-svc-event';
+    host?: string;
+    origin?: string;
+    protocol?: string;
+    alternativeService?: string;
+    port?: number | string;
+    error?: number | string;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'broken' | 'fallback' | 'mapped' | 'alt-svc-event';
+    host?: string;
+    origin?: string;
+    protocol?: string;
+    alternativeService?: string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  eventCount: number;
+  foundCount: number;
+  usedCount: number;
+  brokenCount: number;
+  clearedCount: number;
+  requestScopedCandidateCount: number;
+  evidenceGaps: string[];
+}
+
+export interface StreamPoolStateView {
+  jobs: Array<{
+    sourceId: number;
+    sourceTypeName: string;
+    eventCount: number;
+    waitCount: number;
+    stalledCount: number;
+    reusedSocketCount: number;
+    boundSocketCount: number;
+    connectJobCount: number;
+    errors: Array<number | string>;
+    groups: string[];
+    urls: string[];
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+    sourceDependencyIds?: number[];
+  }>;
+  events: Array<NetlogStateTrace & {
+    kind: 'waiting' | 'stalled' | 'reused-socket' | 'bound-socket' | 'connect-job' | 'bound-request' | 'orphaned' | 'delayed' | 'pool-event';
+    group?: string;
+    url?: string;
+    error?: number | string;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'stalled' | 'waiting' | 'orphaned' | 'delayed' | 'error' | 'pool-event';
+    group?: string;
+    url?: string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  sourceLinks: Array<NetlogStateTrace & {
+    fromSourceId: number;
+    toSourceId: number;
+    kind: 'source-dependency';
+  }>;
+  eventCount: number;
+  waitCount: number;
+  stalledCount: number;
+  reusedSocketCount: number;
+  boundSocketCount: number;
+  connectJobCount: number;
+  errorCount: number;
+  requestScopedCandidateCount: number;
+  evidenceGaps: string[];
+}
+
 export interface NetlogSourceChainNodeView {
   id: number;
   type: string;

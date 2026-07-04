@@ -5,7 +5,10 @@ import { createNetlogProxyStateReducer } from './netlogProxyStateReducer';
 import { createNetlogQuicStateReducer } from './netlogQuicStateReducer';
 import { createNetlogHttp2StateReducer } from './netlogHttp2StateReducer';
 import { createNetlogSocketsStateReducer } from './netlogSocketsStateReducer';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from './netlogDatasetViews';
+import { createNetlogCacheStateReducer } from './netlogCacheStateReducer';
+import { createNetlogAltSvcStateReducer } from './netlogAltSvcStateReducer';
+import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReducer';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView } from './netlogDatasetViews';
 
 export interface CompactEventIndex {
   count: number;
@@ -32,6 +35,9 @@ export interface NetlogDatasetIndexResult {
   quicState: QuicStateView;
   http2State: Http2StateView;
   socketsState: SocketsStateView;
+  cacheState: CacheStateView;
+  altSvcState: AltSvcStateView;
+  streamPoolState: StreamPoolStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -222,6 +228,9 @@ export async function buildNetlogCompactEventIndex(
   const quicStateReducer = createNetlogQuicStateReducer();
   const http2StateReducer = createNetlogHttp2StateReducer();
   const socketsStateReducer = createNetlogSocketsStateReducer();
+  const cacheStateReducer = createNetlogCacheStateReducer();
+  const altSvcStateReducer = createNetlogAltSvcStateReducer();
+  const streamPoolStateReducer = createNetlogStreamPoolStateReducer();
   const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
@@ -306,6 +315,9 @@ export async function buildNetlogCompactEventIndex(
     quicStateReducer.accept(seed);
     http2StateReducer.accept(seed);
     socketsStateReducer.accept(seed);
+    cacheStateReducer.accept(seed);
+    altSvcStateReducer.accept(seed);
+    streamPoolStateReducer.accept(seed);
     objectBytes = [];
     objectStart = -1;
   };
@@ -489,5 +501,8 @@ export async function buildNetlogCompactEventIndex(
     quicState: quicStateReducer.finish(),
     http2State: http2StateReducer.finish(),
     socketsState: socketsStateReducer.finish(),
+    cacheState: cacheStateReducer.finish(),
+    altSvcState: altSvcStateReducer.finish(),
+    streamPoolState: streamPoolStateReducer.finish(),
   };
 }

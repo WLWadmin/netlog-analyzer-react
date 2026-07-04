@@ -14,8 +14,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -54,7 +54,7 @@ function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'succes
     return {
       type: 'success',
       message: 'Dataset 已接管专家证据视图',
-      description: `Dataset 已完成索引${dataset.eventCount !== undefined ? `（${dataset.eventCount.toLocaleString()} 条事件）` : ''}，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 可基于全量事件查询。注意：状态事实仍只是证据浏览，不等同于已确认根因。`,
+      description: `Dataset 已完成索引${dataset.eventCount !== undefined ? `（${dataset.eventCount.toLocaleString()} 条事件）` : ''}，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 可基于全量事件查询。注意：状态事实仍只是证据浏览，不等同于已确认根因。`,
     };
   }
   if (dataset?.status === 'importing') {
@@ -62,8 +62,8 @@ function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'succes
       type: 'info',
       message: 'Dataset 正在后台索引全量 NetLog 事件',
       description: dataset.phase
-        ? `${dataset.phase}。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。`
-        : '索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。',
+        ? `${dataset.phase}。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。`
+        : '索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。',
     };
   }
   if (dataset?.status === 'error') {
@@ -904,6 +904,345 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
   );
 };
 
+const DatasetCacheStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<CacheStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogCacheStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) {
+    return <Alert type="warning" showIcon message="Dataset Cache State 读取失败" description={error} />;
+  }
+  if (!view) {
+    return <Alert type="info" showIcon message="正在读取 Dataset Cache State 视图" />;
+  }
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="Cache State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Cache State 展示浏览器缓存层操作"
+          description="cache hit/miss、revalidation、doom 或 cache error 只是缓存层事实，不能单独证明请求失败根因；需要结合请求状态码、网络请求、代理、DNS 和服务端缓存头判断。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.errorCount > 0 || view.bypassCount > 0 || view.doomCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Cache 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Open/Create">{view.openCount} / {view.createCount}</Descriptions.Item>
+          <Descriptions.Item label="Read/Write">{view.readCount} / {view.writeCount}</Descriptions.Item>
+          <Descriptions.Item label="Doom/Bypass">{view.doomCount} / {view.bypassCount}</Descriptions.Item>
+          <Descriptions.Item label="Revalidation">{view.validationCount}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
+          <Descriptions.Item label="Impact candidates">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Operations', dataIndex: 'operationKinds', width: 180, render: (value: string[]) => value.join(', ') || '-' },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'URLs', dataIndex: 'urls', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
+            { title: 'Cache keys', dataIndex: 'cacheKeys', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+          ]}
+          dataSource={view.entries}
+          locale={{ emptyText: '未发现 Dataset HTTP/DISK/SIMPLE cache 状态' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 110 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Cache key', dataIndex: 'cacheKey', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 Cache impact summary' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}-operation`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 110 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.operations}
+          locale={{ emptyText: '未发现 Cache operation' }}
+        />
+      </Space>
+      <Modal
+        title="Raw Event Detail"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
+const DatasetAltSvcStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<AltSvcStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogAltSvcStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset Alt-Svc State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Alt-Svc State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="Alt-Svc State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Alt-Svc State 展示 HTTP/3 / 替代服务候选"
+          description="Alt-Svc found/broken 是协议选择事实，不能单独证明 QUIC 或 HTTP/3 是根因；需要结合 QUIC、HTTP/2、代理和防火墙 UDP 443 支持判断。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.brokenCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Alt-Svc 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Found/Used">{view.foundCount} / {view.usedCount}</Descriptions.Item>
+          <Descriptions.Item label="Broken/Cleared">{view.brokenCount} / {view.clearedCount}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="key"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Host', dataIndex: 'host', width: 180, render: (value?: string) => value || '-' },
+            { title: 'Origin', dataIndex: 'origin', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Protocol', dataIndex: 'protocol', width: 110, render: (value?: string) => value || '-' },
+            { title: 'Alternative', dataIndex: 'alternativeService', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Port', dataIndex: 'port', width: 90, render: (value?: number | string) => value ?? '-' },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Broken', dataIndex: 'brokenCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+          ]}
+          dataSource={view.alternatives}
+          locale={{ emptyText: '未发现 Dataset Alt-Svc 候选' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 110 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Host', dataIndex: 'host', width: 180, render: (value?: string) => value || '-' },
+            { title: 'Protocol', dataIndex: 'protocol', width: 110, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 Alt-Svc impact summary' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
+const DatasetStreamPoolStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<StreamPoolStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogStreamPoolStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset StreamPool State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset StreamPool State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="StreamPool State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="StreamPool State 展示连接池等待、复用和绑定线索"
+          description="waiting/stalled 只是连接池事实，不能单独证明网络故障；需要结合 Sockets、Proxy、DNS、HTTP/2/QUIC 和请求 source chain 判断。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.stalledCount > 0 || view.errorCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Pool/Stream 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Waiting/Stalled">{view.waitCount} / {view.stalledCount}</Descriptions.Item>
+          <Descriptions.Item label="Reused/Bound socket">{view.reusedSocketCount} / {view.boundSocketCount}</Descriptions.Item>
+          <Descriptions.Item label="Connect jobs">{view.connectJobCount}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Wait', dataIndex: 'waitCount', width: 80 },
+            { title: 'Stall', dataIndex: 'stalledCount', width: 80, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Reuse/Bound', key: 'reuse', width: 120, render: (_, row) => `${row.reusedSocketCount} / ${row.boundSocketCount}` },
+            { title: 'Groups', dataIndex: 'groups', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
+            { title: 'URLs', dataIndex: 'urls', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
+          ]}
+          dataSource={view.jobs}
+          locale={{ emptyText: '未发现 Dataset HTTP stream / socket pool 状态' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 110 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Group', dataIndex: 'group', width: 190, ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 StreamPool impact summary' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -1061,6 +1400,33 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
             title="Sockets State"
             dataset={dataset}
             description="Dataset 未就绪时只能展示摘要中的连接/IP 线索；索引完成后会展示 socket pool、connect、tls、stall、peer address 和 raw event 跳转。"
+          />
+        )}
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetCacheStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="Cache State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示 summary 中的缓存事件数量；索引完成后会展示 cache open/read/write/doom、cache error、impact summary 和 raw event 跳转。"
+          />
+        )}
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetAltSvcStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="Alt-Svc State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示摘要中的 QUIC/HTTP3 线索；索引完成后会展示 Alt-Svc found/broken、HTTP/3 候选和 raw event 跳转。"
+          />
+        )}
+        {dataset?.status === 'ready' && dataset.analysisId ? (
+          <DatasetStreamPoolStateCard analysisId={dataset.analysisId} />
+        ) : (
+          <StateGapCard
+            title="StreamPool State"
+            dataset={dataset}
+            description="Dataset 未就绪时只能展示摘要中的连接层线索；索引完成后会展示 HTTP stream、socket pool waiting/stalled、连接复用和 raw event 跳转。"
           />
         )}
       </div>

@@ -1,6 +1,6 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView } from './netlogDatasetViews';
 
 export interface NetlogDatasetMeta {
   analysisId: string;
@@ -24,6 +24,9 @@ export interface NetlogDataset {
   quicState?: QuicStateView;
   http2State?: Http2StateView;
   socketsState?: SocketsStateView;
+  cacheState?: CacheStateView;
+  altSvcState?: AltSvcStateView;
+  streamPoolState?: StreamPoolStateView;
 }
 
 export interface NetlogDatasetStore {
@@ -36,7 +39,10 @@ export interface NetlogDatasetStore {
     proxyState?: ProxyStateView,
     quicState?: QuicStateView,
     http2State?: Http2StateView,
-    socketsState?: SocketsStateView
+    socketsState?: SocketsStateView,
+    cacheState?: CacheStateView,
+    altSvcState?: AltSvcStateView,
+    streamPoolState?: StreamPoolStateView
   ): NetlogDatasetMeta;
   get(analysisId: string): NetlogDataset | undefined;
   release(analysisId: string): boolean;
@@ -57,7 +63,10 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
     proxyState?: ProxyStateView,
     quicState?: QuicStateView,
     http2State?: Http2StateView,
-    socketsState?: SocketsStateView
+    socketsState?: SocketsStateView,
+    cacheState?: CacheStateView,
+    altSvcState?: AltSvcStateView,
+    streamPoolState?: StreamPoolStateView
   ): NetlogDatasetMeta => {
     counter += 1;
     const analysisId = `netlog-dataset-${Date.now()}-${counter}`;
@@ -70,7 +79,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
       status: 'ready',
       eventCount: eventIndex?.count,
     };
-    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState });
+    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState });
     return meta;
   };
 
