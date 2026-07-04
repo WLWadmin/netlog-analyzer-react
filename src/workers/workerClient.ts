@@ -17,7 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, NetlogSourceChainView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogSourceChainView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -426,6 +426,22 @@ export async function getNetlogStreamPoolStateInWorker(
     options
   );
   return response.payload as StreamPoolStateView;
+}
+
+export async function getNetlogReportingStateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<ReportingStateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-reporting-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as ReportingStateView;
 }
 
 export async function getNetlogSourceChainInWorker(

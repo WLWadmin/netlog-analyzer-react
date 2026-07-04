@@ -27,6 +27,29 @@ describe('createNetlogDatasetStore', () => {
     expect(store.size()).toBe(1);
   });
 
+  it('保存 Reporting/NEL state', () => {
+    const store = createNetlogDatasetStore();
+    const file = new File(['{"events":[]}'], 'reporting-netlog.json', { type: 'application/json' });
+    const reportingState = {
+      endpoints: [],
+      events: [],
+      impactSummaries: [],
+      eventCount: 1,
+      endpointCount: 0,
+      queuedCount: 0,
+      uploadCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      cacheCount: 0,
+      requestScopedCandidateCount: 0,
+      evidenceGaps: [],
+    };
+
+    const meta = store.importFile(file, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, reportingState);
+
+    expect(store.get(meta.analysisId)?.reportingState).toBe(reportingState);
+  });
+
   it('支持释放单个 dataset 和全部 dataset', () => {
     const store = createNetlogDatasetStore();
     const first = store.importFile(new File(['{}'], 'a.json'));

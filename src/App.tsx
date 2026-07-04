@@ -28,6 +28,7 @@ import {
   getNetlogHttp2StateInWorker,
   getNetlogProxyStateInWorker,
   getNetlogQuicStateInWorker,
+  getNetlogReportingStateInWorker,
   getNetlogSocketsStateInWorker,
   getNetlogStreamPoolStateInWorker,
   importNetlogDatasetInWorker,
@@ -780,6 +781,7 @@ const AppContent: React.FC = () => {
           getNetlogCacheStateInWorker({ analysisId }),
           getNetlogAltSvcStateInWorker({ analysisId }),
           getNetlogStreamPoolStateInWorker({ analysisId }),
+          getNetlogReportingStateInWorker({ analysisId }),
         ])
         : undefined;
 
@@ -795,6 +797,7 @@ const AppContent: React.FC = () => {
         cacheState: states?.[5],
         altSvcState: states?.[6],
         streamPoolState: states?.[7],
+        reportingState: states?.[8],
       });
 
       const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });

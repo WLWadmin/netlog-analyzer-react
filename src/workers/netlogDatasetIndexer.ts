@@ -8,7 +8,8 @@ import { createNetlogSocketsStateReducer } from './netlogSocketsStateReducer';
 import { createNetlogCacheStateReducer } from './netlogCacheStateReducer';
 import { createNetlogAltSvcStateReducer } from './netlogAltSvcStateReducer';
 import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReducer';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView } from './netlogDatasetViews';
+import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
 
 export interface CompactEventIndex {
   count: number;
@@ -38,6 +39,7 @@ export interface NetlogDatasetIndexResult {
   cacheState: CacheStateView;
   altSvcState: AltSvcStateView;
   streamPoolState: StreamPoolStateView;
+  reportingState: ReportingStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -231,6 +233,7 @@ export async function buildNetlogCompactEventIndex(
   const cacheStateReducer = createNetlogCacheStateReducer();
   const altSvcStateReducer = createNetlogAltSvcStateReducer();
   const streamPoolStateReducer = createNetlogStreamPoolStateReducer();
+  const reportingStateReducer = createNetlogReportingStateReducer();
   const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
@@ -318,6 +321,7 @@ export async function buildNetlogCompactEventIndex(
     cacheStateReducer.accept(seed);
     altSvcStateReducer.accept(seed);
     streamPoolStateReducer.accept(seed);
+    reportingStateReducer.accept(seed);
     objectBytes = [];
     objectStart = -1;
   };
@@ -504,5 +508,6 @@ export async function buildNetlogCompactEventIndex(
     cacheState: cacheStateReducer.finish(),
     altSvcState: altSvcStateReducer.finish(),
     streamPoolState: streamPoolStateReducer.finish(),
+    reportingState: reportingStateReducer.finish(),
   };
 }

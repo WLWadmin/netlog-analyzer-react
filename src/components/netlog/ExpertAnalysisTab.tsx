@@ -14,8 +14,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -54,7 +54,7 @@ function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'succes
     return {
       type: 'success',
       message: 'Dataset 已接管专家证据视图',
-      description: `Dataset 已完成索引${dataset.eventCount !== undefined ? `（${dataset.eventCount.toLocaleString()} 条事件）` : ''}，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 可基于全量事件查询。注意：状态事实仍只是证据浏览，不等同于已确认根因。`,
+      description: `Dataset 已完成索引${dataset.eventCount !== undefined ? `（${dataset.eventCount.toLocaleString()} 条事件）` : ''}，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Reporting/Endpoint Evidence 可基于全量事件查询。注意：状态事实仍只是证据浏览，不等同于已确认根因。`,
     };
   }
   if (dataset?.status === 'importing') {
@@ -62,8 +62,8 @@ function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'succes
       type: 'info',
       message: 'Dataset 正在后台索引全量 NetLog 事件',
       description: dataset.phase
-        ? `${dataset.phase}。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。`
-        : '索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。',
+        ? `${dataset.phase}。索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Reporting/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。`
+        : '索引完成后，Events/Data Loaded/DNS/Proxy/QUIC/HTTP/2/Sockets/Cache/Alt-Svc/StreamPool/Reporting/Endpoint Evidence 将切换到完整 Dataset。当前结果仍可能只包含 preview 或 summary fallback。',
     };
   }
   if (dataset?.status === 'error') {
@@ -1243,6 +1243,112 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string }> = ({ analysis
   );
 };
 
+const DatasetReportingStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+  const [view, setView] = useState<ReportingStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogReportingStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset Reporting/NEL State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Reporting/NEL State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title="Reporting/NEL State" bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Reporting/NEL State 展示浏览器网络错误上报机制"
+          description="Reporting/NEL 是旁路上报机制。报告 queued、endpoint config 或 upload failure 不能单独证明业务请求失败，只能说明浏览器是否尝试记录或上报网络错误。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.failureCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Reporting/NEL 事件">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Endpoints">{view.endpointCount}</Descriptions.Item>
+          <Descriptions.Item label="Queued">{view.queuedCount}</Descriptions.Item>
+          <Descriptions.Item label="Uploaded/Succeeded">{view.uploadCount} / {view.successCount}</Descriptions.Item>
+          <Descriptions.Item label="Failures">{view.failureCount}</Descriptions.Item>
+          <Descriptions.Item label="Cache events">{view.cacheCount}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="key"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Origin', dataIndex: 'origin', width: 220, render: (value?: string) => value || '-' },
+            { title: 'Group', dataIndex: 'group', width: 120, render: (value?: string) => value || '-' },
+            { title: 'Endpoint', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Priority', dataIndex: 'priority', width: 90, render: (value?: number | string) => value ?? '-' },
+            { title: 'Weight', dataIndex: 'weight', width: 90, render: (value?: number | string) => value ?? '-' },
+            { title: 'Uploads', dataIndex: 'uploadCount', width: 90 },
+            { title: 'Failures', dataIndex: 'failureCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Event range', key: 'range', width: 140, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+          ]}
+          dataSource={view.endpoints}
+          locale={{ emptyText: '未发现 Dataset Reporting/NEL endpoint' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 140 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Origin', dataIndex: 'origin', width: 220, render: (value?: string) => value || '-' },
+            { title: 'Endpoint', dataIndex: 'endpointUrl', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Report type', dataIndex: 'reportType', width: 140, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 Reporting/NEL impact summary' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -1422,6 +1528,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
           <DatasetStreamPoolStateCard analysisId={dataset.analysisId} />
+          <DatasetReportingStateCard analysisId={dataset.analysisId} />
         ) : (
           <StateGapCard
             title="StreamPool State"

@@ -159,7 +159,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
   if (singleScanDataset) {
     sendProgress(id, '正在单次扫描 NetLog 并构建 Dataset...', 1);
     const analyzer = createNetlogStreamingAnalyzer();
-    const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState } = await buildNetlogCompactEventIndex(file, {
+    const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(file, {
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
       onEvent: (event) => {
         try {
@@ -180,7 +180,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       truncatedEventsPreview: meta.truncatedEventsPreview,
       reachedEventsEnd: true,
     };
-    const datasetMeta = netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState);
+    const datasetMeta = netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState);
     const duration = performance.now() - start;
     logLargeNetlogDebug(id, 'worker:single-scan-success', {
       duration,
@@ -571,8 +571,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState);
+          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;
@@ -722,6 +722,19 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         break;
       }
 
+      case 'get-netlog-reporting-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset) throw new Error(`NetLog Dataset 不存在：${msg.payload.analysisId}`);
+        if (!dataset.reportingState) throw new Error('当前 Dataset 未生成 Reporting State');
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-reporting-state',
+          payload: dataset.reportingState,
+          duration: performance.now() - start,
+        });
+        break;
+      }
       case 'get-netlog-stream-pool-state': {
         const dataset = netlogDatasetStore.get(msg.payload.analysisId);
         if (!dataset?.streamPoolState) throw new Error(`NetLog Dataset StreamPool state 不存在：${msg.payload.analysisId}`);

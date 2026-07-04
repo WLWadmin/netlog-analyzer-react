@@ -191,4 +191,21 @@ describe('netlogDatasetIndexer', () => {
       expect.objectContaining({ fromSourceId: 11, toSourceId: 10 }),
     ]);
   });
+
+  it('构建 Dataset 时生成 Reporting/NEL State', async () => {
+    const text = '{"constants":{"logEventTypes":{"REPORTING_HEADER_PARSED":1,"NETWORK_ERROR_LOGGING_REPORT_QUEUED":2,"REPORTING_UPLOAD_FAILED":3},"logSourceType":{"URL_REQUEST":20,"REPORTING":21}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"origin":"https://app.example","group":"default","endpoint_url":"https://reports.example/nel"}},{"time":"2","type":2,"source":{"id":11,"type":20},"phase":0,"params":{"origin":"https://app.example","url":"https://app.example/api","report_type":"network-error"}},{"time":"3","type":3,"source":{"id":12,"type":21},"phase":0,"params":{"origin":"https://app.example","endpoint_url":"https://reports.example/nel","net_error":-105}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { reportingState } = await buildNetlogCompactEventIndex(file);
+
+    expect(reportingState.eventCount).toBe(3);
+    expect(reportingState.endpointCount).toBe(2);
+    expect(reportingState.queuedCount).toBe(1);
+    expect(reportingState.failureCount).toBe(1);
+    expect(reportingState.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'endpoint-config', requestScoped: true }),
+      expect.objectContaining({ kind: 'queued', requestScoped: true }),
+      expect.objectContaining({ kind: 'upload-failure', error: -105 }),
+    ]));
+  });
 });

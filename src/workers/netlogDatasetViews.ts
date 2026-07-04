@@ -458,6 +458,60 @@ export interface StreamPoolStateView {
   evidenceGaps: string[];
 }
 
+export interface ReportingStateView {
+  endpoints: Array<{
+    key: string;
+    origin?: string;
+    group?: string;
+    url?: string;
+    priority?: number | string;
+    weight?: number | string;
+    expires?: string | number;
+    eventCount: number;
+    uploadCount: number;
+    failureCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+  }>;
+  events: Array<NetlogStateTrace & {
+    kind: 'queued' | 'uploaded' | 'succeeded' | 'failed' | 'endpoint-config' | 'cache' | 'reporting-event';
+    origin?: string;
+    group?: string;
+    url?: string;
+    endpointUrl?: string;
+    reportType?: string;
+    statusCode?: number | string;
+    error?: number | string;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'upload-failure' | 'endpoint-config' | 'queued' | 'cache' | 'reporting-event';
+    origin?: string;
+    group?: string;
+    url?: string;
+    endpointUrl?: string;
+    reportType?: string;
+    statusCode?: number | string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  eventCount: number;
+  endpointCount: number;
+  queuedCount: number;
+  uploadCount: number;
+  successCount: number;
+  failureCount: number;
+  cacheCount: number;
+  requestScopedCandidateCount: number;
+  evidenceGaps: string[];
+}
+
 export interface NetlogSourceChainNodeView {
   id: number;
   type: string;

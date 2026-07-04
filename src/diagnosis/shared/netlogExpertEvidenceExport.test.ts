@@ -1,6 +1,6 @@
 import { buildNetlogExpertEvidencePackage } from './netlogExpertEvidenceExport';
 import type { AnalysisResult } from '../../parsers/netlog/parser';
-import type { AltSvcStateView, CacheStateView, StreamPoolStateView } from '../../workers/netlogDatasetViews';
+import type { AltSvcStateView, CacheStateView, ReportingStateView, StreamPoolStateView } from '../../workers/netlogDatasetViews';
 
 function baseResult(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
   return {
@@ -158,5 +158,52 @@ describe('buildNetlogExpertEvidencePackage', () => {
     expect(report).toContain('example.com\\|h3');
     expect(report).toContain('## StreamPool State');
     expect(report).toContain('401');
+  });
+
+  it('includes reporting state with masked endpoints', () => {
+    const reportingState: ReportingStateView = {
+      endpoints: [{
+        key: 'https://app.example|default|https://reports.example/nel?token=secret',
+        origin: 'https://app.example',
+        group: 'default',
+        url: 'https://reports.example/nel?token=secret',
+        eventCount: 1,
+        uploadCount: 0,
+        failureCount: 1,
+        firstEventId: 601,
+      }],
+      events: [],
+      impactSummaries: [{
+        kind: 'upload-failure',
+        eventId: 602,
+        sourceId: 702,
+        requestScoped: true,
+        endpointUrl: 'https://reports.example/nel?token=secret',
+        error: -105,
+        summary: 'REPORTING_UPLOAD_FAILED；endpoint=https://reports.example/nel?token=secret；error=-105',
+      }],
+      eventCount: 2,
+      endpointCount: 1,
+      queuedCount: 0,
+      uploadCount: 0,
+      successCount: 0,
+      failureCount: 1,
+      cacheCount: 0,
+      requestScopedCandidateCount: 1,
+      evidenceGaps: [],
+    };
+
+    const report = buildNetlogExpertEvidencePackage({
+      result: baseResult(),
+      datasetReady: true,
+      reportingState,
+      generatedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    expect(report).toContain('## Reporting/NEL State');
+    expect(report).toContain('601');
+    expect(report).toContain('602');
+    expect(report).toContain('token=***');
+    expect(report).not.toContain('token=secret');
   });
 });

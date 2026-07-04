@@ -6,6 +6,7 @@ import type {
   Http2StateView,
   ProxyStateView,
   QuicStateView,
+  ReportingStateView,
   SocketsStateView,
   StreamPoolStateView,
 } from '../../workers/netlogDatasetViews';
@@ -23,6 +24,7 @@ export interface NetlogExpertEvidencePackageInput {
   cacheState?: CacheStateView;
   altSvcState?: AltSvcStateView;
   streamPoolState?: StreamPoolStateView;
+  reportingState?: ReportingStateView;
   generatedAt?: Date;
 }
 
@@ -52,6 +54,7 @@ export function buildNetlogExpertEvidencePackage(input: NetlogExpertEvidencePack
   addCacheSection(lines, input.cacheState);
   addAltSvcSection(lines, input.altSvcState);
   addStreamPoolSection(lines, input.streamPoolState);
+  addReportingSection(lines, input.reportingState);
 
   lines.push('## 证据使用说明');
   lines.push('- `eventId` / `sourceId` 可回到 Raw Evidence 或 Events 中定位原始事件。');
@@ -270,6 +273,34 @@ function addStreamPoolSection(lines: string[], state?: StreamPoolStateView) {
     ['请求级候选', state.requestScopedCandidateCount],
     ['证据缺口', state.evidenceGaps.join('; ') || '-'],
   ]);
+  lines.push('');
+  addImpactTable(lines, state.impactSummaries);
+}
+
+function addReportingSection(lines: string[], state?: ReportingStateView) {
+  lines.push('## Reporting/NEL State');
+  if (!state) return addMissingState(lines);
+  addTable(lines, ['项目', '值'], [
+    ['Endpoint', state.endpointCount],
+    ['事件数', state.eventCount],
+    ['Queued', state.queuedCount],
+    ['Uploaded / Succeeded', `${state.uploadCount} / ${state.successCount}`],
+    ['Failure', state.failureCount],
+    ['Cache', state.cacheCount],
+    ['请求级候选', state.requestScopedCandidateCount],
+    ['证据缺口', state.evidenceGaps.join('; ') || '-'],
+  ]);
+  lines.push('');
+  lines.push('### Reporting Endpoint 样例');
+  addTable(lines, ['key', 'origin', 'group', 'endpoint', 'upload', 'failure', 'eventId'], state.endpoints.slice(0, MAX_ROWS).map(item => [
+    item.key,
+    item.origin || '-',
+    item.group || '-',
+    item.url || '-',
+    item.uploadCount,
+    item.failureCount,
+    item.firstEventId ?? '-',
+  ]));
   lines.push('');
   addImpactTable(lines, state.impactSummaries);
 }
