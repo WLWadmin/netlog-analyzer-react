@@ -22,6 +22,14 @@ import { ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
 import { HarAnalysisResult } from './harParser';
 import { LogAnalysisResult } from './logParser';
 import {
+  getNetlogAltSvcStateInWorker,
+  getNetlogCacheStateInWorker,
+  getNetlogDnsStateInWorker,
+  getNetlogHttp2StateInWorker,
+  getNetlogProxyStateInWorker,
+  getNetlogQuicStateInWorker,
+  getNetlogSocketsStateInWorker,
+  getNetlogStreamPoolStateInWorker,
   importNetlogDatasetInWorker,
   isWorkerSupported,
   largeNetlogTimeout,
@@ -44,6 +52,7 @@ import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 import { buildAppHash, parseAppHash, type FileType } from './utils/hashRouting';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
+import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
 
 const { Header, Content } = Layout;
 
@@ -107,6 +116,7 @@ const AppContent: React.FC = () => {
   const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
+  const [exportingExpertEvidence, setExportingExpertEvidence] = useState(false);
   const [showBackTop, setShowBackTop] = useState(false);
   const [activeTab, setActiveTab] = useState('conclusion');
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>();
@@ -753,6 +763,60 @@ const AppContent: React.FC = () => {
     message.success('CSV 请求列表已导出');
   };
 
+  const handleExportExpertEvidence = async () => {
+    if (!result || exportingExpertEvidence) return;
+
+    setExportingExpertEvidence(true);
+    try {
+      const analysisId = netlogDataset.status === 'ready' ? netlogDataset.analysisId : undefined;
+      const datasetReady = Boolean(analysisId);
+      const states = analysisId
+        ? await Promise.all([
+          getNetlogDnsStateInWorker({ analysisId }),
+          getNetlogProxyStateInWorker({ analysisId }),
+          getNetlogQuicStateInWorker({ analysisId }),
+          getNetlogHttp2StateInWorker({ analysisId }),
+          getNetlogSocketsStateInWorker({ analysisId }),
+          getNetlogCacheStateInWorker({ analysisId }),
+          getNetlogAltSvcStateInWorker({ analysisId }),
+          getNetlogStreamPoolStateInWorker({ analysisId }),
+        ])
+        : undefined;
+
+      const report = buildNetlogExpertEvidencePackage({
+        result,
+        analysisId,
+        datasetReady,
+        dnsState: states?.[0],
+        proxyState: states?.[1],
+        quicState: states?.[2],
+        http2State: states?.[3],
+        socketsState: states?.[4],
+        cacheState: states?.[5],
+        altSvcState: states?.[6],
+        streamPoolState: states?.[7],
+      });
+
+      const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `netlog-expert-evidence-${Date.now()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      if (datasetReady) {
+        message.success('专家证据包已导出');
+      } else {
+        message.warning('Dataset 尚未就绪，已导出 summary-only 证据包');
+      }
+    } catch (error) {
+      message.error(`专家证据包导出失败：${safeErrorMessage(error)}`);
+    } finally {
+      setExportingExpertEvidence(false);
+    }
+  };
+
   const tabItems = [
     {
       key: 'conclusion',
@@ -940,6 +1004,7 @@ const AppContent: React.FC = () => {
                   menu={{
                     items: [
                       { key: 'md', label: 'Markdown 报告', icon: <FileTextOutlined />, onClick: handleExport },
+                      { key: 'expert-evidence', label: exportingExpertEvidence ? '专家证据包生成中...' : '专家证据包', icon: <FileSearchOutlined />, onClick: handleExportExpertEvidence, disabled: exportingExpertEvidence },
                       { key: 'json', label: 'JSON 数据', icon: <CodeOutlined />, onClick: handleExportJSON },
                       { key: 'csv', label: 'CSV 请求列表', icon: <UnorderedListOutlined />, onClick: handleExportCSV },
                     ],
