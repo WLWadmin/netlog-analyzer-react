@@ -125,6 +125,11 @@ describe('createNetlogSocketsStateReducer', () => {
       }),
     ]));
     expect(view.requestScopedCandidateCount).toBe(0);
+    expect(view.lazyParamsStats).toEqual({
+      probeAttemptedEvents: 0,
+      probeSatisfiedEvents: 0,
+      fallbackParamEvents: 5,
+    });
     expect(view.evidenceGaps).toContain('部分 Socket impact 只有连接层锚点，缺少 source_dependency 或 URL_REQUEST 关联；只能作为连接层候选线索。');
   });
 
@@ -208,5 +213,81 @@ describe('createNetlogSocketsStateReducer', () => {
       }),
     ]);
     expect(view.evidenceGaps).not.toContain('未发现 Socket 显式 source dependency 边；连接层影响范围不能用 peer address 或时间邻近直接外推。');
+  });
+
+  it('可以只用 eventJson probe 生成常见 socket params，不读取完整 params 对象', () => {
+    const reducer = createNetlogSocketsStateReducer();
+
+    reducer.accept({
+      eventId: 20,
+      byteStart: 200,
+      byteEnd: 260,
+      time: 2000,
+      typeName: 'TCP_CONNECT_ATTEMPT',
+      sourceId: 800,
+      sourceTypeName: 'SOCKET',
+      eventJson: '{"time":"2000","type":1,"source":{"id":800,"type":20},"phase":0,"params":{"address":"198.51.100.8:443","group_name":"ssl/probe.example:443","net_error":-7,"details":"timeout","source_dependency":{"id":301,"type":"CONNECT_JOB"}}}',
+    });
+
+    const view = reducer.finish();
+
+    expect(view.lazyParamsStats).toEqual({
+      probeAttemptedEvents: 1,
+      probeSatisfiedEvents: 1,
+      fallbackParamEvents: 0,
+    });
+    expect(view.sockets).toEqual([
+      expect.objectContaining({
+        sourceId: 800,
+        peerAddresses: ['198.51.100.8:443'],
+        socketPools: ['ssl/probe.example:443'],
+        sourceDependencyIds: [301],
+        errorCount: 1,
+      }),
+    ]);
+    expect(view.errors).toEqual([
+      expect.objectContaining({
+        eventId: 20,
+        error: -7,
+        details: 'timeout',
+        peerAddress: '198.51.100.8:443',
+        sourceDependencyIds: [301],
+      }),
+    ]);
+    expect(view.requestScopedCandidateCount).toBe(2);
+  });
+
+  it('复杂 source dependency probe 不足时回退到 params 对象', () => {
+    const reducer = createNetlogSocketsStateReducer();
+
+    reducer.accept({
+      eventId: 21,
+      byteStart: 260,
+      byteEnd: 320,
+      time: 2100,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 801,
+      sourceTypeName: 'SOCKET',
+      eventJson: '{"time":"2100","type":1,"source":{"id":801,"type":20},"phase":0,"params":{"source_dependency":{},"address":"198.51.100.9:443"}}',
+      params: {
+        sourceDependency: { id: 302 },
+        address: '198.51.100.9:443',
+      },
+    });
+
+    const view = reducer.finish();
+
+    expect(view.lazyParamsStats).toEqual({
+      probeAttemptedEvents: 1,
+      probeSatisfiedEvents: 0,
+      fallbackParamEvents: 1,
+    });
+    expect(view.sockets).toEqual([
+      expect.objectContaining({
+        sourceId: 801,
+        peerAddresses: ['198.51.100.9:443'],
+        sourceDependencyIds: [302],
+      }),
+    ]);
   });
 });

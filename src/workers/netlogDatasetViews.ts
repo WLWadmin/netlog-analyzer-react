@@ -315,6 +315,11 @@ export interface SocketsStateView {
     unresolvedReason?: string;
   }>;
   requestScopedCandidateCount: number;
+  lazyParamsStats: {
+    probeAttemptedEvents: number;
+    probeSatisfiedEvents: number;
+    fallbackParamEvents: number;
+  };
   eventCount: number;
   connectCount: number;
   tlsCount: number;

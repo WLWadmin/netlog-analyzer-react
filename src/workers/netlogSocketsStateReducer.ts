@@ -1,4 +1,5 @@
 import type { SocketsStateView } from './netlogDatasetViews';
+import { hasNetlogSourceDependencyMarker } from './netlogEventJsonProbe';
 
 interface EventSeed {
   eventId: number;
@@ -9,6 +10,16 @@ interface EventSeed {
   sourceId: number;
   sourceTypeName: string;
   params?: Record<string, unknown>;
+  eventJson?: string;
+}
+
+interface SocketParamsSnapshot {
+  dependencySourceIds: number[];
+  peerAddress?: string;
+  pool?: string;
+  error?: number | string;
+  details?: string;
+  source: 'probe' | 'params';
 }
 
 interface SocketDraft {
@@ -108,6 +119,60 @@ function classifySocketImpact(typeName: string): SocketsStateView['impactSummari
   return 'socket-event';
 }
 
+function extractJsonStringOrNumber(json: string, fieldNames: string[]): string | number | undefined {
+  for (const fieldName of fieldNames) {
+    const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = json.match(new RegExp(`"${escaped}"\\s*:\\s*(?:"([^"]*)"|(-?\\d+(?:\\.\\d+)?))`));
+    if (match?.[1] !== undefined) return match[1];
+    if (match?.[2] !== undefined) return Number(match[2]);
+  }
+  return undefined;
+}
+
+function extractJsonSourceDependencyIds(json: string): number[] | undefined {
+  if (!hasNetlogSourceDependencyMarker(json)) return [];
+  const ids = new Set<number>();
+  const dependencyBlocks = json.match(/"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])|"dependencies"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])/g) || [];
+  for (const block of dependencyBlocks) {
+    const matches = block.matchAll(/"id"\s*:\s*(\d+)/g);
+    for (const match of matches) {
+      const id = Number(match[1]);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+  return ids.size > 0 ? Array.from(ids) : undefined;
+}
+
+function probeSocketParams(seed: EventSeed): SocketParamsSnapshot | undefined {
+  if (!seed.eventJson) return undefined;
+  const dependencySourceIds = extractJsonSourceDependencyIds(seed.eventJson);
+  if (dependencySourceIds === undefined) return undefined;
+  const peerAddress = firstString(extractJsonStringOrNumber(seed.eventJson, ['peer_address', 'peerAddress', 'address', 'remote_address', 'ip_endpoint']));
+  const pool = firstString(extractJsonStringOrNumber(seed.eventJson, ['group_name', 'groupName', 'pool_name', 'poolName', 'socket_pool', 'socketPool']));
+  const error = extractJsonStringOrNumber(seed.eventJson, ['net_error', 'error_code', 'error', 'os_error', 'ssl_error']);
+  const details = firstString(extractJsonStringOrNumber(seed.eventJson, ['details', 'description', 'reason', 'net_error_details']));
+  return {
+    dependencySourceIds: dependencySourceIds.filter(id => id !== seed.sourceId),
+    peerAddress,
+    pool,
+    error,
+    details,
+    source: 'probe',
+  };
+}
+
+function paramsSocketSnapshot(seed: EventSeed): SocketParamsSnapshot {
+  const params = seed.params || {};
+  return {
+    dependencySourceIds: extractDependencySourceIds(params).filter(id => id !== seed.sourceId),
+    peerAddress: firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint),
+    pool: firstString(params.group_name, params.groupName, params.pool_name, params.poolName, params.socket_pool, params.socketPool),
+    error: errorValue(params),
+    details: detailValue(params),
+    source: 'params',
+  };
+}
+
 export function createNetlogSocketsStateReducer() {
   const sockets = new Map<number, SocketDraft>();
   const socketPools = new Set<string>();
@@ -118,6 +183,9 @@ export function createNetlogSocketsStateReducer() {
   let connectCount = 0;
   let tlsCount = 0;
   let stallCount = 0;
+  let probeAttemptedEvents = 0;
+  let probeSatisfiedEvents = 0;
+  let fallbackParamEvents = 0;
 
   const ensureSocket = (seed: EventSeed): SocketDraft => {
     const existing = sockets.get(seed.sourceId);
@@ -149,8 +217,12 @@ export function createNetlogSocketsStateReducer() {
     eventCount += 1;
     const seedTime = seed.time ?? 0;
     const upperType = seed.typeName.toUpperCase();
-    const params = seed.params || {};
-    const dependencySourceIds = extractDependencySourceIds(params).filter(id => id !== seed.sourceId);
+    if (seed.eventJson) probeAttemptedEvents += 1;
+    const probedParams = probeSocketParams(seed);
+    if (probedParams) probeSatisfiedEvents += 1;
+    else fallbackParamEvents += 1;
+    const paramsSnapshot = probedParams || paramsSocketSnapshot(seed);
+    const dependencySourceIds = paramsSnapshot.dependencySourceIds;
     const draft = ensureSocket(seed);
     draft.eventCount += 1;
     draft.firstEventId = Math.min(draft.firstEventId ?? seed.eventId, seed.eventId);
@@ -174,10 +246,10 @@ export function createNetlogSocketsStateReducer() {
       });
     }
 
-    const peerAddress = firstString(params.peer_address, params.peerAddress, params.address, params.remote_address, params.ip_endpoint);
+    const peerAddress = paramsSnapshot.peerAddress;
     if (peerAddress) draft.peerAddresses.add(peerAddress);
 
-    const pool = firstString(params.group_name, params.groupName, params.pool_name, params.poolName, params.socket_pool, params.socketPool);
+    const pool = paramsSnapshot.pool;
     if (pool) {
       draft.socketPools.add(pool);
       socketPools.add(pool);
@@ -225,7 +297,7 @@ export function createNetlogSocketsStateReducer() {
       stallCount += 1;
     }
 
-    const error = errorValue(params);
+    const error = paramsSnapshot.error;
     if (error !== undefined) {
       draft.errorCount += 1;
       errors.push({
@@ -233,7 +305,7 @@ export function createNetlogSocketsStateReducer() {
         sourceId: seed.sourceId,
         typeName: seed.typeName,
         error,
-        details: detailValue(params),
+        details: paramsSnapshot.details,
         peerAddress,
         byteStart: seed.byteStart,
         byteEnd: seed.byteEnd,
@@ -251,7 +323,7 @@ export function createNetlogSocketsStateReducer() {
         peerAddress,
         socketPools: pool ? [pool] : undefined,
         error,
-        details: detailValue(params),
+        details: paramsSnapshot.details,
         sourceDependencyIds: dependencySourceIds,
         requestScoped,
         summary: [
@@ -291,6 +363,11 @@ export function createNetlogSocketsStateReducer() {
       errors,
       impactSummaries,
       requestScopedCandidateCount: impactSummaries.filter(item => item.requestScoped).length,
+      lazyParamsStats: {
+        probeAttemptedEvents,
+        probeSatisfiedEvents,
+        fallbackParamEvents,
+      },
       eventCount,
       connectCount,
       tlsCount,

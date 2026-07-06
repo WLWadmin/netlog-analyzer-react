@@ -395,6 +395,7 @@ export async function buildNetlogCompactEventIndex(
       sourceTypeName: sourceTypeName(index, sourceTypeId),
       phase: Number(event?.phase) || 0,
       params: event?.params,
+      eventJson,
     };
     endpointReducer.accept(seed);
     dnsStateReducer.accept(seed);
