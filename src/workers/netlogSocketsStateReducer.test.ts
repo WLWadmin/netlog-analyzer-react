@@ -102,6 +102,30 @@ describe('createNetlogSocketsStateReducer', () => {
         sourceDependencyIds: [],
       }),
     ]);
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 2,
+        kind: 'connect',
+        peerAddress: '203.0.113.10:443',
+        requestScoped: false,
+        unresolvedReason: '缺少 source_dependency 或 URL_REQUEST 锚点；peer address/connect/stall 只能作为连接层候选线索。',
+      }),
+      expect.objectContaining({
+        eventId: 4,
+        kind: 'stall',
+        requestScoped: false,
+      }),
+      expect.objectContaining({
+        eventId: 5,
+        kind: 'error',
+        error: -102,
+        details: 'connection refused',
+        requestScoped: false,
+        unresolvedReason: '缺少 source_dependency 或 URL_REQUEST 锚点；socket error 只能作为连接层错误候选线索。',
+      }),
+    ]));
+    expect(view.requestScopedCandidateCount).toBe(0);
+    expect(view.evidenceGaps).toContain('部分 Socket impact 只有连接层锚点，缺少 source_dependency 或 URL_REQUEST 关联；只能作为连接层候选线索。');
   });
 
   it('缺少 socket 事件时输出 evidence gap', () => {
@@ -157,6 +181,24 @@ describe('createNetlogSocketsStateReducer', () => {
         sourceDependencyIds: [300],
       }),
     ]);
+    expect(view.impactSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventId: 10,
+        kind: 'connect',
+        sourceDependencyIds: [300],
+        requestScoped: true,
+        unresolvedReason: undefined,
+      }),
+      expect.objectContaining({
+        eventId: 10,
+        kind: 'error',
+        error: -102,
+        sourceDependencyIds: [300],
+        requestScoped: true,
+        unresolvedReason: undefined,
+      }),
+    ]));
+    expect(view.requestScopedCandidateCount).toBe(2);
     expect(view.sourceLinks).toEqual([
       expect.objectContaining({
         fromSourceId: 700,

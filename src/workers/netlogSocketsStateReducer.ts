@@ -93,11 +93,27 @@ function extractDependencySourceIds(params: Record<string, unknown> | undefined)
   return Array.from(ids);
 }
 
+function classifySocketImpact(typeName: string): SocketsStateView['impactSummaries'][number]['kind'] {
+  const upper = typeName.toUpperCase();
+  if (upper.includes('STALL') || upper.includes('TIMEOUT')) return 'stall';
+  if (upper.includes('SSL_') || upper.includes('TLS_')) return 'tls';
+  if (
+    upper === 'TCP_CONNECT' ||
+    upper === 'SOCKET_CONNECT' ||
+    upper.startsWith('TRANSPORT_CONNECT') ||
+    upper.endsWith('_CONNECT_ATTEMPT') ||
+    upper === 'TCP_CONNECT_ATTEMPT'
+  ) return 'connect';
+  if (upper.includes('SOCKET_POOL') || upper.includes('CONNECT_JOB')) return 'pool';
+  return 'socket-event';
+}
+
 export function createNetlogSocketsStateReducer() {
   const sockets = new Map<number, SocketDraft>();
   const socketPools = new Set<string>();
   const errors: SocketsStateView['errors'] = [];
   const sourceLinks = new Map<string, SocketsStateView['sourceLinks'][number]>();
+  const impactSummaries: SocketsStateView['impactSummaries'] = [];
   let eventCount = 0;
   let connectCount = 0;
   let tlsCount = 0;
@@ -166,6 +182,29 @@ export function createNetlogSocketsStateReducer() {
       draft.socketPools.add(pool);
       socketPools.add(pool);
     }
+    const impactKind = classifySocketImpact(seed.typeName);
+    const requestScoped = dependencySourceIds.length > 0 || /URL_REQUEST/i.test(seed.sourceTypeName) || /URL_REQUEST/i.test(seed.typeName);
+    const baseSummary = [
+      seed.typeName,
+      peerAddress ? `peer=${peerAddress}` : undefined,
+      pool ? `pool=${pool}` : undefined,
+      dependencySourceIds.length ? `sourceDependencies=${dependencySourceIds.join(',')}` : undefined,
+    ].filter(Boolean).join('；');
+    impactSummaries.push({
+      sourceId: seed.sourceId,
+      eventId: seed.eventId,
+      byteStart: seed.byteStart,
+      byteEnd: seed.byteEnd,
+      time: seed.time,
+      typeName: seed.typeName,
+      kind: impactKind,
+      peerAddress,
+      socketPools: pool ? [pool] : undefined,
+      sourceDependencyIds: dependencySourceIds,
+      requestScoped,
+      summary: baseSummary,
+      unresolvedReason: requestScoped ? undefined : '缺少 source_dependency 或 URL_REQUEST 锚点；peer address/connect/stall 只能作为连接层候选线索。',
+    });
 
     if (
       upperType === 'TCP_CONNECT' ||
@@ -201,6 +240,29 @@ export function createNetlogSocketsStateReducer() {
         time: seedTime,
         sourceDependencyIds: dependencySourceIds,
       });
+      impactSummaries.push({
+        sourceId: seed.sourceId,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seedTime,
+        typeName: seed.typeName,
+        kind: 'error',
+        peerAddress,
+        socketPools: pool ? [pool] : undefined,
+        error,
+        details: detailValue(params),
+        sourceDependencyIds: dependencySourceIds,
+        requestScoped,
+        summary: [
+          seed.typeName,
+          peerAddress ? `peer=${peerAddress}` : undefined,
+          pool ? `pool=${pool}` : undefined,
+          `error=${error}`,
+          dependencySourceIds.length ? `sourceDependencies=${dependencySourceIds.join(',')}` : undefined,
+        ].filter(Boolean).join('；'),
+        unresolvedReason: requestScoped ? undefined : '缺少 source_dependency 或 URL_REQUEST 锚点；socket error 只能作为连接层错误候选线索。',
+      });
     }
     sockets.set(seed.sourceId, draft);
   };
@@ -227,6 +289,8 @@ export function createNetlogSocketsStateReducer() {
       })),
       sourceLinks: Array.from(sourceLinks.values()),
       errors,
+      impactSummaries,
+      requestScopedCandidateCount: impactSummaries.filter(item => item.requestScoped).length,
       eventCount,
       connectCount,
       tlsCount,
@@ -241,6 +305,9 @@ export function createNetlogSocketsStateReducer() {
     }
     if (view.errors.length > 0 || view.stallCount > 0) {
       view.evidenceGaps.push('发现 connect error / stall / timeout 时，仍需结合请求 source chain、DNS、代理和协议回退判断影响范围。');
+    }
+    if (view.impactSummaries.some(item => !item.requestScoped)) {
+      view.evidenceGaps.push('部分 Socket impact 只有连接层锚点，缺少 source_dependency 或 URL_REQUEST 关联；只能作为连接层候选线索。');
     }
     if (view.sourceLinks.length === 0 && view.eventCount > 0) {
       view.evidenceGaps.push('未发现 Socket 显式 source dependency 边；连接层影响范围不能用 peer address 或时间邻近直接外推。');

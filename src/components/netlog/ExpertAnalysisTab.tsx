@@ -832,6 +832,8 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
           <Descriptions.Item label="Socket Pools">{view.socketPoolCount}</Descriptions.Item>
           <Descriptions.Item label="Errors">{view.errors.length}</Descriptions.Item>
           <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
@@ -852,6 +854,30 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
           ]}
           dataSource={view.sockets}
           locale={{ emptyText: '未发现 Dataset socket / tcp / tls 状态' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.error ?? ''}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 130 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">socket fact</Tag> },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 170, ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Pools', dataIndex: 'socketPools', width: 180, ellipsis: true, render: (value?: string[]) => value?.join('；') || '-' },
+            { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: 'Unresolved', dataIndex: 'unresolvedReason', ellipsis: true, render: (value?: string) => value || '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 Socket impact summary' }}
         />
         <Table
           size="small"
@@ -1527,8 +1553,10 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetStreamPoolStateCard analysisId={dataset.analysisId} />
-          <DatasetReportingStateCard analysisId={dataset.analysisId} />
+          <>
+            <DatasetStreamPoolStateCard analysisId={dataset.analysisId} />
+            <DatasetReportingStateCard analysisId={dataset.analysisId} />
+          </>
         ) : (
           <StateGapCard
             title="StreamPool State"

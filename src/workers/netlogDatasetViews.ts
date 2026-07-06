@@ -303,6 +303,18 @@ export interface SocketsStateView {
     time?: number;
     sourceDependencyIds?: number[];
   }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'connect' | 'tls' | 'stall' | 'error' | 'pool' | 'socket-event';
+    peerAddress?: string;
+    socketPools?: string[];
+    error?: number | string;
+    details?: string;
+    sourceDependencyIds?: number[];
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  requestScopedCandidateCount: number;
   eventCount: number;
   connectCount: number;
   tlsCount: number;
