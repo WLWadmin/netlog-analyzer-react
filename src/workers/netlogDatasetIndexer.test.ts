@@ -208,4 +208,43 @@ describe('netlogDatasetIndexer', () => {
       expect.objectContaining({ kind: 'upload-failure', error: -105 }),
     ]));
   });
+
+  it('无错误轻量事件保留 compact index，但跳过 heavy onEvent 回调', async () => {
+    const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1,"URL_REQUEST":2},"logSourceType":{"SOCKET":20,"URL_REQUEST":21}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"byte_count":1024}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"url":"https://keep.example"}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const onEvent = jest.fn();
+    const onLightweightEvent = jest.fn();
+
+    const { index, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent, onLightweightEvent });
+
+    expect(index.count).toBe(2);
+    expect(index.typeId).toEqual([1, 2]);
+    expect(index.byteStart).toHaveLength(2);
+    expect(onLightweightEvent).toHaveBeenCalledWith(1, 20, expect.objectContaining({
+      eventId: 0,
+      typeName: 'SOCKET_BYTES_RECEIVED',
+    }));
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls[0][0]).toEqual(expect.objectContaining({ type: 2 }));
+    expect(socketsState.eventCount).toBe(0);
+  });
+
+  it('带错误或 source dependency 的轻量事件不跳过 heavy reducer 路径', async () => {
+    const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1},"logSourceType":{"SOCKET":20}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"net_error":-7}},{"time":"2","type":1,"source":{"id":11,"type":20},"phase":0,"params":{"source_dependency":{"id":99},"byte_count":2048}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const onEvent = jest.fn();
+    const onLightweightEvent = jest.fn();
+
+    const { index, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent, onLightweightEvent });
+
+    expect(index.count).toBe(2);
+    expect(onLightweightEvent).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(socketsState.eventCount).toBe(2);
+    expect(socketsState.errors).toEqual([
+      expect.objectContaining({ eventId: 0, error: -7 }),
+    ]);
+    expect(index.sourceDependencyFrom).toEqual([11]);
+    expect(index.sourceDependencyTo).toEqual([99]);
+  });
 });

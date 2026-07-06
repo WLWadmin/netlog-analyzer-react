@@ -27,6 +27,7 @@ import { buildNetlogSourceChainView } from './netlogSourceChainView';
 import { buildNetlogRawEvidenceStructureView, queryNetlogRawEvidenceEvents } from './netlogRawEvidenceView';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
+import { LIGHTWEIGHT_COUNT_EVENT_NAMES } from './netlogLightweightEvents';
 
 /* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
@@ -50,21 +51,6 @@ function logLargeNetlogDebug(id: string, event: string, details?: Record<string,
 function countObjectKeys(value: unknown): number {
   return value && typeof value === 'object' ? Object.keys(value as Record<string, unknown>).length : 0;
 }
-
-const LIGHTWEIGHT_COUNT_EVENT_NAMES = new Set([
-  'HTTP2_SESSION_UPDATE_RECV_WINDOW',
-  'HTTP2_STREAM_UPDATE_RECV_WINDOW',
-  'SSL_SOCKET_BYTES_RECEIVED',
-  'SOCKET_BYTES_RECEIVED',
-  'HTTP2_SESSION_RECV_DATA',
-  'HTTP_TRANSACTION_READ_BODY',
-  'URL_REQUEST_JOB_FILTERED_BYTES_READ',
-  'SIMPLE_CACHE_ENTRY_WRITE_CALL',
-  'SIMPLE_CACHE_ENTRY_WRITE_BEGIN',
-  'SIMPLE_CACHE_ENTRY_WRITE_END',
-  'SIMPLE_CACHE_ENTRY_WRITE_OPTIMISTIC',
-  'COOKIE_INCLUSION_STATUS',
-]);
 
 function extractEventTypeId(eventJson: string): number | undefined {
   return extractTopLevelNumericField(eventJson, 'type');
@@ -167,6 +153,9 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
         } catch {
           // 单个事件 summary 解析失败不应中断 Dataset 构建
         }
+      },
+      onLightweightEvent: (typeId, sourceTypeId) => {
+        analyzer.recordLightweightEvent(typeId, sourceTypeId);
       },
     });
     sendProgress(id, '正在生成单次扫描诊断结果...', 96);

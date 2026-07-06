@@ -10,6 +10,7 @@ import { createNetlogAltSvcStateReducer } from './netlogAltSvcStateReducer';
 import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReducer';
 import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
+import { isLightweightCountEventName } from './netlogLightweightEvents';
 
 export interface CompactEventIndex {
   count: number;
@@ -52,6 +53,7 @@ export interface NetlogIndexableFile {
 export interface NetlogCompactEventIndexOptions {
   onTopLevelField?: (key: string, value: unknown) => void;
   onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number }) => void;
+  onLightweightEvent?: (typeId: number, sourceTypeId: number | undefined, trace: { eventId: number; byteStart: number; byteEnd: number; typeName: string }) => void;
 }
 
 const QUOTE = 34;
@@ -165,6 +167,11 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
       index.sourceDependencyTo?.push(dependencySourceId);
     }
   }
+}
+
+function hasErrorParams(event: any): boolean {
+  const params = event?.params;
+  return Boolean(params?.net_error || params?.error_code);
 }
 
 function eventName(index: CompactEventIndex, typeId: number): string {
@@ -298,15 +305,31 @@ export async function buildNetlogCompactEventIndex(
     const event = JSON.parse(eventJson);
     const eventId = index.count;
     pushEvent(index, event, objectStart, byteEnd);
-    options.onEvent?.(event, { eventId, byteStart: objectStart, byteEnd });
     const typeId = Number(event?.type) || 0;
     const sourceTypeId = Number(event?.source?.type ?? event?.source_type) || 0;
+    const typeName = eventName(index, typeId);
+    const dependencySourceIds = extractDependencySourceIds(event?.params);
+    const shouldUseLightweightGate = isLightweightCountEventName(typeName) &&
+      !hasErrorParams(event) &&
+      dependencySourceIds.length === 0;
+    if (shouldUseLightweightGate) {
+      options.onLightweightEvent?.(typeId, sourceTypeId || undefined, {
+        eventId,
+        byteStart: objectStart,
+        byteEnd,
+        typeName,
+      });
+      objectBytes = [];
+      objectStart = -1;
+      return;
+    }
+    options.onEvent?.(event, { eventId, byteStart: objectStart, byteEnd });
     const seed = {
       eventId,
       byteStart: objectStart,
       byteEnd,
       time: Number(event?.time) || 0,
-      typeName: eventName(index, typeId),
+      typeName,
       sourceId: Number(event?.source?.id ?? event?.source_id) || 0,
       sourceTypeName: sourceTypeName(index, sourceTypeId),
       phase: Number(event?.phase) || 0,
