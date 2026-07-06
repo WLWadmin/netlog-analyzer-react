@@ -118,6 +118,7 @@ describe('netlog worker benchmark', () => {
       socketLazyProbeAttemptedEvents: result.socketsState.lazyParamsStats.probeAttemptedEvents,
       socketLazyProbeSatisfiedEvents: result.socketsState.lazyParamsStats.probeSatisfiedEvents,
       socketLazyFallbackParamEvents: result.socketsState.lazyParamsStats.fallbackParamEvents,
+      socketEarlyReducerEvents: result.socketsState.lazyParamsStats.earlyReducerEvents,
       socketLazyProbeSatisfiedRate: result.socketsState.lazyParamsStats.probeAttemptedEvents
         ? Math.round((result.socketsState.lazyParamsStats.probeSatisfiedEvents / result.socketsState.lazyParamsStats.probeAttemptedEvents) * 10000) / 10000
         : 0,

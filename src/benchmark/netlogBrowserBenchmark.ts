@@ -77,6 +77,7 @@ interface BrowserBenchmarkMetrics {
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
+  socketEarlyReducerEvents?: number;
   socketLazyProbeSatisfiedRate?: number;
   completeEventScanCount?: number;
   rawDetailReadbackOk?: boolean;
@@ -284,6 +285,7 @@ async function runNetlogBrowserBenchmark() {
         socketLazyProbeAttemptedEvents: parsed.dataset.socketLazyParamsStats?.probeAttemptedEvents,
         socketLazyProbeSatisfiedEvents: parsed.dataset.socketLazyParamsStats?.probeSatisfiedEvents,
         socketLazyFallbackParamEvents: parsed.dataset.socketLazyParamsStats?.fallbackParamEvents,
+        socketEarlyReducerEvents: parsed.dataset.socketLazyParamsStats?.earlyReducerEvents,
         completeEventScanCount: 1,
         eventsPreview: parsed.events.length,
         singleScanDatasetReady: true,
@@ -312,6 +314,7 @@ async function runNetlogBrowserBenchmark() {
       socketLazyProbeAttemptedEvents: meta.socketLazyParamsStats?.probeAttemptedEvents,
       socketLazyProbeSatisfiedEvents: meta.socketLazyParamsStats?.probeSatisfiedEvents,
       socketLazyFallbackParamEvents: meta.socketLazyParamsStats?.fallbackParamEvents,
+      socketEarlyReducerEvents: meta.socketLazyParamsStats?.earlyReducerEvents,
       completeEventScanCount: 1,
     });
     await postResult(metrics);
@@ -346,6 +349,7 @@ async function collectDatasetMetrics(options: {
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
+  socketEarlyReducerEvents?: number;
 }): Promise<BrowserBenchmarkMetrics> {
   const {
     analysisId,
@@ -501,6 +505,7 @@ async function collectDatasetMetrics(options: {
     socketLazyProbeAttemptedEvents: options.socketLazyProbeAttemptedEvents,
     socketLazyProbeSatisfiedEvents: options.socketLazyProbeSatisfiedEvents,
     socketLazyFallbackParamEvents: options.socketLazyFallbackParamEvents,
+    socketEarlyReducerEvents: options.socketEarlyReducerEvents,
     socketLazyProbeSatisfiedRate: safeRate(options.socketLazyProbeSatisfiedEvents, options.socketLazyProbeAttemptedEvents),
     completeEventScanCount: options.completeEventScanCount,
     rawDetailReadbackOk,
@@ -545,6 +550,7 @@ async function collectDatasetMetrics(options: {
     socketLazyProbeAttemptedEvents: metrics.socketLazyProbeAttemptedEvents,
     socketLazyProbeSatisfiedEvents: metrics.socketLazyProbeSatisfiedEvents,
     socketLazyFallbackParamEvents: metrics.socketLazyFallbackParamEvents,
+    socketEarlyReducerEvents: metrics.socketEarlyReducerEvents,
     socketLazyProbeSatisfiedRate: metrics.socketLazyProbeSatisfiedRate,
     sampleCount: 1,
   });

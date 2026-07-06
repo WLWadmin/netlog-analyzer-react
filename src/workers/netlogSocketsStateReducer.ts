@@ -11,6 +11,7 @@ interface EventSeed {
   sourceTypeName: string;
   params?: Record<string, unknown>;
   eventJson?: string;
+  earlyPath?: boolean;
 }
 
 interface SocketParamsSnapshot {
@@ -161,6 +162,10 @@ function probeSocketParams(seed: EventSeed): SocketParamsSnapshot | undefined {
   };
 }
 
+export function canProbeSocketParamsFromEventJson(eventJson: string): boolean {
+  return extractJsonSourceDependencyIds(eventJson) !== undefined;
+}
+
 function paramsSocketSnapshot(seed: EventSeed): SocketParamsSnapshot {
   const params = seed.params || {};
   return {
@@ -186,6 +191,7 @@ export function createNetlogSocketsStateReducer() {
   let probeAttemptedEvents = 0;
   let probeSatisfiedEvents = 0;
   let fallbackParamEvents = 0;
+  let earlyReducerEvents = 0;
 
   const ensureSocket = (seed: EventSeed): SocketDraft => {
     const existing = sockets.get(seed.sourceId);
@@ -215,6 +221,7 @@ export function createNetlogSocketsStateReducer() {
   const accept = (seed: EventSeed) => {
     if (!isSocketEvent(seed)) return;
     eventCount += 1;
+    if (seed.earlyPath) earlyReducerEvents += 1;
     const seedTime = seed.time ?? 0;
     const upperType = seed.typeName.toUpperCase();
     if (seed.eventJson) probeAttemptedEvents += 1;
@@ -367,6 +374,7 @@ export function createNetlogSocketsStateReducer() {
         probeAttemptedEvents,
         probeSatisfiedEvents,
         fallbackParamEvents,
+        earlyReducerEvents,
       },
       eventCount,
       connectCount,

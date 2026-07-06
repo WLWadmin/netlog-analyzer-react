@@ -4,7 +4,7 @@ import { createNetlogDnsStateReducer } from './netlogDnsStateReducer';
 import { createNetlogProxyStateReducer } from './netlogProxyStateReducer';
 import { createNetlogQuicStateReducer } from './netlogQuicStateReducer';
 import { createNetlogHttp2StateReducer } from './netlogHttp2StateReducer';
-import { createNetlogSocketsStateReducer } from './netlogSocketsStateReducer';
+import { canProbeSocketParamsFromEventJson, createNetlogSocketsStateReducer } from './netlogSocketsStateReducer';
 import { createNetlogCacheStateReducer } from './netlogCacheStateReducer';
 import { createNetlogAltSvcStateReducer } from './netlogAltSvcStateReducer';
 import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReducer';
@@ -209,6 +209,11 @@ function sourceTypeName(index: CompactEventIndex, sourceTypeId: number): string 
   return index.sourceTypeNames?.[sourceTypeId] || (sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC');
 }
 
+function isSocketEarlyReducerCandidate(typeName: string, sourceType: string): boolean {
+  const text = `${typeName} ${sourceType}`.toUpperCase();
+  return text.includes('SOCKET') || text.includes('TCP_') || text.includes('SSL_') || text.includes('TLS_') || text.includes('TRANSPORT_CONNECT');
+}
+
 function topCounts(ids: number[], names: Record<number, string> | undefined): Array<{ name: string; count: number }> {
   const counts = new Map<number, number>();
   ids.forEach(id => counts.set(id, (counts.get(id) || 0) + 1));
@@ -334,23 +339,25 @@ export async function buildNetlogCompactEventIndex(
   const finishObject = async (byteEnd: number) => {
     const eventJson = decoder.decode(new Uint8Array(objectBytes));
     const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
+    let socketWasAcceptedEarly = false;
     if (probedTypeId !== undefined) {
       const probedTypeName = eventName(index, probedTypeId);
+      const probedSourceTypeId = extractSourceTypeId(eventJson);
+      const probedSourceTypeName = sourceTypeName(index, probedSourceTypeId || 0);
       const probedHasError = hasNetlogErrorMarker(eventJson);
       const probedHasDependency = hasNetlogSourceDependencyMarker(eventJson);
       if (isLightweightCountEventName(probedTypeName) && !probedHasError && !probedHasDependency) {
-        const sourceTypeId = extractSourceTypeId(eventJson);
         const sourceId = extractSourceId(eventJson);
         const eventId = index.count;
         pushProbedEvent(index, {
           time: extractTopLevelNumberLikeField(eventJson, 'time'),
           typeId: probedTypeId,
-          sourceTypeId,
+          sourceTypeId: probedSourceTypeId,
           sourceId,
           phase: extractTopLevelNumericField(eventJson, 'phase'),
           hasError: false,
         }, objectStart, byteEnd);
-        options.onLightweightEvent?.(probedTypeId, sourceTypeId, {
+        options.onLightweightEvent?.(probedTypeId, probedSourceTypeId, {
           eventId,
           byteStart: objectStart,
           byteEnd,
@@ -361,6 +368,21 @@ export async function buildNetlogCompactEventIndex(
         objectBytes = [];
         objectStart = -1;
         return;
+      }
+      if (isSocketEarlyReducerCandidate(probedTypeName, probedSourceTypeName) && canProbeSocketParamsFromEventJson(eventJson)) {
+        socketsStateReducer.accept({
+          eventId: index.count,
+          byteStart: objectStart,
+          byteEnd,
+          time: extractTopLevelNumberLikeField(eventJson, 'time'),
+          typeName: probedTypeName,
+          sourceId: extractSourceId(eventJson) || 0,
+          sourceTypeName: probedSourceTypeName,
+          params: undefined,
+          eventJson,
+          earlyPath: true,
+        });
+        socketWasAcceptedEarly = true;
       }
     }
     const event = JSON.parse(eventJson);
@@ -402,7 +424,9 @@ export async function buildNetlogCompactEventIndex(
     proxyStateReducer.accept(seed);
     quicStateReducer.accept(seed);
     http2StateReducer.accept(seed);
-    socketsStateReducer.accept(seed);
+    if (!socketWasAcceptedEarly) {
+      socketsStateReducer.accept(seed);
+    }
     cacheStateReducer.accept(seed);
     altSvcStateReducer.accept(seed);
     streamPoolStateReducer.accept(seed);

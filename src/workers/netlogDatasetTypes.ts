@@ -9,6 +9,7 @@ export interface NetlogDatasetSocketLazyParamsStats {
   probeAttemptedEvents: number;
   probeSatisfiedEvents: number;
   fallbackParamEvents: number;
+  earlyReducerEvents?: number;
 }
 
 export interface NetlogDatasetState {

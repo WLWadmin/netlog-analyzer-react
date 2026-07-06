@@ -129,6 +129,7 @@ describe('createNetlogSocketsStateReducer', () => {
       probeAttemptedEvents: 0,
       probeSatisfiedEvents: 0,
       fallbackParamEvents: 5,
+      earlyReducerEvents: 0,
     });
     expect(view.evidenceGaps).toContain('部分 Socket impact 只有连接层锚点，缺少 source_dependency 或 URL_REQUEST 关联；只能作为连接层候选线索。');
   });
@@ -235,6 +236,7 @@ describe('createNetlogSocketsStateReducer', () => {
       probeAttemptedEvents: 1,
       probeSatisfiedEvents: 1,
       fallbackParamEvents: 0,
+      earlyReducerEvents: 0,
     });
     expect(view.sockets).toEqual([
       expect.objectContaining({
@@ -281,12 +283,44 @@ describe('createNetlogSocketsStateReducer', () => {
       probeAttemptedEvents: 1,
       probeSatisfiedEvents: 0,
       fallbackParamEvents: 1,
+      earlyReducerEvents: 0,
     });
     expect(view.sockets).toEqual([
       expect.objectContaining({
         sourceId: 801,
         peerAddresses: ['198.51.100.9:443'],
         sourceDependencyIds: [302],
+      }),
+    ]);
+  });
+
+  it('记录 socket early reducer path 事件数', () => {
+    const reducer = createNetlogSocketsStateReducer();
+
+    reducer.accept({
+      eventId: 22,
+      byteStart: 320,
+      byteEnd: 380,
+      time: 2200,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 802,
+      sourceTypeName: 'SOCKET',
+      eventJson: '{"time":"2200","type":1,"source":{"id":802,"type":20},"phase":0,"params":{"address":"198.51.100.10:443"}}',
+      earlyPath: true,
+    });
+
+    const view = reducer.finish();
+
+    expect(view.lazyParamsStats).toEqual({
+      probeAttemptedEvents: 1,
+      probeSatisfiedEvents: 1,
+      fallbackParamEvents: 0,
+      earlyReducerEvents: 1,
+    });
+    expect(view.sockets).toEqual([
+      expect.objectContaining({
+        sourceId: 802,
+        peerAddresses: ['198.51.100.10:443'],
       }),
     ]);
   });

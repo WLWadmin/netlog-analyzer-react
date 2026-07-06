@@ -23,6 +23,7 @@ export interface UploadEvidenceForDecision {
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
+  socketEarlyReducerEvents?: number;
   socketLazyProbeSatisfiedRate?: number;
   sampleCount?: number;
 }

@@ -36,6 +36,7 @@ describe('buildNetlogBenchmarkEvidencePackage', () => {
         socketLazyProbeAttemptedEvents: 10,
         socketLazyProbeSatisfiedEvents: 8,
         socketLazyFallbackParamEvents: 2,
+        socketEarlyReducerEvents: 8,
         completeEventScanCount: 1,
         singleScanDatasetReady: true,
         backgroundDatasetImportExpected: false,
@@ -63,6 +64,7 @@ describe('buildNetlogBenchmarkEvidencePackage', () => {
       socketLazyProbeAttemptedEvents: 10,
       socketLazyProbeSatisfiedEvents: 8,
       socketLazyFallbackParamEvents: 2,
+      socketEarlyReducerEvents: 8,
       socketLazyProbeSatisfiedRate: 0.8,
     }));
     expect(evidence.phase6Evidence).toEqual(expect.objectContaining({

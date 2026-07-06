@@ -29,6 +29,7 @@ export interface NetlogBenchmarkMetricInput {
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
+  socketEarlyReducerEvents?: number;
   completeEventScanCount?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
@@ -63,6 +64,7 @@ export interface NetlogBenchmarkEvidencePackage {
     socketLazyProbeAttemptedEvents: number;
     socketLazyProbeSatisfiedEvents: number;
     socketLazyFallbackParamEvents: number;
+    socketEarlyReducerEvents: number;
     socketLazyProbeSatisfiedRate?: number;
   };
   phase6Evidence: UploadEvidenceForDecision;
@@ -123,6 +125,7 @@ export function buildNetlogBenchmarkEvidencePackage(
   const socketLazyProbeAttemptedEvents = sumNumber(singleScanMetrics, 'socketLazyProbeAttemptedEvents') ?? 0;
   const socketLazyProbeSatisfiedEvents = sumNumber(singleScanMetrics, 'socketLazyProbeSatisfiedEvents') ?? 0;
   const socketLazyFallbackParamEvents = sumNumber(singleScanMetrics, 'socketLazyFallbackParamEvents') ?? 0;
+  const socketEarlyReducerEvents = sumNumber(singleScanMetrics, 'socketEarlyReducerEvents') ?? 0;
   const datasetEventCount = maxNumber(singleScanMetrics.map(metric => metric.datasetEventCount));
   const baselineDatasetEventCount = maxNumber(baselineMetrics.map(metric => metric.datasetEventCount));
 
@@ -191,6 +194,7 @@ export function buildNetlogBenchmarkEvidencePackage(
       socketLazyProbeAttemptedEvents,
       socketLazyProbeSatisfiedEvents,
       socketLazyFallbackParamEvents,
+      socketEarlyReducerEvents,
       socketLazyProbeSatisfiedRate: phase6Evidence.socketLazyProbeSatisfiedRate,
     },
     phase6Evidence,

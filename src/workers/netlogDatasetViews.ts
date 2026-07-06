@@ -319,6 +319,7 @@ export interface SocketsStateView {
     probeAttemptedEvents: number;
     probeSatisfiedEvents: number;
     fallbackParamEvents: number;
+    earlyReducerEvents: number;
   };
   eventCount: number;
   connectCount: number;

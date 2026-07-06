@@ -279,4 +279,37 @@ describe('netlogDatasetIndexer', () => {
     expect(index.sourceDependencyFrom).toEqual([11]);
     expect(index.sourceDependencyTo).toEqual([99]);
   });
+
+  it('socket early reducer path 不重复计数，同时保留 Endpoint Evidence socket peer', async () => {
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":100,"type":20},"phase":0,"params":{"url":"https://socket.example/api"}},{"time":"2","type":2,"source":{"id":200,"type":21},"phase":0,"params":{"address":"203.0.113.200:443","source_dependency":{"id":100}}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const onEvent = jest.fn();
+
+    const { index, endpointEvidence, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent });
+
+    expect(index.count).toBe(2);
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(socketsState.eventCount).toBe(1);
+    expect(socketsState.lazyParamsStats).toEqual({
+      probeAttemptedEvents: 1,
+      probeSatisfiedEvents: 1,
+      fallbackParamEvents: 0,
+      earlyReducerEvents: 1,
+    });
+    expect(socketsState.sockets).toEqual([
+      expect.objectContaining({
+        sourceId: 200,
+        peerAddresses: ['203.0.113.200:443'],
+        sourceDependencyIds: [100],
+      }),
+    ]);
+    expect(endpointEvidence.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        ip: '203.0.113.200',
+        sourceId: 200,
+        eventId: 1,
+      }),
+    ]));
+  });
 });

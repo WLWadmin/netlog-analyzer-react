@@ -837,6 +837,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string }> = ({ analysisId 
           <Descriptions.Item label="Probe attempted">{view.lazyParamsStats.probeAttemptedEvents}</Descriptions.Item>
           <Descriptions.Item label="Probe satisfied">{view.lazyParamsStats.probeSatisfiedEvents}</Descriptions.Item>
           <Descriptions.Item label="Params fallback">{view.lazyParamsStats.fallbackParamEvents}</Descriptions.Item>
+          <Descriptions.Item label="Early reducer">{view.lazyParamsStats.earlyReducerEvents}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
