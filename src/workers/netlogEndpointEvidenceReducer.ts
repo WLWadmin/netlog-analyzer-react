@@ -14,6 +14,7 @@ import {
   summarizeDnsAnswerCandidates,
   type DnsAnswerCandidate,
 } from '../parsers/netlog/dnsAnswerCandidates';
+import { hasNetlogSourceDependencyMarker } from './netlogEventJsonProbe';
 
 interface EventSeed {
   eventId: number;
@@ -25,6 +26,13 @@ interface EventSeed {
   sourceTypeName: string;
   phase: number;
   params?: Record<string, unknown>;
+  eventJson?: string;
+}
+
+interface SocketProbeSnapshot {
+  dependencies: { ids: number[]; unparsed: number };
+  socketIps: Array<{ raw: unknown; source: IpEvidenceSource }>;
+  paramKeys: string[];
 }
 
 interface RequestDraft {
@@ -199,6 +207,132 @@ function isLocalAddressEvent(typeName: string): boolean {
   return typeName.includes('LOCAL_ADDRESS');
 }
 
+function isSocketEvidenceEvent(typeName: string): boolean {
+  return /SOCKET|CONNECT|UDP|TCP/.test(typeName) && !isLocalAddressEvent(typeName);
+}
+
+function extractJsonObjectBlock(json: string, key: string): string | undefined {
+  const keyIndex = json.indexOf(`"${key}"`);
+  if (keyIndex < 0) return undefined;
+  const colonIndex = json.indexOf(':', keyIndex);
+  if (colonIndex < 0) return undefined;
+  let start = colonIndex + 1;
+  while (start < json.length && /\s/.test(json[start])) start += 1;
+  if (json[start] !== '{') return undefined;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < json.length; i += 1) {
+    const ch = json[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return json.slice(start, i + 1);
+    }
+  }
+  return undefined;
+}
+
+function extractJsonTopLevelKeys(jsonObjectBlock: string): string[] {
+  const keys = new Set<string>();
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let readingKey = false;
+  let keyBuffer = '';
+  for (let i = 0; i < jsonObjectBlock.length; i += 1) {
+    const ch = jsonObjectBlock[i];
+    if (readingKey) {
+      if (escape) {
+        keyBuffer += ch;
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === '"') {
+        readingKey = false;
+        keys.add(keyBuffer);
+        keyBuffer = '';
+      } else {
+        keyBuffer += ch;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth -= 1;
+    else if (ch === '"' && depth === 1) {
+      readingKey = true;
+      keyBuffer = '';
+    } else if (ch === '"') {
+      inString = true;
+    }
+  }
+  return Array.from(keys).sort();
+}
+
+function extractJsonStringOrNumber(json: string, fieldNames: string[]): string | number | undefined {
+  for (const fieldName of fieldNames) {
+    const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = json.match(new RegExp(`"${escaped}"\\s*:\\s*(?:"([^"]*)"|(-?\\d+(?:\\.\\d+)?))`));
+    if (match?.[1] !== undefined) return match[1];
+    if (match?.[2] !== undefined) return Number(match[2]);
+  }
+  return undefined;
+}
+
+function extractJsonSourceDependencyIds(json: string, paramsBlock: string): { ids: number[]; unparsed: number } {
+  const ids = new Set<number>();
+  for (const key of DIRECT_SOURCE_ID_KEYS) {
+    const value = extractJsonStringOrNumber(paramsBlock, [key]);
+    const id = Number(value);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  const dependencyBlocks = paramsBlock.match(/"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])|"dependencies"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])/g) || [];
+  for (const block of dependencyBlocks) {
+    const matches = block.matchAll(/"(?:id|source_id|sourceId)"\s*:\s*(\d+)/g);
+    for (const match of matches) {
+      const id = Number(match[1]);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+  return {
+    ids: Array.from(ids),
+    unparsed: hasNetlogSourceDependencyMarker(json) && ids.size === 0 ? 1 : 0,
+  };
+}
+
+function probeSocketEvidenceParams(seed: EventSeed): SocketProbeSnapshot | undefined {
+  if (!seed.eventJson || !isSocketEvidenceEvent(seed.typeName)) return undefined;
+  const paramsBlock = extractJsonObjectBlock(seed.eventJson, 'params');
+  if (!paramsBlock) return undefined;
+  const socketIps = [
+    { raw: extractJsonStringOrNumber(paramsBlock, ['ip_endpoint']), source: 'netlog.params.ip_endpoint' as const },
+    { raw: extractJsonStringOrNumber(paramsBlock, ['address']), source: 'netlog.params.address' as const },
+    { raw: extractJsonStringOrNumber(paramsBlock, ['peer_address']), source: 'netlog.params.peer_address' as const },
+  ].flatMap(item => extractSocketIpValues(item.raw).map(raw => ({ raw, source: item.source })));
+  if (socketIps.length === 0 && !hasNetlogSourceDependencyMarker(seed.eventJson)) return undefined;
+  return {
+    dependencies: extractJsonSourceDependencyIds(seed.eventJson, paramsBlock),
+    socketIps,
+    paramKeys: extractJsonTopLevelKeys(paramsBlock),
+  };
+}
+
 function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
   const rows = new Map<string, {
     host: string;
@@ -341,7 +475,8 @@ export function createNetlogEndpointEvidenceReducer() {
 
   const accept = (seed: EventSeed) => {
     const params = seed.params || {};
-    const dependencies = extractDependencySourceIds(params);
+    const socketProbe = probeSocketEvidenceParams(seed);
+    const dependencies = socketProbe?.dependencies || extractDependencySourceIds(params);
     sourceDependencyUnparsed += dependencies.unparsed;
     for (const dependencySourceId of dependencies.ids) {
       const before = sourceLinks.get(seed.sourceId)?.size || 0;
@@ -371,12 +506,12 @@ export function createNetlogEndpointEvidenceReducer() {
       addRequestEvidence(req, seed, headers['x-request-ip'], 'server-observed-client-ip', 'netlog.headers.x-request-ip', `Dataset x-request-ip：${req.url || seed.sourceId}`);
     }
 
-    const socketIps = [
+    const socketIps = socketProbe?.socketIps || [
       { raw: params.ip_endpoint, source: 'netlog.params.ip_endpoint' as const },
       { raw: params.address, source: 'netlog.params.address' as const },
       { raw: params.peer_address, source: 'netlog.params.peer_address' as const },
     ].flatMap(item => extractSocketIpValues(item.raw).map(raw => ({ raw, source: item.source })));
-    if (socketIps.length > 0 && /SOCKET|CONNECT|UDP|TCP/.test(seed.typeName) && !isLocalAddressEvent(seed.typeName)) {
+    if (socketIps.length > 0 && isSocketEvidenceEvent(seed.typeName)) {
       for (const item of socketIps) {
         const evidence = addEvidence(itemMap, item.raw, {
           host: req ? hostFromUrl(req.url) : '未关联到具体请求',
@@ -402,7 +537,7 @@ export function createNetlogEndpointEvidenceReducer() {
           socketPeerMeta.set(evidence.id, {
             typeName: seed.typeName,
             sourceTypeName: seed.sourceTypeName,
-            paramKeys: paramKeyStats(params),
+            paramKeys: socketProbe?.paramKeys || paramKeyStats(params),
             hasSourceLinks: Boolean(sourceLinks.get(seed.sourceId)?.size),
           });
         }

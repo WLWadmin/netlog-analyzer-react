@@ -173,6 +173,77 @@ describe('netlogEndpointEvidenceReducer', () => {
     });
   });
 
+  it('socket 事件没有完整 params 时可通过 eventJson probe 生成 Endpoint Evidence', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 0,
+      byteStart: 0,
+      byteEnd: 99,
+      time: 10,
+      typeName: 'URL_REQUEST_START_JOB',
+      sourceId: 100,
+      sourceTypeName: 'URL_REQUEST',
+      phase: 0,
+      params: { url: 'https://probe.example.com/data', method: 'GET' },
+    });
+    reducer.accept({
+      eventId: 1,
+      byteStart: 100,
+      byteEnd: 199,
+      time: 20,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 300,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      eventJson: '{"time":"20","type":2,"source":{"id":300,"type":21},"phase":2,"params":{"address":"203.0.113.88:443","source_dependency":{"id":100,"type":"URL_REQUEST"}}}',
+    });
+    reducer.accept({
+      eventId: 2,
+      byteStart: 200,
+      byteEnd: 299,
+      time: 30,
+      typeName: 'SOCKET_CONNECT',
+      sourceId: 400,
+      sourceTypeName: 'SOCKET',
+      phase: 2,
+      eventJson: '{"time":"30","type":2,"source":{"id":400,"type":21},"phase":2,"params":{"peer_address":"203.0.113.89:443","url_request_source_id":100}}',
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.failedOrSlowIps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        ip: '203.0.113.88',
+        host: 'probe.example.com',
+        eventId: 1,
+        sourceId: 300,
+      }),
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'source-graph',
+        ip: '203.0.113.89',
+        host: 'probe.example.com',
+        eventId: 2,
+        sourceId: 400,
+      }),
+    ]));
+    expect(summary.sourceGraphStats).toEqual({
+      socketPeerTotal: 2,
+      socketPeerSourceGraphAssociated: 2,
+      socketPeerGlobalCandidate: 0,
+      sourceDependencyEdges: 2,
+      sourceDependencyUnparsed: 0,
+      globalCandidateByTypeName: {},
+      globalCandidateBySourceTypeName: {},
+      globalCandidateParamKeys: {},
+      sourceGraphDepthHit: { '1': 2 },
+      sourceGraphUnresolvedReasons: {},
+    });
+  });
+
   it('统计数组和嵌套 source dependency 覆盖率，并记录未解析依赖', () => {
     const reducer = createNetlogEndpointEvidenceReducer();
 
