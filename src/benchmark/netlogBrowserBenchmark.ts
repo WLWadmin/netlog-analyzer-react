@@ -74,6 +74,9 @@ interface BrowserBenchmarkMetrics {
   lightweightParseSkippedEvents?: number;
   lightweightParseSkippedBytes?: number;
   lightweightParseSkipRate?: number;
+  socketParseSkippedEvents?: number;
+  socketParseSkippedBytes?: number;
+  socketParseSkipRate?: number;
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
@@ -282,6 +285,8 @@ async function runNetlogBrowserBenchmark() {
         datasetTakesOverStateViewsMs: 0,
         lightweightParseSkippedEvents: parsed.dataset.parseSkipStats?.lightweightParseSkippedEvents,
         lightweightParseSkippedBytes: parsed.dataset.parseSkipStats?.lightweightParseSkippedBytes,
+        socketParseSkippedEvents: parsed.dataset.parseSkipStats?.socketParseSkippedEvents,
+        socketParseSkippedBytes: parsed.dataset.parseSkipStats?.socketParseSkippedBytes,
         socketLazyProbeAttemptedEvents: parsed.dataset.socketLazyParamsStats?.probeAttemptedEvents,
         socketLazyProbeSatisfiedEvents: parsed.dataset.socketLazyParamsStats?.probeSatisfiedEvents,
         socketLazyFallbackParamEvents: parsed.dataset.socketLazyParamsStats?.fallbackParamEvents,
@@ -311,6 +316,8 @@ async function runNetlogBrowserBenchmark() {
       mode,
       lightweightParseSkippedEvents: meta.parseSkipStats?.lightweightParseSkippedEvents,
       lightweightParseSkippedBytes: meta.parseSkipStats?.lightweightParseSkippedBytes,
+      socketParseSkippedEvents: meta.parseSkipStats?.socketParseSkippedEvents,
+      socketParseSkippedBytes: meta.parseSkipStats?.socketParseSkippedBytes,
       socketLazyProbeAttemptedEvents: meta.socketLazyParamsStats?.probeAttemptedEvents,
       socketLazyProbeSatisfiedEvents: meta.socketLazyParamsStats?.probeSatisfiedEvents,
       socketLazyFallbackParamEvents: meta.socketLazyParamsStats?.fallbackParamEvents,
@@ -346,6 +353,8 @@ async function collectDatasetMetrics(options: {
   backgroundDatasetImportExpected?: boolean;
   lightweightParseSkippedEvents?: number;
   lightweightParseSkippedBytes?: number;
+  socketParseSkippedEvents?: number;
+  socketParseSkippedBytes?: number;
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
@@ -502,6 +511,9 @@ async function collectDatasetMetrics(options: {
     lightweightParseSkippedEvents: options.lightweightParseSkippedEvents,
     lightweightParseSkippedBytes: options.lightweightParseSkippedBytes,
     lightweightParseSkipRate: safeRate(options.lightweightParseSkippedEvents, datasetEventCount),
+    socketParseSkippedEvents: options.socketParseSkippedEvents,
+    socketParseSkippedBytes: options.socketParseSkippedBytes,
+    socketParseSkipRate: safeRate(options.socketParseSkippedEvents, datasetEventCount),
     socketLazyProbeAttemptedEvents: options.socketLazyProbeAttemptedEvents,
     socketLazyProbeSatisfiedEvents: options.socketLazyProbeSatisfiedEvents,
     socketLazyFallbackParamEvents: options.socketLazyFallbackParamEvents,
@@ -547,6 +559,9 @@ async function collectDatasetMetrics(options: {
     lightweightParseSkippedEvents: metrics.lightweightParseSkippedEvents,
     lightweightParseSkippedBytes: metrics.lightweightParseSkippedBytes,
     lightweightParseSkipRate: metrics.lightweightParseSkipRate,
+    socketParseSkippedEvents: metrics.socketParseSkippedEvents,
+    socketParseSkippedBytes: metrics.socketParseSkippedBytes,
+    socketParseSkipRate: metrics.socketParseSkipRate,
     socketLazyProbeAttemptedEvents: metrics.socketLazyProbeAttemptedEvents,
     socketLazyProbeSatisfiedEvents: metrics.socketLazyProbeSatisfiedEvents,
     socketLazyFallbackParamEvents: metrics.socketLazyFallbackParamEvents,

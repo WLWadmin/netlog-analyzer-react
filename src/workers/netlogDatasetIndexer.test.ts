@@ -270,8 +270,10 @@ describe('netlogDatasetIndexer', () => {
     expect(index.count).toBe(2);
     expect(parseSkipStats.lightweightParseSkippedEvents).toBe(0);
     expect(parseSkipStats.lightweightParseSkippedBytes).toBe(0);
+    expect(parseSkipStats.socketParseSkippedEvents).toBe(1);
+    expect(parseSkipStats.socketParseSkippedBytes).toBeGreaterThan(0);
     expect(onLightweightEvent).not.toHaveBeenCalled();
-    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenCalledTimes(1);
     expect(socketsState.eventCount).toBe(2);
     expect(socketsState.errors).toEqual([
       expect.objectContaining({ eventId: 0, error: -7 }),
@@ -280,7 +282,7 @@ describe('netlogDatasetIndexer', () => {
     expect(index.sourceDependencyTo).toEqual([99]);
   });
 
-  it('socket early reducer path 不重复计数，同时保留 Endpoint Evidence socket peer', async () => {
+  it('带 dependency 的 socket 事件保留完整 parse 路径和 Endpoint Evidence socket peer', async () => {
     const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":100,"type":20},"phase":0,"params":{"url":"https://socket.example/api"}},{"time":"2","type":2,"source":{"id":200,"type":21},"phase":0,"params":{"address":"203.0.113.200:443","source_dependency":{"id":100}}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
     const onEvent = jest.fn();
@@ -294,7 +296,7 @@ describe('netlogDatasetIndexer', () => {
       probeAttemptedEvents: 1,
       probeSatisfiedEvents: 1,
       fallbackParamEvents: 0,
-      earlyReducerEvents: 1,
+      earlyReducerEvents: 0,
     });
     expect(socketsState.sockets).toEqual([
       expect.objectContaining({
@@ -311,5 +313,34 @@ describe('netlogDatasetIndexer', () => {
         eventId: 1,
       }),
     ]));
+  });
+
+  it('无 dependency 的 socket 事件可 parse-skip 并保留 Endpoint Evidence global candidate', async () => {
+    const text = '{"constants":{"logEventTypes":{"UDP_CONNECT":1},"logSourceType":{"UDP_SOCKET":20}},"events":[{"time":"1","type":1,"source":{"id":300,"type":20},"phase":0,"params":{"address":"203.0.113.201:443"}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const onEvent = jest.fn();
+
+    const { index, parseSkipStats, endpointEvidence, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent });
+
+    expect(index.count).toBe(1);
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(parseSkipStats.socketParseSkippedEvents).toBe(1);
+    expect(parseSkipStats.socketParseSkippedBytes).toBeGreaterThan(0);
+    expect(socketsState.lazyParamsStats.earlyReducerEvents).toBe(1);
+    expect(endpointEvidence.failedOrSlowIps).toEqual([
+      expect.objectContaining({
+        role: 'socket-peer',
+        association: 'global-candidate',
+        ip: '203.0.113.201',
+        sourceId: 300,
+        eventId: 0,
+      }),
+    ]);
+    expect(endpointEvidence.sourceGraphStats).toEqual(expect.objectContaining({
+      socketPeerTotal: 1,
+      socketPeerSourceGraphAssociated: 0,
+      socketPeerGlobalCandidate: 1,
+      globalCandidateParamKeys: { address: 1 },
+    }));
   });
 });

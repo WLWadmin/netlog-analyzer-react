@@ -22,13 +22,22 @@ lightweightParseSkippedBytes = 309,143,756
 lightweightParseSkipRate = 0.975
 ```
 
-Sockets lazy params probe 在真实样本中全部命中：
+Sockets lazy params probe 在真实样本中对无复杂 dependency 的 socket 事件稳定命中：
 
 ```text
 socketLazyProbeAttemptedEvents = 7,699
-socketLazyProbeSatisfiedEvents = 7,699
-socketLazyFallbackParamEvents = 0
-socketLazyProbeSatisfiedRate = 1
+socketLazyProbeSatisfiedEvents = 6,644
+socketLazyFallbackParamEvents = 1,055
+socketLazyProbeSatisfiedRate = 0.863
+```
+
+Socket event parse-skip 采用保守策略：只跳过无 dependency-like 形态的 socket/global-candidate 事件，带 source graph 依赖的 socket 事件继续完整 parse：
+
+```text
+socketParseSkippedEvents = 6,047
+socketParseSkippedBytes = 879,325
+socketParseSkipRate = 0.0027
+socketEarlyReducerEvents = 6,047
 ```
 
 Phase 6 仍不建议默认开启 single scan，原因不是功能门禁失败，而是只跑了一个真实样本，且同环境内存估算显示 single-scan 高于 dataset-import baseline。
@@ -39,16 +48,16 @@ Phase 6 仍不建议默认开启 single scan，原因不是功能门禁失败，
 |---|---:|---:|
 | fileSize | 326,930,225 | 326,930,225 |
 | datasetEventCount | 2,235,117 | 2,235,117 |
-| datasetImportMs | 7,917 | 0 |
-| datasetReadyMs | - | 7,782 |
-| uploadToFirstDiagnosisMs | - | 7,782 |
-| queryP95 | 11 | 12 |
-| detailP95 | 1 | 0 |
-| rawSearchWorstCaseMs | 156 | 155 |
+| datasetImportMs | 7,565 | 0 |
+| datasetReadyMs | - | 8,083 |
+| uploadToFirstDiagnosisMs | - | 8,083 |
+| queryP95 | 11 | 13 |
+| detailP95 | 1 | 1 |
+| rawSearchWorstCaseMs | 150 | 179 |
 | rawSearchFilteredMs | 15 | 16 |
-| memoryPeakEstimateMb | 10 | 22 |
-| mainThreadBlockedMs | 0 | 0 |
-| rafMaxDelayMs | 1 | 16 |
+| memoryPeakEstimateMb | 10 | 21 |
+| mainThreadBlockedMs | 52 | 0 |
+| rafMaxDelayMs | 4 | 18 |
 
 ## Raw evidence
 
@@ -93,6 +102,8 @@ socketPeerGlobalCandidate = 270
 socketPeerAssociationRate = 0.5485
 socketPeerUnresolvedRate = 0.4515
 socketPeerHostTimeCandidate = 0
+sourceDependencyEdges = 3709
+sourceDependencyUnparsed = 3
 ```
 
 未解析原因：
@@ -154,4 +165,4 @@ Collect baseline and single-scan memoryPeakEstimateMb in the same run environmen
 
 1. 用第二个真实 NetLog 样本跑同一组 benchmark，满足 multi-sample evidence。
 2. 复核 browser `memoryPeakEstimateMb` 在 headless Edge 下的稳定性；当前 single-scan 为 22MB，dataset-import 为 10MB，比例超过 1.2x 门槛。
-3. 因 `socketLazyProbeSatisfiedRate = 1`，可以进入下一刀 `socket event 专用 early reducer path`，但仍应保持只针对 socket event 的小范围试点。
+3. Socket parse-skip 已完成保守试点；如果继续优化，应只在更多真实样本证明 source graph 指标稳定后，再考虑扩大到带 dependency 的 socket 事件。

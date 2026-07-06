@@ -1,11 +1,11 @@
 {
   "packageVersion": "netlog-benchmark-evidence-v1",
-  "generatedAt": "2026-07-06T15:52:00.000+08:00",
+  "generatedAt": "2026-07-06T16:59:00.000+08:00",
   "metricCount": 2,
   "sampleCount": 1,
   "labels": [
-    "real-326mb-dataset-import",
-    "real-326mb-upload-single-scan"
+    "real-326mb-dataset-import-socket-parse-skip",
+    "real-326mb-upload-single-scan-socket-parse-skip"
   ],
   "files": [
     {
@@ -20,21 +20,25 @@
   "aggregate": {
     "datasetEventCount": 2235117,
     "baselineDatasetEventCount": 2235117,
-    "datasetReadyMsMax": 7782,
-    "uploadToFirstDiagnosisMsMax": 7782,
-    "queryP95Max": 12,
-    "detailP95Max": 0,
-    "rawSearchWorstCaseMsMax": 155,
+    "datasetReadyMsMax": 8083,
+    "uploadToFirstDiagnosisMsMax": 8083,
+    "queryP95Max": 13,
+    "detailP95Max": 1,
+    "rawSearchWorstCaseMsMax": 179,
     "rawSearchFilteredMsMax": 16,
-    "memoryPeakEstimateMbMax": 22,
+    "memoryPeakEstimateMbMax": 21,
     "baselineMemoryPeakEstimateMbMax": 10,
     "lightweightParseSkippedEvents": 2179162,
     "lightweightParseSkippedBytes": 309143756,
     "lightweightParseSkipRate": 0.975,
+    "socketParseSkippedEvents": 6047,
+    "socketParseSkippedBytes": 879325,
+    "socketParseSkipRate": 0.0027,
     "socketLazyProbeAttemptedEvents": 7699,
-    "socketLazyProbeSatisfiedEvents": 7699,
-    "socketLazyFallbackParamEvents": 0,
-    "socketLazyProbeSatisfiedRate": 1
+    "socketLazyProbeSatisfiedEvents": 6644,
+    "socketLazyFallbackParamEvents": 1055,
+    "socketEarlyReducerEvents": 6047,
+    "socketLazyProbeSatisfiedRate": 0.863
   },
   "phase6Evidence": {
     "mode": "upload-single-scan",
@@ -51,15 +55,19 @@
     "dnsAnswerStateOnlyCount": 0,
     "socketPeerHostTimeCandidate": 0,
     "forbiddenConfirmedMatchesCount": 0,
-    "memoryPeakEstimateMb": 22,
+    "memoryPeakEstimateMb": 21,
     "baselineMemoryPeakEstimateMb": 10,
     "lightweightParseSkippedEvents": 2179162,
     "lightweightParseSkippedBytes": 309143756,
     "lightweightParseSkipRate": 0.975,
+    "socketParseSkippedEvents": 6047,
+    "socketParseSkippedBytes": 879325,
+    "socketParseSkipRate": 0.0027,
     "socketLazyProbeAttemptedEvents": 7699,
-    "socketLazyProbeSatisfiedEvents": 7699,
-    "socketLazyFallbackParamEvents": 0,
-    "socketLazyProbeSatisfiedRate": 1,
+    "socketLazyProbeSatisfiedEvents": 6644,
+    "socketLazyFallbackParamEvents": 1055,
+    "socketEarlyReducerEvents": 6047,
+    "socketLazyProbeSatisfiedRate": 0.863,
     "sampleCount": 1
   },
   "phase6Decision": {

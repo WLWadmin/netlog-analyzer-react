@@ -210,8 +210,74 @@ function sourceTypeName(index: CompactEventIndex, sourceTypeId: number): string 
 }
 
 function isSocketEarlyReducerCandidate(typeName: string, sourceType: string): boolean {
-  const text = `${typeName} ${sourceType}`.toUpperCase();
-  return text.includes('SOCKET') || text.includes('TCP_') || text.includes('SSL_') || text.includes('TLS_') || text.includes('TRANSPORT_CONNECT');
+  const upperType = typeName.toUpperCase();
+  const upperSource = sourceType.toUpperCase();
+  if (
+    upperType.includes('STREAM_POOL') ||
+    upperSource.includes('STREAM_POOL') ||
+    upperType.includes('SOCKET_POOL') ||
+    upperSource.includes('SOCKET_POOL')
+  ) return false;
+  return upperType.includes('SOCKET') ||
+    upperSource.includes('SOCKET') ||
+    upperType.startsWith('TCP_') ||
+    upperType.startsWith('UDP_') ||
+    upperType.startsWith('SSL_') ||
+    upperType.startsWith('TLS_');
+}
+
+function extractJsonObjectBlock(json: string, key: string): string | undefined {
+  const keyIndex = json.indexOf(`"${key}"`);
+  if (keyIndex < 0) return undefined;
+  const colonIndex = json.indexOf(':', keyIndex);
+  if (colonIndex < 0) return undefined;
+  let start = colonIndex + 1;
+  while (start < json.length && /\s/.test(json[start])) start += 1;
+  if (json[start] !== '{') return undefined;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < json.length; i += 1) {
+    const ch = json[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return json.slice(start, i + 1);
+    }
+  }
+  return undefined;
+}
+
+function extractProbedDependencySourceIds(eventJson: string): number[] {
+  const paramsBlock = extractJsonObjectBlock(eventJson, 'params');
+  if (!paramsBlock) return [];
+  const hasDependencyLikeShape = hasNetlogSourceDependencyMarker(eventJson) || /"source"\s*:/.test(paramsBlock);
+  if (!hasDependencyLikeShape) return [];
+  const ids = new Set<number>();
+  const matches = paramsBlock.matchAll(/"(?:id|source_id|sourceId)"\s*:\s*(\d+)/g);
+  for (const match of matches) {
+    const id = Number(match[1]);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  return Array.from(ids);
+}
+
+function hasSocketDependencyLikeShape(eventJson: string): boolean {
+  const paramsBlock = extractJsonObjectBlock(eventJson, 'params');
+  if (!paramsBlock) return false;
+  return hasNetlogSourceDependencyMarker(eventJson) ||
+    /"source"\s*:/.test(paramsBlock) ||
+    /"(?:source_id|sourceId|parent_source_id|parentSourceId|url_request_source_id|urlRequestSourceId|request_source_id|requestSourceId|stream_source_id|streamSourceId|socket_source_id|socketSourceId|connect_job_source_id|connectJobSourceId|job_source_id|jobSourceId)"\s*:/.test(paramsBlock);
 }
 
 function topCounts(ids: number[], names: Record<number, string> | undefined): Array<{ name: string; count: number }> {
@@ -266,6 +332,8 @@ export async function buildNetlogCompactEventIndex(
   const parseSkipStats: NetlogDatasetParseSkipStats = {
     lightweightParseSkippedEvents: 0,
     lightweightParseSkippedBytes: 0,
+    socketParseSkippedEvents: 0,
+    socketParseSkippedBytes: 0,
   };
   const endpointReducer = createNetlogEndpointEvidenceReducer();
   const dnsStateReducer = createNetlogDnsStateReducer();
@@ -339,7 +407,6 @@ export async function buildNetlogCompactEventIndex(
   const finishObject = async (byteEnd: number) => {
     const eventJson = decoder.decode(new Uint8Array(objectBytes));
     const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
-    let socketWasAcceptedEarly = false;
     if (probedTypeId !== undefined) {
       const probedTypeName = eventName(index, probedTypeId);
       const probedSourceTypeId = extractSourceTypeId(eventJson);
@@ -369,20 +436,51 @@ export async function buildNetlogCompactEventIndex(
         objectStart = -1;
         return;
       }
-      if (isSocketEarlyReducerCandidate(probedTypeName, probedSourceTypeName) && canProbeSocketParamsFromEventJson(eventJson)) {
-        socketsStateReducer.accept({
-          eventId: index.count,
-          byteStart: objectStart,
-          byteEnd,
+      if (
+        isSocketEarlyReducerCandidate(probedTypeName, probedSourceTypeName) &&
+        canProbeSocketParamsFromEventJson(eventJson) &&
+        !hasSocketDependencyLikeShape(eventJson)
+      ) {
+        const eventId = index.count;
+        const sourceId = extractSourceId(eventJson) || 0;
+        const byteStart = objectStart;
+        const dependencySourceIds = extractProbedDependencySourceIds(eventJson);
+        pushProbedEvent(index, {
           time: extractTopLevelNumberLikeField(eventJson, 'time'),
+          typeId: probedTypeId,
+          sourceTypeId: probedSourceTypeId,
+          sourceId,
+          phase: extractTopLevelNumericField(eventJson, 'phase'),
+          hasError: probedHasError,
+        }, objectStart, byteEnd);
+        for (const dependencySourceId of dependencySourceIds) {
+          if (sourceId > 0 && dependencySourceId > 0 && sourceId !== dependencySourceId) {
+            index.sourceDependencyFrom?.push(sourceId);
+            index.sourceDependencyTo?.push(dependencySourceId);
+          }
+        }
+        const socketSeed = {
+          eventId,
+          byteStart,
+          byteEnd,
+          time: extractTopLevelNumberLikeField(eventJson, 'time') || 0,
           typeName: probedTypeName,
-          sourceId: extractSourceId(eventJson) || 0,
+          sourceId,
           sourceTypeName: probedSourceTypeName,
+          phase: extractTopLevelNumericField(eventJson, 'phase') || 0,
           params: undefined,
           eventJson,
+        };
+        endpointReducer.accept(socketSeed);
+        socketsStateReducer.accept({
+          ...socketSeed,
           earlyPath: true,
         });
-        socketWasAcceptedEarly = true;
+        parseSkipStats.socketParseSkippedEvents = (parseSkipStats.socketParseSkippedEvents || 0) + 1;
+        parseSkipStats.socketParseSkippedBytes = (parseSkipStats.socketParseSkippedBytes || 0) + eventJson.length;
+        objectBytes = [];
+        objectStart = -1;
+        return;
       }
     }
     const event = JSON.parse(eventJson);
@@ -424,9 +522,7 @@ export async function buildNetlogCompactEventIndex(
     proxyStateReducer.accept(seed);
     quicStateReducer.accept(seed);
     http2StateReducer.accept(seed);
-    if (!socketWasAcceptedEarly) {
-      socketsStateReducer.accept(seed);
-    }
+    socketsStateReducer.accept(seed);
     cacheStateReducer.accept(seed);
     altSvcStateReducer.accept(seed);
     streamPoolStateReducer.accept(seed);

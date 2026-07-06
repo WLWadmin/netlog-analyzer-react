@@ -249,6 +249,7 @@ function extractJsonTopLevelKeys(jsonObjectBlock: string): string[] {
   let inString = false;
   let escape = false;
   let readingKey = false;
+  let expectingKey = false;
   let keyBuffer = '';
   for (let i = 0; i < jsonObjectBlock.length; i += 1) {
     const ch = jsonObjectBlock[i];
@@ -275,7 +276,14 @@ function extractJsonTopLevelKeys(jsonObjectBlock: string): string[] {
     }
     if (ch === '{') depth += 1;
     else if (ch === '}') depth -= 1;
+    if (ch === '{' && depth === 1) expectingKey = true;
+    else if (ch === ',' && depth === 1) expectingKey = true;
+    else if (ch === ':' && depth === 1) expectingKey = false;
     else if (ch === '"' && depth === 1) {
+      if (!expectingKey) {
+        inString = true;
+        continue;
+      }
       readingKey = true;
       keyBuffer = '';
     } else if (ch === '"') {
@@ -302,9 +310,9 @@ function extractJsonSourceDependencyIds(json: string, paramsBlock: string): { id
     const id = Number(value);
     if (Number.isFinite(id) && id > 0) ids.add(id);
   }
-  const dependencyBlocks = paramsBlock.match(/"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])|"dependencies"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])/g) || [];
-  for (const block of dependencyBlocks) {
-    const matches = block.matchAll(/"(?:id|source_id|sourceId)"\s*:\s*(\d+)/g);
+  const hasDependencyLikeShape = hasNetlogSourceDependencyMarker(json) || /"source"\s*:/.test(paramsBlock);
+  if (hasDependencyLikeShape) {
+    const matches = paramsBlock.matchAll(/"(?:id|source_id|sourceId)"\s*:\s*(\d+)/g);
     for (const match of matches) {
       const id = Number(match[1]);
       if (Number.isFinite(id) && id > 0) ids.add(id);
@@ -312,7 +320,7 @@ function extractJsonSourceDependencyIds(json: string, paramsBlock: string): { id
   }
   return {
     ids: Array.from(ids),
-    unparsed: hasNetlogSourceDependencyMarker(json) && ids.size === 0 ? 1 : 0,
+    unparsed: hasDependencyLikeShape && ids.size === 0 ? 1 : 0,
   };
 }
 

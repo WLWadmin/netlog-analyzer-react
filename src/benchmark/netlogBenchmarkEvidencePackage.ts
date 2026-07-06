@@ -26,6 +26,8 @@ export interface NetlogBenchmarkMetricInput {
   memoryPeakEstimateMb?: number | null;
   lightweightParseSkippedEvents?: number;
   lightweightParseSkippedBytes?: number;
+  socketParseSkippedEvents?: number;
+  socketParseSkippedBytes?: number;
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;
@@ -61,6 +63,9 @@ export interface NetlogBenchmarkEvidencePackage {
     lightweightParseSkippedEvents: number;
     lightweightParseSkippedBytes: number;
     lightweightParseSkipRate?: number;
+    socketParseSkippedEvents: number;
+    socketParseSkippedBytes: number;
+    socketParseSkipRate?: number;
     socketLazyProbeAttemptedEvents: number;
     socketLazyProbeSatisfiedEvents: number;
     socketLazyFallbackParamEvents: number;
@@ -122,6 +127,8 @@ export function buildNetlogBenchmarkEvidencePackage(
   const fileNames = distinct(validMetrics.map(metric => metric.fileName).filter((fileName): fileName is string => Boolean(fileName)));
   const lightweightParseSkippedEvents = sumNumber(singleScanMetrics, 'lightweightParseSkippedEvents') ?? 0;
   const lightweightParseSkippedBytes = sumNumber(singleScanMetrics, 'lightweightParseSkippedBytes') ?? 0;
+  const socketParseSkippedEvents = sumNumber(singleScanMetrics, 'socketParseSkippedEvents') ?? 0;
+  const socketParseSkippedBytes = sumNumber(singleScanMetrics, 'socketParseSkippedBytes') ?? 0;
   const socketLazyProbeAttemptedEvents = sumNumber(singleScanMetrics, 'socketLazyProbeAttemptedEvents') ?? 0;
   const socketLazyProbeSatisfiedEvents = sumNumber(singleScanMetrics, 'socketLazyProbeSatisfiedEvents') ?? 0;
   const socketLazyFallbackParamEvents = sumNumber(singleScanMetrics, 'socketLazyFallbackParamEvents') ?? 0;
@@ -191,6 +198,9 @@ export function buildNetlogBenchmarkEvidencePackage(
       lightweightParseSkippedEvents,
       lightweightParseSkippedBytes,
       lightweightParseSkipRate: phase6Evidence.lightweightParseSkipRate,
+      socketParseSkippedEvents,
+      socketParseSkippedBytes,
+      socketParseSkipRate: safeRate(socketParseSkippedEvents, datasetEventCount),
       socketLazyProbeAttemptedEvents,
       socketLazyProbeSatisfiedEvents,
       socketLazyFallbackParamEvents,

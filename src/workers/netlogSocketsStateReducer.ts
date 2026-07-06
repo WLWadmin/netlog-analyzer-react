@@ -130,16 +130,48 @@ function extractJsonStringOrNumber(json: string, fieldNames: string[]): string |
   return undefined;
 }
 
-function extractJsonSourceDependencyIds(json: string): number[] | undefined {
-  if (!hasNetlogSourceDependencyMarker(json)) return [];
-  const ids = new Set<number>();
-  const dependencyBlocks = json.match(/"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])|"dependencies"\s*:\s*(?:\{[^{}]*\}|\[[^\]]*\])/g) || [];
-  for (const block of dependencyBlocks) {
-    const matches = block.matchAll(/"id"\s*:\s*(\d+)/g);
-    for (const match of matches) {
-      const id = Number(match[1]);
-      if (Number.isFinite(id) && id > 0) ids.add(id);
+function extractJsonObjectBlock(json: string, key: string): string | undefined {
+  const keyIndex = json.indexOf(`"${key}"`);
+  if (keyIndex < 0) return undefined;
+  const colonIndex = json.indexOf(':', keyIndex);
+  if (colonIndex < 0) return undefined;
+  let start = colonIndex + 1;
+  while (start < json.length && /\s/.test(json[start])) start += 1;
+  if (json[start] !== '{') return undefined;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < json.length; i += 1) {
+    const ch = json[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
     }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return json.slice(start, i + 1);
+    }
+  }
+  return undefined;
+}
+
+function extractJsonSourceDependencyIds(json: string): number[] | undefined {
+  const paramsBlock = extractJsonObjectBlock(json, 'params');
+  if (!paramsBlock) return undefined;
+  const hasDependencyLikeShape = hasNetlogSourceDependencyMarker(json) || /"source"\s*:/.test(paramsBlock);
+  if (!hasDependencyLikeShape) return [];
+  const ids = new Set<number>();
+  const matches = paramsBlock.matchAll(/"(?:id|source_id|sourceId)"\s*:\s*(\d+)/g);
+  for (const match of matches) {
+    const id = Number(match[1]);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
   }
   return ids.size > 0 ? Array.from(ids) : undefined;
 }

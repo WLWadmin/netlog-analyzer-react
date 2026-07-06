@@ -20,6 +20,9 @@ export interface UploadEvidenceForDecision {
   lightweightParseSkippedEvents?: number;
   lightweightParseSkippedBytes?: number;
   lightweightParseSkipRate?: number;
+  socketParseSkippedEvents?: number;
+  socketParseSkippedBytes?: number;
+  socketParseSkipRate?: number;
   socketLazyProbeAttemptedEvents?: number;
   socketLazyProbeSatisfiedEvents?: number;
   socketLazyFallbackParamEvents?: number;

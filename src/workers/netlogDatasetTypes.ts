@@ -3,6 +3,8 @@ export type NetlogDatasetStatus = 'unavailable' | 'importing' | 'ready' | 'fallb
 export interface NetlogDatasetParseSkipStats {
   lightweightParseSkippedEvents: number;
   lightweightParseSkippedBytes: number;
+  socketParseSkippedEvents?: number;
+  socketParseSkippedBytes?: number;
 }
 
 export interface NetlogDatasetSocketLazyParamsStats {

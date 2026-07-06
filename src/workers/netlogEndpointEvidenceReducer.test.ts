@@ -244,6 +244,29 @@ describe('netlogEndpointEvidenceReducer', () => {
     });
   });
 
+  it('eventJson probe 的 socket global candidate paramKeys 不包含字符串值', () => {
+    const reducer = createNetlogEndpointEvidenceReducer();
+
+    reducer.accept({
+      eventId: 3,
+      byteStart: 300,
+      byteEnd: 399,
+      time: 40,
+      typeName: 'UDP_CONNECT',
+      sourceId: 500,
+      sourceTypeName: 'UDP_SOCKET',
+      phase: 0,
+      eventJson: '{"time":"40","type":3,"source":{"id":500,"type":22},"phase":0,"params":{"address":"[2001:4860:4860::8888]:443","byte_count":12}}',
+    });
+
+    const summary = reducer.finish();
+
+    expect(summary.sourceGraphStats?.globalCandidateParamKeys).toEqual({
+      address: 1,
+      byte_count: 1,
+    });
+  });
+
   it('统计数组和嵌套 source dependency 覆盖率，并记录未解析依赖', () => {
     const reducer = createNetlogEndpointEvidenceReducer();
 
