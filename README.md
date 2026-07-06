@@ -4,6 +4,16 @@
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
+## 项目现状
+
+当前项目的 NetLog Viewer parity 已基本收口，日常使用路径、专家分析、Dataset 查询、证据链、Raw search 保护、导出与定因防误判都已具备可用实现。
+
+- **NetLog 大文件路径已可用**：已支持大文件 Dataset Worker 索引、上传阶段 telemetry、`single scan` 主路径、`fallback` 双扫回退路径，以及 Raw search / Raw detail / DNS State / Endpoint Evidence / Sockets / Proxy / QUIC / HTTP/2 等 Dataset 化查询。
+- **默认策略仍保持保守**：虽然大文件 `single scan` 已有实现且已有真实回归证据，但默认开启门禁尚未完全解除；当前仍保留 `fallback` 回退能力，并继续以“证据完整性优先”作为默认策略。
+- **当前唯一外部阻塞**：还缺少第二个可触发大文件 `single scan` 路径的真实 NetLog 样本，因此项目当前结论是“能力已基本完成，但 `single scan` 默认开启暂不放开”。
+
+如果你是普通使用者，可以直接按下文“快速使用”操作；如果你是协作者，建议把 README 理解为“产品能力与使用说明”，而不是内部 benchmark 记录。
+
 
 ## 项目用途
 
@@ -33,7 +43,7 @@
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **NetLog 结论与行动**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成面向普通用户的结论、行动清单和缺失信息。
 - **专家分析保留完整能力**：事件列表、源链路、安全与协议、性能分析、A-B 对比和完整诊断报告收敛到 NetLog「专家分析」二级入口。
-- **Dataset 模式（小文件可手动启用）**：为避免大文件把完整 events 拉回主线程，提供 Worker Dataset 索引与查询协议。大文件会在后台索引；小文件也可在「专家分析 → Data Loaded」手动点击「启动 Dataset 索引」启用。Dataset 就绪后，事件分页查询、DNS State、证据跳转与 Raw Event Detail 都以 Dataset 查询为主，摘要路径作为 fallback。Dataset 状态为 `unavailable` 时表示当前文件未启用 Dataset（或 Worker 不可用），此时专家视图只展示解析摘要字段。
+- **Dataset 模式（支持大文件路径）**：为避免大文件把完整 events 拉回主线程，项目提供 Worker Dataset 索引与查询协议，并已支持大文件 `single scan` 主路径与 `fallback` 双扫回退路径。大文件会优先尝试在上传链路中完成 summary + Dataset 建立；小文件也可在「专家分析 → Data Loaded」手动点击「启动 Dataset 索引」启用。Dataset 就绪后，事件分页查询、DNS State、证据跳转、Raw Event Detail、部分状态视图与专家分析查询都以 Dataset 为主，摘要路径作为 fallback。Dataset 状态为 `unavailable` 时表示当前文件未启用 Dataset（或 Worker 不可用），此时专家视图只展示解析摘要字段。
 - **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
 - **DNS 与 CIP/SIP 定位证据（支持 Dataset 跳转）**：HAR / NetLog 诊断页在最终诊断摘要后展示 DNS server、DNS answer、失败/慢请求关联的 CIP/SIP；同域名同 CIP/SIP 自动去重并保留最长耗时前三个代表请求。各类 IP 列（CIP/SIP/socket peer/DNS answer/服务端观察客户端 IP）默认只展示前 **3** 个，剩余以 `+N` 收起，点击可展开完整列表；DNS answer 也支持按网段分组展开完整 IP，并支持按行复制全部解析 IP。**当 Dataset 索引就绪时**，DNS answer / 失败慢请求证据可直接点击「查看事件」打开 Raw Event Detail（无 trace 的证据会明确提示）。IP 归属查询必须由用户显式点击触发，通过 Cloudflare Worker 代理查询公网 IP，内网 / loopback / 保留地址不会外发；结果以卡片列表展示中文运营商、归属地、ASN、关联域名和风险线索，并支持自助输入 IP 查询。
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
@@ -102,6 +112,8 @@
 
 支持同时上传 HAR + NetLog 两个文件，自动进入 NetLog「结论与行动」（`#netlog/conclusion`），并可在「证据链」查看联合证据。
 
+对于 NetLog 大文件，项目会优先走 Worker + Dataset 路径，尽量避免把完整事件直接拉回主线程；如果当前环境或文件条件不满足，也会自动回退到更保守的 fallback 流程，保证结果完整性优先。
+
 ### 3. 查看分析结果
 
 **NetLog 文件**解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
@@ -128,6 +140,12 @@
 **诊断卡片脱敏导出**：在 NetLog「专家分析 → 完整诊断报告」中点击「生成协作摘要」，可导出已脱敏的诊断报告（自动脱敏 Cookie、Authorization、Token、URL 敏感参数等），便于安全地分享给他人协作排查。
 
 HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复制。
+
+## 当前限制
+
+- `single scan` 已具备实现和回归验证，但默认仍保持保守策略，暂不作为无门禁默认路径。
+- 当前默认不开启的核心原因不是功能缺失，而是还缺少第二个可触发大文件 `single scan` 的真实样本来完成最终门禁验证。
+- 因此，项目当前更强调：大文件能稳定解析、证据不丢、回退可用；而不是为了追求更激进的默认策略而牺牲证据完整性。
 
 ## 页面模块说明
 
