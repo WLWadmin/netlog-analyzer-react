@@ -1,4 +1,8 @@
 export function extractTopLevelNumericField(json: string, fieldName: string): number | undefined {
+  return extractTopLevelNumberLikeField(json, fieldName, false);
+}
+
+export function extractTopLevelNumberLikeField(json: string, fieldName: string, allowQuoted = true): number | undefined {
   let depth = 0;
   let inString = false;
   let escape = false;
@@ -46,6 +50,10 @@ export function extractTopLevelNumericField(json: string, fieldName: string): nu
 
     if (expectingNumberForKey) {
       if (/\s/.test(ch)) continue;
+      if (allowQuoted && ch === '"') {
+        const match = json.slice(i + 1).match(/^-?\d+(?:\.\d+)?/);
+        return match ? Number(match[0]) : undefined;
+      }
       const match = json.slice(i).match(/^-?\d+/);
       return match ? Number(match[0]) : undefined;
     }
@@ -67,5 +75,10 @@ export function extractTopLevelNumericField(json: string, fieldName: string): nu
 
 export function extractSourceTypeId(json: string): number | undefined {
   const sourceMatch = json.match(/"source"\s*:\s*\{[^}]*"type"\s*:\s*(\d+)/);
+  return sourceMatch ? Number(sourceMatch[1]) : undefined;
+}
+
+export function extractSourceId(json: string): number | undefined {
+  const sourceMatch = json.match(/"source"\s*:\s*\{[^}]*"id"\s*:\s*(\d+)/);
   return sourceMatch ? Number(sourceMatch[1]) : undefined;
 }

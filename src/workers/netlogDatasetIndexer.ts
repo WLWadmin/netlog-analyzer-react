@@ -11,6 +11,7 @@ import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReduc
 import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
 import { isLightweightCountEventName } from './netlogLightweightEvents';
+import { extractSourceId, extractSourceTypeId, extractTopLevelNumberLikeField, extractTopLevelNumericField } from './netlogEventJsonProbe';
 
 export interface CompactEventIndex {
   count: number;
@@ -169,9 +170,35 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
   }
 }
 
+function pushProbedEvent(
+  index: CompactEventIndex,
+  fields: { time?: number; typeId: number; sourceTypeId?: number; sourceId?: number; phase?: number; hasError?: boolean },
+  byteStart: number,
+  byteEnd: number
+) {
+  index.count += 1;
+  index.time.push(fields.time || 0);
+  index.typeId.push(fields.typeId || 0);
+  index.sourceTypeId.push(fields.sourceTypeId || 0);
+  index.sourceId.push(fields.sourceId || 0);
+  index.phase.push(fields.phase || 0);
+  index.flags.push(fields.hasError ? 1 : 0);
+  index.byteStart.push(byteStart);
+  index.byteEnd.push(byteEnd);
+}
+
 function hasErrorParams(event: any): boolean {
   const params = event?.params;
   return Boolean(params?.net_error || params?.error_code);
+}
+
+function hasErrorMarker(eventJson: string): boolean {
+  if (!/"(?:net_error|error_code)"\s*:/.test(eventJson)) return false;
+  return !/"(?:net_error|error_code)"\s*:\s*0(?:[,}])/.test(eventJson);
+}
+
+function hasSourceDependencyMarker(eventJson: string): boolean {
+  return /"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:|"dependencies"\s*:/.test(eventJson);
 }
 
 function eventName(index: CompactEventIndex, typeId: number): string {
@@ -302,6 +329,34 @@ export async function buildNetlogCompactEventIndex(
 
   const finishObject = async (byteEnd: number) => {
     const eventJson = decoder.decode(new Uint8Array(objectBytes));
+    const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
+    if (probedTypeId !== undefined) {
+      const probedTypeName = eventName(index, probedTypeId);
+      const probedHasError = hasErrorMarker(eventJson);
+      const probedHasDependency = hasSourceDependencyMarker(eventJson);
+      if (isLightweightCountEventName(probedTypeName) && !probedHasError && !probedHasDependency) {
+        const sourceTypeId = extractSourceTypeId(eventJson);
+        const sourceId = extractSourceId(eventJson);
+        const eventId = index.count;
+        pushProbedEvent(index, {
+          time: extractTopLevelNumberLikeField(eventJson, 'time'),
+          typeId: probedTypeId,
+          sourceTypeId,
+          sourceId,
+          phase: extractTopLevelNumericField(eventJson, 'phase'),
+          hasError: false,
+        }, objectStart, byteEnd);
+        options.onLightweightEvent?.(probedTypeId, sourceTypeId, {
+          eventId,
+          byteStart: objectStart,
+          byteEnd,
+          typeName: probedTypeName,
+        });
+        objectBytes = [];
+        objectStart = -1;
+        return;
+      }
+    }
     const event = JSON.parse(eventJson);
     const eventId = index.count;
     pushEvent(index, event, objectStart, byteEnd);

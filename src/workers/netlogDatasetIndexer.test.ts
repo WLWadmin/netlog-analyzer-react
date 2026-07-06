@@ -229,6 +229,34 @@ describe('netlogDatasetIndexer', () => {
     expect(socketsState.eventCount).toBe(0);
   });
 
+  it('无错误轻量事件命中 probe gate 时不执行完整 JSON.parse', async () => {
+    const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1,"URL_REQUEST":2},"logSourceType":{"SOCKET":20,"URL_REQUEST":21}},"events":[{"time":"123.5","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"byte_count":1024}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"url":"https://keep.example"}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const originalParse = JSON.parse;
+    const parseSpy = jest.spyOn(JSON, 'parse').mockImplementation((value: string) => {
+      if (typeof value === 'string' && value.includes('"byte_count":1024')) {
+        throw new Error('lightweight event should not be fully parsed');
+      }
+      return originalParse(value);
+    });
+    const onLightweightEvent = jest.fn();
+
+    try {
+      const { index } = await buildNetlogCompactEventIndex(file, { onLightweightEvent });
+
+      expect(index.count).toBe(2);
+      expect(index.time[0]).toBe(123.5);
+      expect(index.sourceId[0]).toBe(10);
+      expect(index.sourceTypeId[0]).toBe(20);
+      expect(onLightweightEvent).toHaveBeenCalledWith(1, 20, expect.objectContaining({
+        eventId: 0,
+        typeName: 'SOCKET_BYTES_RECEIVED',
+      }));
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
   it('带错误或 source dependency 的轻量事件不跳过 heavy reducer 路径', async () => {
     const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1},"logSourceType":{"SOCKET":20}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"net_error":-7}},{"time":"2","type":1,"source":{"id":11,"type":20},"phase":0,"params":{"source_dependency":{"id":99},"byte_count":2048}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
