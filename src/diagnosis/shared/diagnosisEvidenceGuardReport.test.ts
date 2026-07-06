@@ -1,4 +1,4 @@
-import { buildDiagnosisEvidenceGuardReport } from './diagnosisEvidenceGuardReport';
+import { buildDiagnosisEvidenceGuardReport, scanConfirmedTextForForbiddenEvidence } from './diagnosisEvidenceGuardReport';
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
 import type { DiagnosticCard, DiagnosisSummary } from './types';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
@@ -102,5 +102,16 @@ describe('buildDiagnosisEvidenceGuardReport', () => {
       expect.objectContaining({ conclusionId: 'bad-confirmed', token: 'socket peer' }),
       expect.objectContaining({ conclusionId: 'bad-confirmed', token: 'global-candidate' }),
     ]));
+  });
+
+  it('扫描导出/复制文本中的 confirmed state fact 误包装', () => {
+    expect(scanConfirmedTextForForbiddenEvidence('候选线索：socket peer 是 203.0.113.10，仅作为排查线索。')).toEqual([]);
+    expect(scanConfirmedTextForForbiddenEvidence('不能确认根因：socket peer 是候选线索。')).toEqual([]);
+    expect(scanConfirmedTextForForbiddenEvidence('已确认根因：proxy config 导致请求失败。')).toEqual([
+      expect.objectContaining({ token: 'proxy config' }),
+    ]);
+    expect(scanConfirmedTextForForbiddenEvidence('confirmed: quic state caused the issue')).toEqual([
+      expect.objectContaining({ token: 'quic state' }),
+    ]);
   });
 });

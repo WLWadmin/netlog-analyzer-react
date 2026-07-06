@@ -15,7 +15,7 @@ export interface DiagnosisEvidenceGuardReport {
   }>;
 }
 
-const forbiddenConfirmedTokens = [
+export const forbiddenConfirmedTokens = [
   'dns answer',
   'socket peer',
   'x-request-ip',
@@ -33,6 +33,11 @@ const forbiddenConfirmedTokens = [
   '协议状态',
   '状态事实',
 ];
+
+export interface ForbiddenConfirmedTextMatch {
+  token: string;
+  snippet: string;
+}
 
 function normalize(value: string | undefined): string {
   return (value || '').toLowerCase();
@@ -88,4 +93,33 @@ export function buildDiagnosisEvidenceGuardReport(summary: FinalDiagnosisSummary
   }
 
   return report;
+}
+
+export function scanConfirmedTextForForbiddenEvidence(text: string): ForbiddenConfirmedTextMatch[] {
+  const normalized = normalize(text);
+  const confirmedMarkers = [
+    'confirmed',
+    '确认根因',
+    '已确认',
+    '确认是',
+    '确定是',
+  ];
+  const hasAffirmativeConfirmedMarker = confirmedMarkers.some(marker => {
+    const index = normalized.indexOf(marker);
+    if (index < 0) return false;
+    const prefix = normalized.slice(Math.max(0, index - 4), index);
+    return !prefix.includes('不能') && !prefix.includes('无法') && !prefix.includes('未能');
+  });
+  if (!hasAffirmativeConfirmedMarker) return [];
+  return forbiddenConfirmedTokens
+    .filter(token => normalized.includes(token))
+    .map(token => {
+      const index = normalized.indexOf(token);
+      const start = Math.max(0, index - 60);
+      const end = Math.min(text.length, index + token.length + 60);
+      return {
+        token,
+        snippet: text.slice(start, end),
+      };
+    });
 }

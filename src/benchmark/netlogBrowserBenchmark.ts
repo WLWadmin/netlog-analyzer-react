@@ -62,7 +62,7 @@ interface BrowserBenchmarkMetrics {
   dnsAnswerEndpointOnlyCount?: number;
   dnsAnswerStateOnlyCount?: number;
   dnsAnswerStateMissingTraceCount?: number;
-  mode?: 'dataset-import' | 'upload-single-scan';
+  mode?: 'dataset-import' | 'upload-single-scan' | 'upload-fallback';
   evidencePackageVersion?: string;
   uploadToFirstDiagnosisMs?: number;
   summaryScanMs?: number;
@@ -240,7 +240,8 @@ async function runNetlogBrowserBenchmark() {
   const label = params.get('label') || 'manual';
   const fileName = params.get('fileName') || 'chrome-net-export-log.json';
   const timeoutMs = Number(params.get('timeoutMs') || 15 * 60_000);
-  const mode = params.get('mode') === 'upload-single-scan' ? 'upload-single-scan' : 'dataset-import';
+  const rawMode = params.get('mode');
+  const mode = rawMode === 'upload-single-scan' || rawMode === 'upload-fallback' ? rawMode : 'dataset-import';
   const root = document.getElementById('root');
   if (root) {
     root.innerHTML = `<div style="font:14px system-ui;padding:24px">Running NetLog browser benchmark (${mode})...</div>`;
@@ -300,6 +301,53 @@ async function runNetlogBrowserBenchmark() {
       return;
     }
 
+    if (mode === 'upload-fallback') {
+      window.localStorage.removeItem('netlog_single_scan_dataset');
+      const uploadStartedAt = nowMs();
+      const parsed = await parseUploadedInput({
+        data: file,
+        fileTypeHint: 'netlog',
+        useWorker: true,
+        onProgress: () => undefined,
+      });
+      const summaryReadyMs = Math.round(nowMs() - uploadStartedAt);
+      if (parsed.kind !== 'netlog') throw new Error(`Unexpected parse kind: ${parsed.kind}`);
+      const datasetStartedAt = nowMs();
+      const meta = await importNetlogDatasetInWorker(file, { timeout: Math.max(timeoutMs, largeNetlogTimeout(file.size)) });
+      const datasetReadyMs = Math.round(nowMs() - datasetStartedAt);
+      const metrics = await collectDatasetMetrics({
+        analysisId: meta.analysisId,
+        datasetEventCount: meta.eventCount ?? 0,
+        datasetImportMs: datasetReadyMs,
+        file,
+        fileName,
+        label,
+        probe,
+        mode,
+        uploadToFirstDiagnosisMs: summaryReadyMs,
+        summaryScanMs: summaryReadyMs,
+        datasetAutoStartMs: 0,
+        summaryReadyMs,
+        datasetReadyMs: summaryReadyMs + datasetReadyMs,
+        datasetTakesOverEventsMs: datasetReadyMs,
+        datasetTakesOverStateViewsMs: datasetReadyMs,
+        lightweightParseSkippedEvents: meta.parseSkipStats?.lightweightParseSkippedEvents,
+        lightweightParseSkippedBytes: meta.parseSkipStats?.lightweightParseSkippedBytes,
+        socketParseSkippedEvents: meta.parseSkipStats?.socketParseSkippedEvents,
+        socketParseSkippedBytes: meta.parseSkipStats?.socketParseSkippedBytes,
+        socketLazyProbeAttemptedEvents: meta.socketLazyParamsStats?.probeAttemptedEvents,
+        socketLazyProbeSatisfiedEvents: meta.socketLazyParamsStats?.probeSatisfiedEvents,
+        socketLazyFallbackParamEvents: meta.socketLazyParamsStats?.fallbackParamEvents,
+        socketEarlyReducerEvents: meta.socketLazyParamsStats?.earlyReducerEvents,
+        completeEventScanCount: 2,
+        eventsPreview: parsed.events.length,
+        singleScanDatasetReady: false,
+        backgroundDatasetImportExpected: true,
+      });
+      await postResult(metrics);
+      return;
+    }
+
     const importStartedAt = nowMs();
     const meta = await importNetlogDatasetInWorker(file, { timeout: Math.max(timeoutMs, largeNetlogTimeout(file.size)) });
     const datasetImportMs = Math.round(nowMs() - importStartedAt);
@@ -339,7 +387,7 @@ async function collectDatasetMetrics(options: {
   fileName: string;
   label: string;
   probe: ReturnType<typeof startMainThreadProbe>;
-  mode: 'dataset-import' | 'upload-single-scan';
+  mode: 'dataset-import' | 'upload-single-scan' | 'upload-fallback';
   summaryReadyMs?: number;
   datasetReadyMs?: number;
   uploadToFirstDiagnosisMs?: number;

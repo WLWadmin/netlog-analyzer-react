@@ -6,7 +6,7 @@ export interface NetlogBenchmarkMetricInput {
   label?: string;
   fileName?: string;
   fileSize?: number;
-  mode?: 'dataset-import' | 'upload-single-scan';
+  mode?: 'dataset-import' | 'upload-single-scan' | 'upload-fallback';
   datasetEventCount?: number;
   datasetImportMs?: number;
   datasetReadyMs?: number;
@@ -47,7 +47,7 @@ export interface NetlogBenchmarkEvidencePackage {
   files: Array<{
     fileName: string;
     fileSize?: number;
-    modes: Array<'dataset-import' | 'upload-single-scan'>;
+    modes: Array<'dataset-import' | 'upload-single-scan' | 'upload-fallback'>;
   }>;
   aggregate: {
     datasetEventCount?: number;
@@ -182,7 +182,7 @@ export function buildNetlogBenchmarkEvidencePackage(
       modes: distinct(validMetrics
         .filter(metric => metric.fileName === fileName)
         .map(metric => metric.mode)
-        .filter((mode): mode is 'dataset-import' | 'upload-single-scan' => Boolean(mode))),
+        .filter((mode): mode is 'dataset-import' | 'upload-single-scan' | 'upload-fallback' => Boolean(mode))),
     })),
     aggregate: {
       datasetEventCount,

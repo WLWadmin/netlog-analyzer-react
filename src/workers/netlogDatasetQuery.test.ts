@@ -201,4 +201,40 @@ describe('queryNetlogEvents', () => {
     expect(filtered.scanLimitHit).toBe(false);
     expect(filtered.hasMoreMatchesUnknown).toBe(false);
   });
+
+  it('raw search 新查询会重新计算扫描上限状态，不沿用旧的不完整结果', async () => {
+    const events = [
+      '{"params":{"url":"https://api.example.com/a"}}',
+      '{"params":{"url":"https://api.example.com/b"}}',
+      '{"params":{"url":"https://api.example.com/c"}}',
+      '{"params":{"url":"https://api.example.com/d"}}',
+    ];
+    const file: NetlogIndexableFile = {
+      name: 'query-test.json',
+      size: events.join('').length,
+      stream: () => new Blob([]).stream(),
+      slice: (start?: number) => {
+        const eventId = index.byteStart.indexOf(start || 0);
+        return { text: async () => events[eventId] || '{}' } as Blob;
+      },
+    };
+
+    const broadSearch = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      rawSearchScanLimit: 1,
+    });
+    const refinedSearch = await queryNetlogEventsWithRawSearch(file, index, {
+      analysisId: 'a1',
+      searchText: 'api.example.com',
+      sourceId: 3,
+      rawSearchScanLimit: 1,
+    });
+
+    expect(broadSearch.hasMoreMatchesUnknown).toBe(true);
+    expect(broadSearch.scanLimitHit).toBe(true);
+    expect(refinedSearch.rows.map(row => row.eventId)).toEqual([3]);
+    expect(refinedSearch.hasMoreMatchesUnknown).toBe(false);
+    expect(refinedSearch.scanLimitHit).toBe(false);
+  });
 });

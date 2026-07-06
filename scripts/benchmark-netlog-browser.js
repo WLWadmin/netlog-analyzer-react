@@ -26,8 +26,8 @@ if (mode === 'upload-ab') {
   console.error('  npm run benchmark:netlog-browser -- --file <file> --label upload-single-scan-check --mode upload-single-scan --no-build --timeout-ms 1200000');
   process.exit(2);
 }
-if (!['dataset-import', 'upload-single-scan'].includes(mode)) {
-  console.error(`Unsupported --mode: ${mode}. Expected dataset-import or upload-single-scan.`);
+if (!['dataset-import', 'upload-single-scan', 'upload-fallback'].includes(mode)) {
+  console.error(`Unsupported --mode: ${mode}. Expected dataset-import, upload-single-scan, or upload-fallback.`);
   process.exit(2);
 }
 

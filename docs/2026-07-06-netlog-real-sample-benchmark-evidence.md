@@ -44,20 +44,51 @@ Phase 6 仍不建议默认开启 single scan，原因不是功能门禁失败，
 
 ## Browser benchmark 对比
 
-| 指标 | dataset-import | upload-single-scan |
-|---|---:|---:|
-| fileSize | 326,930,225 | 326,930,225 |
-| datasetEventCount | 2,235,117 | 2,235,117 |
-| datasetImportMs | 7,565 | 0 |
-| datasetReadyMs | - | 8,083 |
-| uploadToFirstDiagnosisMs | - | 8,083 |
-| queryP95 | 11 | 13 |
-| detailP95 | 1 | 1 |
-| rawSearchWorstCaseMs | 150 | 179 |
-| rawSearchFilteredMs | 15 | 16 |
-| memoryPeakEstimateMb | 10 | 21 |
-| mainThreadBlockedMs | 52 | 0 |
-| rafMaxDelayMs | 4 | 18 |
+| 指标 | dataset-import | upload-single-scan | upload-fallback |
+|---|---:|---:|---:|
+| fileSize | 326,930,225 | 326,930,225 | 326,930,225 |
+| datasetEventCount | 2,235,117 | 2,235,117 | 2,235,117 |
+| datasetImportMs | 7,565 | 0 | 7,191 |
+| datasetReadyMs | - | 8,083 | 12,837 |
+| uploadToFirstDiagnosisMs | - | 8,083 | 5,646 |
+| completeEventScanCount | 1 | 1 | 2 |
+| queryP95 | 11 | 13 | 11 |
+| detailP95 | 1 | 1 | 0 |
+| rawSearchWorstCaseMs | 150 | 179 | 154 |
+| rawSearchFilteredMs | 15 | 16 | 15 |
+| memoryPeakEstimateMb | 10 | 21 | 22 |
+| mainThreadBlockedMs | 52 | 0 | 0 |
+| rafMaxDelayMs | 4 | 18 | 18 |
+
+`upload-fallback` 明确验证了 flag off 路径仍会产生两次完整扫描：先 summary ready，再后台 Dataset import；Dataset ready 总耗时 12.837s，高于 single-scan 的 8.083s。
+
+## 第二样本
+
+本机可用第二 NetLog 样本：
+
+```text
+fileName = chrome-net-export-log.json
+fileSize = 77,388,480 bytes
+```
+
+该样本低于当前大文件阈值 100MB，不能触发 `upload-single-scan` 大文件路径，因此不能解除 Phase 6 的 single-scan 多大文件样本门禁；但它已补齐 Dataset/import/raw search/socket 侧多样本证据：
+
+```text
+datasetEventCount = 193,878
+datasetImportMs = 1,944
+queryP95 = 5
+detailP95 = 1
+rawSearchWorstCaseMs = 160
+rawSearchFilteredMs = 6
+rawDetailReadbackOk = true
+rawDetailRowsHaveByteRange = true
+socketPeerTotal = 236
+socketPeerSourceGraphAssociated = 46
+socketPeerGlobalCandidate = 190
+socketPeerHostTimeCandidate = 0
+sourceDependencyEdges = 6,611
+sourceDependencyUnparsed = 5
+```
 
 ## Raw evidence
 
@@ -137,6 +168,8 @@ recommendation = keep-disabled
 multiSampleEvidenceMissing
 singleScanMemoryHigherThanBaseline
 ```
+
+补充说明：第二样本已经存在并完成 Dataset 侧浏览器 benchmark，但它低于 100MB，不能作为 upload-single-scan 大文件门禁样本。因此 `multiSampleEvidenceMissing` 对“默认开启 single scan”仍保留。
 
 已经满足的关键 gates：
 

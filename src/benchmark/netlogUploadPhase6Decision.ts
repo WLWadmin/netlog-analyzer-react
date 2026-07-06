@@ -1,7 +1,7 @@
 export type SingleScanDefaultRecommendation = 'keep-disabled' | 'expand-gray' | 'enable-default';
 
 export interface UploadEvidenceForDecision {
-  mode?: 'dataset-import' | 'upload-single-scan';
+  mode?: 'dataset-import' | 'upload-single-scan' | 'upload-fallback';
   datasetEventCount?: number;
   expectedEventCount?: number;
   singleScanDatasetReady?: boolean;

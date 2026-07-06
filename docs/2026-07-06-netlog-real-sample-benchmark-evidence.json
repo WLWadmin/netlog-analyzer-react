@@ -1,11 +1,13 @@
 {
   "packageVersion": "netlog-benchmark-evidence-v1",
-  "generatedAt": "2026-07-06T16:59:00.000+08:00",
-  "metricCount": 2,
+  "generatedAt": "2026-07-06T17:40:00.000+08:00",
+  "metricCount": 4,
   "sampleCount": 1,
   "labels": [
     "real-326mb-dataset-import-socket-parse-skip",
-    "real-326mb-upload-single-scan-socket-parse-skip"
+    "real-326mb-upload-single-scan-socket-parse-skip",
+    "real-326mb-upload-fallback",
+    "second-sample-77mb-dataset-import"
   ],
   "files": [
     {
@@ -13,7 +15,15 @@
       "fileSize": 326930225,
       "modes": [
         "dataset-import",
-        "upload-single-scan"
+        "upload-single-scan",
+        "upload-fallback"
+      ]
+    },
+    {
+      "fileName": "chrome-net-export-log.json",
+      "fileSize": 77388480,
+      "modes": [
+        "dataset-import"
       ]
     }
   ],
@@ -98,6 +108,51 @@
       "lazy-params-parser"
     ]
   },
+  "fallbackComparison": {
+    "mode": "upload-fallback",
+    "datasetEventCount": 2235117,
+    "uploadToFirstDiagnosisMs": 5646,
+    "summaryScanMs": 5646,
+    "datasetReadyMs": 12837,
+    "datasetTakesOverEventsMs": 7191,
+    "completeEventScanCount": 2,
+    "rawSearchWorstCaseMs": 154,
+    "rawSearchFilteredMs": 15,
+    "memoryPeakEstimateMb": 22,
+    "singleScanDatasetReady": false,
+    "backgroundDatasetImportExpected": true
+  },
+  "secondSample": {
+    "fileName": "chrome-net-export-log.json",
+    "fileSize": 77388480,
+    "mode": "dataset-import",
+    "largeSingleScanEligible": false,
+    "largeSingleScanBlocker": "File size is below the current 100MB large NetLog threshold, so it cannot trigger upload-single-scan.",
+    "datasetEventCount": 193878,
+    "datasetImportMs": 1944,
+    "queryP95": 5,
+    "detailP95": 1,
+    "rawSearchWorstCaseMs": 160,
+    "rawSearchFilteredMs": 6,
+    "rawDetailReadbackOk": true,
+    "rawDetailRowsHaveByteRange": true,
+    "lightweightParseSkippedEvents": 92989,
+    "lightweightParseSkippedBytes": 31747943,
+    "lightweightParseSkipRate": 0.4796,
+    "socketParseSkippedEvents": 3598,
+    "socketParseSkippedBytes": 1459705,
+    "socketParseSkipRate": 0.0186,
+    "socketPeerTotal": 236,
+    "socketPeerSourceGraphAssociated": 46,
+    "socketPeerGlobalCandidate": 190,
+    "socketPeerHostTimeCandidate": 0,
+    "sourceDependencyEdges": 6611,
+    "sourceDependencyUnparsed": 5,
+    "dnsAnswerEndpointCount": 0,
+    "dnsAnswerStateCount": 0,
+    "dnsAnswerEndpointOnlyCount": 0,
+    "dnsAnswerStateOnlyCount": 0
+  },
   "sourceGraph": {
     "socketPeerTotal": 598,
     "socketPeerSourceGraphAssociated": 328,
@@ -127,7 +182,8 @@
     "dnsAnswerUniqueHostIpPairs": 248
   },
   "gaps": [
-    "只覆盖 1 个真实 NetLog 样本；Phase 6 默认开启仍需要至少第二个真实样本。",
+    "只覆盖 1 个 >=100MB 的真实 NetLog 大文件样本；Phase 6 默认开启仍需要第二个能触发 upload-single-scan 的真实大文件样本。",
+    "第二样本已完成 Dataset/import/raw search/socket 多样本验证，但低于 100MB，不能解除 single-scan 默认开启门禁。",
     "browser memoryPeakEstimateMb 显示 upload-single-scan 高于 dataset-import baseline，需要复测稳定性。"
   ]
 }
