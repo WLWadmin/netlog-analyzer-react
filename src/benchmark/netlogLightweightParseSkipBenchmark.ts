@@ -118,7 +118,8 @@ export async function runLightweightParseSkipBenchmark(
   const startedAt = nowMs();
   const { index, parseSkipStats } = await buildNetlogCompactEventIndex(file);
   const indexBuildMs = Math.round(nowMs() - startedAt);
-  const skippedEvents = parseSkipStats.lightweightParseSkippedEvents;
+  const skippedEvents = parseSkipStats.lightweightParseSkippedEvents ?? 0;
+  const skippedBytes = parseSkipStats.lightweightParseSkippedBytes ?? 0;
 
   return {
     benchmark: 'netlog-lightweight-parse-skip',
@@ -128,10 +129,10 @@ export async function runLightweightParseSkipBenchmark(
     heavyEvents,
     indexBuildMs,
     lightweightParseSkippedEvents: skippedEvents,
-    lightweightParseSkippedBytes: parseSkipStats.lightweightParseSkippedBytes,
+    lightweightParseSkippedBytes: skippedBytes,
     skipEventRate: index.count ? Math.round((skippedEvents / index.count) * 10000) / 10000 : 0,
     skippedBytesPerSkippedEvent: skippedEvents
-      ? Math.round(parseSkipStats.lightweightParseSkippedBytes / skippedEvents)
+      ? Math.round(skippedBytes / skippedEvents)
       : 0,
   };
 }

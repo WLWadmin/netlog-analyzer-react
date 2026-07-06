@@ -17,6 +17,9 @@ export interface UploadEvidenceForDecision {
   forbiddenConfirmedMatchesCount?: number;
   memoryPeakEstimateMb?: number | null;
   baselineMemoryPeakEstimateMb?: number | null;
+  lightweightParseSkippedEvents?: number;
+  lightweightParseSkippedBytes?: number;
+  lightweightParseSkipRate?: number;
   sampleCount?: number;
 }
 
@@ -125,13 +128,28 @@ export function buildUploadPhase6DecisionReport(evidence: UploadEvidenceForDecis
     deepOptimizationCandidates.push('single-scan-parse-cost');
   }
 
+  if (isNumber(evidence.lightweightParseSkippedEvents) && isNumber(evidence.lightweightParseSkippedBytes)) {
+    if (evidence.lightweightParseSkippedEvents > 0 && evidence.lightweightParseSkippedBytes > 0) {
+      satisfiedGates.push('lightweightParseSkipMeasured');
+    } else {
+      nextEvidenceNeeded.push('Run a NetLog sample with high-frequency lightweight events and record lightweightParseSkippedEvents/Bytes.');
+    }
+  } else {
+    nextEvidenceNeeded.push('Record lightweightParseSkippedEvents and lightweightParseSkippedBytes in browser benchmark metrics.');
+    deepOptimizationCandidates.push('single-scan-parse-cost');
+  }
+
   if (blockers.length === 0) {
     return {
       recommendation: 'enable-default',
       blockers,
       satisfiedGates,
       nextEvidenceNeeded,
-      deepOptimizationCandidates: ['source-chain-dataset-view', 'raw-evidence-virtual-tree'],
+      deepOptimizationCandidates: Array.from(new Set([
+        ...deepOptimizationCandidates,
+        'source-chain-dataset-view' as const,
+        'raw-evidence-virtual-tree' as const,
+      ])),
     };
   }
 

@@ -3,6 +3,8 @@
  * 主线程与 Web Worker 之间的消息传递规范
  */
 
+import type { NetlogDatasetParseSkipStats } from './netlogDatasetTypes';
+
 // ============ Request Messages (Main → Worker) ============
 
 export interface ParseNetlogRequest {
@@ -295,6 +297,7 @@ export interface NetlogDatasetImportResult {
   importedAt: number;
   status: 'ready';
   eventCount?: number;
+  parseSkipStats?: NetlogDatasetParseSkipStats;
 }
 
 export interface NetlogDatasetReleaseResult {

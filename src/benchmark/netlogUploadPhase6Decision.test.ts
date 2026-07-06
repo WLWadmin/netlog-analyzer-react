@@ -17,6 +17,9 @@ const passingSingleScanEvidence = {
   forbiddenConfirmedMatchesCount: 0,
   memoryPeakEstimateMb: 100,
   baselineMemoryPeakEstimateMb: 100,
+  lightweightParseSkippedEvents: 10,
+  lightweightParseSkippedBytes: 1024,
+  lightweightParseSkipRate: 0.1,
 };
 
 describe('buildUploadPhase6DecisionReport', () => {
@@ -34,6 +37,7 @@ describe('buildUploadPhase6DecisionReport', () => {
       'singleCompleteEventScan',
       'rawSearchGuardVerified',
       'diagnosisGuardHasNoForbiddenConfirmedMatches',
+      'lightweightParseSkipMeasured',
     ]));
   });
 
@@ -82,5 +86,17 @@ describe('buildUploadPhase6DecisionReport', () => {
       'single-scan-parse-cost',
       'lazy-params-parser',
     ]));
+  });
+
+  it('缺少 lightweight parse skip 指标时要求补充真实 benchmark 证据', () => {
+    const report = buildUploadPhase6DecisionReport({
+      ...passingSingleScanEvidence,
+      lightweightParseSkippedEvents: undefined,
+      lightweightParseSkippedBytes: undefined,
+      sampleCount: 2,
+    });
+
+    expect(report.nextEvidenceNeeded).toContain('Record lightweightParseSkippedEvents and lightweightParseSkippedBytes in browser benchmark metrics.');
+    expect(report.deepOptimizationCandidates).toContain('single-scan-parse-cost');
   });
 });

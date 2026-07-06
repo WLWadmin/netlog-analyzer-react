@@ -11,6 +11,7 @@ import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReduc
 import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
 import { isLightweightCountEventName } from './netlogLightweightEvents';
+import type { NetlogDatasetParseSkipStats } from './netlogDatasetTypes';
 import {
   extractSourceId,
   extractSourceTypeId,
@@ -50,11 +51,6 @@ export interface NetlogDatasetIndexResult {
   altSvcState: AltSvcStateView;
   streamPoolState: StreamPoolStateView;
   reportingState: ReportingStateView;
-}
-
-export interface NetlogDatasetParseSkipStats {
-  lightweightParseSkippedEvents: number;
-  lightweightParseSkippedBytes: number;
 }
 
 export interface NetlogIndexableFile {

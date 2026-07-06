@@ -1,11 +1,17 @@
 export type NetlogDatasetStatus = 'unavailable' | 'importing' | 'ready' | 'fallback' | 'error';
 
+export interface NetlogDatasetParseSkipStats {
+  lightweightParseSkippedEvents: number;
+  lightweightParseSkippedBytes: number;
+}
+
 export interface NetlogDatasetState {
   analysisId?: string;
   status: NetlogDatasetStatus;
   error?: string;
   phase?: string;
   eventCount?: number;
+  parseSkipStats?: NetlogDatasetParseSkipStats;
   startedAt?: number;
   updatedAt?: number;
 }

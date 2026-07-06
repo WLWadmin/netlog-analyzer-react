@@ -125,6 +125,7 @@ export async function parseUploadedInput(options: {
             status: 'ready',
             analysisId: datasetMeta.analysisId,
             eventCount: datasetMeta.eventCount,
+            parseSkipStats: datasetMeta.parseSkipStats,
             updatedAt: Date.now(),
           }
         : fallbackNetlogDatasetState,

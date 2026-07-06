@@ -169,7 +169,10 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       truncatedEventsPreview: meta.truncatedEventsPreview,
       reachedEventsEnd: true,
     };
-    const datasetMeta = netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState);
+    const datasetMeta = {
+      ...netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
+      parseSkipStats,
+    };
     const duration = performance.now() - start;
     logLargeNetlogDebug(id, 'worker:single-scan-success', {
       duration,
@@ -562,7 +565,10 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         });
         try {
           const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(msg.payload.file);
-          const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState);
+          const meta = {
+            ...netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
+            parseSkipStats,
+          };
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
           const endpointRowCount = endpointEvidence.cipSipRows.length;

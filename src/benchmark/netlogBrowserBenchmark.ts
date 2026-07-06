@@ -71,6 +71,9 @@ interface BrowserBenchmarkMetrics {
   datasetReadyMs?: number;
   datasetTakesOverEventsMs?: number;
   datasetTakesOverStateViewsMs?: number;
+  lightweightParseSkippedEvents?: number;
+  lightweightParseSkippedBytes?: number;
+  lightweightParseSkipRate?: number;
   completeEventScanCount?: number;
   rawDetailReadbackOk?: boolean;
   rawDetailRowsHaveByteRange?: boolean;
@@ -272,6 +275,8 @@ async function runNetlogBrowserBenchmark() {
         datasetReadyMs,
         datasetTakesOverEventsMs: 0,
         datasetTakesOverStateViewsMs: 0,
+        lightweightParseSkippedEvents: parsed.dataset.parseSkipStats?.lightweightParseSkippedEvents,
+        lightweightParseSkippedBytes: parsed.dataset.parseSkipStats?.lightweightParseSkippedBytes,
         completeEventScanCount: 1,
         eventsPreview: parsed.events.length,
         singleScanDatasetReady: true,
@@ -295,6 +300,8 @@ async function runNetlogBrowserBenchmark() {
       label,
       probe,
       mode,
+      lightweightParseSkippedEvents: meta.parseSkipStats?.lightweightParseSkippedEvents,
+      lightweightParseSkippedBytes: meta.parseSkipStats?.lightweightParseSkippedBytes,
       completeEventScanCount: 1,
     });
     await postResult(metrics);
@@ -324,6 +331,8 @@ async function collectDatasetMetrics(options: {
   eventsPreview?: number;
   singleScanDatasetReady?: boolean;
   backgroundDatasetImportExpected?: boolean;
+  lightweightParseSkippedEvents?: number;
+  lightweightParseSkippedBytes?: number;
 }): Promise<BrowserBenchmarkMetrics> {
   const {
     analysisId,
@@ -473,6 +482,9 @@ async function collectDatasetMetrics(options: {
     datasetReadyMs: options.datasetReadyMs,
     datasetTakesOverEventsMs: options.datasetTakesOverEventsMs,
     datasetTakesOverStateViewsMs: options.datasetTakesOverStateViewsMs,
+    lightweightParseSkippedEvents: options.lightweightParseSkippedEvents,
+    lightweightParseSkippedBytes: options.lightweightParseSkippedBytes,
+    lightweightParseSkipRate: safeRate(options.lightweightParseSkippedEvents, datasetEventCount),
     completeEventScanCount: options.completeEventScanCount,
     rawDetailReadbackOk,
     rawDetailRowsHaveByteRange,
@@ -510,6 +522,9 @@ async function collectDatasetMetrics(options: {
     socketPeerHostTimeCandidate,
     forbiddenConfirmedMatchesCount: 0,
     memoryPeakEstimateMb: metrics.memoryPeakEstimateMb,
+    lightweightParseSkippedEvents: metrics.lightweightParseSkippedEvents,
+    lightweightParseSkippedBytes: metrics.lightweightParseSkippedBytes,
+    lightweightParseSkipRate: metrics.lightweightParseSkipRate,
     sampleCount: 1,
   });
   return metrics;
