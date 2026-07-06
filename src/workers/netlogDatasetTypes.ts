@@ -5,6 +5,12 @@ export interface NetlogDatasetParseSkipStats {
   lightweightParseSkippedBytes: number;
 }
 
+export interface NetlogDatasetSocketLazyParamsStats {
+  probeAttemptedEvents: number;
+  probeSatisfiedEvents: number;
+  fallbackParamEvents: number;
+}
+
 export interface NetlogDatasetState {
   analysisId?: string;
   status: NetlogDatasetStatus;
@@ -12,6 +18,7 @@ export interface NetlogDatasetState {
   phase?: string;
   eventCount?: number;
   parseSkipStats?: NetlogDatasetParseSkipStats;
+  socketLazyParamsStats?: NetlogDatasetSocketLazyParamsStats;
   startedAt?: number;
   updatedAt?: number;
 }

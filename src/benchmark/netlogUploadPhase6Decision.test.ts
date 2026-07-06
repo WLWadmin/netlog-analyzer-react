@@ -20,6 +20,10 @@ const passingSingleScanEvidence = {
   lightweightParseSkippedEvents: 10,
   lightweightParseSkippedBytes: 1024,
   lightweightParseSkipRate: 0.1,
+  socketLazyProbeAttemptedEvents: 8,
+  socketLazyProbeSatisfiedEvents: 6,
+  socketLazyFallbackParamEvents: 2,
+  socketLazyProbeSatisfiedRate: 0.75,
 };
 
 describe('buildUploadPhase6DecisionReport', () => {
@@ -38,6 +42,7 @@ describe('buildUploadPhase6DecisionReport', () => {
       'rawSearchGuardVerified',
       'diagnosisGuardHasNoForbiddenConfirmedMatches',
       'lightweightParseSkipMeasured',
+      'socketLazyParamsStatsMeasured',
     ]));
   });
 
@@ -98,5 +103,32 @@ describe('buildUploadPhase6DecisionReport', () => {
 
     expect(report.nextEvidenceNeeded).toContain('Record lightweightParseSkippedEvents and lightweightParseSkippedBytes in browser benchmark metrics.');
     expect(report.deepOptimizationCandidates).toContain('single-scan-parse-cost');
+  });
+
+  it('缺少 socket lazy params 指标时要求补充真实 benchmark 证据', () => {
+    const report = buildUploadPhase6DecisionReport({
+      ...passingSingleScanEvidence,
+      socketLazyProbeAttemptedEvents: undefined,
+      socketLazyProbeSatisfiedEvents: undefined,
+      socketLazyFallbackParamEvents: undefined,
+      sampleCount: 2,
+    });
+
+    expect(report.nextEvidenceNeeded).toContain('Record socketLazyProbeAttemptedEvents/SatisfiedEvents/FallbackParamEvents in browser benchmark metrics.');
+    expect(report.deepOptimizationCandidates).toContain('lazy-params-parser');
+  });
+
+  it('socket lazy params probe 真实样本零命中时保留 lazy parser 候选', () => {
+    const report = buildUploadPhase6DecisionReport({
+      ...passingSingleScanEvidence,
+      socketLazyProbeAttemptedEvents: 8,
+      socketLazyProbeSatisfiedEvents: 0,
+      socketLazyFallbackParamEvents: 8,
+      sampleCount: 2,
+    });
+
+    expect(report.satisfiedGates).toContain('socketLazyParamsStatsMeasured');
+    expect(report.nextEvidenceNeeded).toContain('Socket lazy params probe measured zero satisfied events; inspect real NetLog socket param shapes before adding early reducer path.');
+    expect(report.deepOptimizationCandidates).toContain('lazy-params-parser');
   });
 });

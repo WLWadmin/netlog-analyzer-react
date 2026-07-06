@@ -3,7 +3,7 @@
  * 主线程与 Web Worker 之间的消息传递规范
  */
 
-import type { NetlogDatasetParseSkipStats } from './netlogDatasetTypes';
+import type { NetlogDatasetParseSkipStats, NetlogDatasetSocketLazyParamsStats } from './netlogDatasetTypes';
 
 // ============ Request Messages (Main → Worker) ============
 
@@ -298,6 +298,7 @@ export interface NetlogDatasetImportResult {
   status: 'ready';
   eventCount?: number;
   parseSkipStats?: NetlogDatasetParseSkipStats;
+  socketLazyParamsStats?: NetlogDatasetSocketLazyParamsStats;
 }
 
 export interface NetlogDatasetReleaseResult {

@@ -172,6 +172,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     const datasetMeta = {
       ...netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
       parseSkipStats,
+      socketLazyParamsStats: socketsState.lazyParamsStats,
     };
     const duration = performance.now() - start;
     logLargeNetlogDebug(id, 'worker:single-scan-success', {
@@ -568,6 +569,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           const meta = {
             ...netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
             parseSkipStats,
+            socketLazyParamsStats: socketsState.lazyParamsStats,
           };
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;

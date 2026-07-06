@@ -20,6 +20,10 @@ export interface UploadEvidenceForDecision {
   lightweightParseSkippedEvents?: number;
   lightweightParseSkippedBytes?: number;
   lightweightParseSkipRate?: number;
+  socketLazyProbeAttemptedEvents?: number;
+  socketLazyProbeSatisfiedEvents?: number;
+  socketLazyFallbackParamEvents?: number;
+  socketLazyProbeSatisfiedRate?: number;
   sampleCount?: number;
 }
 
@@ -137,6 +141,17 @@ export function buildUploadPhase6DecisionReport(evidence: UploadEvidenceForDecis
   } else {
     nextEvidenceNeeded.push('Record lightweightParseSkippedEvents and lightweightParseSkippedBytes in browser benchmark metrics.');
     deepOptimizationCandidates.push('single-scan-parse-cost');
+  }
+
+  if (isNumber(evidence.socketLazyProbeAttemptedEvents) && isNumber(evidence.socketLazyProbeSatisfiedEvents) && isNumber(evidence.socketLazyFallbackParamEvents)) {
+    satisfiedGates.push('socketLazyParamsStatsMeasured');
+    if (evidence.socketLazyProbeAttemptedEvents > 0 && evidence.socketLazyProbeSatisfiedEvents === 0) {
+      nextEvidenceNeeded.push('Socket lazy params probe measured zero satisfied events; inspect real NetLog socket param shapes before adding early reducer path.');
+      deepOptimizationCandidates.push('lazy-params-parser');
+    }
+  } else {
+    nextEvidenceNeeded.push('Record socketLazyProbeAttemptedEvents/SatisfiedEvents/FallbackParamEvents in browser benchmark metrics.');
+    deepOptimizationCandidates.push('lazy-params-parser');
   }
 
   if (blockers.length === 0) {
