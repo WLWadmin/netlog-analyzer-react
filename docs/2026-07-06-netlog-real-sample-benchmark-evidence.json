@@ -1,0 +1,125 @@
+{
+  "packageVersion": "netlog-benchmark-evidence-v1",
+  "generatedAt": "2026-07-06T15:52:00.000+08:00",
+  "metricCount": 2,
+  "sampleCount": 1,
+  "labels": [
+    "real-326mb-dataset-import",
+    "real-326mb-upload-single-scan"
+  ],
+  "files": [
+    {
+      "fileName": "chrome-net-export-log_副本.json",
+      "fileSize": 326930225,
+      "modes": [
+        "dataset-import",
+        "upload-single-scan"
+      ]
+    }
+  ],
+  "aggregate": {
+    "datasetEventCount": 2235117,
+    "baselineDatasetEventCount": 2235117,
+    "datasetReadyMsMax": 7782,
+    "uploadToFirstDiagnosisMsMax": 7782,
+    "queryP95Max": 12,
+    "detailP95Max": 0,
+    "rawSearchWorstCaseMsMax": 155,
+    "rawSearchFilteredMsMax": 16,
+    "memoryPeakEstimateMbMax": 22,
+    "baselineMemoryPeakEstimateMbMax": 10,
+    "lightweightParseSkippedEvents": 2179162,
+    "lightweightParseSkippedBytes": 309143756,
+    "lightweightParseSkipRate": 0.975,
+    "socketLazyProbeAttemptedEvents": 7699,
+    "socketLazyProbeSatisfiedEvents": 7699,
+    "socketLazyFallbackParamEvents": 0,
+    "socketLazyProbeSatisfiedRate": 1
+  },
+  "phase6Evidence": {
+    "mode": "upload-single-scan",
+    "datasetEventCount": 2235117,
+    "expectedEventCount": 2235117,
+    "singleScanDatasetReady": true,
+    "backgroundDatasetImportExpected": false,
+    "completeEventScanCount": 1,
+    "rawDetailReadbackOk": true,
+    "rawDetailRowsHaveByteRange": true,
+    "rawSearchWorstCaseHasMoreMatchesUnknown": true,
+    "rawSearchFilteredHasMoreMatchesUnknown": false,
+    "dnsAnswerEndpointOnlyCount": 1,
+    "dnsAnswerStateOnlyCount": 0,
+    "socketPeerHostTimeCandidate": 0,
+    "forbiddenConfirmedMatchesCount": 0,
+    "memoryPeakEstimateMb": 22,
+    "baselineMemoryPeakEstimateMb": 10,
+    "lightweightParseSkippedEvents": 2179162,
+    "lightweightParseSkippedBytes": 309143756,
+    "lightweightParseSkipRate": 0.975,
+    "socketLazyProbeAttemptedEvents": 7699,
+    "socketLazyProbeSatisfiedEvents": 7699,
+    "socketLazyFallbackParamEvents": 0,
+    "socketLazyProbeSatisfiedRate": 1,
+    "sampleCount": 1
+  },
+  "phase6Decision": {
+    "recommendation": "keep-disabled",
+    "blockers": [
+      "multiSampleEvidenceMissing",
+      "singleScanMemoryHigherThanBaseline"
+    ],
+    "satisfiedGates": [
+      "singleScanRunPresent",
+      "datasetEventCountMatchesExpected",
+      "singleScanDatasetReady",
+      "noBackgroundDatasetImportExpected",
+      "singleCompleteEventScan",
+      "rawDetailReadbackAndByteRangeOk",
+      "rawSearchGuardVerified",
+      "dnsDiffReported",
+      "noHostTimeSocketPeerCandidate",
+      "diagnosisGuardHasNoForbiddenConfirmedMatches",
+      "lightweightParseSkipMeasured",
+      "socketLazyParamsStatsMeasured"
+    ],
+    "nextEvidenceNeeded": [
+      "Run the same evidence package on at least one more real NetLog sample."
+    ],
+    "deepOptimizationCandidates": [
+      "single-scan-parse-cost",
+      "lazy-params-parser"
+    ]
+  },
+  "sourceGraph": {
+    "socketPeerTotal": 598,
+    "socketPeerSourceGraphAssociated": 328,
+    "socketPeerGlobalCandidate": 270,
+    "socketPeerAssociationRate": 0.5485,
+    "socketPeerUnresolvedRate": 0.4515,
+    "sourceDependencyEdges": 3709,
+    "sourceDependencyUnparsed": 3,
+    "sourceGraphUnresolvedReasons": {
+      "sourceGraphNoUrlRequest": 264,
+      "noSourceLink": 6
+    },
+    "globalCandidateByTypeName": {
+      "UDP_CONNECT": 132,
+      "SOCKET_CONNECT": 132,
+      "UDP_BYTES_RECEIVED": 6
+    }
+  },
+  "dnsDiff": {
+    "dnsAnswerEndpointCount": 248,
+    "dnsAnswerStateCount": 247,
+    "dnsAnswerBothCount": 247,
+    "dnsAnswerEndpointOnlyCount": 1,
+    "dnsAnswerStateOnlyCount": 0,
+    "dnsAnswerStateMissingTraceCount": 0,
+    "dnsAnswerCandidateCount": 2657,
+    "dnsAnswerUniqueHostIpPairs": 248
+  },
+  "gaps": [
+    "只覆盖 1 个真实 NetLog 样本；Phase 6 默认开启仍需要至少第二个真实样本。",
+    "browser memoryPeakEstimateMb 显示 upload-single-scan 高于 dataset-import baseline，需要复测稳定性。"
+  ]
+}

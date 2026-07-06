@@ -112,6 +112,15 @@ describe('netlog worker benchmark', () => {
       summaryParsedEvents: 0,
       datasetIndexMs,
       datasetEventCount: index.count,
+      lightweightParseSkippedEvents: result.parseSkipStats.lightweightParseSkippedEvents,
+      lightweightParseSkippedBytes: result.parseSkipStats.lightweightParseSkippedBytes,
+      lightweightParseSkipRate: index.count ? Math.round((result.parseSkipStats.lightweightParseSkippedEvents / index.count) * 10000) / 10000 : 0,
+      socketLazyProbeAttemptedEvents: result.socketsState.lazyParamsStats.probeAttemptedEvents,
+      socketLazyProbeSatisfiedEvents: result.socketsState.lazyParamsStats.probeSatisfiedEvents,
+      socketLazyFallbackParamEvents: result.socketsState.lazyParamsStats.fallbackParamEvents,
+      socketLazyProbeSatisfiedRate: result.socketsState.lazyParamsStats.probeAttemptedEvents
+        ? Math.round((result.socketsState.lazyParamsStats.probeSatisfiedEvents / result.socketsState.lazyParamsStats.probeAttemptedEvents) * 10000) / 10000
+        : 0,
       queryP50: percentile(queryTimes, 50),
       queryP95: percentile(queryTimes, 95),
       detailP50: percentile(detailTimes, 50),
