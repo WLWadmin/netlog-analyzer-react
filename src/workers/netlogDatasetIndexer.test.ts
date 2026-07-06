@@ -242,7 +242,7 @@ describe('netlogDatasetIndexer', () => {
     const onLightweightEvent = jest.fn();
 
     try {
-      const { index } = await buildNetlogCompactEventIndex(file, { onLightweightEvent });
+      const { index, parseSkipStats } = await buildNetlogCompactEventIndex(file, { onLightweightEvent });
 
       expect(index.count).toBe(2);
       expect(index.time[0]).toBe(123.5);
@@ -252,6 +252,8 @@ describe('netlogDatasetIndexer', () => {
         eventId: 0,
         typeName: 'SOCKET_BYTES_RECEIVED',
       }));
+      expect(parseSkipStats.lightweightParseSkippedEvents).toBe(1);
+      expect(parseSkipStats.lightweightParseSkippedBytes).toBeGreaterThan(0);
     } finally {
       parseSpy.mockRestore();
     }
@@ -263,9 +265,11 @@ describe('netlogDatasetIndexer', () => {
     const onEvent = jest.fn();
     const onLightweightEvent = jest.fn();
 
-    const { index, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent, onLightweightEvent });
+    const { index, parseSkipStats, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent, onLightweightEvent });
 
     expect(index.count).toBe(2);
+    expect(parseSkipStats.lightweightParseSkippedEvents).toBe(0);
+    expect(parseSkipStats.lightweightParseSkippedBytes).toBe(0);
     expect(onLightweightEvent).not.toHaveBeenCalled();
     expect(onEvent).toHaveBeenCalledTimes(2);
     expect(socketsState.eventCount).toBe(2);

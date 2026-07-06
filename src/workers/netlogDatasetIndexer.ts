@@ -11,7 +11,14 @@ import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReduc
 import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
 import { isLightweightCountEventName } from './netlogLightweightEvents';
-import { extractSourceId, extractSourceTypeId, extractTopLevelNumberLikeField, extractTopLevelNumericField } from './netlogEventJsonProbe';
+import {
+  extractSourceId,
+  extractSourceTypeId,
+  extractTopLevelNumberLikeField,
+  extractTopLevelNumericField,
+  hasNetlogErrorMarker,
+  hasNetlogSourceDependencyMarker,
+} from './netlogEventJsonProbe';
 
 export interface CompactEventIndex {
   count: number;
@@ -31,6 +38,7 @@ export interface CompactEventIndex {
 
 export interface NetlogDatasetIndexResult {
   index: CompactEventIndex;
+  parseSkipStats: NetlogDatasetParseSkipStats;
   endpointEvidence: DnsIpEvidenceSummary;
   dataLoaded: DataLoadedView;
   dnsState: DnsStateView;
@@ -42,6 +50,11 @@ export interface NetlogDatasetIndexResult {
   altSvcState: AltSvcStateView;
   streamPoolState: StreamPoolStateView;
   reportingState: ReportingStateView;
+}
+
+export interface NetlogDatasetParseSkipStats {
+  lightweightParseSkippedEvents: number;
+  lightweightParseSkippedBytes: number;
 }
 
 export interface NetlogIndexableFile {
@@ -192,15 +205,6 @@ function hasErrorParams(event: any): boolean {
   return Boolean(params?.net_error || params?.error_code);
 }
 
-function hasErrorMarker(eventJson: string): boolean {
-  if (!/"(?:net_error|error_code)"\s*:/.test(eventJson)) return false;
-  return !/"(?:net_error|error_code)"\s*:\s*0(?:[,}])/.test(eventJson);
-}
-
-function hasSourceDependencyMarker(eventJson: string): boolean {
-  return /"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:|"dependencies"\s*:/.test(eventJson);
-}
-
 function eventName(index: CompactEventIndex, typeId: number): string {
   return index.eventTypeNames?.[typeId] || `UNKNOWN_${typeId}`;
 }
@@ -258,6 +262,10 @@ export async function buildNetlogCompactEventIndex(
   options: NetlogCompactEventIndexOptions = {}
 ): Promise<NetlogDatasetIndexResult> {
   const index = emptyIndex();
+  const parseSkipStats: NetlogDatasetParseSkipStats = {
+    lightweightParseSkippedEvents: 0,
+    lightweightParseSkippedBytes: 0,
+  };
   const endpointReducer = createNetlogEndpointEvidenceReducer();
   const dnsStateReducer = createNetlogDnsStateReducer();
   const proxyStateReducer = createNetlogProxyStateReducer();
@@ -332,8 +340,8 @@ export async function buildNetlogCompactEventIndex(
     const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
     if (probedTypeId !== undefined) {
       const probedTypeName = eventName(index, probedTypeId);
-      const probedHasError = hasErrorMarker(eventJson);
-      const probedHasDependency = hasSourceDependencyMarker(eventJson);
+      const probedHasError = hasNetlogErrorMarker(eventJson);
+      const probedHasDependency = hasNetlogSourceDependencyMarker(eventJson);
       if (isLightweightCountEventName(probedTypeName) && !probedHasError && !probedHasDependency) {
         const sourceTypeId = extractSourceTypeId(eventJson);
         const sourceId = extractSourceId(eventJson);
@@ -352,6 +360,8 @@ export async function buildNetlogCompactEventIndex(
           byteEnd,
           typeName: probedTypeName,
         });
+        parseSkipStats.lightweightParseSkippedEvents += 1;
+        parseSkipStats.lightweightParseSkippedBytes += eventJson.length;
         objectBytes = [];
         objectStart = -1;
         return;
@@ -576,6 +586,7 @@ export async function buildNetlogCompactEventIndex(
 
   return {
     index,
+    parseSkipStats,
     endpointEvidence: endpointReducer.finish(),
     dataLoaded: buildDataLoadedView(file, index, topLevelKeys),
     dnsState: dnsStateReducer.finish(),

@@ -1,4 +1,11 @@
-import { extractSourceId, extractSourceTypeId, extractTopLevelNumberLikeField, extractTopLevelNumericField } from './netlogEventJsonProbe';
+import {
+  extractSourceId,
+  extractSourceTypeId,
+  extractTopLevelNumberLikeField,
+  extractTopLevelNumericField,
+  hasNetlogErrorMarker,
+  hasNetlogSourceDependencyMarker,
+} from './netlogEventJsonProbe';
 
 describe('netlogEventJsonProbe', () => {
   it('只提取顶层 event.type，不误读 source.type', () => {
@@ -27,5 +34,13 @@ describe('netlogEventJsonProbe', () => {
 
     expect(extractTopLevelNumberLikeField(json, 'time')).toBe(123.5);
     expect(extractTopLevelNumericField(json, 'time')).toBeUndefined();
+  });
+
+  it('检测非零错误 marker 和 source dependency marker', () => {
+    expect(hasNetlogErrorMarker('{"params":{"net_error":-7}}')).toBe(true);
+    expect(hasNetlogErrorMarker('{"params":{"error_code":0}}')).toBe(false);
+    expect(hasNetlogSourceDependencyMarker('{"params":{"source_dependency":{"id":1}}}')).toBe(true);
+    expect(hasNetlogSourceDependencyMarker('{"params":{"dependencies":[{"id":1}]}}')).toBe(true);
+    expect(hasNetlogSourceDependencyMarker('{"params":{"url":"https://example.com"}}')).toBe(false);
   });
 });

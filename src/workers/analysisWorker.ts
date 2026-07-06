@@ -145,7 +145,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
   if (singleScanDataset) {
     sendProgress(id, '正在单次扫描 NetLog 并构建 Dataset...', 1);
     const analyzer = createNetlogStreamingAnalyzer();
-    const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(file, {
+    const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(file, {
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
       onEvent: (event) => {
         try {
@@ -177,6 +177,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       datasetEventCount: datasetMeta.eventCount,
       dnsAnswerCount: endpointEvidence.dnsAnswers.length,
       endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
+      ...parseSkipStats,
     });
     sendResponse({
       type: 'success',
@@ -560,7 +561,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(msg.payload.file);
           const meta = netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState);
           const duration = performance.now() - start;
           const endpointEvidenceCount = endpointEvidence.failedOrSlowIps.length;
@@ -580,6 +581,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
             endpointRowCount,
             dnsStateCacheCount: dnsState.hostResolverCache.length,
             dnsStateTaskCount: dnsState.taskResults.length,
+            ...parseSkipStats,
           });
           sendResponse({
             type: 'success',

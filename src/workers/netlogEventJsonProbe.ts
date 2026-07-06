@@ -82,3 +82,12 @@ export function extractSourceId(json: string): number | undefined {
   const sourceMatch = json.match(/"source"\s*:\s*\{[^}]*"id"\s*:\s*(\d+)/);
   return sourceMatch ? Number(sourceMatch[1]) : undefined;
 }
+
+export function hasNetlogErrorMarker(json: string): boolean {
+  if (!/"(?:net_error|error_code)"\s*:/.test(json)) return false;
+  return !/"(?:net_error|error_code)"\s*:\s*0(?:[,}])/.test(json);
+}
+
+export function hasNetlogSourceDependencyMarker(json: string): boolean {
+  return /"source(?:_dependencies|_dependency|Dependencies|Dependency)"\s*:|"dependencies"\s*:/.test(json);
+}
