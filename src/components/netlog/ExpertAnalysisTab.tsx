@@ -24,11 +24,17 @@ interface ExpertAnalysisTabProps {
   activeSubTab?: string;
   onSubTabChange: (key: string) => void;
   onNavigateToSource: (sourceId: number | string) => void;
+  onNavigateToSourceChain: (sourceId: number | string) => void;
   diagnosisSummary?: DiagnosisSummary;
   diagnosisLoading?: boolean;
   dataset?: NetlogDatasetState;
   canStartDatasetIndexing?: boolean;
   onStartDatasetIndexing?: () => void;
+}
+
+interface SourceNavigationProps {
+  onNavigateToSource: (sourceId: number | string) => void;
+  onNavigateToSourceChain: (sourceId: number | string) => void;
 }
 
 const EXPERT_TABS = ['data-loaded', 'events', 'source-chain', 'security', 'network-state', 'performance', 'baseline', 'report'];
@@ -47,6 +53,32 @@ const SourceJump: React.FC<{
     <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onNavigateToSource(sourceId)}>
       source#{sourceId}
     </Button>
+  );
+};
+
+const SourceChainJump: React.FC<{
+  sourceId?: number;
+  onNavigateToSourceChain: (sourceId: number | string) => void;
+}> = ({ sourceId, onNavigateToSourceChain }) => {
+  if (sourceId === undefined) return null;
+  return (
+    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onNavigateToSourceChain(sourceId)}>
+      chain#{sourceId}
+    </Button>
+  );
+};
+
+const SourceEvidenceLinks: React.FC<{ sourceId?: number } & SourceNavigationProps> = ({
+  sourceId,
+  onNavigateToSource,
+  onNavigateToSourceChain,
+}) => {
+  if (sourceId === undefined) return <>-</>;
+  return (
+    <Space size={6}>
+      <SourceJump sourceId={sourceId} onNavigateToSource={onNavigateToSource} />
+      <SourceChainJump sourceId={sourceId} onNavigateToSourceChain={onNavigateToSourceChain} />
+    </Space>
   );
 };
 
@@ -360,10 +392,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
   );
 };
 
-const DatasetProxyStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ProxyStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
 
@@ -424,7 +453,7 @@ const DatasetProxyStateCard: React.FC<{
           rowKey={(row) => `${row.sourceId}-${row.firstEventId ?? ''}-${row.lastEventId ?? ''}`}
           pagination={{ pageSize: 6, showSizeChanger: false }}
           columns={[
-            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Kinds', dataIndex: 'kinds', width: 190, render: (value: string[]) => value.join(' -> ') || '-' },
             { title: '代理', dataIndex: 'proxyServers', width: 240, ellipsis: true, render: (value: string[]) => value.join('；') || '-' },
             { title: 'PAC', dataIndex: 'pacUrls', width: 220, ellipsis: true, render: (value: string[]) => value.join('；') || '-' },
@@ -442,7 +471,7 @@ const DatasetProxyStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
-            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">proxy fact</Tag> },
             { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
             { title: '错误', dataIndex: 'error', width: 90, render: (value?: number | string) => value ?? '-' },
@@ -459,7 +488,7 @@ const DatasetProxyStateCard: React.FC<{
           columns={[
             { title: '类型', dataIndex: 'kind', width: 130 },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
-            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
             { title: '错误', dataIndex: 'error', width: 90, render: (value?: number | string) => value ?? '-' },
             { title: '摘要', dataIndex: 'summary', ellipsis: true },
@@ -492,10 +521,7 @@ const DatasetProxyStateCard: React.FC<{
   );
 };
 
-const DatasetQuicStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<QuicStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -562,7 +588,7 @@ const DatasetQuicStateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Handshake', dataIndex: 'handshakeEventCount', width: 110 },
@@ -584,7 +610,7 @@ const DatasetQuicStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 170 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">protocol fact</Tag> },
             { title: 'Host', dataIndex: 'host', width: 180, ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Peer', dataIndex: 'peerAddress', width: 180, render: (value?: string) => value || '-' },
@@ -609,7 +635,7 @@ const DatasetQuicStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 170 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
             { title: 'Version', dataIndex: 'version', width: 120, render: (value?: string) => value || '-' },
             { title: 'Peer', dataIndex: 'peerAddress', width: 180, render: (value?: string) => value || '-' },
@@ -623,7 +649,7 @@ const DatasetQuicStateCard: React.FC<{
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
             { title: 'Error', dataIndex: 'error', width: 170, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
             { title: 'Details', dataIndex: 'details', ellipsis: true },
@@ -653,10 +679,7 @@ const DatasetQuicStateCard: React.FC<{
   );
 };
 
-const DatasetHttp2StateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<Http2StateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -724,7 +747,7 @@ const DatasetHttp2StateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Session Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Session Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Streams', dataIndex: 'streamCount', width: 90 },
             { title: 'GOAWAY', dataIndex: 'goawayCount', width: 90 },
@@ -744,8 +767,8 @@ const DatasetHttp2StateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Stream Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
-            { title: 'Session Source ID', dataIndex: 'sessionSourceId', width: 150, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Stream Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Session Source ID', dataIndex: 'sessionSourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Stream ID', dataIndex: 'streamId', width: 100, render: (value?: number) => value ?? '-' },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
@@ -763,8 +786,8 @@ const DatasetHttp2StateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 120 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
-            { title: 'Stream Source', dataIndex: 'streamSourceId', width: 130, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Stream Source', dataIndex: 'streamSourceId', width: 130, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Stream ID', dataIndex: 'streamId', width: 100, render: (value?: number) => value ?? '-' },
             { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">protocol fact</Tag> },
             { title: 'Summary', dataIndex: 'summary', ellipsis: true },
@@ -785,8 +808,8 @@ const DatasetHttp2StateCard: React.FC<{
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
-            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Session', dataIndex: 'sessionSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Stream', dataIndex: 'streamId', width: 90, render: (value?: number) => value ?? '-' },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
             { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
@@ -807,8 +830,8 @@ const DatasetHttp2StateCard: React.FC<{
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 150 },
-            { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
-            { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
           ]}
@@ -831,10 +854,7 @@ const DatasetHttp2StateCard: React.FC<{
   );
 };
 
-const DatasetSocketsStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<SocketsStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -905,7 +925,7 @@ const DatasetSocketsStateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 140 },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Connect', dataIndex: 'connectCount', width: 90 },
@@ -927,7 +947,7 @@ const DatasetSocketsStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">socket fact</Tag> },
             { title: 'Peer', dataIndex: 'peerAddress', width: 170, ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Pools', dataIndex: 'socketPools', width: 180, ellipsis: true, render: (value?: string[]) => value?.join('；') || '-' },
@@ -950,7 +970,7 @@ const DatasetSocketsStateCard: React.FC<{
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
             { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
             { title: 'Peer', dataIndex: 'peerAddress', width: 160, ellipsis: true },
@@ -971,8 +991,8 @@ const DatasetSocketsStateCard: React.FC<{
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 160 },
-            { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
-            { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
           ]}
@@ -995,10 +1015,7 @@ const DatasetSocketsStateCard: React.FC<{
   );
 };
 
-const DatasetCacheStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<CacheStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1064,7 +1081,7 @@ const DatasetCacheStateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Operations', dataIndex: 'operationKinds', width: 180, render: (value: string[]) => value.join(', ') || '-' },
@@ -1083,7 +1100,7 @@ const DatasetCacheStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
             { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Cache key', dataIndex: 'cacheKey', ellipsis: true, render: (value?: string) => value || '-' },
@@ -1134,10 +1151,7 @@ const DatasetCacheStateCard: React.FC<{
   );
 };
 
-const DatasetAltSvcStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<AltSvcStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1214,7 +1228,7 @@ const DatasetAltSvcStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Host', dataIndex: 'host', width: 180, render: (value?: string) => value || '-' },
             { title: 'Protocol', dataIndex: 'protocol', width: 110, render: (value?: string) => value || '-' },
             { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
@@ -1239,10 +1253,7 @@ const DatasetAltSvcStateCard: React.FC<{
   );
 };
 
-const DatasetStreamPoolStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<StreamPoolStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1302,7 +1313,7 @@ const DatasetStreamPoolStateCard: React.FC<{
           rowKey="sourceId"
           pagination={{ pageSize: 8, showSizeChanger: false }}
           columns={[
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
             { title: 'Wait', dataIndex: 'waitCount', width: 80 },
@@ -1321,7 +1332,7 @@ const DatasetStreamPoolStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Group', dataIndex: 'group', width: 190, ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
             { title: 'Summary', dataIndex: 'summary', ellipsis: true },
@@ -1345,10 +1356,7 @@ const DatasetStreamPoolStateCard: React.FC<{
   );
 };
 
-const DatasetReportingStateCard: React.FC<{
-  analysisId: string;
-  onNavigateToSource: (sourceId: number | string) => void;
-}> = ({ analysisId, onNavigateToSource }) => {
+const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ReportingStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1429,7 +1437,7 @@ const DatasetReportingStateCard: React.FC<{
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 140 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceJump sourceId={value} onNavigateToSource={onNavigateToSource} /> },
+            { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Origin', dataIndex: 'origin', width: 220, render: (value?: string) => value || '-' },
             { title: 'Endpoint', dataIndex: 'endpointUrl', ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Report type', dataIndex: 'reportType', width: 140, render: (value?: string) => value || '-' },
@@ -1462,6 +1470,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   activeSubTab,
   onSubTabChange,
   onNavigateToSource,
+  onNavigateToSourceChain,
   diagnosisSummary,
   diagnosisLoading,
   dataset,
@@ -1579,7 +1588,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetProxyStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetProxyStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="Proxy State"
@@ -1588,7 +1597,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetQuicStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetQuicStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="QUIC State"
@@ -1597,7 +1606,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetHttp2StateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetHttp2StateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="HTTP/2 State"
@@ -1606,7 +1615,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetSocketsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetSocketsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="Sockets State"
@@ -1615,7 +1624,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetCacheStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetCacheStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="Cache State"
@@ -1624,7 +1633,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetAltSvcStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+          <DatasetAltSvcStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="Alt-Svc State"
@@ -1634,8 +1643,8 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         )}
         {dataset?.status === 'ready' && dataset.analysisId ? (
           <>
-            <DatasetStreamPoolStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
-            <DatasetReportingStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} />
+            <DatasetStreamPoolStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
+            <DatasetReportingStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
           </>
         ) : (
           <StateGapCard

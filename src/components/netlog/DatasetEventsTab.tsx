@@ -62,7 +62,14 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     if (!intent || intent.tab !== 'expert') return;
     const filters = intent.filters;
     if (!filters) return;
-    if (filters.sourceId) setSourceIdFilter(filters.sourceId);
+    if (filters.sourceId) {
+      setSourceIdFilter(filters.sourceId);
+      setSourceChainIdFilter('');
+    }
+    if (filters.sourceChainId) {
+      setSourceChainIdFilter(filters.sourceChainId);
+      setSourceIdFilter('');
+    }
     if (filters.errorOnly || filters.errorCode) setErrorOnly(true);
     if (filters.phase) setPhaseFilter(filters.phase);
     if (filters.eventType && /^\d+$/.test(filters.eventType)) setTypeIdFilter(filters.eventType);

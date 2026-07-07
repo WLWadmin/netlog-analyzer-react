@@ -15,6 +15,8 @@ export interface NavigationFilters {
   errorOnly?: boolean;
   /** source id */
   sourceId?: string;
+  /** source chain root id */
+  sourceChainId?: string;
   /** 来源类型 */
   sourceType?: string;
   /** 事件类型 */

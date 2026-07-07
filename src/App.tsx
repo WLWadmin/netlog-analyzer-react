@@ -879,6 +879,16 @@ const AppContent: React.FC = () => {
               reason: '查看 source 事件',
             });
           }}
+          onNavigateToSourceChain={(sourceId) => {
+            setActiveSubTab('events');
+            window.location.hash = buildAppHash('netlog', 'expert', 'events');
+            navigateTo({
+              tab: 'expert',
+              filters: { sourceChainId: String(sourceId) },
+              source: '源链路',
+              reason: '查看 source chain 事件',
+            });
+          }}
         />
       ) : null,
     },
