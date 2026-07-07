@@ -250,9 +250,11 @@ function determineConclusionKind(
       summary.combinedConfidence === 'high' ||
       (hasHarEvidence && hasNetlogEvidence)
     );
+    if (isNetworkStateFactOnly(card)) return 'needs-more-data';
     return strongCombined && canBeConfirmedRootCause(card) ? 'confirmed' : card.confidence === 'low' ? 'needs-more-data' : 'highly-likely';
   }
   if (mode === 'netlog') {
+    if (isNetworkStateFactOnly(card)) return 'needs-more-data';
     if (card.confidence === 'high' && canBeConfirmedRootCause(card)) return 'confirmed';
     if (card.confidence !== 'low') return 'highly-likely';
   }
@@ -298,6 +300,28 @@ function toFinalAction(action: DiagnosticAction, sourceCardId: string, priority:
 function isCollectionAction(action: DiagnosticAction): boolean {
   const text = `${action.title} ${action.detail} ${action.command || ''}`;
   return /(重新采集|补充采集|重新导出|导出\s*(HAR|NetLog)|采集\s*(HAR|NetLog)|Include raw bytes|chrome:\/\/net-export|net-export)/i.test(text);
+}
+
+function isPrimaryActionCard(card: DiagnosticCard, headlineCardIds: Set<string>): boolean {
+  if (!headlineCardIds.has(card.id)) return false;
+  if (isNetworkStateFactOnly(card)) return false;
+  if (card.confidence === 'low') return false;
+  return hasExplicitFailureEvidence(card) || canBeConfirmedRootCause(card);
+}
+
+function buildCandidateValidationAction(card: DiagnosticCard, priority: number): FinalAction {
+  const text = cardEvidenceText(card);
+  const target = card.evidence.find(evidence => /host|域名|url|sourceId|eventId|DNS answer|socket peer|x-request-ip/i.test(`${evidence.label} ${evidence.value}`));
+  const targetText = target ? `，重点核对 ${target.label}：${target.value}` : '';
+  return {
+    id: `${card.id}-validate-candidate-${priority}`,
+    title: `验证候选线索：${card.title}`,
+    detail: `该线索当前只能说明状态事实或候选关联，不能直接当作根因${targetText}。请结合同一 source chain、失败请求错误码、HAR 瀑布或网络对比结果确认后再处理。`,
+    sourceCardId: card.id,
+    priority,
+    effort: 'low',
+    risk: /Cookie|Authorization|Token|请求体|敏感/i.test(text) ? 'sensitive' : 'safe',
+  };
 }
 
 function buildMissingInfoFromQuality(quality: CollectionQuality): MissingInfoItem[] {
@@ -454,6 +478,27 @@ function buildActionGroups(cards: DiagnosticCard[], _missingInfo: MissingInfoIte
     .sort((a, b) => a.priority - b.priority);
 }
 
+function buildGuardedActionGroups(cards: DiagnosticCard[], headline: FinalConclusion[]): ActionGroup[] {
+  const headlineCardIds = new Set(headline.flatMap(item => item.relatedCardIds));
+  const primaryCards = cards.filter(card => isPrimaryActionCard(card, headlineCardIds));
+  const candidateCards = cards.filter(card => headlineCardIds.has(card.id) && isNetworkStateFactOnly(card));
+  const groups = buildActionGroups(primaryCards, []);
+
+  if (candidateCards.length > 0) {
+    const collectActions = candidateCards
+      .slice(0, 3)
+      .map((card, index) => buildCandidateValidationAction(card, index + 1));
+    groups.push({
+      role: 'collect',
+      title: ROLE_LABELS.collect,
+      actions: collectActions,
+      priority: ROLE_PRIORITY.collect,
+    });
+  }
+
+  return groups.sort((a, b) => a.priority - b.priority);
+}
+
 function buildCluster(
   category: DiagnosticCategory,
   cards: DiagnosticCard[],
@@ -463,7 +508,8 @@ function buildCluster(
   const sortedCards = [...cards].sort((a, b) => scoreCard(b, summary) - scoreCard(a, summary));
   const primary = sortedCards[0];
   const score = sortedCards.reduce((max, card) => Math.max(max, scoreCard(card, summary)), 0);
-  const actions = sortedCards.flatMap((card, cardIndex) =>
+  const actionSourceCards = sortedCards.filter(card => !isNetworkStateFactOnly(card) && card.confidence !== 'low');
+  const actions = actionSourceCards.flatMap((card, cardIndex) =>
     card.actions.map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
   );
   const keyEvidence = sortedCards.flatMap(card => card.evidence.map(toFinalEvidence)).slice(0, 5);
@@ -495,7 +541,9 @@ function buildConclusion(
   const relatedMissing = missingInfo
     .filter(item => item.id.includes(primary.id) || item.id.startsWith(mode) || item.id.startsWith(primary.source))
     .slice(0, 3);
-  const primaryAction = cluster.actions.find(action => action.sourceCardId === primary.id) || cluster.actions[0];
+  const primaryAction = cluster.kind === 'needs-more-data' && isNetworkStateFactOnly(primary)
+    ? buildCandidateValidationAction(primary, 1)
+    : cluster.actions.find(action => action.sourceCardId === primary.id) || cluster.actions[0];
 
   return {
     id: `final-${mode}-${primary.id}`,
@@ -620,7 +668,7 @@ export function buildFinalDiagnosisSummary(
         .slice(0, 3),
     })),
     rootCauseClusters: clusters,
-    actionPlan: buildActionGroups(sortedExpertCards, finalMissingInfo),
+    actionPlan: buildGuardedActionGroups(sortedExpertCards, headline),
     missingInfo: finalMissingInfo,
     expertCards: sortedExpertCards,
     executiveSummary: '',

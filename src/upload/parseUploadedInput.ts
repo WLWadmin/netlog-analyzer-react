@@ -19,11 +19,17 @@ export type UploadFileTypeHint = 'netlog' | 'har' | 'log';
 
 function isSingleScanDatasetEnabled(): boolean {
   if (process.env.REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET === '1') return true;
+  if (process.env.REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET === '0') return false;
   try {
-    return typeof window !== 'undefined' && window.localStorage?.getItem('netlog_single_scan_dataset') === '1';
+    if (typeof window !== 'undefined') {
+      const override = window.localStorage?.getItem('netlog_single_scan_dataset');
+      if (override === '1') return true;
+      if (override === '0') return false;
+    }
   } catch {
-    return false;
+    return true;
   }
+  return true;
 }
 
 export type UploadedParseResult =
@@ -85,13 +91,14 @@ export async function parseUploadedInput(options: {
     if (!useWorker) {
       throw new Error('当前浏览器不支持 Worker，大文件 NetLog 无法安全解析');
     }
+    const singleScanDataset = isSingleScanDatasetEnabled();
     console.info('[netlog-large]', {
       event: 'parseUploadedInput:large-netlog',
       fileName: data.name,
       fileSize: data.size,
       useWorker,
+      singleScanDataset,
     });
-    const singleScanDataset = isSingleScanDatasetEnabled();
     let largeNetlogResult: Awaited<ReturnType<typeof parseLargeNetlogFileInWorker>>;
     try {
       largeNetlogResult = await parseLargeNetlogFileInWorker(data, {

@@ -718,6 +718,73 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(userActions.some(action => action.title === '做代理/直连对比')).toBe(false);
   });
 
+  it('候选状态事实不进入主行动清单，只生成验证线索行动', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'dns-answer-candidate-action',
+        category: 'dns',
+        severity: 'warning',
+        confidence: 'high',
+        title: 'DNS answer 候选 IP',
+        conclusion: '当前只发现 DNS answer 候选 IP，未发现请求级 DNS 错误',
+        evidence: [
+          { label: 'DNS answer', value: 'api.example.com -> 203.0.113.10', source: 'netlog' },
+        ],
+        actions: [
+          { role: 'user', title: '立刻切换 DNS', detail: '把 DNS answer 当作根因切换 DNS' },
+        ],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).toBe('needs-more-data');
+    const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
+    const collectActions = result.actionPlan.find(group => group.role === 'collect')?.actions || [];
+    expect(userActions.some(action => action.title === '立刻切换 DNS')).toBe(false);
+    expect(collectActions.some(action => action.title.includes('验证候选线索'))).toBe(true);
+  });
+
+  it('主行动清单保留请求失败错误码行动，并过滤非根因候选卡动作', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'connect-reset-action',
+        category: 'connect',
+        severity: 'critical',
+        confidence: 'high',
+        title: '连接被重置',
+        conclusion: '请求失败，错误码 -101',
+        evidence: [
+          { label: '错误码', value: '-101', source: 'netlog' },
+          { label: '问题域名', value: 'api.example.com', source: 'netlog' },
+        ],
+        actions: [
+          { role: 'user', title: '切换网络复测', detail: '切换手机热点后重新访问问题域名' },
+        ],
+      }),
+      card({
+        id: 'socket-peer-candidate-action',
+        category: 'connect',
+        severity: 'warning',
+        confidence: 'high',
+        title: 'socket peer 候选 IP',
+        conclusion: '当前只发现 socket peer 候选，没有失败错误码或请求锚点',
+        evidence: [
+          { label: 'socket peer', value: '203.0.113.10:443', source: 'netlog' },
+        ],
+        actions: [
+          { role: 'it', title: '封禁候选 IP', detail: '把 socket peer 候选当作根因处理' },
+        ],
+      }),
+    ]), 'netlog');
+
+    const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
+    const itActions = result.actionPlan.find(group => group.role === 'it')?.actions || [];
+    const collectActions = result.actionPlan.find(group => group.role === 'collect')?.actions || [];
+    expect(userActions.some(action => action.title === '切换网络复测')).toBe(true);
+    expect(userActions.some(action => action.title.includes('连接') || action.detail.includes('-101'))).toBe(true);
+    expect(itActions.some(action => action.title === '封禁候选 IP')).toBe(false);
+    expect(collectActions.some(action => action.title.includes('验证候选线索'))).toBe(true);
+  });
+
   it('根据 NetLog 错误码生成 DNS、网络稳定性和安全软件排查行动', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({

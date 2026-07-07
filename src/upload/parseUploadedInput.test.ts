@@ -178,7 +178,7 @@ describe('parseUploadedInput', () => {
     expect(parseLogInWorkerMock).toHaveBeenCalled();
   });
 
-  it('大 NetLog File 走流式大文件 worker 且不返回 rawDataId', async () => {
+  it('大 NetLog File 默认走 single scan 大文件 worker 且不返回 rawDataId', async () => {
     const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
     Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
     parseLargeNetlogFileInWorkerMock.mockResolvedValue({
@@ -206,8 +206,34 @@ describe('parseUploadedInput', () => {
         error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
       },
     });
-    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: false });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: true });
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it('localStorage 显式关闭 single scan 时大 NetLog 回到摘要 fallback 路径', async () => {
+    const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+    window.localStorage.setItem('netlog_single_scan_dataset', '0');
+    parseLargeNetlogFileInWorkerMock.mockResolvedValue({
+      events: [{ id: 1 }],
+      result: { totalEvents: 1, largeFileMode: { enabled: true } },
+    });
+    const onProgress = jest.fn();
+
+    const result = await parseUploadedInput({
+      data: file,
+      fileTypeHint: 'netlog',
+      useWorker: true,
+      onProgress,
+    });
+
+    expect(result.kind).toBe('netlog');
+    if (result.kind !== 'netlog') throw new Error('expected netlog result');
+    expect(result.dataset).toEqual({
+      status: 'fallback',
+      error: 'Dataset 模式尚未启用，当前使用大文件摘要 fallback。',
+    });
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: false });
   });
 
   it('single scan flag 开启时大 NetLog 返回 ready Dataset 状态', async () => {
