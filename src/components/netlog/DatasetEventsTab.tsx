@@ -149,6 +149,18 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     setPage(1);
   };
 
+  const applySourceFilter = (sourceId: number) => {
+    setSourceIdFilter(String(sourceId));
+    setSourceChainIdFilter('');
+    setPage(1);
+  };
+
+  const applySourceChainFilter = (sourceId: number) => {
+    setSourceChainIdFilter(String(sourceId));
+    setSourceIdFilter('');
+    setPage(1);
+  };
+
   const hasStructuredSearchFilter = Boolean(
     sourceIdFilter.trim() ||
     sourceChainIdFilter.trim() ||
@@ -311,9 +323,25 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
           { title: 'Event ID', dataIndex: 'eventId', width: 110 },
           { title: 'Time', dataIndex: 'time', width: 120 },
           { title: 'Type', dataIndex: 'typeName', render: (_, row) => `${row.typeName} (${row.typeId})` },
-          { title: 'Source', dataIndex: 'sourceId', width: 180, render: (_, row) => `${row.sourceId} / ${row.sourceTypeName}` },
+          {
+            title: 'Source',
+            dataIndex: 'sourceId',
+            width: 260,
+            render: (_, row) => (
+              <Space size={6}>
+                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => applySourceFilter(row.sourceId)}>
+                  source#{row.sourceId}
+                </Button>
+                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => applySourceChainFilter(row.sourceId)}>
+                  chain#{row.sourceId}
+                </Button>
+                <Tag>{row.sourceTypeName}</Tag>
+              </Space>
+            ),
+          },
           { title: 'Phase', dataIndex: 'phaseName', width: 140, render: (_, row) => `${row.phaseName} (${row.phase})` },
           { title: 'Error', dataIndex: 'hasError', width: 90, render: (value) => value ? <Tag color="red">error</Tag> : <Tag>ok</Tag> },
+          { title: 'Byte range', key: 'byteRange', width: 170, render: (_, row) => `${row.byteStart} - ${row.byteEnd}` },
           {
             title: 'Detail',
             width: 100,
