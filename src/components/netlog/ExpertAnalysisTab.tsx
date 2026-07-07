@@ -105,6 +105,115 @@ const SourceEvidenceLinks: React.FC<{ sourceId?: number } & SourceNavigationProp
   );
 };
 
+type EvidenceTier = 'locating' | 'validation' | 'background';
+
+const evidenceTierConfig: Record<EvidenceTier, { label: string; color: string; description: string }> = {
+  locating: {
+    label: '可定位问题',
+    color: 'red',
+    description: '优先看这类证据：它们通常带有错误码、失败请求、request/source 关联或可跳转原始事件。',
+  },
+  validation: {
+    label: '只作验证',
+    color: 'orange',
+    description: '用于验证候选方向。它们不能单独定因，需要和失败请求、source chain 或错误码一起看。',
+  },
+  background: {
+    label: '背景信息',
+    color: 'blue',
+    description: '用于理解文件规模、环境和覆盖率。它们通常不直接说明网络根因。',
+  },
+};
+
+const EvidenceTierTag: React.FC<{ tier: EvidenceTier }> = ({ tier }) => {
+  const config = evidenceTierConfig[tier];
+  return (
+    <Tooltip title={config.description}>
+      <Tag color={config.color}>{config.label}</Tag>
+    </Tooltip>
+  );
+};
+
+const EvidenceSectionTitle: React.FC<{ title: string; tier: EvidenceTier }> = ({ title, tier }) => (
+  <Space size={8} wrap>
+    <span>{title}</span>
+    <EvidenceTierTag tier={tier} />
+  </Space>
+);
+
+const ExpertEvidencePriorityGuide: React.FC<{
+  activeKey: string;
+  onJump: (key: string) => void;
+}> = ({ activeKey, onJump }) => {
+  const jumpButton = (key: string, label: string) => (
+    <Button size="small" type={activeKey === key ? 'primary' : 'default'} onClick={() => onJump(key)}>
+      {label}
+    </Button>
+  );
+
+  return (
+    <section className="expert-evidence-guide" aria-label="专家证据优先级">
+      <div className="expert-evidence-guide__header">
+        <div>
+          <div className="expert-evidence-guide__eyebrow">Evidence Priority</div>
+          <div className="expert-evidence-guide__title">先看能定位问题的证据，再看验证线索和背景指标</div>
+        </div>
+        <Typography.Text type="secondary" className="expert-evidence-guide__hint">
+          指标多不代表都同等重要。能和失败请求、错误码、source chain 关联的证据优先级最高。
+        </Typography.Text>
+      </div>
+      <div className="expert-evidence-guide__lanes">
+        <div className="expert-evidence-guide__lane expert-evidence-guide__lane--locating">
+          <EvidenceSectionTitle title="定位入口" tier="locating" />
+          <ul className="expert-evidence-guide__items">
+            <li>net_error / 失败 URL_REQUEST / 慢请求</li>
+            <li>request-scoped DNS、Proxy、Socket、TLS、HTTP/2、QUIC 错误</li>
+            <li>能跳 source chain 或 raw event 的证据</li>
+          </ul>
+          <Space size={8} wrap>
+            {jumpButton('events', '看 Events')}
+            {jumpButton('source-chain', '看 Source Chain')}
+            {jumpButton('network-state', '看 State 错误')}
+          </Space>
+        </div>
+        <div className="expert-evidence-guide__lane expert-evidence-guide__lane--validation">
+          <EvidenceSectionTitle title="验证线索" tier="validation" />
+          <ul className="expert-evidence-guide__items">
+            <li>DNS answer、socket peer、x-request-ip</li>
+            <li>DNS server / DoH candidate / Proxy config</li>
+            <li>QUIC、HTTP/2、Alt-Svc、连接池状态</li>
+          </ul>
+          <Space size={8} wrap>
+            {jumpButton('network-state', '看 Network State')}
+            {jumpButton('security', '看协议/TLS')}
+          </Space>
+        </div>
+        <div className="expert-evidence-guide__lane expert-evidence-guide__lane--background">
+          <EvidenceSectionTitle title="背景指标" tier="background" />
+          <ul className="expert-evidence-guide__items">
+            <li>Data Loaded、事件总数、Source 数、时间范围</li>
+            <li>Top event/source types 和 metadata 是否缺失</li>
+            <li>Performance 聚合统计、Reporting/NEL、Cache 概览</li>
+          </ul>
+          <Space size={8} wrap>
+            {jumpButton('data-loaded', '看 Data Loaded')}
+            {jumpButton('performance', '看 Performance')}
+          </Space>
+        </div>
+      </div>
+      <div className="expert-evidence-guide__workflow" aria-label="推荐排查顺序">
+        <span className="expert-evidence-guide__step">1. 失败请求和错误码</span>
+        <span className="expert-evidence-guide__arrow">→</span>
+        <span className="expert-evidence-guide__step">2. Source Chain</span>
+        <span className="expert-evidence-guide__arrow">→</span>
+        <span className="expert-evidence-guide__step">3. request-scoped 状态错误</span>
+        <span className="expert-evidence-guide__arrow">→</span>
+        <span className="expert-evidence-guide__step">4. Raw Evidence 复核</span>
+      </div>
+    </section>
+  );
+};
+
 const StateGapCard: React.FC<{ title: string; description: string; dataset?: NetlogDatasetState }> = ({ title, description, dataset }) => (
   <Card title={title} bordered={false}>
     <Alert
@@ -197,6 +306,12 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Alert
+        type="info"
+        showIcon
+        message="Data Loaded 是背景信息"
+        description="这里用于确认文件是否完整、metadata 是否存在、事件规模是否足够；它不直接说明网络根因。定位问题时请继续看失败请求、source chain 和 request-scoped 状态错误。"
+      />
       <Descriptions column={2} size="small">
         <Descriptions.Item label="文件名">{view.fileName}</Descriptions.Item>
         <Descriptions.Item label="文件大小">{formatMb(view.fileSize)}</Descriptions.Item>
@@ -318,13 +433,13 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
   }));
 
   return (
-    <Card title="DNS State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="DNS State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
           showIcon
-          message="DNS State 依赖 NetLog 中的配置快照和 Host Resolver 事件"
-          description="如果 polledData、systemInfo、Host Resolver cache 或 DNS task 事件缺失，只表示当前文件无法还原完整 DNS 状态，不代表没有发生 DNS 解析。DoH / Secure DNS 候选也不等同于当前 DNS server 配置。"
+          message="DNS State 先看 DNS task error，再看 DNS answer 和配置"
+          description="DNS task error 且能关联失败请求时才接近定因；DNS answer、DNS server、DoH / Secure DNS 候选主要用于验证解析方向或说明环境，不能单独证明根因。如果 polledData、systemInfo、Host Resolver cache 或 DNS task 事件缺失，只表示当前文件无法还原完整 DNS 状态。"
         />
         {view.evidenceGaps.length > 0 && (
           <Alert type="warning" showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
@@ -503,13 +618,13 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
   };
 
   return (
-    <Card title="Proxy State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Proxy State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
           showIcon
-          message="Proxy State 只展示配置快照和候选线索"
-          description="代理配置、PAC URL 或 bypass 规则是环境事实，不能单独作为请求失败或慢请求根因；仍需要结合代理事件、目标 host、错误码或直连对比。"
+          message="Proxy State 先看请求级代理错误，再看配置快照"
+          description="proxy tunnel、bad proxy、fallback 等事件如果能关联失败请求，才适合作为定位证据。代理配置、PAC URL 或 bypass 规则是环境事实，不能单独作为请求失败或慢请求根因。"
         />
         {view.evidenceGaps.length > 0 && (
           <Alert type={view.hasProxyEvidence ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
@@ -681,7 +796,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
   };
 
   return (
-    <Card title="QUIC State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="QUIC State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -839,7 +954,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
   };
 
   return (
-    <Card title="HTTP/2 State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="HTTP/2 State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -1020,13 +1135,13 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
   };
 
   return (
-    <Card title="Sockets State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Sockets State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
           showIcon
-          message="Sockets State 展示 connect / tls / pool / error 线索"
-          description="Socket / TLS 事件是连接层事实，不能单独把 peer address、connect error 或候选 IP 当成请求根因；需要结合 source chain、DNS、代理和协议回退判断。"
+          message="Sockets State 先看 request-scoped connect/TLS error，再看 peer address"
+          description="connect error、TLS error、stall 如果能关联失败请求，才接近定位证据。socket peer 和候选 IP 只是连接目标线索，不能直接等同 SIP 或根因；需要结合 source chain、DNS、代理和协议回退判断。"
         />
         {view.evidenceGaps.length > 0 && (
           <Alert type={view.errors.length > 0 || view.stallCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
@@ -1187,7 +1302,7 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
   };
 
   return (
-    <Card title="Cache State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Cache State" tier="background" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -1319,7 +1434,7 @@ const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigation
   };
 
   return (
-    <Card title="Alt-Svc State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Alt-Svc State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -1421,7 +1536,7 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
   };
 
   return (
-    <Card title="StreamPool State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="StreamPool State" tier="validation" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -1524,7 +1639,7 @@ const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigat
   };
 
   return (
-    <Card title="Reporting/NEL State" bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Reporting/NEL State" tier="background" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
@@ -1618,7 +1733,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   const contentByKey: Record<string, React.ReactNode> = {
     'data-loaded': (
       <Card
-        title="Data Loaded"
+        title={<EvidenceSectionTitle title="Data Loaded" tier="background" />}
         bordered={false}
         extra={
           canShowDatasetIndexButton ? (
@@ -1827,7 +1942,10 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         })()
       )}
       <ExpertSegmentNav activeKey={activeKey} onChange={onSubTabChange} />
-      {contentByKey[activeKey]}
+      <ExpertEvidencePriorityGuide activeKey={activeKey} onJump={onSubTabChange} />
+      <div className="netlog-workbench-content">
+        {contentByKey[activeKey]}
+      </div>
     </div>
   );
 };
