@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Modal, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { DiagnosisSummary } from '../../diagnosis/shared';
 import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
@@ -14,6 +14,7 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
+import './netlogNavigation.css';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogRawEvidenceMetadataValueView } from '../../workers/netlogDatasetViews';
 import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
 
@@ -42,6 +43,28 @@ const EXPERT_TABS = ['data-loaded', 'events', 'source-chain', 'security', 'netwo
 const formatMb = (value?: number) => {
   if (!value) return '0 MB';
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const EmptyCell = () => <span className="netlog-muted-dash">-</span>;
+
+const CompactIpList: React.FC<{ value: string[] }> = ({ value }) => {
+  if (value.length === 0) return <EmptyCell />;
+  return (
+    <div className="netlog-ip-list">
+      {value.map(ip => (
+        <span key={ip} className="netlog-ip-pill">{ip}</span>
+      ))}
+    </div>
+  );
+};
+
+const ClampedText: React.FC<{ value?: string; className?: string }> = ({ value, className }) => {
+  if (!value) return <EmptyCell />;
+  return (
+    <Tooltip title={value}>
+      <span className={className ? `netlog-clamped-text ${className}` : 'netlog-clamped-text'}>{value}</span>
+    </Tooltip>
+  );
 };
 
 const SourceJump: React.FC<{
@@ -272,7 +295,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
       key: `cache-${item.eventId}`,
       source: 'Host Resolver Cache',
       host: item.host,
-      ips: item.ips.join(', '),
+      ips: item.ips,
       aliases: item.aliases.join(', '),
       sourceId: item.sourceId,
       eventId: item.eventId,
@@ -281,7 +304,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
       key: `task-${item.eventId}-${item.host}`,
       source: 'DNS Task Result',
       host: item.host,
-      ips: item.ips.join(', '),
+      ips: item.ips,
       aliases: item.aliases.join(', '),
       error: item.error,
       sourceId: item.sourceId,
@@ -365,9 +388,9 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
           columns={[
             { title: '来源', dataIndex: 'source', width: 170 },
             { title: 'Host', dataIndex: 'host', width: 220 },
-            { title: 'IPs', dataIndex: 'ips', render: (value: string) => <Typography.Text code>{value || '-'}</Typography.Text> },
-            { title: 'Aliases', dataIndex: 'aliases' },
-            { title: 'Error', dataIndex: 'error', width: 90, render: (value?: number) => value ?? '-' },
+            { title: 'IPs', dataIndex: 'ips', width: 260, render: (value: string[]) => <CompactIpList value={value} /> },
+            { title: 'Aliases', dataIndex: 'aliases', width: 420, render: (value?: string) => <ClampedText value={value} /> },
+            { title: 'Error', dataIndex: 'error', width: 80, render: (value?: number) => value ?? <EmptyCell /> },
             { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             {
@@ -1051,12 +1074,12 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
-            { title: 'Scope', dataIndex: 'requestScoped', width: 150, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">socket fact</Tag> },
-            { title: 'Peer', dataIndex: 'peerAddress', width: 170, ellipsis: true, render: (value?: string) => value || '-' },
-            { title: 'Pools', dataIndex: 'socketPools', width: 180, ellipsis: true, render: (value?: string[]) => value?.join('；') || '-' },
-            { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
-            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
-            { title: 'Unresolved', dataIndex: 'unresolvedReason', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Scope', dataIndex: 'requestScoped', width: 128, render: (value: boolean) => value ? <Tag color="green">request-scoped candidate</Tag> : <Tag color="orange">socket fact</Tag> },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 96, render: (value?: string) => <ClampedText value={value} className="netlog-one-line" /> },
+            { title: 'Pools', dataIndex: 'socketPools', width: 96, render: (value?: string[]) => <ClampedText value={value?.join('；')} className="netlog-one-line" /> },
+            { title: 'Error', dataIndex: 'error', width: 88, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : <EmptyCell /> },
+            { title: 'Summary', dataIndex: 'summary', width: 240, render: (value?: string) => <ClampedText value={value} /> },
+            { title: 'Unresolved', dataIndex: 'unresolvedReason', width: 260, render: (value?: string) => <ClampedText value={value} /> },
             {
               title: '操作',
               key: 'action',
@@ -1075,9 +1098,9 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
-            { title: 'Error', dataIndex: 'error', width: 150, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
-            { title: 'Peer', dataIndex: 'peerAddress', width: 160, ellipsis: true },
-            { title: 'Details', dataIndex: 'details', ellipsis: true },
+            { title: 'Error', dataIndex: 'error', width: 88, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : <EmptyCell /> },
+            { title: 'Peer', dataIndex: 'peerAddress', width: 120, render: (value?: string) => <ClampedText value={value} className="netlog-one-line" /> },
+            { title: 'Details', dataIndex: 'details', width: 320, render: (value?: string) => <ClampedText value={value} /> },
             {
               title: '操作',
               key: 'action',
@@ -1428,8 +1451,8 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
             { title: 'Wait', dataIndex: 'waitCount', width: 80 },
             { title: 'Stall', dataIndex: 'stalledCount', width: 80, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Reuse/Bound', key: 'reuse', width: 120, render: (_, row) => `${row.reusedSocketCount} / ${row.boundSocketCount}` },
-            { title: 'Groups', dataIndex: 'groups', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
-            { title: 'URLs', dataIndex: 'urls', ellipsis: true, render: (value: string[]) => value.slice(0, 3).join('；') || '-' },
+            { title: 'Groups', dataIndex: 'groups', width: 120, render: (value: string[]) => <ClampedText value={value.slice(0, 3).join('；')} className="netlog-one-line" /> },
+            { title: 'URLs', dataIndex: 'urls', width: 420, render: (value: string[]) => <ClampedText value={value.slice(0, 3).join('；')} /> },
           ]}
           dataSource={view.jobs}
           locale={{ emptyText: '未发现 Dataset HTTP stream / socket pool 状态' }}
@@ -1442,9 +1465,9 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
-            { title: 'Group', dataIndex: 'group', width: 190, ellipsis: true, render: (value?: string) => value || '-' },
-            { title: 'Error', dataIndex: 'error', width: 130, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
-            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: 'Group', dataIndex: 'group', width: 150, render: (value?: string) => <ClampedText value={value} className="netlog-one-line" /> },
+            { title: 'Error', dataIndex: 'error', width: 88, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : <EmptyCell /> },
+            { title: 'Summary', dataIndex: 'summary', width: 320, render: (value?: string) => <ClampedText value={value} /> },
             {
               title: '操作',
               key: 'action',
@@ -1686,7 +1709,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
       </div>
     ),
     'network-state': (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="netlog-network-state-panel">
         {dataset?.status === 'ready' && dataset.analysisId ? (
           <DatasetDnsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (

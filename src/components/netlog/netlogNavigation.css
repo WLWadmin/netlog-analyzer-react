@@ -200,6 +200,144 @@
   padding: 18px 0 0;
 }
 
+.netlog-network-state-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.netlog-network-state-panel .ant-card {
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.06), transparent 28%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.netlog-network-state-panel .ant-card-body,
+.netlog-network-state-panel .ant-space,
+.netlog-network-state-panel .ant-table-wrapper {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.netlog-network-state-panel .ant-descriptions {
+  overflow-x: auto;
+}
+
+.netlog-network-state-panel .ant-descriptions-item-content {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.netlog-network-state-panel .ant-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.netlog-network-state-panel .ant-table {
+  min-width: 980px;
+}
+
+.netlog-network-state-panel .ant-table-container {
+  min-width: 980px;
+}
+
+.netlog-network-state-panel .ant-table-thead > tr > th {
+  white-space: nowrap;
+}
+
+.netlog-network-state-panel .ant-table-tbody > tr > td {
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.netlog-network-state-panel .ant-table-cell-ellipsis {
+  white-space: normal;
+}
+
+.netlog-network-state-panel .ant-table-cell .ant-typography,
+.netlog-network-state-panel .ant-table-cell code {
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.netlog-network-state-panel .ant-table-cell .ant-space {
+  display: inline-flex;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.netlog-network-state-panel .ant-table-cell .ant-tag {
+  height: auto;
+  margin-inline-end: 0;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.netlog-network-state-panel .ant-table-cell .ant-btn-sm {
+  white-space: nowrap;
+}
+
+.netlog-network-state-panel .ant-pagination {
+  margin-inline: 12px;
+  row-gap: 8px;
+}
+
+.netlog-muted-dash {
+  color: #94a3b8;
+}
+
+.netlog-ip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 260px;
+}
+
+.netlog-ip-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.88);
+  color: #1d4ed8;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.netlog-clamped-text {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  color: #334155;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.netlog-clamped-text.netlog-one-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+
 @media (max-width: 1100px) {
   .netlog-workbench-nav__items {
     grid-template-columns: repeat(3, minmax(160px, 1fr));
