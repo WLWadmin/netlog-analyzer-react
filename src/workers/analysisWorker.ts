@@ -23,8 +23,8 @@ import { createRawDataStore } from './rawDataStore';
 import { createNetlogDatasetStore } from './netlogDatasetStore';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail } from './netlogDatasetIndexer';
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
-import { buildNetlogSourceChainView } from './netlogSourceChainView';
-import { buildNetlogRawEvidenceStructureView, queryNetlogRawEvidenceEvents } from './netlogRawEvidenceView';
+import { buildNetlogSourceChainDetailView, buildNetlogSourceChainView } from './netlogSourceChainView';
+import { buildNetlogRawEvidenceStructureView, getNetlogRawEvidenceMetadataValue, queryNetlogRawEvidenceEvents } from './netlogRawEvidenceView';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
 import { LIGHTWEIGHT_COUNT_EVENT_NAMES } from './netlogLightweightEvents';
@@ -469,6 +469,27 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         break;
       }
 
+      case 'get-netlog-source-chain-detail': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.eventIndex) throw new Error(`NetLog Dataset Source Chain detail 不存在：${msg.payload.analysisId}`);
+        const payload = buildNetlogSourceChainDetailView(
+          msg.payload.analysisId,
+          dataset.eventIndex,
+          msg.payload.sourceId,
+          msg.payload.page,
+          msg.payload.pageSize
+        );
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-source-chain-detail',
+          payload,
+          duration,
+        });
+        break;
+      }
+
       case 'get-netlog-raw-evidence-structure': {
         const dataset = netlogDatasetStore.get(msg.payload.analysisId);
         if (!dataset?.eventIndex || !dataset.dataLoaded) throw new Error(`NetLog Dataset Raw Evidence 不存在：${msg.payload.analysisId}`);
@@ -493,6 +514,21 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-raw-evidence-events',
+          payload,
+          duration,
+        });
+        break;
+      }
+
+      case 'get-netlog-raw-evidence-metadata': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.eventIndex) throw new Error(`NetLog Dataset Raw Evidence metadata 不存在：${msg.payload.analysisId}`);
+        const payload = await getNetlogRawEvidenceMetadataValue(dataset.file, dataset.eventIndex, msg.payload.key);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-raw-evidence-metadata',
           payload,
           duration,
         });

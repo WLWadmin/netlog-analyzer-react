@@ -17,7 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogSourceChainView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogSourceChainDetailView, NetlogSourceChainView, NetlogRawEvidenceMetadataValueView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -460,6 +460,22 @@ export async function getNetlogSourceChainInWorker(
   return response.payload as NetlogSourceChainView;
 }
 
+export async function getNetlogSourceChainDetailInWorker(
+  payload: { analysisId: string; sourceId: number; page?: number; pageSize?: number },
+  options?: WorkerClientOptions
+): Promise<NetlogSourceChainDetailView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-source-chain-detail',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as NetlogSourceChainDetailView;
+}
+
 export async function getNetlogRawEvidenceStructureInWorker(
   payload: { analysisId: string },
   options?: WorkerClientOptions
@@ -490,6 +506,22 @@ export async function queryNetlogRawEvidenceEventsInWorker(
     options
   );
   return response.payload as QueryNetlogEventsResult;
+}
+
+export async function getNetlogRawEvidenceMetadataInWorker(
+  payload: { analysisId: string; key: NetlogRawEvidenceMetadataValueView['key'] },
+  options?: WorkerClientOptions
+): Promise<NetlogRawEvidenceMetadataValueView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-raw-evidence-metadata',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as NetlogRawEvidenceMetadataValueView;
 }
 
 /**

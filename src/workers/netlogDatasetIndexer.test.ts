@@ -1,6 +1,6 @@
 import { TextDecoder, TextEncoder } from 'util';
 import { ReadableStream as NodeReadableStream } from 'stream/web';
-import { buildNetlogCompactEventIndex, readNetlogEventDetail, type NetlogIndexableFile } from './netlogDatasetIndexer';
+import { buildNetlogCompactEventIndex, readNetlogEventDetail, readNetlogTopLevelValue, type NetlogIndexableFile } from './netlogDatasetIndexer';
 
 Object.assign(global, { TextDecoder });
 
@@ -58,6 +58,15 @@ describe('netlogDatasetIndexer', () => {
     expect(index.sourceTypeNames).toEqual({ 20: 'URL_REQUEST', 21: 'SOCKET' });
     expect(index.phase).toEqual([0, 2]);
     expect(index.flags).toEqual([0, 1]);
+    expect(index.sourceUrls).toEqual({ 10: 'https://a.example' });
+    expect(index.sourceHosts).toEqual({ 10: 'a.example' });
+    expect(index.sourceErrorCodes).toEqual({ 11: -105 });
+    expect(index.sourceFirstEventId).toEqual({ 10: 0, 11: 1 });
+    expect(index.sourceLastEventId).toEqual({ 10: 0, 11: 1 });
+    expect(index.topLevelValueRanges?.constants).toEqual(expect.objectContaining({
+      byteStart: expect.any(Number),
+      byteEnd: expect.any(Number),
+    }));
     expect(endpointEvidence.guidance[0]).toContain('Dataset Endpoint Evidence');
     expect(dataLoaded).toEqual(expect.objectContaining({
       fileName: 'chunked-netlog.json',
@@ -82,6 +91,10 @@ describe('netlogDatasetIndexer', () => {
       source: { id: 10, type: 20 },
       phase: 0,
       params: { url: 'https://a.example' },
+    });
+    await expect(readNetlogTopLevelValue(file, index, 'constants')).resolves.toEqual({
+      logEventTypes: { URL_REQUEST: 1, SOCKET_CONNECT: 2 },
+      logSourceType: { URL_REQUEST: 20, SOCKET: 21 },
     });
     await expect(readNetlogEventDetail(file, index, 1)).resolves.toEqual({
       time: '2',
@@ -144,6 +157,9 @@ describe('netlogDatasetIndexer', () => {
 
     expect(index.sourceDependencyFrom).toEqual([30, 30]);
     expect(index.sourceDependencyTo).toEqual([10, 50]);
+    expect(index.sourceDependencyEventId).toEqual([1, 1]);
+    expect(index.sourceUrls).toEqual({ 10: 'https://chain.example' });
+    expect(index.sourceHosts).toEqual({ 10: 'chain.example' });
   });
 
   it('构建 Dataset 时生成 Cache State', async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Input, Tag, Tooltip, Badge, Empty, Select } from 'antd';
+import { Alert, Card, Input, Tag, Tooltip, Badge, Empty, Select, Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   SearchOutlined,
   ApartmentOutlined,
@@ -8,8 +9,9 @@ import {
   FilterOutlined,
 } from '@ant-design/icons';
 import { SOURCE_CHAIN_PREVIEW_COUNT, SOURCE_CHAIN_SLOW_MS } from '../../constants/analysisThresholds';
-import { getNetlogSourceChainInWorker } from '../../workers/workerClient';
-import type { NetlogSourceChainNodeView, NetlogSourceChainView } from '../../workers/netlogDatasetViews';
+import { getNetlogSourceChainDetailInWorker, getNetlogSourceChainInWorker } from '../../workers/workerClient';
+import type { NetlogEventRow } from '../../workers/netlogDatasetQuery';
+import type { NetlogSourceChainDetailView, NetlogSourceChainEdgeView, NetlogSourceChainNodeView, NetlogSourceChainView } from '../../workers/netlogDatasetViews';
 
 interface DatasetSourceChainViewerProps {
   analysisId: string;
@@ -34,6 +36,10 @@ export default function DatasetSourceChainViewer({ analysisId, onNavigateToSourc
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'error' | 'slow'>('all');
   const [expandedChain, setExpandedChain] = useState<number | null>(null);
+  const [detail, setDetail] = useState<NetlogSourceChainDetailView | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailPage, setDetailPage] = useState(1);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +56,30 @@ export default function DatasetSourceChainViewer({ analysisId, onNavigateToSourc
       cancelled = true;
     };
   }, [analysisId]);
+
+  useEffect(() => {
+    if (!expandedChain) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    getNetlogSourceChainDetailInWorker({ analysisId, sourceId: expandedChain, page: detailPage, pageSize: 20 })
+      .then(result => {
+        if (!cancelled) setDetail(result);
+      })
+      .catch(err => {
+        if (!cancelled) setDetailError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisId, expandedChain, detailPage]);
 
   const filteredChains = useMemo(() => {
     const chains = view?.chains || [];
@@ -96,6 +126,15 @@ export default function DatasetSourceChainViewer({ analysisId, onNavigateToSourc
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {view.evidenceGaps?.length ? (
+        <Alert
+          type="info"
+          showIcon
+          message="Source Chain evidence gaps"
+          description={view.evidenceGaps.join('；')}
+        />
+      ) : null}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <StatCard label="总链路数" value={stats.totalChains} />
         <StatCard label="含错误" value={stats.errorChains} color="#ef4444" />
@@ -134,8 +173,15 @@ export default function DatasetSourceChainViewer({ analysisId, onNavigateToSourc
           <ChainCard
             key={chain.rootId}
             chain={chain}
+            detail={expandedChain === chain.rootId ? detail : null}
+            detailError={expandedChain === chain.rootId ? detailError : null}
+            detailLoading={expandedChain === chain.rootId && detailLoading}
             expanded={expandedChain === chain.rootId}
-            onToggle={() => setExpandedChain(expandedChain === chain.rootId ? null : chain.rootId)}
+            onToggle={() => {
+              setDetailPage(1);
+              setExpandedChain(expandedChain === chain.rootId ? null : chain.rootId);
+            }}
+            onDetailPageChange={setDetailPage}
             onNavigateToSource={onNavigateToSource}
           />
         ))}
@@ -160,13 +206,21 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 
 function ChainCard({
   chain,
+  detail,
+  detailError,
+  detailLoading,
   expanded,
   onToggle,
+  onDetailPageChange,
   onNavigateToSource,
 }: {
   chain: NetlogSourceChainView['chains'][number];
+  detail: NetlogSourceChainDetailView | null;
+  detailError: string | null;
+  detailLoading: boolean;
   expanded: boolean;
   onToggle: () => void;
+  onDetailPageChange: (page: number) => void;
   onNavigateToSource?: (sourceId: number) => void;
 }) {
   const truncUrl = chain.url.length > 80 ? `${chain.url.substring(0, 80)}...` : chain.url;
@@ -188,6 +242,7 @@ function ChainCard({
         </Tooltip>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {chain.hasError && <Badge count={<WarningOutlined style={{ color: '#ef4444', fontSize: 12 }} />} />}
+          {chain.host && <Tag style={{ margin: 0, fontSize: 11 }}>{chain.host}</Tag>}
           <Tag style={{ margin: 0, fontSize: 11 }}>
             <ClockCircleOutlined /> {chain.duration.toFixed(0)}ms
           </Tag>
@@ -197,10 +252,104 @@ function ChainCard({
 
       {expanded && (
         <div style={{ marginTop: 12, paddingLeft: 8 }}>
+          {chain.evidenceGaps.length ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 10 }}
+              message="链路证据不完整"
+              description={chain.evidenceGaps.join('；')}
+            />
+          ) : null}
           <ChainPath nodes={chain.path} onNavigateToSource={onNavigateToSource} />
+          <ChainDetail
+            detail={detail}
+            error={detailError}
+            loading={detailLoading}
+            onPageChange={onDetailPageChange}
+          />
         </div>
       )}
     </Card>
+  );
+}
+
+function ChainDetail({
+  detail,
+  error,
+  loading,
+  onPageChange,
+}: {
+  detail: NetlogSourceChainDetailView | null;
+  error: string | null;
+  loading: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  const edgeColumns: ColumnsType<NetlogSourceChainEdgeView> = [
+    { title: 'from', width: 190, render: (_, row) => <span>{row.fromType}#{row.fromSourceId}</span> },
+    { title: 'to', width: 190, render: (_, row) => <span>{row.toType}#{row.toSourceId}</span> },
+    { title: 'sample event', width: 130, render: (_, row) => row.sampleEventId !== undefined ? <span>event#{row.sampleEventId}</span> : '-' },
+    { title: 'byte range', width: 170, render: (_, row) => row.byteStart !== undefined && row.byteEnd !== undefined ? <span>{row.byteStart}-{row.byteEnd}</span> : '-' },
+  ];
+  const eventColumns: ColumnsType<NetlogEventRow> = [
+    { title: 'eventId', dataIndex: 'eventId', width: 90 },
+    { title: 'typeName', dataIndex: 'typeName', ellipsis: true },
+    { title: 'source', width: 180, render: (_, row) => <span>{row.sourceTypeName}#{row.sourceId}</span> },
+    { title: 'phase', dataIndex: 'phaseName', width: 120 },
+    { title: 'byte range', width: 170, render: (_, row) => <span>{row.byteStart}-{row.byteEnd}</span> },
+  ];
+
+  if (error) {
+    return <Alert type="warning" showIcon style={{ marginTop: 12 }} message="链路详情读取失败" description={error} />;
+  }
+  if (!detail && loading) {
+    return <div style={{ marginTop: 12, padding: 16, color: 'var(--text-muted)' }}>正在读取链路详情...</div>;
+  }
+  if (!detail) return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+      {detail.evidenceGaps.length ? (
+        <Alert
+          type="info"
+          showIcon
+          message="Detail evidence gaps"
+          description={detail.evidenceGaps.join('；')}
+        />
+      ) : null}
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+          dependency edges ({detail.edges.length})
+        </div>
+        <Table
+          rowKey={(row) => `${row.fromSourceId}-${row.toSourceId}-${row.sampleEventId ?? 'x'}`}
+          size="small"
+          loading={loading}
+          columns={edgeColumns}
+          dataSource={detail.edges}
+          pagination={false}
+        />
+      </div>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+          chain events
+        </div>
+        <Table
+          rowKey="eventId"
+          size="small"
+          loading={loading}
+          columns={eventColumns}
+          dataSource={detail.events.rows}
+          pagination={{
+            current: detail.events.page,
+            pageSize: detail.events.pageSize,
+            total: detail.events.total,
+            showSizeChanger: false,
+            onChange: onPageChange,
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -229,9 +378,19 @@ function ChainPath({
             source#{node.id}
           </button>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{node.eventCount} events</span>
+          {node.firstEventId !== undefined && node.lastEventId !== undefined && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              event#{node.firstEventId}-{node.lastEventId}
+            </span>
+          )}
           {node.hasError && (
             <Tag color="red" style={{ margin: 0 }}>
               error{node.errorCode !== undefined ? ` ${node.errorCode}` : ''}
+            </Tag>
+          )}
+          {node.host && (
+            <Tag style={{ margin: 0 }}>
+              {node.host}
             </Tag>
           )}
         </div>

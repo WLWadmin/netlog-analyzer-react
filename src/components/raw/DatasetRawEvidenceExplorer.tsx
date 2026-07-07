@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { FileSearchOutlined } from '@ant-design/icons';
-import type { NetlogRawEvidenceStructureView } from '../../workers/netlogDatasetViews';
+import type { NetlogRawEvidenceMetadataValueView, NetlogRawEvidenceStructureView } from '../../workers/netlogDatasetViews';
 import type { NetlogEventRow, QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
 import {
   getNetlogEventDetailInWorker,
+  getNetlogRawEvidenceMetadataInWorker,
   getNetlogRawEvidenceStructureInWorker,
   queryNetlogRawEvidenceEventsInWorker,
 } from '../../workers/workerClient';
@@ -68,6 +69,18 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
     }
   };
 
+  const openMetadataDetail = async (key: NetlogRawEvidenceMetadataValueView['key']) => {
+    setDetailTitle(`${key} raw JSON`);
+    setDetailText('读取中...');
+    setDetailOpen(true);
+    try {
+      const detail = await getNetlogRawEvidenceMetadataInWorker({ analysisId, key });
+      setDetailText(JSON.stringify(detail, null, 2));
+    } catch (err) {
+      setDetailText(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const columns: ColumnsType<NetlogEventRow> = [
     { title: 'eventId', dataIndex: 'eventId', width: 90 },
     { title: 'typeName', dataIndex: 'typeName', ellipsis: true },
@@ -111,7 +124,7 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
             <Tag color="blue">不加载完整 events 到主线程</Tag>
           </Space>
           <Typography.Text type="secondary">
-            顶层 metadata 只展示存在性；events 使用 Dataset compact index 分页，点击单个 event 时才按 byte range 懒加载 raw JSON。
+            顶层 metadata 和单个 event 都按 byte range 懒加载；events 使用 Dataset compact index 分页，不把完整 events 放入主线程。
           </Typography.Text>
         </Space>
       </Card>
@@ -124,10 +137,20 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
                 <Typography.Text strong>{node.label}</Typography.Text>
                 <Tag color={node.available ? 'green' : 'default'}>{node.available ? '存在' : '缺失'}</Tag>
                 <Tag>{node.kind === 'virtual-events' ? '虚拟 events' : 'metadata'}</Tag>
+                {node.kind === 'metadata' && node.available && node.byteStart !== undefined && node.byteEnd !== undefined && (
+                  <Button size="small" onClick={() => openMetadataDetail(node.key as NetlogRawEvidenceMetadataValueView['key'])}>
+                    查看 raw
+                  </Button>
+                )}
               </Space>
               <div style={{ marginTop: 6, color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
                 {node.description}
               </div>
+              {node.byteStart !== undefined && node.byteEnd !== undefined && (
+                <Descriptions size="small" column={1} style={{ marginTop: 8 }}>
+                  <Descriptions.Item label="byte range">{node.byteStart}-{node.byteEnd}</Descriptions.Item>
+                </Descriptions>
+              )}
               {node.eventCount !== undefined && (
                 <Descriptions size="small" column={1} style={{ marginTop: 8 }}>
                   <Descriptions.Item label="eventCount">{node.eventCount.toLocaleString()}</Descriptions.Item>

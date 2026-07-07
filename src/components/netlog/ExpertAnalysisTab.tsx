@@ -14,8 +14,8 @@ import PerformanceTab from './PerformanceTab';
 import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogRawEvidenceMetadataValueView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -83,6 +83,10 @@ function datasetStatusDescription(dataset?: NetlogDatasetState): { type: 'succes
 const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   const [view, setView] = useState<DataLoadedView | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [rawOpen, setRawOpen] = useState(false);
+  const [rawLoading, setRawLoading] = useState(false);
+  const [rawTitle, setRawTitle] = useState('');
+  const [rawText, setRawText] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +105,29 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
     return <Alert type="info" showIcon message="正在读取 Dataset Data Loaded 视图" />;
   }
 
+  const openMetadata = async (key: NetlogRawEvidenceMetadataValueView['key']) => {
+    setRawTitle(`${key} raw JSON`);
+    setRawText('');
+    setRawLoading(true);
+    setRawOpen(true);
+    try {
+      const detail = await getNetlogRawEvidenceMetadataInWorker({ analysisId, key });
+      setRawText(JSON.stringify(detail, null, 2));
+    } catch (err) {
+      setRawText(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRawLoading(false);
+    }
+  };
+
+  const metadataItems: Array<{ key: NetlogRawEvidenceMetadataValueView['key']; label: string; available: boolean }> = [
+    { key: 'constants', label: 'constants', available: view.hasConstants },
+    { key: 'polledData', label: 'polledData', available: view.hasPolledData },
+    { key: 'systemInfo', label: 'systemInfo', available: view.hasSystemInfo },
+    { key: 'clientInfo', label: 'clientInfo', available: view.hasClientInfo },
+    { key: 'netLogInfo', label: 'netLogInfo', available: view.hasNetLogInfo },
+  ];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Descriptions column={2} size="small">
@@ -109,11 +136,16 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
         <Descriptions.Item label="事件总数">{view.eventCount.toLocaleString()}</Descriptions.Item>
         <Descriptions.Item label="事件类型数">{view.eventTypeCount}</Descriptions.Item>
         <Descriptions.Item label="Source 类型数">{view.sourceTypeCount}</Descriptions.Item>
-        <Descriptions.Item label="constants">{view.hasConstants ? '存在' : '缺失'}</Descriptions.Item>
-        <Descriptions.Item label="polledData">{view.hasPolledData ? '存在' : '缺失'}</Descriptions.Item>
-        <Descriptions.Item label="systemInfo">{view.hasSystemInfo ? '存在' : '缺失'}</Descriptions.Item>
-        <Descriptions.Item label="clientInfo">{view.hasClientInfo ? '存在' : '缺失'}</Descriptions.Item>
-        <Descriptions.Item label="netLogInfo">{view.hasNetLogInfo ? '存在' : '缺失'}</Descriptions.Item>
+        {metadataItems.map(item => (
+          <Descriptions.Item key={item.key} label={item.label}>
+            <Space>
+              <Tag color={item.available ? 'green' : 'default'}>{item.available ? '存在' : '缺失'}</Tag>
+              {item.available && (
+                <Button size="small" onClick={() => openMetadata(item.key)}>查看 raw</Button>
+              )}
+            </Space>
+          </Descriptions.Item>
+        ))}
       </Descriptions>
       {view.evidenceGaps.length > 0 && (
         <Alert
@@ -143,6 +175,11 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
         ]}
         dataSource={view.topSourceTypes.slice(0, 10)}
       />
+      <Modal title={rawTitle} open={rawOpen} onCancel={() => setRawOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {rawLoading ? '正在读取...' : rawText}
+        </pre>
+      </Modal>
     </div>
   );
 };

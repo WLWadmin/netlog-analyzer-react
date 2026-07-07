@@ -35,6 +35,13 @@ export interface CompactEventIndex {
   sourceTypeNames?: Record<number, string>;
   sourceDependencyFrom?: number[];
   sourceDependencyTo?: number[];
+  sourceDependencyEventId?: number[];
+  sourceUrls?: Record<number, string>;
+  sourceHosts?: Record<number, string>;
+  sourceErrorCodes?: Record<number, number>;
+  sourceFirstEventId?: Record<number, number>;
+  sourceLastEventId?: Record<number, number>;
+  topLevelValueRanges?: Record<string, { byteStart: number; byteEnd: number }>;
 }
 
 export interface NetlogDatasetIndexResult {
@@ -98,6 +105,13 @@ function emptyIndex(): CompactEventIndex {
     sourceTypeNames: {},
     sourceDependencyFrom: [],
     sourceDependencyTo: [],
+    sourceDependencyEventId: [],
+    sourceUrls: {},
+    sourceHosts: {},
+    sourceErrorCodes: {},
+    sourceFirstEventId: {},
+    sourceLastEventId: {},
+    topLevelValueRanges: {},
   };
 }
 
@@ -153,6 +167,29 @@ function buildReverseNameMap(raw: unknown): Record<number, string> {
   return result;
 }
 
+function extractUrlFromParams(params: Record<string, unknown> | undefined): string | undefined {
+  if (!params) return undefined;
+  for (const key of ['url', 'request_url', 'requestUrl', 'original_url', 'originalUrl']) {
+    const value = params[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function hostFromUrl(url: string): string | undefined {
+  try {
+    return new URL(url).hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractErrorCode(params: Record<string, unknown> | undefined): number | undefined {
+  const value = params?.net_error ?? params?.error_code;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
 function applyConstants(index: CompactEventIndex, constants: unknown) {
   if (!constants || typeof constants !== 'object') return;
   const value = constants as Record<string, unknown>;
@@ -162,6 +199,7 @@ function applyConstants(index: CompactEventIndex, constants: unknown) {
 
 function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byteEnd: number) {
   const sourceId = Number(event?.source?.id ?? event?.source_id) || 0;
+  const eventId = index.count;
   index.count += 1;
   index.time.push(Number(event?.time) || 0);
   index.typeId.push(Number(event?.type) || 0);
@@ -171,20 +209,34 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
   index.flags.push(event?.params?.net_error || event?.params?.error_code ? 1 : 0);
   index.byteStart.push(byteStart);
   index.byteEnd.push(byteEnd);
+  if (sourceId > 0) {
+    if (index.sourceFirstEventId?.[sourceId] === undefined) index.sourceFirstEventId![sourceId] = eventId;
+    index.sourceLastEventId![sourceId] = eventId;
+    const url = extractUrlFromParams(event?.params);
+    if (url && !index.sourceUrls?.[sourceId]) {
+      index.sourceUrls![sourceId] = url;
+      const host = hostFromUrl(url);
+      if (host) index.sourceHosts![sourceId] = host;
+    }
+    const errorCode = extractErrorCode(event?.params);
+    if (errorCode !== undefined) index.sourceErrorCodes![sourceId] = errorCode;
+  }
   for (const dependencySourceId of extractDependencySourceIds(event?.params)) {
     if (sourceId > 0 && dependencySourceId > 0) {
       index.sourceDependencyFrom?.push(sourceId);
       index.sourceDependencyTo?.push(dependencySourceId);
+      index.sourceDependencyEventId?.push(eventId);
     }
   }
 }
 
 function pushProbedEvent(
   index: CompactEventIndex,
-  fields: { time?: number; typeId: number; sourceTypeId?: number; sourceId?: number; phase?: number; hasError?: boolean },
+  fields: { time?: number; typeId: number; sourceTypeId?: number; sourceId?: number; phase?: number; hasError?: boolean; errorCode?: number },
   byteStart: number,
   byteEnd: number
 ) {
+  const eventId = index.count;
   index.count += 1;
   index.time.push(fields.time || 0);
   index.typeId.push(fields.typeId || 0);
@@ -194,6 +246,12 @@ function pushProbedEvent(
   index.flags.push(fields.hasError ? 1 : 0);
   index.byteStart.push(byteStart);
   index.byteEnd.push(byteEnd);
+  const sourceId = fields.sourceId || 0;
+  if (sourceId > 0) {
+    if (index.sourceFirstEventId?.[sourceId] === undefined) index.sourceFirstEventId![sourceId] = eventId;
+    index.sourceLastEventId![sourceId] = eventId;
+    if (fields.errorCode !== undefined) index.sourceErrorCodes![sourceId] = fields.errorCode;
+  }
 }
 
 function hasErrorParams(event: any): boolean {
@@ -272,6 +330,15 @@ function extractProbedDependencySourceIds(eventJson: string): number[] {
   return Array.from(ids);
 }
 
+function extractProbedErrorCode(eventJson: string): number | undefined {
+  const paramsBlock = extractJsonObjectBlock(eventJson, 'params');
+  if (!paramsBlock) return undefined;
+  const match = paramsBlock.match(/"(?:net_error|error_code)"\s*:\s*(-?\d+)/);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function hasSocketDependencyLikeShape(eventJson: string): boolean {
   const paramsBlock = extractJsonObjectBlock(eventJson, 'params');
   if (!paramsBlock) return false;
@@ -324,6 +391,15 @@ export async function readNetlogEventDetail(file: NetlogIndexableFile, index: Co
   return JSON.parse(text);
 }
 
+export async function readNetlogTopLevelValue(file: NetlogIndexableFile, index: CompactEventIndex, key: string): Promise<unknown> {
+  const range = index.topLevelValueRanges?.[key];
+  if (!range) {
+    throw new Error(`NetLog 顶层字段不存在或未建立 byte range：${key}`);
+  }
+  const text = await file.slice(range.byteStart, range.byteEnd).text();
+  return JSON.parse(text);
+}
+
 export async function buildNetlogCompactEventIndex(
   file: NetlogIndexableFile,
   options: NetlogCompactEventIndexOptions = {}
@@ -357,6 +433,8 @@ export async function buildNetlogCompactEventIndex(
   let pendingKey = '';
   let pendingTargetKey = false;
   let skipStarted = false;
+  let skipValueStart = -1;
+  let skipValueEnd = -1;
   let skipDepth = 0;
   let skipInString = false;
   let skipEscape = false;
@@ -369,6 +447,8 @@ export async function buildNetlogCompactEventIndex(
 
   const resetSkip = () => {
     skipStarted = false;
+    skipValueStart = -1;
+    skipValueEnd = -1;
     skipDepth = 0;
     skipInString = false;
     skipEscape = false;
@@ -376,6 +456,12 @@ export async function buildNetlogCompactEventIndex(
   };
 
   const finishSkippedValue = () => {
+    if (skipValueStart >= 0 && skipValueEnd >= skipValueStart) {
+      index.topLevelValueRanges![pendingKey] = {
+        byteStart: skipValueStart,
+        byteEnd: skipValueEnd,
+      };
+    }
     if (!skipValueBytes) return;
     try {
       const value = JSON.parse(decoder.decode(new Uint8Array(skipValueBytes)));
@@ -392,13 +478,16 @@ export async function buildNetlogCompactEventIndex(
     }
   };
 
-  const appendSkipByte = (byte: number) => {
+  const appendSkipByte = (byte: number, byteOffset: number) => {
+    if (skipValueStart < 0) skipValueStart = byteOffset;
+    skipValueEnd = byteOffset + 1;
     if (skipValueBytes !== null) {
       skipValueBytes.push(byte);
     }
   };
 
-  const removeLastSkipByte = () => {
+  const removeLastSkipByte = (byteOffset: number) => {
+    skipValueEnd = byteOffset;
     if (skipValueBytes !== null) {
       skipValueBytes.pop();
     }
@@ -452,11 +541,13 @@ export async function buildNetlogCompactEventIndex(
           sourceId,
           phase: extractTopLevelNumericField(eventJson, 'phase'),
           hasError: probedHasError,
+          errorCode: extractProbedErrorCode(eventJson),
         }, objectStart, byteEnd);
         for (const dependencySourceId of dependencySourceIds) {
           if (sourceId > 0 && dependencySourceId > 0 && sourceId !== dependencySourceId) {
             index.sourceDependencyFrom?.push(sourceId);
             index.sourceDependencyTo?.push(dependencySourceId);
+            index.sourceDependencyEventId?.push(eventId);
           }
         }
         const socketSeed = {
@@ -608,7 +699,7 @@ export async function buildNetlogCompactEventIndex(
         if (!skipStarted) {
           if (isWhitespaceByte(byte)) continue;
           skipStarted = true;
-          appendSkipByte(byte);
+          appendSkipByte(byte, byteOffset);
           if (byte === QUOTE) {
             skipInString = true;
             continue;
@@ -629,7 +720,7 @@ export async function buildNetlogCompactEventIndex(
           }
           continue;
         }
-        appendSkipByte(byte);
+        appendSkipByte(byte, byteOffset);
         if (skipInString) {
           if (skipEscape) skipEscape = false;
           else if (byte === BACKSLASH) skipEscape = true;
@@ -655,7 +746,7 @@ export async function buildNetlogCompactEventIndex(
           continue;
         }
         if (skipDepth === 0 && byte === COMMA) {
-          removeLastSkipByte();
+          removeLastSkipByte(byteOffset);
           finishSkippedValue();
           mode = 'find-key';
         }

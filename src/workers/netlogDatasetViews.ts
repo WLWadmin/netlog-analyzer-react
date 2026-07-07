@@ -534,11 +534,15 @@ export interface NetlogSourceChainNodeView {
   id: number;
   type: string;
   url?: string;
+  host?: string;
   startTime: number;
   endTime: number;
+  firstEventId?: number;
+  lastEventId?: number;
   eventCount: number;
   hasError: boolean;
   errorCode?: number;
+  evidenceGaps?: string[];
 }
 
 export interface NetlogSourceChainView {
@@ -546,11 +550,32 @@ export interface NetlogSourceChainView {
   chains: Array<{
     rootId: number;
     url: string;
+    host?: string;
     path: NetlogSourceChainNodeView[];
     depth: number;
     hasError: boolean;
     duration: number;
+    evidenceGaps: string[];
   }>;
+  evidenceGaps: string[];
+}
+
+export interface NetlogSourceChainEdgeView {
+  fromSourceId: number;
+  toSourceId: number;
+  fromType: string;
+  toType: string;
+  sampleEventId?: number;
+  byteStart?: number;
+  byteEnd?: number;
+}
+
+export interface NetlogSourceChainDetailView {
+  sourceId: number;
+  nodes: NetlogSourceChainNodeView[];
+  edges: NetlogSourceChainEdgeView[];
+  events: import('./netlogDatasetQuery').QueryNetlogEventsResult;
+  evidenceGaps: string[];
 }
 
 export interface NetlogRawEvidenceStructureView {
@@ -560,7 +585,16 @@ export interface NetlogRawEvidenceStructureView {
     available: boolean;
     kind: 'metadata' | 'virtual-events';
     description: string;
+    byteStart?: number;
+    byteEnd?: number;
     eventCount?: number;
   }>;
   evidenceGaps: string[];
+}
+
+export interface NetlogRawEvidenceMetadataValueView {
+  key: 'constants' | 'polledData' | 'systemInfo' | 'clientInfo' | 'netLogInfo';
+  byteStart: number;
+  byteEnd: number;
+  value: unknown;
 }
