@@ -4,11 +4,14 @@ import type {
   CacheStateView,
   DnsStateView,
   Http2StateView,
+  ModulesStateView,
+  PrerenderStateView,
   ProxyStateView,
   QuicStateView,
   ReportingStateView,
   SocketsStateView,
   StreamPoolStateView,
+  TimelineStateView,
 } from '../../workers/netlogDatasetViews';
 import { maskEvidenceValue } from './maskedExport';
 
@@ -25,6 +28,9 @@ export interface NetlogExpertEvidencePackageInput {
   altSvcState?: AltSvcStateView;
   streamPoolState?: StreamPoolStateView;
   reportingState?: ReportingStateView;
+  timelineState?: TimelineStateView;
+  modulesState?: ModulesStateView;
+  prerenderState?: PrerenderStateView;
   generatedAt?: Date;
 }
 
@@ -55,6 +61,9 @@ export function buildNetlogExpertEvidencePackage(input: NetlogExpertEvidencePack
   addAltSvcSection(lines, input.altSvcState);
   addStreamPoolSection(lines, input.streamPoolState);
   addReportingSection(lines, input.reportingState);
+  addTimelineSection(lines, input.timelineState);
+  addModulesSection(lines, input.modulesState);
+  addPrerenderSection(lines, input.prerenderState);
 
   lines.push('## 证据使用说明');
   lines.push('- `eventId` / `sourceId` 可回到 Raw Evidence 或 Events 中定位原始事件。');
@@ -299,6 +308,87 @@ function addReportingSection(lines: string[], state?: ReportingStateView) {
     item.url || '-',
     item.uploadCount,
     item.failureCount,
+    item.firstEventId ?? '-',
+  ]));
+  lines.push('');
+  addImpactTable(lines, state.impactSummaries);
+}
+
+function addTimelineSection(lines: string[], state?: TimelineStateView) {
+  lines.push('## Timeline State');
+  if (!state) return addMissingState(lines);
+  addTable(lines, ['项目', '值'], [
+    ['时间范围', `${state.timeRange.start} - ${state.timeRange.end}`],
+    ['持续时间(ms)', state.timeRange.duration],
+    ['Bucket 大小(ms)', state.bucketSizeMs],
+    ['Bucket 数', state.buckets.length],
+    ['错误事件样例', state.notableEvents.length],
+    ['证据缺口', state.evidenceGaps.join('; ') || '-'],
+  ]);
+  lines.push('');
+  lines.push('### 错误密度 Bucket Top');
+  addTable(lines, ['bucket', 'start', 'end', 'events', 'errors'], state.buckets
+    .filter(bucket => bucket.errorCount > 0)
+    .sort((a, b) => b.errorCount - a.errorCount || b.eventCount - a.eventCount)
+    .slice(0, MAX_ROWS)
+    .map(bucket => [bucket.index, bucket.start, bucket.end, bucket.eventCount, bucket.errorCount]));
+  lines.push('');
+  lines.push('### Source Activity Top');
+  addTable(lines, ['sourceId', 'sourceType', 'events', 'errors', 'eventRange', 'timeRange'], state.sourceActivity.slice(0, MAX_ROWS).map(item => [
+    item.sourceId,
+    item.sourceTypeName,
+    item.eventCount,
+    item.errorCount,
+    `${item.firstEventId} - ${item.lastEventId}`,
+    `${item.firstTime} - ${item.lastTime}`,
+  ]));
+  lines.push('');
+}
+
+function addModulesSection(lines: string[], state?: ModulesStateView) {
+  lines.push('## Modules State');
+  if (!state) return addMissingState(lines);
+  addTable(lines, ['项目', '值'], [
+    ['Module/Component', state.modules.length],
+    ['事件数', state.eventCount],
+    ['错误', state.errorCount],
+    ['证据缺口', state.evidenceGaps.join('; ') || '-'],
+  ]);
+  lines.push('');
+  addTable(lines, ['key', 'name', 'category', 'events', 'errors', 'eventId'], state.modules.slice(0, MAX_ROWS).map(item => [
+    item.key,
+    item.name || '-',
+    item.category,
+    item.eventCount,
+    item.errorCount,
+    item.firstEventId ?? '-',
+  ]));
+  lines.push('');
+}
+
+function addPrerenderSection(lines: string[], state?: PrerenderStateView) {
+  lines.push('## Prerender State');
+  if (!state) return addMissingState(lines);
+  addTable(lines, ['项目', '值'], [
+    ['Activity', state.activities.length],
+    ['事件数', state.eventCount],
+    ['Prerender', state.prerenderCount],
+    ['Prefetch', state.prefetchCount],
+    ['Preconnect', state.preconnectCount],
+    ['Prediction', state.predictionCount],
+    ['Speculation', state.speculationCount],
+    ['错误', state.errorCount],
+    ['请求级候选', state.requestScopedCandidateCount],
+    ['证据缺口', state.evidenceGaps.join('; ') || '-'],
+  ]);
+  lines.push('');
+  addTable(lines, ['sourceId', 'kind', 'sourceType', 'events', 'errors', 'urls', 'eventId'], state.activities.slice(0, MAX_ROWS).map(item => [
+    item.sourceId,
+    item.kind,
+    item.sourceTypeName,
+    item.eventCount,
+    item.errorCount,
+    item.urls.slice(0, 3).join('; ') || '-',
     item.firstEventId ?? '-',
   ]));
   lines.push('');

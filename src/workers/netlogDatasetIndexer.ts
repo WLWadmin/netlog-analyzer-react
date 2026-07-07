@@ -9,7 +9,10 @@ import { createNetlogCacheStateReducer } from './netlogCacheStateReducer';
 import { createNetlogAltSvcStateReducer } from './netlogAltSvcStateReducer';
 import { createNetlogStreamPoolStateReducer } from './netlogStreamPoolStateReducer';
 import { createNetlogReportingStateReducer } from './netlogReportingStateReducer';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
+import { buildNetlogTimelineView } from './netlogTimelineView';
+import { createNetlogModulesStateReducer } from './netlogModulesStateReducer';
+import { createNetlogPrerenderStateReducer } from './netlogPrerenderStateReducer';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView } from './netlogDatasetViews';
 import { isLightweightCountEventName } from './netlogLightweightEvents';
 import type { NetlogDatasetParseSkipStats } from './netlogDatasetTypes';
 import {
@@ -58,6 +61,9 @@ export interface NetlogDatasetIndexResult {
   altSvcState: AltSvcStateView;
   streamPoolState: StreamPoolStateView;
   reportingState: ReportingStateView;
+  timelineState: TimelineStateView;
+  modulesState: ModulesStateView;
+  prerenderState: PrerenderStateView;
 }
 
 export interface NetlogIndexableFile {
@@ -421,6 +427,8 @@ export async function buildNetlogCompactEventIndex(
   const altSvcStateReducer = createNetlogAltSvcStateReducer();
   const streamPoolStateReducer = createNetlogStreamPoolStateReducer();
   const reportingStateReducer = createNetlogReportingStateReducer();
+  const modulesStateReducer = createNetlogModulesStateReducer();
+  const prerenderStateReducer = createNetlogPrerenderStateReducer();
   const topLevelKeys = new Set<string>();
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
@@ -618,6 +626,8 @@ export async function buildNetlogCompactEventIndex(
     altSvcStateReducer.accept(seed);
     streamPoolStateReducer.accept(seed);
     reportingStateReducer.accept(seed);
+    modulesStateReducer.accept(seed);
+    prerenderStateReducer.accept(seed);
     objectBytes = [];
     objectStart = -1;
   };
@@ -806,5 +816,8 @@ export async function buildNetlogCompactEventIndex(
     altSvcState: altSvcStateReducer.finish(),
     streamPoolState: streamPoolStateReducer.finish(),
     reportingState: reportingStateReducer.finish(),
+    timelineState: buildNetlogTimelineView(index),
+    modulesState: modulesStateReducer.finish(),
+    prerenderState: prerenderStateReducer.finish(),
   };
 }

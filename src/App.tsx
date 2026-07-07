@@ -26,11 +26,14 @@ import {
   getNetlogCacheStateInWorker,
   getNetlogDnsStateInWorker,
   getNetlogHttp2StateInWorker,
+  getNetlogModulesStateInWorker,
+  getNetlogPrerenderStateInWorker,
   getNetlogProxyStateInWorker,
   getNetlogQuicStateInWorker,
   getNetlogReportingStateInWorker,
   getNetlogSocketsStateInWorker,
   getNetlogStreamPoolStateInWorker,
+  getNetlogTimelineStateInWorker,
   importNetlogDatasetInWorker,
   isWorkerSupported,
   largeNetlogTimeout,
@@ -288,7 +291,7 @@ const AppContent: React.FC = () => {
         analysisId: meta.analysisId,
         datasetStatus: 'ready',
         datasetEventCount: meta.eventCount,
-        activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
+        activeExpertViews: ['events', 'data-loaded', 'timeline', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'cache', 'alt-svc', 'stream-pool', 'reporting', 'modules', 'prerender', 'endpoint-evidence'],
       });
       if (!options?.background) {
         message.success(`Dataset 索引已就绪：${meta.eventCount ?? 0} 条事件`);
@@ -465,7 +468,7 @@ const AppContent: React.FC = () => {
           analysisId: parsed.dataset.analysisId,
           datasetStatus: 'ready',
           datasetEventCount: parsed.dataset.eventCount,
-          activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
+          activeExpertViews: ['events', 'data-loaded', 'timeline', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'cache', 'alt-svc', 'stream-pool', 'reporting', 'modules', 'prerender', 'endpoint-evidence'],
           singleScanDataset: true,
         });
       }
@@ -615,7 +618,7 @@ const AppContent: React.FC = () => {
           analysisId: parsed.dataset.analysisId,
           datasetStatus: 'ready',
           datasetEventCount: parsed.dataset.eventCount,
-          activeExpertViews: ['events', 'data-loaded', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'endpoint-evidence'],
+          activeExpertViews: ['events', 'data-loaded', 'timeline', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'cache', 'alt-svc', 'stream-pool', 'reporting', 'modules', 'prerender', 'endpoint-evidence'],
           singleScanDataset: true,
         });
       }
@@ -782,6 +785,9 @@ const AppContent: React.FC = () => {
           getNetlogAltSvcStateInWorker({ analysisId }),
           getNetlogStreamPoolStateInWorker({ analysisId }),
           getNetlogReportingStateInWorker({ analysisId }),
+          getNetlogTimelineStateInWorker({ analysisId }),
+          getNetlogModulesStateInWorker({ analysisId }),
+          getNetlogPrerenderStateInWorker({ analysisId }),
         ])
         : undefined;
 
@@ -798,6 +804,9 @@ const AppContent: React.FC = () => {
         altSvcState: states?.[6],
         streamPoolState: states?.[7],
         reportingState: states?.[8],
+        timelineState: states?.[9],
+        modulesState: states?.[10],
+        prerenderState: states?.[11],
       });
 
       const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });

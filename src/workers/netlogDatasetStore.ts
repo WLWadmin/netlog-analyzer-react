@@ -1,6 +1,6 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView } from './netlogDatasetViews';
 
 export interface NetlogDatasetMeta {
   analysisId: string;
@@ -28,6 +28,9 @@ export interface NetlogDataset {
   altSvcState?: AltSvcStateView;
   streamPoolState?: StreamPoolStateView;
   reportingState?: ReportingStateView;
+  timelineState?: TimelineStateView;
+  modulesState?: ModulesStateView;
+  prerenderState?: PrerenderStateView;
 }
 
 export interface NetlogDatasetStore {
@@ -44,7 +47,10 @@ export interface NetlogDatasetStore {
     cacheState?: CacheStateView,
     altSvcState?: AltSvcStateView,
     streamPoolState?: StreamPoolStateView,
-    reportingState?: ReportingStateView
+    reportingState?: ReportingStateView,
+    timelineState?: TimelineStateView,
+    modulesState?: ModulesStateView,
+    prerenderState?: PrerenderStateView
   ): NetlogDatasetMeta;
   get(analysisId: string): NetlogDataset | undefined;
   release(analysisId: string): boolean;
@@ -69,7 +75,10 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
     cacheState?: CacheStateView,
     altSvcState?: AltSvcStateView,
     streamPoolState?: StreamPoolStateView,
-    reportingState?: ReportingStateView
+    reportingState?: ReportingStateView,
+    timelineState?: TimelineStateView,
+    modulesState?: ModulesStateView,
+    prerenderState?: PrerenderStateView
   ): NetlogDatasetMeta => {
     counter += 1;
     const analysisId = `netlog-dataset-${Date.now()}-${counter}`;
@@ -82,7 +91,7 @@ export function createNetlogDatasetStore(): NetlogDatasetStore {
       status: 'ready',
       eventCount: eventIndex?.count,
     };
-    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState });
+    datasets.set(analysisId, { analysisId, file, meta, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState });
     return meta;
   };
 

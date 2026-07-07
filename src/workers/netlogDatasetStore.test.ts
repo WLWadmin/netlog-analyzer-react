@@ -45,9 +45,76 @@ describe('createNetlogDatasetStore', () => {
       evidenceGaps: [],
     };
 
-    const meta = store.importFile(file, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, reportingState);
+    const meta = store.importFile(
+      file,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      reportingState
+    );
 
     expect(store.get(meta.analysisId)?.reportingState).toBe(reportingState);
+  });
+
+  it('保存 Timeline、Modules 和 Prerender state', () => {
+    const store = createNetlogDatasetStore();
+    const file = new File(['{"events":[]}'], 'parity-netlog.json', { type: 'application/json' });
+    const timelineState = {
+      timeRange: { start: 0, end: 0, duration: 0 },
+      bucketSizeMs: 1,
+      buckets: [],
+      topEventTypes: [],
+      topSourceTypes: [],
+      sourceActivity: [],
+      notableEvents: [],
+      evidenceGaps: [],
+    };
+    const modulesState = { modules: [], events: [], eventCount: 0, errorCount: 0, evidenceGaps: [] };
+    const prerenderState = {
+      activities: [],
+      events: [],
+      impactSummaries: [],
+      eventCount: 0,
+      prerenderCount: 0,
+      prefetchCount: 0,
+      preconnectCount: 0,
+      predictionCount: 0,
+      speculationCount: 0,
+      errorCount: 0,
+      requestScopedCandidateCount: 0,
+      evidenceGaps: [],
+    };
+
+    const meta = store.importFile(
+      file,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timelineState,
+      modulesState,
+      prerenderState
+    );
+
+    expect(store.get(meta.analysisId)?.timelineState).toBe(timelineState);
+    expect(store.get(meta.analysisId)?.modulesState).toBe(modulesState);
+    expect(store.get(meta.analysisId)?.prerenderState).toBe(prerenderState);
   });
 
   it('支持释放单个 dataset 和全部 dataset', () => {

@@ -17,7 +17,7 @@ import type { AnalysisResult, ParsedEvent } from '../parsers/netlog/parser';
 import type { HarAnalysisResult } from '../harParser';
 import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogSourceChainDetailView, NetlogSourceChainView, NetlogRawEvidenceMetadataValueView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView, NetlogSourceChainDetailView, NetlogSourceChainView, NetlogRawEvidenceMetadataValueView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -442,6 +442,54 @@ export async function getNetlogReportingStateInWorker(
     options
   );
   return response.payload as ReportingStateView;
+}
+
+export async function getNetlogTimelineStateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<TimelineStateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-timeline-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as TimelineStateView;
+}
+
+export async function getNetlogModulesStateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<ModulesStateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-modules-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as ModulesStateView;
+}
+
+export async function getNetlogPrerenderStateInWorker(
+  payload: { analysisId: string },
+  options?: WorkerClientOptions
+): Promise<PrerenderStateView> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-netlog-prerender-state',
+      id,
+      payload,
+    },
+    options
+  );
+  return response.payload as PrerenderStateView;
 }
 
 export async function getNetlogSourceChainInWorker(

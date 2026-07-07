@@ -145,7 +145,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
   if (singleScanDataset) {
     sendProgress(id, '正在单次扫描 NetLog 并构建 Dataset...', 1);
     const analyzer = createNetlogStreamingAnalyzer();
-    const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(file, {
+    const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
       onEvent: (event) => {
         try {
@@ -170,7 +170,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       reachedEventsEnd: true,
     };
     const datasetMeta = {
-      ...netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
+      ...netlogDatasetStore.importFile(file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState),
       parseSkipStats,
       socketLazyParamsStats: socketsState.lazyParamsStats,
     };
@@ -601,9 +601,9 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(msg.payload.file);
           const meta = {
-            ...netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState),
+            ...netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState),
             parseSkipStats,
             socketLazyParamsStats: socketsState.lazyParamsStats,
           };
@@ -766,6 +766,42 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           id: msg.id,
           resultType: 'netlog-reporting-state',
           payload: dataset.reportingState,
+          duration: performance.now() - start,
+        });
+        break;
+      }
+      case 'get-netlog-timeline-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.timelineState) throw new Error(`NetLog Dataset Timeline state 不存在：${msg.payload.analysisId}`);
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-timeline-state',
+          payload: dataset.timelineState,
+          duration: performance.now() - start,
+        });
+        break;
+      }
+      case 'get-netlog-modules-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.modulesState) throw new Error(`NetLog Dataset Modules state 不存在：${msg.payload.analysisId}`);
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-modules-state',
+          payload: dataset.modulesState,
+          duration: performance.now() - start,
+        });
+        break;
+      }
+      case 'get-netlog-prerender-state': {
+        const dataset = netlogDatasetStore.get(msg.payload.analysisId);
+        if (!dataset?.prerenderState) throw new Error(`NetLog Dataset Prerender state 不存在：${msg.payload.analysisId}`);
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'netlog-prerender-state',
+          payload: dataset.prerenderState,
           duration: performance.now() - start,
         });
         break;

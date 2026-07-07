@@ -530,6 +530,106 @@ export interface ReportingStateView {
   evidenceGaps: string[];
 }
 
+export interface TimelineStateView {
+  timeRange: {
+    start: number;
+    end: number;
+    duration: number;
+  };
+  bucketSizeMs: number;
+  buckets: Array<{
+    index: number;
+    start: number;
+    end: number;
+    eventCount: number;
+    errorCount: number;
+  }>;
+  topEventTypes: Array<{ name: string; count: number; errorCount: number }>;
+  topSourceTypes: Array<{ name: string; count: number; errorCount: number }>;
+  sourceActivity: Array<{
+    sourceId: number;
+    sourceTypeName: string;
+    eventCount: number;
+    errorCount: number;
+    firstEventId: number;
+    lastEventId: number;
+    firstTime: number;
+    lastTime: number;
+  }>;
+  notableEvents: Array<NetlogStateTrace & {
+    sourceTypeName: string;
+    phase: number;
+    hasError: boolean;
+  }>;
+  evidenceGaps: string[];
+}
+
+export interface ModulesStateView {
+  modules: Array<{
+    key: string;
+    name?: string;
+    category: 'module' | 'component' | 'service' | 'unknown';
+    eventCount: number;
+    errorCount: number;
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+  }>;
+  events: Array<NetlogStateTrace & {
+    kind: 'loaded' | 'initialized' | 'updated' | 'failed' | 'module-event';
+    name?: string;
+    category: 'module' | 'component' | 'service' | 'unknown';
+    error?: number | string;
+    summary: string;
+  }>;
+  eventCount: number;
+  errorCount: number;
+  evidenceGaps: string[];
+}
+
+export interface PrerenderStateView {
+  activities: Array<{
+    sourceId: number;
+    kind: 'prerender' | 'prefetch' | 'preconnect' | 'prediction' | 'speculation' | 'navigation';
+    sourceTypeName: string;
+    eventCount: number;
+    errorCount: number;
+    urls: string[];
+    firstEventId?: number;
+    lastEventId?: number;
+    firstByteStart?: number;
+    lastByteEnd?: number;
+    firstTime?: number;
+    lastTime?: number;
+  }>;
+  events: Array<NetlogStateTrace & {
+    kind: 'prerender' | 'prefetch' | 'preconnect' | 'prediction' | 'speculation' | 'navigation';
+    url?: string;
+    error?: number | string;
+    summary: string;
+  }>;
+  impactSummaries: Array<NetlogStateTrace & {
+    kind: 'failed' | 'activated' | 'cancelled' | 'prefetch' | 'preconnect' | 'prediction';
+    url?: string;
+    error?: number | string;
+    requestScoped: boolean;
+    summary: string;
+    unresolvedReason?: string;
+  }>;
+  eventCount: number;
+  prerenderCount: number;
+  prefetchCount: number;
+  preconnectCount: number;
+  predictionCount: number;
+  speculationCount: number;
+  errorCount: number;
+  requestScopedCandidateCount: number;
+  evidenceGaps: string[];
+}
+
 export interface NetlogSourceChainNodeView {
   id: number;
   type: string;

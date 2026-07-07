@@ -359,4 +359,22 @@ describe('netlogDatasetIndexer', () => {
       globalCandidateParamKeys: { address: 1 },
     }));
   });
+
+  it('构建 Dataset 时生成 Timeline、Modules 和 Prerender State', async () => {
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"NETWORK_SERVICE_MODULE_INITIALIZED":2,"PREFETCH_REQUEST_FAILED":3},"logSourceType":{"URL_REQUEST":20,"NETWORK_SERVICE":21,"PREFETCH":22}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://app.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"module_name":"network-service"}},{"time":"3","type":3,"source":{"id":12,"type":22},"phase":0,"params":{"url":"https://app.example/prefetch","net_error":-105}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file);
+
+    expect(timelineState.timeRange).toEqual({ start: 1, end: 3, duration: 2 });
+    expect(timelineState.notableEvents).toEqual([
+      expect.objectContaining({ eventId: 2, typeName: 'PREFETCH_REQUEST_FAILED' }),
+    ]);
+    expect(modulesState.modules).toEqual([
+      expect.objectContaining({ name: 'network-service' }),
+    ]);
+    expect(prerenderState.eventCount).toBe(1);
+    expect(prerenderState.prefetchCount).toBe(1);
+    expect(prerenderState.errorCount).toBe(1);
+  });
 });

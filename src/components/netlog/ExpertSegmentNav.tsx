@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ApartmentOutlined,
   BarChartOutlined,
+  ClockCircleOutlined,
   CodeOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
@@ -26,6 +27,7 @@ export const EXPERT_SEGMENT_ITEMS: ExpertSegmentItem[] = [
   { key: 'data-loaded', label: 'Data Loaded', icon: <DatabaseOutlined /> },
   { key: 'events', label: '事件列表', icon: <CodeOutlined /> },
   { key: 'source-chain', label: '源链路', icon: <ApartmentOutlined /> },
+  { key: 'timeline', label: 'Timeline', icon: <ClockCircleOutlined /> },
   { key: 'security', label: '安全与协议', icon: <SafetyOutlined /> },
   { key: 'network-state', label: '网络状态', icon: <DeploymentUnitOutlined /> },
   { key: 'performance', label: '性能分析', icon: <BarChartOutlined /> },

@@ -15,8 +15,8 @@ import DiagnosisTab from './DiagnosisTab';
 import BaselineCompareTab from '../shared/BaselineCompareTab';
 import ExpertSegmentNav from './ExpertSegmentNav';
 import './netlogNavigation.css';
-import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, NetlogRawEvidenceMetadataValueView } from '../../workers/netlogDatasetViews';
-import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
+import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView, NetlogRawEvidenceMetadataValueView } from '../../workers/netlogDatasetViews';
+import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogTimelineStateInWorker, getNetlogModulesStateInWorker, getNetlogPrerenderStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -38,7 +38,7 @@ interface SourceNavigationProps {
   onNavigateToSourceChain: (sourceId: number | string) => void;
 }
 
-const EXPERT_TABS = ['data-loaded', 'events', 'source-chain', 'security', 'network-state', 'performance', 'baseline', 'report'];
+const EXPERT_TABS = ['data-loaded', 'events', 'source-chain', 'timeline', 'security', 'network-state', 'performance', 'baseline', 'report'];
 
 const formatMb = (value?: number) => {
   if (!value) return '0 MB';
@@ -193,10 +193,11 @@ const ExpertEvidencePriorityGuide: React.FC<{
           <ul className="expert-evidence-guide__items">
             <li>Data Loaded、事件总数、Source 数、时间范围</li>
             <li>Top event/source types 和 metadata 是否缺失</li>
-            <li>Performance 聚合统计、Reporting/NEL、Cache 概览</li>
+            <li>Timeline、Performance 聚合统计、Reporting/NEL、Cache 概览</li>
           </ul>
           <Space size={8} wrap>
             {jumpButton('data-loaded', '看 Data Loaded')}
+            {jumpButton('timeline', '看 Timeline')}
             {jumpButton('performance', '看 Performance')}
           </Space>
         </div>
@@ -1710,6 +1711,298 @@ const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigat
   );
 };
 
+const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
+  const [view, setView] = useState<TimelineStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogTimelineStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset Timeline State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Timeline State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const errorBuckets = view.buckets
+    .filter(bucket => bucket.errorCount > 0)
+    .sort((a, b) => b.errorCount - a.errorCount || b.eventCount - a.eventCount)
+    .slice(0, 20);
+
+  return (
+    <Card title={<EvidenceSectionTitle title="Timeline State" tier="background" />} bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert
+          type="info"
+          showIcon
+          message="Timeline State 展示全文件事件密度和错误密度"
+          description="Timeline 用于快速定位问题集中发生的时间窗口和 source，不直接给出根因；确认根因仍要跳到 Events、Source Chain 和 Raw Event。"
+        />
+        {view.evidenceGaps.length > 0 && (
+          <Alert type={view.notableEvents.length > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
+        )}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Time range">{view.timeRange.start} - {view.timeRange.end}</Descriptions.Item>
+          <Descriptions.Item label="Duration">{view.timeRange.duration} ms</Descriptions.Item>
+          <Descriptions.Item label="Bucket size">{view.bucketSizeMs} ms</Descriptions.Item>
+          <Descriptions.Item label="Buckets">{view.buckets.length}</Descriptions.Item>
+          <Descriptions.Item label="Error samples">{view.notableEvents.length}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="index"
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          columns={[
+            { title: 'Bucket', dataIndex: 'index', width: 90 },
+            { title: 'Start', dataIndex: 'start', width: 140 },
+            { title: 'End', dataIndex: 'end', width: 140 },
+            { title: 'Events', dataIndex: 'eventCount', width: 100 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 100, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+          ]}
+          dataSource={errorBuckets.length > 0 ? errorBuckets : view.buckets.slice(0, 20)}
+          locale={{ emptyText: '未发现 Timeline bucket' }}
+        />
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          columns={[
+            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
+            { title: 'Events', dataIndex: 'eventCount', width: 100 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 100, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Event range', key: 'range', width: 150, render: (_, row) => `${row.firstEventId} - ${row.lastEventId}` },
+            { title: 'Time range', key: 'time', render: (_, row) => `${row.firstTime} - ${row.lastTime}` },
+          ]}
+          dataSource={view.sourceActivity}
+          locale={{ emptyText: '未发现 source activity' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.sourceId}`}
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          columns={[
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Time', dataIndex: 'time', width: 130 },
+            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
+          ]}
+          dataSource={view.notableEvents}
+          locale={{ emptyText: '未发现错误事件样例' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
+const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
+  const [view, setView] = useState<ModulesStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogModulesStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset Modules State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Modules State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title={<EvidenceSectionTitle title="Modules State" tier="background" />} bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert type="info" showIcon message="Modules State 展示浏览器内部模块/组件线索" description="Modules 通常是专家背景信息。除非出现 module/component failure，否则不应作为用户网络问题的主因。" />
+        {view.evidenceGaps.length > 0 && <Alert type={view.errorCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Modules">{view.modules.length}</Descriptions.Item>
+          <Descriptions.Item label="Events">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="key"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Name', dataIndex: 'name', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Category', dataIndex: 'category', width: 120 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'Event range', key: 'range', width: 150, render: (_, row) => `${row.firstEventId ?? '-'} - ${row.lastEventId ?? '-'}` },
+          ]}
+          dataSource={view.modules}
+          locale={{ emptyText: '未发现 Dataset Modules / Components 事件' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 130 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Name', dataIndex: 'name', ellipsis: true, render: (value?: string) => value || '-' },
+            { title: 'Error', dataIndex: 'error', width: 120, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: '操作', key: 'action', width: 110, render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button> },
+          ]}
+          dataSource={view.events}
+          locale={{ emptyText: '未发现 Modules event' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
+const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
+  const [view, setView] = useState<PrerenderStateView | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setView(undefined);
+    setError(undefined);
+    getNetlogPrerenderStateInWorker({ analysisId })
+      .then(next => { if (!cancelled) setView(next); })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [analysisId]);
+
+  if (error) return <Alert type="warning" showIcon message="Dataset Prerender State 读取失败" description={error} />;
+  if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Prerender State 视图" />;
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  return (
+    <Card title={<EvidenceSectionTitle title="Prerender State" tier="background" />} bordered={false}>
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Alert type="info" showIcon message="Prerender State 展示预渲染、预取、预连接和导航预测" description="这些是浏览器预测行为。只有当它们和真实失败请求、用户触发时间或 source chain 对上时，才应作为影响用户体验的候选线索。" />
+        {view.evidenceGaps.length > 0 && <Alert type={view.errorCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />}
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Events">{view.eventCount}</Descriptions.Item>
+          <Descriptions.Item label="Activities">{view.activities.length}</Descriptions.Item>
+          <Descriptions.Item label="Prerender/Prefetch">{view.prerenderCount} / {view.prefetchCount}</Descriptions.Item>
+          <Descriptions.Item label="Preconnect">{view.preconnectCount}</Descriptions.Item>
+          <Descriptions.Item label="Prediction/Speculation">{view.predictionCount} / {view.speculationCount}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          size="small"
+          rowKey="sourceId"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Kind', dataIndex: 'kind', width: 120 },
+            { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
+            { title: 'Events', dataIndex: 'eventCount', width: 90 },
+            { title: 'Errors', dataIndex: 'errorCount', width: 90, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
+            { title: 'URLs', dataIndex: 'urls', ellipsis: true, render: (value: string[]) => <ClampedText value={value.slice(0, 3).join('；')} /> },
+          ]}
+          dataSource={view.activities}
+          locale={{ emptyText: '未发现 Dataset Prerender/Prefetch 活动' }}
+        />
+        <Table
+          size="small"
+          rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'Kind', dataIndex: 'kind', width: 120 },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => <ClampedText value={value} /> },
+            { title: 'Error', dataIndex: 'error', width: 120, render: (value?: number | string) => value !== undefined ? <Tag color="red">{String(value)}</Tag> : '-' },
+            { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            { title: '操作', key: 'action', width: 110, render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button> },
+          ]}
+          dataSource={view.impactSummaries}
+          locale={{ emptyText: '未发现 Prerender impact summary' }}
+        />
+      </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
+    </Card>
+  );
+};
+
 const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
   result,
   events,
@@ -1817,6 +2110,17 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           />
         )
     ),
+    timeline: (
+      dataset?.status === 'ready' && dataset.analysisId ? (
+        <DatasetTimelineStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
+      ) : (
+        <StateGapCard
+          title="Timeline State"
+          dataset={dataset}
+          description="Dataset 未就绪时只能使用请求列表和性能瀑布图；索引完成后会展示全局事件时间分布、错误密度 bucket、source activity 和 raw event 跳转。"
+        />
+      )
+    ),
     security: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         <SSLTab result={result} />
@@ -1892,12 +2196,14 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           <>
             <DatasetStreamPoolStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
             <DatasetReportingStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
+            <DatasetModulesStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
+            <DatasetPrerenderStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
           </>
         ) : (
           <StateGapCard
             title="StreamPool State"
             dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的连接层线索；索引完成后会展示 HTTP stream、socket pool waiting/stalled、连接复用和 raw event 跳转。"
+            description="Dataset 未就绪时只能展示摘要中的连接层线索；索引完成后会展示 HTTP stream、socket pool waiting/stalled、连接复用、Reporting/NEL、Modules、Prerender 和 raw event 跳转。"
           />
         )}
       </div>
