@@ -75,6 +75,8 @@ describe('buildNetlogBenchmarkEvidencePackage', () => {
     expect(evidence.phase6Evidence).toEqual(expect.objectContaining({
       expectedEventCount: 100,
       sampleCount: 1,
+      backgroundDatasetImportExpected: false,
+      rawSearchFilteredHasMoreMatchesUnknown: false,
       lightweightParseSkipRate: 0.25,
       socketLazyProbeSatisfiedRate: 0.8,
     }));

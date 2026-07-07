@@ -99,7 +99,7 @@ function everyTrue(metrics: NetlogBenchmarkMetricInput[], field: keyof NetlogBen
 
 function everyFalse(metrics: NetlogBenchmarkMetricInput[], field: keyof NetlogBenchmarkMetricInput): boolean | undefined {
   if (metrics.length === 0 || metrics.some(metric => metric[field] === undefined)) return undefined;
-  return metrics.every(metric => metric[field] === false);
+  return metrics.every(metric => metric[field] === false) ? false : true;
 }
 
 function sumNumber(metrics: NetlogBenchmarkMetricInput[], field: keyof NetlogBenchmarkMetricInput): number | undefined {
