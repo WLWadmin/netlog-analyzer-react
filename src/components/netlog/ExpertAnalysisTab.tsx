@@ -228,7 +228,7 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
   );
 };
 
-const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<DnsStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -274,6 +274,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
       host: item.host,
       ips: item.ips.join(', '),
       aliases: item.aliases.join(', '),
+      sourceId: item.sourceId,
       eventId: item.eventId,
     })),
     ...view.taskResults.map(item => ({
@@ -283,9 +284,15 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
       ips: item.ips.join(', '),
       aliases: item.aliases.join(', '),
       error: item.error,
+      sourceId: item.sourceId,
       eventId: item.eventId,
     })),
   ];
+
+  const ipv6Rows = view.ipv6ReachabilityChecks.map((item, index) => ({
+    key: `ipv6-${item.eventId ?? item.sourceId ?? index}`,
+    ...item,
+  }));
 
   return (
     <Card title="DNS State" bordered={false}>
@@ -315,6 +322,16 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
             { title: 'DNS Server', dataIndex: 'ip', width: 180, render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
             { title: '来源', dataIndex: 'source', width: 130 },
             { title: '配置字段', dataIndex: 'sourceKey', ellipsis: true },
+            { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Event', dataIndex: 'eventId', width: 90, render: (value?: number) => value ?? '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
           ]}
           dataSource={view.configServers}
           locale={{ emptyText: '未发现 Dataset DNS server 配置' }}
@@ -327,6 +344,16 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
             { title: 'DoH / Secure DNS 候选', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
             { title: '来源', dataIndex: 'source', width: 130 },
             { title: '配置字段', dataIndex: 'sourceKey', ellipsis: true },
+            { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Event', dataIndex: 'eventId', width: 90, render: (value?: number) => value ?? '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
           ]}
           dataSource={view.dohCandidates}
           locale={{ emptyText: '未发现 Dataset DoH / Secure DNS 候选线索' }}
@@ -341,6 +368,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
             { title: 'IPs', dataIndex: 'ips', render: (value: string) => <Typography.Text code>{value || '-'}</Typography.Text> },
             { title: 'Aliases', dataIndex: 'aliases' },
             { title: 'Error', dataIndex: 'error', width: 90, render: (value?: number) => value ?? '-' },
+            { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             {
               title: '操作',
@@ -362,7 +390,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
             { title: 'Host', dataIndex: 'host', width: 240 },
             { title: 'Query Type', dataIndex: 'queryType', width: 120, render: (value?: string) => value || '-' },
             { title: 'Error', dataIndex: 'error', width: 100, render: (value: number) => <Tag color="red">{value}</Tag> },
-            { title: 'Source ID', dataIndex: 'sourceId', width: 110 },
+            { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             {
               title: '操作',
@@ -375,6 +403,26 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string }> = ({ analysisId }) =
           ]}
           dataSource={view.dnsErrors}
           locale={{ emptyText: '未发现 Dataset DNS task error' }}
+        />
+        <Table
+          size="small"
+          rowKey="key"
+          pagination={{ pageSize: 8, showSizeChanger: false }}
+          columns={[
+            { title: 'IPv6 available', dataIndex: 'available', width: 140, render: (value?: boolean) => value === undefined ? '-' : value ? <Tag color="green">true</Tag> : <Tag color="orange">false</Tag> },
+            { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Event ID', dataIndex: 'eventId', width: 100 },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
+          ]}
+          dataSource={ipv6Rows}
+          locale={{ emptyText: '未发现 Dataset IPv6 reachability 检查' }}
         />
       </Space>
       <Modal
@@ -1579,7 +1627,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
     'network-state': (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetDnsStateCard analysisId={dataset.analysisId} />
+          <DatasetDnsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
         ) : (
           <StateGapCard
             title="DNS State"
