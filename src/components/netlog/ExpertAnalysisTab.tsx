@@ -443,6 +443,9 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
 const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ProxyStateView | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailText, setDetailText] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -460,6 +463,21 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
   if (!view) {
     return <Alert type="info" showIcon message="正在读取 Dataset Proxy State 视图" />;
   }
+
+  const openEventDetail = async (eventId?: number) => {
+    if (eventId === undefined) return;
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailText('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      setDetailText(JSON.stringify(raw, null, 2));
+    } catch (err) {
+      setDetailText('读取失败：' + (err as Error).message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   return (
     <Card title="Proxy State" bordered={false}>
@@ -492,6 +510,14 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
             { title: '配置字段', dataIndex: 'key', width: 260, ellipsis: true },
             { title: '值', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
             { title: 'Event', dataIndex: 'eventId', width: 90, render: (value?: number) => value ?? '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => row.eventId !== undefined
+                ? <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>
+                : <Tag>无事件 trace</Tag>,
+            },
           ]}
           dataSource={view.proxyConfigs}
           locale={{ emptyText: '未发现 Dataset 代理配置快照' }}
@@ -525,6 +551,12 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
             { title: '错误', dataIndex: 'error', width: 90, render: (value?: number | string) => value ?? '-' },
             { title: '摘要', dataIndex: 'summary', ellipsis: true },
             { title: 'Unresolved', dataIndex: 'unresolvedReason', ellipsis: true, render: (value?: string) => value || '-' },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
           ]}
           dataSource={view.impactSummaries}
           locale={{ emptyText: '未发现 Dataset 代理 impact summary' }}
@@ -540,6 +572,12 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
             { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
             { title: '错误', dataIndex: 'error', width: 90, render: (value?: number | string) => value ?? '-' },
             { title: '摘要', dataIndex: 'summary', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
           ]}
           dataSource={view.proxyEvents}
           locale={{ emptyText: '未发现 Dataset 代理事件 trace' }}
@@ -555,6 +593,12 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
               { title: '错误', dataIndex: 'error', width: 90 },
               { title: 'Event', dataIndex: 'eventId', width: 90 },
               { title: '说明', dataIndex: 'reason', ellipsis: true },
+              {
+                title: '操作',
+                key: 'action',
+                width: 110,
+                render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+              },
             ]}
             dataSource={view.requestScopedErrors}
           />
@@ -565,6 +609,11 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
           <Descriptions.Item label="Bypass 规则">{view.bypassRules.length > 0 ? view.bypassRules.join('；') : '未发现'}</Descriptions.Item>
         </Descriptions>
       </Space>
+      <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          {detailLoading ? '正在读取...' : detailText}
+        </pre>
+      </Modal>
     </Card>
   );
 };
@@ -882,6 +931,12 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
             { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
           ]}
           dataSource={view.sourceLinks}
           locale={{ emptyText: '未发现 HTTP/2 显式 source link' }}
@@ -1043,6 +1098,12 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
             { title: 'To', dataIndex: 'toSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
             { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            {
+              title: '操作',
+              key: 'action',
+              width: 110,
+              render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
+            },
           ]}
           dataSource={view.sourceLinks}
           locale={{ emptyText: '未发现 Socket 显式 source link' }}
