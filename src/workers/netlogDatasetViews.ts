@@ -531,6 +531,7 @@ export interface ReportingStateView {
 }
 
 export interface TimelineStateView {
+  timeTickOffset?: number;
   timeRange: {
     start: number;
     end: number;

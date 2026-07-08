@@ -8,6 +8,7 @@ import {
   loadDatasetEventsFilterState,
   saveDatasetEventsFilterState,
 } from './datasetEventsFilterState';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 
 interface DatasetEventsTabProps {
   analysisId: string;
@@ -321,7 +322,16 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
         }}
         columns={[
           { title: 'Event ID', dataIndex: 'eventId', width: 110 },
-          { title: 'Time', dataIndex: 'time', width: 120 },
+          {
+            title: 'Time',
+            dataIndex: 'time',
+            width: 190,
+            render: (value?: number) => (
+              <span title={value !== undefined ? `${value}ms` : undefined}>
+                {formatNetlogWallTime(value, queryResult.timeTickOffset)}
+              </span>
+            ),
+          },
           { title: 'Type', dataIndex: 'typeName', render: (_, row) => `${row.typeName} (${row.typeId})` },
           {
             title: 'Source',

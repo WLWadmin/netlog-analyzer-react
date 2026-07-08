@@ -17,6 +17,8 @@ import ExpertSegmentNav from './ExpertSegmentNav';
 import './netlogNavigation.css';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView, NetlogRawEvidenceMetadataValueView } from '../../workers/netlogDatasetViews';
 import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogTimelineStateInWorker, getNetlogModulesStateInWorker, getNetlogPrerenderStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
+import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import { formatNetlogWallTime, formatNetlogWallTimeRange } from '../../utils/netlogTime';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -47,6 +49,14 @@ const formatMb = (value?: number) => {
 
 const EmptyCell = () => <span className="netlog-muted-dash">-</span>;
 
+const sourceLinkButtonStyle: React.CSSProperties = {
+  display: 'block',
+  padding: 0,
+  maxWidth: '100%',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
 const CompactIpList: React.FC<{ value: string[] }> = ({ value }) => {
   if (value.length === 0) return <EmptyCell />;
   return (
@@ -73,7 +83,7 @@ const SourceJump: React.FC<{
 }> = ({ sourceId, onNavigateToSource }) => {
   if (sourceId === undefined) return <>-</>;
   return (
-    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onNavigateToSource(sourceId)}>
+    <Button type="link" size="small" style={sourceLinkButtonStyle} onClick={() => onNavigateToSource(sourceId)}>
       source#{sourceId}
     </Button>
   );
@@ -85,7 +95,7 @@ const SourceChainJump: React.FC<{
 }> = ({ sourceId, onNavigateToSourceChain }) => {
   if (sourceId === undefined) return null;
   return (
-    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onNavigateToSourceChain(sourceId)}>
+    <Button type="link" size="small" style={sourceLinkButtonStyle} onClick={() => onNavigateToSourceChain(sourceId)}>
       chain#{sourceId}
     </Button>
   );
@@ -98,7 +108,7 @@ const SourceEvidenceLinks: React.FC<{ sourceId?: number } & SourceNavigationProp
 }) => {
   if (sourceId === undefined) return <>-</>;
   return (
-    <Space size={6}>
+    <Space direction="vertical" size={0} style={{ maxWidth: '100%', minWidth: 0, lineHeight: 1.25 }}>
       <SourceJump sourceId={sourceId} onNavigateToSource={onNavigateToSource} />
       <SourceChainJump sourceId={sourceId} onNavigateToSourceChain={onNavigateToSourceChain} />
     </Space>
@@ -1717,11 +1727,13 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailText, setDetailText] = useState('');
+  const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | undefined>();
 
   useEffect(() => {
     let cancelled = false;
     setView(undefined);
     setError(undefined);
+    setSelectedBucketIndex(undefined);
     getNetlogTimelineStateInWorker({ analysisId })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
@@ -1750,64 +1762,122 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
     .filter(bucket => bucket.errorCount > 0)
     .sort((a, b) => b.errorCount - a.errorCount || b.eventCount - a.eventCount)
     .slice(0, 20);
+  const chartData = view.buckets.map(bucket => ({
+    ...bucket,
+    label: `#${bucket.index}`,
+  }));
+  const selectedBucket = selectedBucketIndex === undefined
+    ? undefined
+    : view.buckets.find(bucket => bucket.index === selectedBucketIndex);
+  const selectedSourceActivity = selectedBucket
+    ? view.sourceActivity.filter(source => source.lastTime >= selectedBucket.start && source.firstTime <= selectedBucket.end)
+    : view.sourceActivity;
+  const selectedNotableEvents = selectedBucket
+    ? view.notableEvents.filter(event => typeof event.time === 'number' && event.time >= selectedBucket.start && event.time <= selectedBucket.end)
+    : view.notableEvents;
+  const bucketRows = selectedBucket ? [selectedBucket] : errorBuckets;
+  const handleChartClick = (state: any) => {
+    const bucketIndex = state?.activePayload?.[0]?.payload?.index;
+    if (typeof bucketIndex === 'number') setSelectedBucketIndex(bucketIndex);
+  };
 
   return (
-    <Card title={<EvidenceSectionTitle title="Timeline State" tier="background" />} bordered={false}>
+    <Card title={<EvidenceSectionTitle title="Timeline View" tier="background" />} bordered={false}>
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Alert
           type="info"
           showIcon
-          message="Timeline State 展示全文件事件密度和错误密度"
-          description="Timeline 用于快速定位问题集中发生的时间窗口和 source，不直接给出根因；确认根因仍要跳到 Events、Source Chain 和 Raw Event。"
+          message="Timeline View 展示全文件事件密度和错误密度"
+          description="点击柱状图中的时间 bucket 可聚焦该窗口的 source 和错误事件样例；确认根因仍要跳到 Events、Source Chain 和 Raw Event。"
         />
         {view.evidenceGaps.length > 0 && (
           <Alert type={view.notableEvents.length > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
         )}
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="Time range">{view.timeRange.start} - {view.timeRange.end}</Descriptions.Item>
+          <Descriptions.Item label="Time range">{formatNetlogWallTimeRange(view.timeRange.start, view.timeRange.end, view.timeTickOffset)}</Descriptions.Item>
           <Descriptions.Item label="Duration">{view.timeRange.duration} ms</Descriptions.Item>
           <Descriptions.Item label="Bucket size">{view.bucketSizeMs} ms</Descriptions.Item>
           <Descriptions.Item label="Buckets">{view.buckets.length}</Descriptions.Item>
           <Descriptions.Item label="Error samples">{view.notableEvents.length}</Descriptions.Item>
         </Descriptions>
+        <div style={{ width: '100%', height: 300 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }} onClick={handleChartClick}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" interval={Math.max(0, Math.floor(chartData.length / 12) - 1)} />
+              <YAxis yAxisId="events" />
+              <YAxis yAxisId="errors" orientation="right" />
+              <RechartsTooltip
+                formatter={(value, name) => [Number(value || 0).toLocaleString(), name === 'eventCount' ? 'Events' : 'Errors']}
+                labelFormatter={(_, payload) => {
+                  const bucket = payload?.[0]?.payload;
+                  return bucket ? `Bucket #${bucket.index} · ${formatNetlogWallTimeRange(bucket.start, bucket.end, view.timeTickOffset)}` : '';
+                }}
+              />
+              <Legend />
+              <Bar yAxisId="events" dataKey="eventCount" name="Events" fill="#1677ff" cursor="pointer">
+                {chartData.map(bucket => (
+                  <Cell key={`event-${bucket.index}`} fill={bucket.index === selectedBucketIndex ? '#0958d9' : '#69b1ff'} />
+                ))}
+              </Bar>
+              <Bar yAxisId="errors" dataKey="errorCount" name="Errors" fill="#ff4d4f" cursor="pointer">
+                {chartData.map(bucket => (
+                  <Cell key={`error-${bucket.index}`} fill={bucket.index === selectedBucketIndex ? '#a8071a' : '#ff7875'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <Space wrap>
+          <Typography.Text type="secondary">
+            {selectedBucket
+              ? `已选中 bucket #${selectedBucket.index}：${formatNetlogWallTimeRange(selectedBucket.start, selectedBucket.end, view.timeTickOffset)}，${selectedBucket.eventCount.toLocaleString()} events，${selectedBucket.errorCount.toLocaleString()} errors`
+              : '未选择 bucket，当前下方展示错误最多的时间窗口和全局 source 活动。'}
+          </Typography.Text>
+          {selectedBucket && <Button size="small" onClick={() => setSelectedBucketIndex(undefined)}>清除选择</Button>}
+        </Space>
         <Table
           size="small"
           rowKey="index"
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          pagination={false}
           columns={[
             { title: 'Bucket', dataIndex: 'index', width: 90 },
-            { title: 'Start', dataIndex: 'start', width: 140 },
-            { title: 'End', dataIndex: 'end', width: 140 },
+            { title: 'Start', dataIndex: 'start', width: 190, render: (value?: number) => formatNetlogWallTime(value, view.timeTickOffset) },
+            { title: 'End', dataIndex: 'end', width: 190, render: (value?: number) => formatNetlogWallTime(value, view.timeTickOffset) },
             { title: 'Events', dataIndex: 'eventCount', width: 100 },
             { title: 'Errors', dataIndex: 'errorCount', width: 100, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
           ]}
-          dataSource={errorBuckets.length > 0 ? errorBuckets : view.buckets.slice(0, 20)}
+          dataSource={bucketRows}
           locale={{ emptyText: '未发现 Timeline bucket' }}
         />
         <Table
           size="small"
           rowKey="sourceId"
+          tableLayout="fixed"
+          scroll={{ x: 1000 }}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           columns={[
-            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Source', dataIndex: 'sourceId', width: 170, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
             { title: 'Events', dataIndex: 'eventCount', width: 100 },
             { title: 'Errors', dataIndex: 'errorCount', width: 100, render: (value: number) => value > 0 ? <Tag color="red">{value}</Tag> : <Tag>0</Tag> },
             { title: 'Event range', key: 'range', width: 150, render: (_, row) => `${row.firstEventId} - ${row.lastEventId}` },
-            { title: 'Time range', key: 'time', render: (_, row) => `${row.firstTime} - ${row.lastTime}` },
+            { title: 'Time range', key: 'time', width: 300, render: (_, row) => formatNetlogWallTimeRange(row.firstTime, row.lastTime, view.timeTickOffset) },
           ]}
-          dataSource={view.sourceActivity}
+          dataSource={selectedSourceActivity}
           locale={{ emptyText: '未发现 source activity' }}
         />
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}`}
+          tableLayout="fixed"
+          scroll={{ x: 1070 }}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
-            { title: 'Time', dataIndex: 'time', width: 130 },
-            { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
-            { title: 'Type', dataIndex: 'typeName', ellipsis: true },
+            { title: 'Time', dataIndex: 'time', width: 190, render: (value?: number) => formatNetlogWallTime(value, view.timeTickOffset) },
+            { title: 'Source', dataIndex: 'sourceId', width: 170, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
+            { title: 'Type', dataIndex: 'typeName', width: 320, ellipsis: true },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
             {
               title: '操作',
@@ -1816,7 +1886,7 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
               render: (_, row) => <Button size="small" onClick={() => openEventDetail(row.eventId)}>查看事件</Button>,
             },
           ]}
-          dataSource={view.notableEvents}
+          dataSource={selectedNotableEvents}
           locale={{ emptyText: '未发现错误事件样例' }}
         />
       </Space>
@@ -2058,7 +2128,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           <Descriptions.Item label="事件总数">{result.totalEvents.toLocaleString()}</Descriptions.Item>
           <Descriptions.Item label="唯一 source">{result.uniqueSources.toLocaleString()}</Descriptions.Item>
           <Descriptions.Item label="时间范围">
-            {result.timeRange.start} - {result.timeRange.end}
+            {formatNetlogWallTimeRange(result.timeRange.start, result.timeRange.end, result.timeTickOffset)}
           </Descriptions.Item>
           {result.largeFileMode?.enabled && (
             <>
@@ -2093,7 +2163,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
     ),
     events: dataset?.status === 'ready' && dataset.analysisId
       ? <DatasetEventsTab analysisId={dataset.analysisId} />
-      : <EventsTab events={events} />,
+      : <EventsTab events={events} timeTickOffset={result.timeTickOffset} />,
     'source-chain': (
       dataset?.status === 'ready' && dataset.analysisId
         ? (

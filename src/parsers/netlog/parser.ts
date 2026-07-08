@@ -1,6 +1,7 @@
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
-import { formatTime, truncateUrl } from '../../utils/format';
+import { truncateUrl } from '../../utils/format';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 
 export interface ParsedEvent {
@@ -105,6 +106,7 @@ export interface DohCandidate {
 
 export interface AnalysisResult {
   totalEvents: number;
+  timeTickOffset?: number;
   uniqueSources: number;
   peakConcurrency: number;
   urlRequests: URLRequest[];
@@ -214,6 +216,8 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   if (!events.length) throw new Error('未找到有效的网络事件数据');
 
   const constants = logData.constants || {};
+  const timeTickOffset = Number(constants.timeTickOffset);
+  if (Number.isFinite(timeTickOffset)) result.timeTickOffset = timeTickOffset;
 
   // Build NUMBER→STRING reverse maps from file's constants (STRING→NUMBER in the file)
   const eventNamesRaw = constants.logEventTypes || constants.eventTypes || {};
@@ -1532,7 +1536,7 @@ function runDiagnostics(r: AnalysisResult) {
       severity: 'error',
       category: '连接失败',
       message: `请求失败: ${fail.url}`,
-      detail: `错误码: ${fail.error} (${netErr})\n时间: ${formatTime(fail.time)}`,
+      detail: `错误码: ${fail.error} (${netErr})\n时间: ${formatNetlogWallTime(fail.time, r.timeTickOffset)}`,
       time: fail.time,
     });
   }

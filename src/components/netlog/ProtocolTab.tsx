@@ -6,6 +6,7 @@ import { AnalysisResult } from '../../parsers/netlog/parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../../parsers/netlog/constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 
 interface ProtocolTabProps {
   result: AnalysisResult;
@@ -281,7 +282,7 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
     { title: '方向', dataIndex: 'direction', key: 'direction', width: 80, render: (d: string) => <Tag color={d === '发送' ? 'orange' : 'red'}>{d}</Tag> },
     { title: '错误码', dataIndex: 'errorCode', key: 'errorCode', width: 100, render: (c: string) => <code>{c}</code> },
     { title: 'Last Stream ID', dataIndex: 'lastStreamId', key: 'lastStreamId', width: 120 },
-    { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
+    { title: '时间', dataIndex: 'time', key: 'time', width: 190 },
   ];
   const goawayData = useMemo(() =>
     goawayEvents.map((e, index) => {
@@ -295,25 +296,25 @@ const ProtocolTab: React.FC<ProtocolTabProps> = ({ result }) => {
         direction: isHttp2GoawaySend(e) ? '发送' : '接收',
         errorCode: getGoawayErrorCode(e) || '-',
         lastStreamId: String(e.params.last_stream_id || '-'),
-        time: e.time.toFixed(2) + 'ms',
+        time: formatNetlogWallTime(e.time, result.timeTickOffset),
       };
     })
-  , [goawayEvents]);
+  , [goawayEvents, result.timeTickOffset]);
 
   // QUIC error detail data
   const quicErrorColumns = [
     { title: '错误码', dataIndex: 'errorCode', key: 'errorCode', width: 120, render: (c: string) => <Tag color="red">{c}</Tag> },
     { title: '来源', dataIndex: 'source', key: 'source', width: 200 },
-    { title: '时间', dataIndex: 'time', key: 'time', width: 100 },
+    { title: '时间', dataIndex: 'time', key: 'time', width: 190 },
   ];
   const quicErrorData = useMemo(() =>
     quicErrors.slice(0, 50).map((e, index) => ({
       id: `${e.source.id}-${e.typeName}-${e.phaseName}-${e.time}-${index}`,
       errorCode: String(e.params.error_code || e.params.net_error),
       source: e.source.typeName,
-      time: e.time.toFixed(2) + 'ms',
+      time: formatNetlogWallTime(e.time, result.timeTickOffset),
     }))
-  , [quicErrors]);
+  , [quicErrors, result.timeTickOffset]);
 
   if (!hasHttp2 && !hasQuic) {
     return (

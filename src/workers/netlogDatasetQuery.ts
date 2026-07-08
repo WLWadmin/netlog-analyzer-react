@@ -37,6 +37,7 @@ export interface NetlogEventRow {
 
 export interface QueryNetlogEventsResult {
   analysisId: string;
+  timeTickOffset?: number;
   page: number;
   pageSize: number;
   total: number;
@@ -144,6 +145,7 @@ export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEv
 
   return {
     analysisId: query.analysisId,
+    timeTickOffset: index.timeTickOffset,
     page,
     pageSize,
     total,
@@ -200,6 +202,7 @@ export async function queryNetlogEventsWithRawSearch(
 
   return {
     analysisId: query.analysisId,
+    timeTickOffset: index.timeTickOffset,
     page,
     pageSize,
     total,

@@ -10,6 +10,7 @@ import {
   getNetlogRawEvidenceStructureInWorker,
   queryNetlogRawEvidenceEventsInWorker,
 } from '../../workers/workerClient';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 
 interface DatasetRawEvidenceExplorerProps {
   analysisId: string;
@@ -85,7 +86,16 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
     { title: 'eventId', dataIndex: 'eventId', width: 90 },
     { title: 'typeName', dataIndex: 'typeName', ellipsis: true },
     { title: 'source', width: 190, render: (_, row) => <span>{row.sourceTypeName}#{row.sourceId}</span> },
-    { title: 'time', dataIndex: 'time', width: 120 },
+    {
+      title: 'time',
+      dataIndex: 'time',
+      width: 190,
+      render: (value?: number) => (
+        <span title={value !== undefined ? `${value}ms` : undefined}>
+          {formatNetlogWallTime(value, eventsPage?.timeTickOffset)}
+        </span>
+      ),
+    },
     {
       title: 'byte range',
       width: 170,

@@ -6,9 +6,11 @@ import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/
 import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
 import { copyText } from '../../utils/copyText';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 
 interface EventsTabProps {
   events: ParsedEvent[];
+  timeTickOffset?: number;
 }
 
 // Extract error info from event params
@@ -43,7 +45,7 @@ const extractErrorInfo = (params: any): { hasError: boolean; errorCode?: string;
   return result;
 };
 
-const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
+const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -201,7 +203,17 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
   };
 
   const columns = [
-    { title: '时间', dataIndex: 'time', key: 'time', width: 90, render: (t: number) => <span style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 12, color: 'var(--text-muted)' }}>{t.toFixed(0)}</span> },
+    {
+      title: '时间',
+      dataIndex: 'time',
+      key: 'time',
+      width: 190,
+      render: (t: number) => (
+        <span title={`${t.toFixed(0)}ms`} style={{ fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: 12, color: 'var(--text-muted)' }}>
+          {formatNetlogWallTime(t, timeTickOffset)}
+        </span>
+      ),
+    },
     { title: '阶段', dataIndex: 'phaseName', key: 'phase', width: 80, render: (p: string) => (
       <Tag color={p === 'BEGIN' ? 'green' : p === 'END' ? 'blue' : 'default'} style={{ fontSize: 11 }}>{p}</Tag>
     )},
@@ -544,7 +556,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
                             color={errInfo.hasError ? 'red' : ev.phaseName === 'BEGIN' ? 'green' : ev.phaseName === 'END' ? 'blue' : 'gray'}
                             label={
                               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-                                {ev.time.toFixed(0)}ms
+                                {formatNetlogWallTime(ev.time, timeTickOffset)}
                               </span>
                             }
                           >
@@ -643,7 +655,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events }) => {
                     color: isCenter ? 'var(--accent-blue)' : 'var(--text-muted)',
                     fontWeight: isCenter ? 700 : 400,
                   }}>
-                    {ev.time.toFixed(0)}ms
+                    {formatNetlogWallTime(ev.time, timeTickOffset)}
                   </span>
                 }
               >

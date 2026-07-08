@@ -26,10 +26,21 @@ function sortedCounts(
     .slice(0, 30);
 }
 
+function finiteTimeRange(times: number[]): { start: number; end: number } {
+  let start = Infinity;
+  let end = -Infinity;
+  let hasFiniteTime = false;
+  for (const time of times) {
+    if (!Number.isFinite(time)) continue;
+    hasFiniteTime = true;
+    if (time < start) start = time;
+    if (time > end) end = time;
+  }
+  return hasFiniteTime ? { start, end } : { start: 0, end: 0 };
+}
+
 export function buildNetlogTimelineView(index: CompactEventIndex): TimelineStateView {
-  const times = index.time.filter(time => Number.isFinite(time));
-  const start = times.length > 0 ? Math.min(...times) : 0;
-  const end = times.length > 0 ? Math.max(...times) : 0;
+  const { start, end } = finiteTimeRange(index.time);
   const duration = Math.max(0, end - start);
   const bucketCount = duration > 0 ? Math.min(DEFAULT_BUCKET_COUNT, Math.max(1, index.count)) : 1;
   const bucketSizeMs = duration > 0 ? Math.max(1, Math.ceil(duration / bucketCount)) : 1;
@@ -96,6 +107,7 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
   }
 
   return {
+    timeTickOffset: index.timeTickOffset,
     timeRange: { start, end, duration },
     bucketSizeMs,
     buckets,

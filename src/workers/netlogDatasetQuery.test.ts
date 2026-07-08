@@ -3,6 +3,7 @@ import type { CompactEventIndex, NetlogIndexableFile } from './netlogDatasetInde
 
 const index: CompactEventIndex = {
   count: 4,
+  timeTickOffset: 1741095022562,
   time: [1, 2, 3, 4],
   typeId: [10, 20, 10, 30],
   sourceTypeId: [100, 100, 200, 200],
@@ -29,6 +30,7 @@ describe('queryNetlogEvents', () => {
     const result = queryNetlogEvents(index, { analysisId: 'a1', page: 2, pageSize: 2 });
 
     expect(result.total).toBe(4);
+    expect(result.timeTickOffset).toBe(1741095022562);
     expect(result.rows.map(row => row.eventId)).toEqual([2, 3]);
   });
 

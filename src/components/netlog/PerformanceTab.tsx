@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Card, Table, Tag, Modal, Descriptions, Row, Col, Button, Segmented } from 'antd';
+import { Alert, Card, Table, Tag, Modal, Descriptions, Row, Col, Button, Segmented } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ThunderboltOutlined,
@@ -48,6 +48,17 @@ const PhaseChart: React.FC<{ phaseStats: Record<string, number[]> }> = ({ phaseS
         fill: PHASE_COLORS[phase],
       }));
   }, [phaseStats]);
+
+  if (phaseChartData.length === 0) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="当前没有可绘制的阶段耗时"
+        description="请求总耗时可以统计，但这些请求没有 DNS / TCP / SSL / 发送 / 等待 / 下载阶段拆分。大文件流式摘要路径通常只保留请求总耗时，不会构建完整阶段 timeline。"
+      />
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, phaseChartData.length * 40)}>
@@ -252,8 +263,12 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
   const { scatterData, throughputData, timeMode, minStartTime } = useMemo(() => {
     const successPts: { startTime: number; duration: number; originalTime: number }[] = [];
     const failedPts: { startTime: number; duration: number; originalTime: number }[] = [];
+    let minTime = Infinity;
+    let maxTime = -Infinity;
     for (const req of completedReqs) {
       const pt = { startTime: req.startTime, duration: req.duration || 0, originalTime: req.startTime };
+      if (req.startTime < minTime) minTime = req.startTime;
+      if (req.startTime > maxTime) maxTime = req.startTime;
       if (req.error || req.status === 'error') {
         failedPts.push(pt);
       } else {
@@ -261,13 +276,14 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       }
     }
 
-    const allStartTimes = completedReqs.map(r => r.startTime);
-    const minTime = allStartTimes.length > 0 ? Math.min(...allStartTimes) : 0;
-    const maxTime = allStartTimes.length > 0 ? Math.max(...allStartTimes) : 0;
-    const timeRange = maxTime - minTime;
     const hasCompletedReqs = completedReqs.length > 0;
+    if (!hasCompletedReqs) {
+      minTime = 0;
+      maxTime = 0;
+    }
+    const timeRange = maxTime - minTime;
     const autoMode: 'relative' | 'absolute' =
-      hasCompletedReqs && timeRange < 5000 ? 'relative' : 'absolute';
+      hasCompletedReqs && (timeRange < 5000 || minTime > 10_000) ? 'relative' : 'absolute';
 
     const bucketMap = new Map<number, number>();
     for (const req of completedReqs) {
@@ -278,6 +294,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       .sort(([a], [b]) => a - b)
       .map(([sec, count]) => ({
         time: sec * 1000,
+        originalTime: sec * 1000,
         rps: count,
       }));
 
@@ -301,6 +318,14 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
       })),
     };
   }, [scatterData, effectiveMode, minStartTime]);
+
+  const displayThroughputData = useMemo(() => {
+    const offset = effectiveMode === 'relative' ? Math.floor(minStartTime / 1000) * 1000 : 0;
+    return throughputData.map(pt => ({
+      ...pt,
+      time: pt.originalTime - offset,
+    }));
+  }, [throughputData, effectiveMode, minStartTime]);
 
   // Waterfall chart data: top 30 requests by duration
   const waterfallReqs = useMemo(() => {
@@ -532,6 +557,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
               dataKey="startTime"
               type="number"
               name={effectiveMode === 'relative' ? '相对开始时间' : '开始时间'}
+              domain={['dataMin', 'dataMax']}
               tickFormatter={(v: number) =>
                 effectiveMode === 'relative'
                   ? `+${(v / 1000).toFixed(1)}s`
@@ -588,14 +614,19 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         {/* 吞吐量折线图：每秒请求数 */}
         <h4 style={{ marginBottom: 8, fontSize: 14, color: 'var(--text-secondary)' }}>吞吐量（每秒请求数）</h4>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={throughputData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+          <LineChart data={displayThroughputData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
             <XAxis
               dataKey="time"
               type="number"
-              name="时间"
-              tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}s`}
+              name={effectiveMode === 'relative' ? '相对时间' : '时间'}
+              domain={['dataMin', 'dataMax']}
+              tickFormatter={(v: number) =>
+                effectiveMode === 'relative'
+                  ? `+${(v / 1000).toFixed(1)}s`
+                  : `${(v / 1000).toFixed(1)}s`
+              }
               tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-              label={{ value: '时间 (ms)', position: 'insideBottom', offset: -2, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
+              label={{ value: effectiveMode === 'relative' ? '相对时间 (ms)' : '时间 (ms)', position: 'insideBottom', offset: -2, style: { fill: 'var(--text-muted)', fontSize: 12 } }}
             />
             <YAxis
               dataKey="rps"
@@ -613,7 +644,13 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
                 return [value, name];
               }}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              labelFormatter={(label: any) => `时间: ${Number(label).toFixed(0)} ms`}
+              labelFormatter={(label: any, payload: readonly any[]) => {
+                const original = payload?.[0]?.payload?.originalTime;
+                const originalLabel = effectiveMode === 'relative' && original !== undefined
+                  ? ` (原始: ${(Number(original) / 1000).toFixed(2)}s)`
+                  : '';
+                return `${effectiveMode === 'relative' ? '相对时间' : '时间'}: ${Number(label).toFixed(0)} ms${originalLabel}`;
+              }}
             />
             <Line
               type="monotone"

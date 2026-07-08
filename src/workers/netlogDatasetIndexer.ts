@@ -44,6 +44,7 @@ export interface CompactEventIndex {
   sourceErrorCodes?: Record<number, number>;
   sourceFirstEventId?: Record<number, number>;
   sourceLastEventId?: Record<number, number>;
+  timeTickOffset?: number;
   topLevelValueRanges?: Record<string, { byteStart: number; byteEnd: number }>;
 }
 
@@ -201,6 +202,8 @@ function applyConstants(index: CompactEventIndex, constants: unknown) {
   const value = constants as Record<string, unknown>;
   index.eventTypeNames = buildReverseNameMap(value.logEventTypes || value.eventTypes);
   index.sourceTypeNames = buildReverseNameMap(value.logSourceType || value.sourceTypes || value.logSourceTypes);
+  const timeTickOffset = Number(value.timeTickOffset);
+  if (Number.isFinite(timeTickOffset)) index.timeTickOffset = timeTickOffset;
 }
 
 function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byteEnd: number) {

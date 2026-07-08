@@ -9,6 +9,7 @@ import { useLoadMore } from '../../hooks/useLoadMore';
 import { StatusTag } from '../../components/shared/StatusTag';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 
 interface NetLogRequestListProps {
   result: AnalysisResult;
@@ -274,11 +275,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       title: '开始时间',
       dataIndex: 'startTime',
       key: 'startTime',
-      width: 110,
-      align: 'right',
+      width: 190,
       render: (t: number) => (
-        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontSize: 12 }}>
-          {t.toFixed(0)}ms
+        <span title={`${t.toFixed(0)}ms`} style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontSize: 12 }}>
+          {formatNetlogWallTime(t, result.timeTickOffset)}
         </span>
       ),
     },
@@ -633,7 +633,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
                   {formatDuration(detailReq.duration || 0)}
                 </span>
               </Descriptions.Item>
-              <Descriptions.Item label="开始时间">{detailReq.startTime.toFixed(0)}ms</Descriptions.Item>
+              <Descriptions.Item label="开始时间">
+                <span title={`${detailReq.startTime.toFixed(0)}ms`}>
+                  {formatNetlogWallTime(detailReq.startTime, result.timeTickOffset)}
+                </span>
+              </Descriptions.Item>
             </Descriptions>
 
             {/* 各阶段耗时分解 */}

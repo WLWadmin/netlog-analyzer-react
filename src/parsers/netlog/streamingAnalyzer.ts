@@ -602,6 +602,8 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
 
   const applyMetadata = (metadata: NetlogStreamingMetadata) => {
     if (metadata.constants) {
+      const timeTickOffset = Number(metadata.constants.timeTickOffset);
+      if (Number.isFinite(timeTickOffset)) result.timeTickOffset = timeTickOffset;
       const maps = extractNameMapsFromConstants(metadata.constants);
       eventNames = { ...eventNames, ...maps.eventNames };
       sourceNames = { ...sourceNames, ...maps.sourceNames };

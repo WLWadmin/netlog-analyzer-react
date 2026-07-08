@@ -400,6 +400,20 @@ const SSLTab: React.FC<SSLTabProps> = ({ result }) => {
             name: ver,
             value: count,
           }));
+          if (versionChartData.length === 0) {
+            return (
+              <Alert
+                type="info"
+                showIcon
+                message="当前没有可绘制的 TLS 版本占比"
+                description={
+                  result.sslEvents.length > 0
+                    ? `检测到 ${result.sslEvents.length.toLocaleString()} 条 SSL/TLS 相关事件，但这些事件没有明确的 version / tls_version / ssl_version 字段，无法判断 TLS 1.2/1.3 占比。可继续查看下方主机、错误码和握手耗时证据。`
+                    : '当前文件没有解析到 SSL/TLS 相关事件，因此无法生成 TLS 版本分布。'
+                }
+              />
+            );
+          }
           return (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
