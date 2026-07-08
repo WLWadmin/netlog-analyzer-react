@@ -41,5 +41,45 @@ describe('harParser', () => {
     expect(result.entries[0].serverTiming[0].name).toBe('app');
     expect(result.entries[0].xTtLogid).toBe('abc');
   });
-});
 
+  test('parseHar should keep raw failure fields and timing availability', () => {
+    const data = {
+      log: {
+        entries: [
+          {
+            _resourceType: 'xhr',
+            _error: 'net::ERR_NAME_NOT_RESOLVED',
+            _netError: -105,
+            _blockedReason: 'inspector',
+            startedDateTime: '2026-06-25T00:00:00.000Z',
+            time: 20,
+            request: {
+              method: 'GET',
+              url: 'https://missing.example.com/api',
+              headers: [],
+              queryString: [],
+            },
+            response: {
+              status: 0,
+              statusText: '',
+              httpVersion: '',
+              headers: [],
+              content: { mimeType: '', size: 0, text: '', encoding: '' },
+            },
+            timings: { blocked: 0, dns: -1, connect: 0, ssl: -1, send: 0, wait: 20, receive: 0 },
+          },
+        ],
+      },
+    };
+
+    const result = parseHar(data as any);
+    const entry = result.entries[0];
+    expect(entry.failureText).toBe('net::ERR_NAME_NOT_RESOLVED');
+    expect(entry.netErrorText).toBe('net::ERR_NAME_NOT_RESOLVED');
+    expect(entry.netErrorCode).toBe(-105);
+    expect(entry.blockedReason).toBe('inspector');
+    expect(entry.timings.dns).toBe(0);
+    expect(entry.timingAvailability?.dns).toBe(false);
+    expect(entry.timingAvailability?.blocked).toBe(true);
+  });
+});

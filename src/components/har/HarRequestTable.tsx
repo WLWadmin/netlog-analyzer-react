@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Table, Input, Tag, Badge, Spin, Button } from 'antd';
+import { Table, Input, Tag, Badge, Spin, Button, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, CloseOutlined } from '@ant-design/icons';
 import {
@@ -17,6 +17,7 @@ import { StatusTag } from '../../components/shared/StatusTag';
 import HarRequestDetail from './HarRequestDetail';
 import CopyText from './CopyText';
 import { useNavigation } from '../../contexts/NavigationContext';
+import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -33,6 +34,15 @@ const STATUS_FILTERS: { key: StatusFilter; label: string; color: string; bg: str
   { key: 'failed', label: '失败请求', color: '#b91c1c', bg: '#fee2e2' },
   { key: 'slow', label: '慢请求', color: '#c2410c', bg: '#ffedd5' },
 ];
+
+function issueStyle(severity: HarRequestIssue['severity']): { color: string; bg: string } {
+  switch (severity) {
+    case 'critical': return { color: '#b91c1c', bg: '#fee2e2' };
+    case 'warning': return { color: '#c2410c', bg: '#ffedd5' };
+    case 'info': return { color: '#0e7490', bg: '#cffafe' };
+    case 'normal': return { color: '#15803d', bg: '#dcfce7' };
+  }
+}
 
 const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter, onStatusFilterChange, categoryFilter, onCategoryFilterChange }) => {
   const [keyword, setKeyword] = useState('');
@@ -111,6 +121,14 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     });
   }, [result.entries, category, status, keyword, blockedDomains]);
 
+  const issueById = useMemo(() => {
+    const map = new Map<number, HarRequestIssue>();
+    result.entries.forEach(e => {
+      map.set(e.id, getHarRequestIssue(e));
+    });
+    return map;
+  }, [result.entries]);
+
   const columns: ColumnsType<HarRequestEntry> = [
     {
       title: 'Name',
@@ -158,6 +176,22 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           </span>
         </StatusTag>
       ),
+    },
+    {
+      title: '主问题',
+      key: 'issue',
+      width: 200,
+      render: (_: unknown, r) => {
+        const issue = issueById.get(r.id) || getHarRequestIssue(r);
+        const st = issueStyle(issue.severity);
+        return (
+          <Tooltip title={issue.detail}>
+            <Tag style={{ color: st.color, background: st.bg, border: 'none', fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+              {issue.label}
+            </Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: 'Protocol',
@@ -361,7 +395,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           dataSource={filtered}
           rowKey="id"
           size="small"
-          scroll={{ x: 1100, y: 'calc(100vh - 320px)' }}
+          scroll={{ x: 1320, y: 'calc(100vh - 320px)' }}
           pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100', '200'] }}
           onRow={record => ({
             onClick: () => setSelected(record),

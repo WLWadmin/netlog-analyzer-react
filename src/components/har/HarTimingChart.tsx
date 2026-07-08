@@ -1,202 +1,239 @@
 import { Tooltip } from 'antd';
-import { HarTiming, formatHarTime } from '../../harParser';
+import { HarTiming, HarTimingPhaseKey, formatHarTime } from '../../harParser';
 import { CHART_COLORS } from '../../constants/chartColors';
 
 interface HarTimingChartProps {
   timings: HarTiming;
   total: number;
+  timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>;
 }
 
-interface PhaseInfo {
-  key: keyof HarTiming;
+interface TimingRow {
+  group: string;
+  key: HarTimingPhaseKey;
   label: string;
+  help: string;
   color: string;
-  value: number;
 }
 
-// 统一使用 CHART_COLORS.phases 语义化颜色，与 NetLog PerformanceTab 保持一致
-const PHASE_DEFS: { key: keyof HarTiming; label: string; color: string }[] = [
-  { key: 'blocked', label: 'Blocked（排队/阻塞）', color: '#94a3b8' },
-  { key: 'dns', label: 'DNS 解析', color: CHART_COLORS.phases.dns },
-  { key: 'connect', label: 'Connect（TCP 连接）', color: CHART_COLORS.phases.connect },
-  { key: 'ssl', label: 'SSL/TLS 握手', color: CHART_COLORS.phases.ssl },
-  { key: 'send', label: 'Send（发送请求）', color: CHART_COLORS.phases.send },
-  { key: 'wait', label: 'Wait（等待响应 TTFB）', color: CHART_COLORS.phases.wait },
-  { key: 'receive', label: 'Receive（内容下载）', color: CHART_COLORS.phases.download },
+interface RowPosition {
+  left: number;
+  width: number;
+}
+
+const TIMING_ROWS: TimingRow[] = [
+  { group: 'Resource Scheduling', key: 'blocked', label: 'Queueing', help: '浏览器排队/等待连接槽/代理调度', color: '#94a3b8' },
+  { group: 'Connection Start', key: 'dns', label: 'DNS Lookup', help: '域名解析', color: CHART_COLORS.phases.dns },
+  { group: 'Connection Start', key: 'connect', label: 'Initial connection', help: 'TCP 建连', color: CHART_COLORS.phases.connect },
+  { group: 'Connection Start', key: 'ssl', label: 'SSL', help: 'TLS 握手', color: CHART_COLORS.phases.ssl },
+  { group: 'Request / Response', key: 'send', label: 'Request sent', help: '发送请求', color: CHART_COLORS.phases.send },
+  { group: 'Request / Response', key: 'wait', label: 'Waiting for server response', help: '等待服务端首字节响应，TTFB', color: CHART_COLORS.phases.wait },
+  { group: 'Request / Response', key: 'receive', label: 'Content Download', help: '下载响应内容', color: CHART_COLORS.phases.download },
 ];
 
-// 请求耗时瀑布图（浏览器 Network Timing 风格）
-const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total }) => {
-  const phases: PhaseInfo[] = PHASE_DEFS.map(p => ({
-    ...p,
-    value: Math.max(0, timings[p.key] || 0),
-  }));
+function isTimingAvailable(key: HarTimingPhaseKey, timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>): boolean {
+  return timingAvailability?.[key] !== false;
+}
 
-  const sum = phases.reduce((acc, p) => acc + p.value, 0);
-  const denom = total > 0 ? total : (sum > 0 ? sum : 1);
-  const unaccounted = Math.max(0, total - sum);
+function getRecordedDuration(row: TimingRow, timings: HarTiming, timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>): number {
+  if (!isTimingAvailable(row.key, timingAvailability)) return 0;
+  return Math.max(0, timings[row.key] || 0);
+}
 
-  // 计算每个阶段的起始位置（百分比）
+function buildPositions(rows: TimingRow[], timings: HarTiming, timingAvailability: HarTimingChartProps['timingAvailability'], denom: number): Map<HarTimingPhaseKey, RowPosition> {
+  const positions = new Map<HarTimingPhaseKey, RowPosition>();
   let currentOffset = 0;
-  const phasePositions = phases.map(p => {
-    const width = (p.value / denom) * 100;
-    const pos = { left: currentOffset, width };
-    currentOffset += width;
-    return pos;
+  rows.forEach(row => {
+    if (!isTimingAvailable(row.key, timingAvailability)) {
+      positions.set(row.key, { left: 0, width: 0 });
+      return;
+    }
+    const duration = getRecordedDuration(row, timings, timingAvailability);
+    positions.set(row.key, {
+      left: (currentOffset / denom) * 100,
+      width: (duration / denom) * 100,
+    });
+    currentOffset += duration;
   });
+  return positions;
+}
+
+function groupRows(rows: TimingRow[]): { group: string; rows: TimingRow[] }[] {
+  const groups: { group: string; rows: TimingRow[] }[] = [];
+  rows.forEach(row => {
+    const last = groups[groups.length - 1];
+    if (last && last.group === row.group) {
+      last.rows.push(row);
+    } else {
+      groups.push({ group: row.group, rows: [row] });
+    }
+  });
+  return groups;
+}
+
+// 请求耗时瀑布图（浏览器 Network Timing 风格）
+const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total, timingAvailability }) => {
+  const recordedSum = TIMING_ROWS.reduce((sum, row) => sum + getRecordedDuration(row, timings, timingAvailability), 0);
+  const denom = Math.max(total || 0, recordedSum, 1);
+  const positions = buildPositions(TIMING_ROWS, timings, timingAvailability, denom);
+  const primary = TIMING_ROWS
+    .map(row => ({ row, duration: getRecordedDuration(row, timings, timingAvailability) }))
+    .filter(item => item.duration > 0)
+    .sort((a, b) => b.duration - a.duration)[0];
+  const primaryPercent = primary ? Math.round((primary.duration / denom) * 100) : 0;
+  const requestStarted = getRecordedDuration(TIMING_ROWS[0], timings, timingAvailability);
+  const queueingAvailable = isTimingAvailable('blocked', timingAvailability);
+  const unaccounted = Math.max(0, total - recordedSum);
+  const groups = groupRows(TIMING_ROWS);
+
+  const hasRecordedTiming = recordedSum > 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* 总耗时标题 */}
-      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-        总耗时{' '}
-        <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 14 }}>
-          {formatHarTime(total)}
-        </span>
-      </div>
-
-      {/* 瀑布流条形图 */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div
         style={{
-          width: '100%',
-          height: 32,
-          borderRadius: 4,
-          overflow: 'hidden',
-          background: 'var(--bg-base)',
+          padding: '12px 14px',
+          background: 'var(--bg-surface)',
           border: '1px solid var(--border-color)',
-          position: 'relative',
+          borderRadius: 10,
+          fontSize: 13,
+          color: 'var(--text-secondary)',
+          lineHeight: 1.6,
         }}
       >
-        {phases.map((p, idx) =>
-          p.value > 0 ? (
-            <Tooltip
-              key={p.key}
-              title={`${p.label}: ${formatHarTime(p.value)} (${((p.value / denom) * 100).toFixed(1)}%)`}
-            >
-              <div
-                style={{
-                  position: 'absolute',
-                  left: `${phasePositions[idx].left}%`,
-                  width: `${phasePositions[idx].width}%`,
-                  height: '100%',
-                  background: p.color,
-                  cursor: 'pointer',
-                  minWidth: p.value > 0 ? 2 : 0,
-                }}
-              />
-            </Tooltip>
-          ) : null
+        {primary ? (
+          <>
+            主要耗时：
+            <strong style={{ color: 'var(--text-primary)' }}> {primary.row.label} {formatHarTime(primary.duration)}</strong>
+            ，约占总耗时 {primaryPercent}%。
+          </>
+        ) : (
+          '各阶段耗时较分散或 HAR 未记录阶段 timing，未发现单一阶段明显突出。'
         )}
       </div>
 
-      {unaccounted > 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          说明：仍有
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{formatHarTime(unaccounted)}</span>
-          {" "}耗时未在已记录阶段中拆分，图表按总耗时口径保留这部分空白。
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: 'var(--text-muted)' }}>
+        <span>Queueing <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(timings.blocked || 0) : '未记录'}</strong></span>
+        <span>Request started <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(requestStarted) : '未记录'}</strong></span>
+        <span>Total <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(total)}</strong></span>
+      </div>
+
+      {!hasRecordedTiming ? (
+        <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+          HAR 未记录可展示的 Timing 阶段。
+        </div>
+      ) : (
+        <div
+          style={{
+            overflowX: 'auto',
+            paddingBottom: 4,
+          }}
+        >
+          <div style={{ minWidth: 620 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '190px minmax(240px, 1fr) 90px',
+                gap: 12,
+                padding: '6px 0',
+                borderBottom: '1px solid var(--border-color)',
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              <span>Phase</span>
+              <span>Timeline</span>
+              <span style={{ textAlign: 'right' }}>Duration</span>
+            </div>
+
+            {groups.map(group => (
+              <div key={group.group}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700, margin: '14px 0 4px' }}>
+                  {group.group}
+                </div>
+                {group.rows.map(row => {
+                  const available = isTimingAvailable(row.key, timingAvailability);
+                  const duration = getRecordedDuration(row, timings, timingAvailability);
+                  const pos = positions.get(row.key) || { left: 0, width: 0 };
+                  const shouldMarker = duration > 0 && pos.width < 1;
+                  const width = shouldMarker ? 3 : `${pos.width}%`;
+                  return (
+                    <div
+                      key={row.key}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '190px minmax(240px, 1fr) 90px',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '7px 0',
+                        opacity: available ? 1 : 0.5,
+                      }}
+                    >
+                      <Tooltip title={row.help}>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          {row.label}
+                        </span>
+                      </Tooltip>
+                      <div
+                        style={{
+                          height: 16,
+                          background: 'var(--bg-base)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 8,
+                          position: 'relative',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {available && duration > 0 && (
+                          <Tooltip title={`${row.label}: ${formatHarTime(duration)} (${((duration / denom) * 100).toFixed(1)}%)`}>
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: `${pos.left}%`,
+                                width,
+                                height: '100%',
+                                background: row.color,
+                                borderRadius: 8,
+                                cursor: 'pointer',
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </div>
+                      <span
+                        style={{
+                          textAlign: 'right',
+                          fontSize: 13,
+                          color: available ? 'var(--text-primary)' : 'var(--text-muted)',
+                          fontFamily: available ? 'var(--font-mono)' : undefined,
+                          fontWeight: duration > 0 ? 600 : 400,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {available ? formatHarTime(duration) : '未记录'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-
-      {/* 阶段明细表格（浏览器 Network 风格） */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-        {/* 表头 */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            padding: '6px 0',
-            borderBottom: '1px solid var(--border-color)',
-            fontSize: 11,
-            color: 'var(--text-muted)',
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-          }}
-        >
-          <span style={{ flex: 1 }}>阶段</span>
-          <span style={{ width: 60, textAlign: 'right' }}>占比</span>
-          <span style={{ width: 80, textAlign: 'right' }}>耗时</span>
+      {unaccounted > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          说明：仍有
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}> {formatHarTime(unaccounted)} </span>
+          耗时未在已记录阶段中拆分，图表按总耗时口径保留空白。
         </div>
+      )}
 
-        {phases.map((p, idx) => (
-          <div
-            key={p.key}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '10px 0',
-              borderBottom: '1px solid var(--border-color)',
-              opacity: p.value > 0 ? 1 : 0.4,
-            }}
-          >
-            {/* 阶段名 + 颜色块 + 迷你瀑布条 */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  background: p.color,
-                  flexShrink: 0,
-                  display: 'inline-block',
-                }}
-              />
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                {p.label}
-              </span>
-              {/* 迷你瀑布条 */}
-              <div
-                style={{
-                  flex: 1,
-                  height: 6,
-                  background: 'var(--bg-base)',
-                  borderRadius: 3,
-                  marginLeft: 8,
-                  overflow: 'hidden',
-                  minWidth: 40,
-                }}
-              >
-                <div
-                  style={{
-                    width: `${(p.value / denom) * 100}%`,
-                    height: '100%',
-                    background: p.color,
-                    borderRadius: 3,
-                    minWidth: p.value > 0 ? 2 : 0,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* 占比 */}
-            <span
-              style={{
-                width: 60,
-                textAlign: 'right',
-                fontSize: 12,
-                color: 'var(--text-muted)',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              {p.value > 0 ? ((p.value / denom) * 100).toFixed(0) + '%' : '-'}
-            </span>
-
-            {/* 耗时 */}
-            <span
-              style={{
-                width: 80,
-                textAlign: 'right',
-                fontSize: 13,
-                color: 'var(--text-primary)',
-                fontFamily: 'var(--font-mono)',
-                fontWeight: 600,
-              }}
-            >
-              {formatHarTime(p.value)}
-            </span>
-          </div>
-        ))}
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        如果响应头包含 Server-Timing，下方 Server-Timing 区域可辅助后端定位服务端内部耗时；它不会和浏览器侧 Timing 合并到同一张图。
       </div>
     </div>
   );

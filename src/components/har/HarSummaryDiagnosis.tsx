@@ -19,7 +19,7 @@ import {
   QuestionCircleOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
-import { HarAnalysisResult, formatBytes, formatHarTime, categoryStyle, statusStyle } from '../../harParser';
+import { HarAnalysisResult, HarRequestEntry, HarTimingPhaseKey, formatBytes, formatHarTime, categoryStyle, statusStyle } from '../../harParser';
 import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus, type DiagnosisStatus } from '../../harDiagnosis';
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
@@ -28,6 +28,7 @@ import { extractDnsIpEvidenceFromHar } from '../../diagnosis/ipEvidence';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel, { FinalDiagnosisReferencePanel } from '../shared/FinalDiagnosisPanel';
 import DnsAndIpEvidencePanel from '../shared/DnsAndIpEvidencePanel';
+import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
 
 interface HarSummaryDiagnosisProps {
   result: HarAnalysisResult;
@@ -71,6 +72,110 @@ function attributionColor(type: string): string {
     case 'dns': return '#22d3ee';
     default: return '#8892a4';
   }
+}
+
+const FAILURE_KIND_LABELS: Partial<Record<HarRequestIssue['kind'], string>> = {
+  'net-error': '网络错误',
+  blocked: '浏览器或安全策略阻止',
+  'server-error': '服务端错误',
+  auth: '鉴权或权限问题',
+  'http-error': 'HTTP 请求错误',
+  cors: 'CORS / 预检疑似失败',
+  'status-zero': '浏览器未拿到 HTTP 响应',
+  'unknown-failure': '未知失败',
+};
+
+const PHASE_LABELS: Record<HarTimingPhaseKey, string> = {
+  blocked: 'Queueing',
+  dns: 'DNS',
+  connect: 'TCP 建连',
+  ssl: 'TLS',
+  send: '请求发送',
+  wait: 'TTFB',
+  receive: '下载',
+};
+
+interface MustSeeInsight {
+  title: string;
+  value: string;
+  detail: string;
+  color: string;
+}
+
+function shortRequestName(entry: HarRequestEntry): string {
+  try {
+    const url = new URL(entry.url);
+    const path = url.pathname && url.pathname !== '/' ? url.pathname.split('/').filter(Boolean).slice(-1)[0] || url.pathname : '/';
+    return `${url.hostname}${path === '/' ? '/' : `/${path}`}`;
+  } catch {
+    return `${entry.domain}/${(entry.name || '').split('?')[0]}`.replace(/\/+$/, '/');
+  }
+}
+
+function buildMustSeeInsights(entries: HarRequestEntry[]): MustSeeInsight[] {
+  const issueItems = entries.map(entry => ({ entry, issue: getHarRequestIssue(entry) }));
+
+  const slowByPhase = new Map<HarTimingPhaseKey, { count: number; maxMs: number; entry: HarRequestEntry }>();
+  issueItems.forEach(({ entry, issue }) => {
+    if (issue.kind !== 'slow' || !issue.phase) return;
+    const current = slowByPhase.get(issue.phase);
+    const duration = issue.durationMs || 0;
+    if (!current) {
+      slowByPhase.set(issue.phase, { count: 1, maxMs: duration, entry });
+      return;
+    }
+    current.count++;
+    if (duration > current.maxMs) {
+      current.maxMs = duration;
+      current.entry = entry;
+    }
+  });
+
+  const primarySlow = Array.from(slowByPhase.entries())
+    .sort((a, b) => b[1].count - a[1].count || b[1].maxMs - a[1].maxMs)[0];
+
+  const failureByKind = new Map<HarRequestIssue['kind'], number>();
+  issueItems.forEach(({ issue }) => {
+    if (!FAILURE_KIND_LABELS[issue.kind]) return;
+    failureByKind.set(issue.kind, (failureByKind.get(issue.kind) || 0) + 1);
+  });
+
+  const failureText = Array.from(failureByKind.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([kind, count]) => `${count} 个${FAILURE_KIND_LABELS[kind]}`)
+    .join('，');
+
+  return [
+    primarySlow ? {
+      title: '最主要慢因',
+      value: `${primarySlow[1].count} 个请求集中在 ${PHASE_LABELS[primarySlow[0]]}`,
+      detail: `最慢 ${formatHarTime(primarySlow[1].maxMs)}，代表请求 ${shortRequestName(primarySlow[1].entry)}。`,
+      color: '#f59e0b',
+    } : {
+      title: '最主要慢因',
+      value: '未发现集中慢因',
+      detail: '当前 HAR 未显示某个 timing 阶段集中超阈值。',
+      color: '#15803d',
+    },
+    failureText ? {
+      title: '失败请求原因',
+      value: failureText,
+      detail: '按请求级主问题类型聚合，未在摘要层重新判断状态码或 timing。',
+      color: '#ef4444',
+    } : {
+      title: '失败请求原因',
+      value: '未发现失败请求',
+      detail: '当前 HAR 未显示明确的失败请求现象。',
+      color: '#15803d',
+    },
+    {
+      title: '需要补充证据',
+      value: 'HAR 说明请求现象',
+      detail: '若要确认 DNS、TLS、代理或系统网络栈原因，请补充 NetLog。',
+      color: '#0ea5e9',
+    },
+  ];
 }
 
 // ========== 子组件 ==========
@@ -247,6 +352,7 @@ function useTopRequestColumns(): ColumnsType<TopRequest> {
 const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => {
   const diag = useMemo(() => diagnoseHar(result), [result]);
   const topColumns = useTopRequestColumns();
+  const mustSeeInsights = useMemo(() => buildMustSeeInsights(result.entries), [result.entries]);
   const [expandedAttributions, setExpandedAttributions] = useState<string[]>([]);
 
   // 为 HealthAssessmentCard 构造数据
@@ -290,6 +396,33 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      <Card
+        style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
+        styles={{ body: { padding: '16px 20px' } }}
+      >
+        <SectionTitle icon={<ThunderboltOutlined />} title="三个必看结论" />
+        <Row gutter={[12, 12]}>
+          {mustSeeInsights.map(item => (
+            <Col key={item.title} xs={24} md={8}>
+              <div
+                style={{
+                  height: '100%',
+                  padding: '14px 16px',
+                  background: 'var(--bg-surface)',
+                  border: `1px solid ${item.color}30`,
+                  borderRadius: 10,
+                  borderLeft: `3px solid ${item.color}`,
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{item.title}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>{item.value}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: 8 }}>{item.detail}</div>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      </Card>
 
       {/* 最终诊断收敛层 */}
       <FinalDiagnosisPanel

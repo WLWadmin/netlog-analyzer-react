@@ -9,6 +9,7 @@ import {
 } from '../../harParser';
 import CopyText from './CopyText';
 import HarTimingChart from './HarTimingChart';
+import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
 
 interface HarRequestDetailProps {
   entry: HarRequestEntry;
@@ -132,8 +133,25 @@ const JsonTree: React.FC<{ data: any; depth?: number }> = ({ data, depth = 0 }) 
 const PRIORITY_HEADERS = ['server-timing', 'x-response-cinfo', 'x-response-sinfo', 'x-tt-logid', 'server'];
 const COPYABLE_PRIORITY_HEADERS = ['x-response-cinfo', 'x-response-sinfo', 'x-tt-logid'];
 
+const ROLE_HINT_LABELS: Record<NonNullable<HarRequestIssue['roleHint']>, string> = {
+  user: '用户先看',
+  it: 'IT / 网络管理员先看',
+  frontend: '前端先看',
+  backend: '后端先看',
+};
+
+function issueTagColor(severity: HarRequestIssue['severity']): string {
+  switch (severity) {
+    case 'critical': return '#b91c1c';
+    case 'warning': return '#c2410c';
+    case 'info': return '#0e7490';
+    case 'normal': return '#15803d';
+  }
+}
+
 const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
   const decoded = useMemo(() => decodeResponseBody(entry), [entry]);
+  const issue = useMemo(() => getHarRequestIssue(entry), [entry]);
 
   const { priorityHeaders, otherResponseHeaders } = useMemo(() => {
     const priority: { name: string; value: string }[] = [];
@@ -178,6 +196,39 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
             {entry.status === 0 ? '失败/未完成' : entry.status} {entry.statusText}
           </Tag>
         </GeneralRow>
+        <GeneralRow label="主问题">
+          <Tag
+            style={{
+              color: issueTagColor(issue.severity),
+              background: 'var(--bg-surface)',
+              border: `1px solid ${issueTagColor(issue.severity)}40`,
+              fontWeight: 700,
+            }}
+          >
+            {issue.label}
+          </Tag>
+        </GeneralRow>
+        {issue.kind !== 'normal' && (
+          <GeneralRow label="失败原因">
+            <span style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              {issue.kind === 'status-zero'
+                ? '浏览器没有拿到 HTTP 响应，不是服务端返回了 0。'
+                : issue.kind === 'net-error' && entry.netErrorText
+                  ? `${entry.netErrorText}：${issue.detail}`
+                  : issue.kind === 'blocked' && entry.blockedReason
+                    ? `浏览器或安全策略记录了阻止原因：${entry.blockedReason}。`
+                    : issue.detail}
+            </span>
+          </GeneralRow>
+        )}
+        {issue.kind !== 'normal' && (
+          <GeneralRow label="处理建议">
+            <span style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              {issue.roleHint ? `${ROLE_HINT_LABELS[issue.roleHint]}：` : ''}
+              {issue.detail}
+            </span>
+          </GeneralRow>
+        )}
         <GeneralRow label="Remote Address">
           <CopyText text={entry.remoteAddress} label="Remote Address" />
         </GeneralRow>
@@ -310,7 +361,26 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
   );
 
   // Timing Tab
-  const timingTab = <HarTimingChart timings={entry.timings} total={entry.time} />;
+  const timingTab = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {entry.isFailed && (
+        <div
+          style={{
+            padding: '10px 12px',
+            background: 'rgba(251, 146, 60, 0.08)',
+            border: '1px solid rgba(251, 146, 60, 0.25)',
+            borderRadius: 8,
+            fontSize: 13,
+            color: 'var(--text-secondary)',
+            lineHeight: 1.6,
+          }}
+        >
+          该请求未拿到完整 HTTP 响应，Timing 只能说明失败前浏览器记录到的阶段耗时。若要确认 DNS、TLS、代理或系统网络栈原因，建议补充 NetLog。
+        </div>
+      )}
+      <HarTimingChart timings={entry.timings} total={entry.time} timingAvailability={entry.timingAvailability} />
+    </div>
+  );
 
   // Payload Tab
   const payloadTab = (
@@ -451,6 +521,25 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>未发现 Server-Timing 响应头</div>
         )}
       </div>
+      {issue.roleHint && issue.kind !== 'normal' && (
+        <div>
+          {sectionTitle('排查转交建议')}
+          <div
+            style={{
+              padding: '10px 12px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+              fontSize: 13,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+            }}
+          >
+            <strong style={{ color: 'var(--text-primary)' }}>{ROLE_HINT_LABELS[issue.roleHint]}</strong>
+            ：这是优先排查方向，不代表确定责任归属。{issue.detail}
+          </div>
+        </div>
+      )}
     </div>
   );
 

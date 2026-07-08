@@ -14,6 +14,15 @@ export interface HarTiming {
   receive: number;
 }
 
+export type HarTimingPhaseKey =
+  | 'blocked'
+  | 'dns'
+  | 'connect'
+  | 'ssl'
+  | 'send'
+  | 'wait'
+  | 'receive';
+
 export interface HarHeader {
   name: string;
   value: string;
@@ -58,6 +67,7 @@ export interface HarRequestEntry {
   startedDateTime: string;
   startMs: number;
   timings: HarTiming;
+  timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>;
   requestHeaders: HarHeader[];
   responseHeaders: HarHeader[];
   responseBody: string;
@@ -69,6 +79,13 @@ export interface HarRequestEntry {
   postData?: HarPostData;
   // 关键诊断字段
   serverTiming: HarServerTiming[];
+  failureText?: string;
+  netErrorText?: string;
+  netErrorCode?: number;
+  blockedReason?: string;
+  issueSummary?: string;
+  primaryTimingPhase?: HarTimingPhaseKey;
+  primaryTimingMs?: number;
   xTtLogid: string;
   xTtCip: string;
   xLscSourceIp: string;
@@ -221,6 +238,37 @@ function num(v: any): number {
   return isNaN(n) || n < 0 ? 0 : n;
 }
 
+function isAvailableTiming(v: any): boolean {
+  return typeof v === 'number' && v >= 0;
+}
+
+function firstNonEmptyString(values: any[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function firstFiniteNumber(values: any[]): number | undefined {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n < 0) return n;
+  }
+  return undefined;
+}
+
+function extractNetErrorText(text?: string): string | undefined {
+  if (!text) return undefined;
+  const match = text.match(/\b(?:net::)?ERR_[A-Z0-9_]+\b/);
+  return match ? match[0] : undefined;
+}
+
+function extractNetErrorCode(text?: string): number | undefined {
+  if (!text) return undefined;
+  const match = text.match(/\b(?:net_error|code)\s*[:=]\s*(-\d+)\b/i);
+  return match ? Number(match[1]) : undefined;
+}
+
 function shouldKeepResponseBody(rawBody: string, mimeType: string, status: number, options: HarParseOptions): boolean {
   if (!rawBody) return true;
   if (!options.optimizeResponseBodies) return true;
@@ -270,6 +318,28 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const keepResponseBody = shouldKeepResponseBody(rawResponseBody, mimeType, status, options);
 
   const serverTiming = parseServerTiming(getHeader(responseHeaders, 'server-timing'));
+  const failureText = firstNonEmptyString([
+    entry._error,
+    entry.error,
+    entry.errorText,
+    resp._error,
+    resp.error,
+    status === 0 || status >= 400 ? resp.statusText : '',
+  ]);
+  const netErrorText = extractNetErrorText(failureText);
+  const netErrorCode = firstFiniteNumber([
+    entry._netError,
+    entry.netError,
+    resp._netError,
+    resp.netError,
+    extractNetErrorCode(failureText),
+  ]);
+  const blockedReason = firstNonEmptyString([
+    entry._blockedReason,
+    entry.blockedReason,
+    resp._blockedReason,
+    resp.blockedReason,
+  ]);
   const xTtLogid = getHeader(responseHeaders, 'x-tt-logid') || getHeader(requestHeaders, 'x-tt-logid');
   const xTtCip = getHeader(responseHeaders, 'x-tt-cip') || getHeader(requestHeaders, 'x-tt-cip');
   const xLscSourceIp = getHeader(responseHeaders, 'x-lsc-source-ip') || getHeader(requestHeaders, 'x-lsc-source-ip');
@@ -320,6 +390,15 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
       wait: num(t.wait),
       receive: num(t.receive),
     },
+    timingAvailability: {
+      blocked: isAvailableTiming(t.blocked),
+      dns: isAvailableTiming(t.dns),
+      connect: isAvailableTiming(t.connect),
+      ssl: isAvailableTiming(t.ssl),
+      send: isAvailableTiming(t.send),
+      wait: isAvailableTiming(t.wait),
+      receive: isAvailableTiming(t.receive),
+    },
     requestHeaders,
     responseHeaders,
     responseBody: keepResponseBody ? rawResponseBody : '',
@@ -332,6 +411,10 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     queryString,
     postData,
     serverTiming,
+    failureText,
+    netErrorText,
+    netErrorCode,
+    blockedReason,
     xTtLogid,
     xTtCip,
     xLscSourceIp,
