@@ -213,7 +213,7 @@ export const IssueAlert: React.FC<IssueAlertProps> = ({
             >
               <Panel
                 header={
-                  <span style={{ color: '#9ca3af', fontSize: 13 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                     点击查看 {item.count} 条详情
                   </span>
                 }

@@ -27,6 +27,7 @@ interface LegacyDiagnosisData {
 }
 
 const DIAGNOSIS_TIMING_DEBUG_KEY = 'diagnosis_debug_timing';
+const EXPERT_DIAGNOSIS_EXPANDED_KEY = 'netlog_expert_diagnosis_expanded';
 
 function isDiagnosisTimingDebugEnabled(): boolean {
   try {
@@ -76,7 +77,13 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
   const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | undefined>();
   const [legacyData, setLegacyData] = useState<LegacyDiagnosisData | undefined>();
   const [diagnosisLoading, setDiagnosisLoading] = useState(true);
-  const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(false);
+  const [showExpertDiagnosis, setShowExpertDiagnosis] = useState(() => {
+    try {
+      return window.localStorage.getItem(EXPERT_DIAGNOSIS_EXPANDED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const expertDiagnosisRef = useRef<HTMLDivElement | null>(null);
 
   const INITIAL_SHOW = 10;
@@ -159,6 +166,11 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
   const dnsIpEvidence = useMemo(() => extractDnsIpEvidenceFromNetlog(result), [result]);
   const showAndScrollExpertDiagnosis = () => {
     setShowExpertDiagnosis(true);
+    try {
+      window.localStorage.setItem(EXPERT_DIAGNOSIS_EXPANDED_KEY, '1');
+    } catch {
+      // localStorage 不可用时只影响记忆状态，不影响诊断展示。
+    }
     window.setTimeout(() => {
       expertDiagnosisRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 80);
@@ -210,7 +222,15 @@ const DiagnosisTab: React.FC<DiagnosisTabProps> = ({
         <div ref={expertDiagnosisRef}>
           <Collapse
             activeKey={showExpertDiagnosis ? ['expert-diagnosis'] : []}
-            onChange={keys => setShowExpertDiagnosis((keys as string[]).includes('expert-diagnosis'))}
+            onChange={keys => {
+              const expanded = (keys as string[]).includes('expert-diagnosis');
+              setShowExpertDiagnosis(expanded);
+              try {
+                window.localStorage.setItem(EXPERT_DIAGNOSIS_EXPANDED_KEY, expanded ? '1' : '0');
+              } catch {
+                // localStorage 不可用时只影响记忆状态，不影响诊断展示。
+              }
+            }}
             style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)', borderRadius: 12, marginBottom: 16 }}
           >
             <Collapse.Panel header={`完整诊断报告（共 ${diagnosisSummary.cards.length} 项）`} key="expert-diagnosis">

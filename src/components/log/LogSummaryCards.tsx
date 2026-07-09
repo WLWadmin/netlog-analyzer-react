@@ -153,7 +153,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
           color: var(--card-value-color);
           line-height: 1.2;
           font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-          letter-spacing: -0.5px;
+          letter-spacing: 0;
         }
         @media (max-width: 768px) {
           .log-summary-cards {

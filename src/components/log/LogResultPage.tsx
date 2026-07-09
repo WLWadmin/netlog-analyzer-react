@@ -25,7 +25,8 @@ interface LogResultPageProps {
 
 const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveTab, setInternalActiveTab] = useState('overview');
-  const activeTab = externalActiveTab || internalActiveTab;
+  const validTabs = ['overview', 'flows', 'performance', 'raw'];
+  const activeTab = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveTab;
   const [filterErrorOnly, setFilterErrorOnly] = useState(false);
 
   const { insight, stats, groups, entries } = result;

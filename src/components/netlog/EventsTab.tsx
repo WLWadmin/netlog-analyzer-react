@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Select, Tooltip, Button, Modal, Spin, message, Timeline, Alert, Pagination } from 'antd';
-import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
+import { SearchOutlined, FilterOutlined, BugOutlined, UnorderedListOutlined, ClockCircleOutlined, FieldTimeOutlined, CloseOutlined } from '@ant-design/icons';
 import { ParsedEvent } from '../../parsers/netlog/parser';
 import { buildEventIndex, queryIndex, IndexedEvent } from '../../parsers/shared/evidenceIndex';
 import { MAX_TIMELINE_GROUPS, MAX_TIMELINE_EVENTS_PER_GROUP, SEARCH_DEBOUNCE_MS, FILTER_SPINNER_DELAY_MS } from '../../constants/analysisThresholds';
@@ -139,13 +139,14 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
   const paramFields = useMemo(() => ['', ...eventIndex.paramFields], [eventIndex]);
 
   const filtered = useMemo(() => {
+    const isSourceIdMode = !!sourceIdFilter.trim();
     const normalizedSearch = debouncedSearch.toLowerCase();
     return queryIndex(eventIndex, {
       sourceId: sourceIdFilter || undefined,
-      sourceType: sourceFilter || undefined,
-      phase: phaseFilter || undefined,
-      paramField: paramFieldFilter || undefined,
-      search: normalizedSearch || undefined,
+      sourceType: isSourceIdMode ? undefined : sourceFilter || undefined,
+      phase: isSourceIdMode ? undefined : phaseFilter || undefined,
+      paramField: isSourceIdMode ? undefined : paramFieldFilter || undefined,
+      search: isSourceIdMode ? undefined : normalizedSearch || undefined,
     });
   }, [eventIndex, debouncedSearch, phaseFilter, sourceFilter, sourceIdFilter, paramFieldFilter]);
 
@@ -178,6 +179,28 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
   const filterByError = () => {
     setSearch('net_error');
     setDebouncedSearch('net_error');
+  };
+
+  const isSourceIdMode = !!sourceIdFilter.trim();
+  const activeFilterCount = isSourceIdMode
+    ? 1
+    : [
+      !!debouncedSearch.trim(),
+      !!phaseFilter,
+      !!sourceFilter,
+      !!paramFieldFilter,
+    ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
+
+  const resetFilters = () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    setSearch('');
+    setDebouncedSearch('');
+    setSourceIdFilter('');
+    setSourceFilter('');
+    setPhaseFilter('');
+    setParamFieldFilter('');
+    setPagination(prev => ({ ...prev, current: 1 }));
   };
 
   const handleCopyModalContent = async () => {
@@ -380,6 +403,11 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
             来源ID: {sourceIdFilter} ({filtered.length} 条)
           </Tag>
         )}
+        {isSourceIdMode && (
+          <Button size="small" icon={<CloseOutlined />} onClick={resetFilters}>
+            清空筛选
+          </Button>
+        )}
       </div>
 
       {/* General Search & Filters */}
@@ -437,6 +465,16 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
         >
           只看错误
         </Button>
+        {!isSourceIdMode && hasActiveFilters && (
+          <>
+            <Tag color="blue" style={{ margin: 0, fontSize: 12 }}>
+              已启用 {activeFilterCount} 个筛选
+            </Tag>
+            <Button size="small" icon={<CloseOutlined />} onClick={resetFilters}>
+              清空筛选
+            </Button>
+          </>
+        )}
       </div>
 
       <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -446,31 +484,39 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
       {/* View Mode Toggle */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>视图模式:</span>
-        <Tag
-          color={viewMode === 'list' ? 'blue' : 'default'}
-          style={{ cursor: 'pointer', fontSize: 12 }}
+        <Button
+          size="small"
+          type={viewMode === 'list' ? 'primary' : 'default'}
+          icon={<UnorderedListOutlined />}
+          className="compact-filter-button"
+          aria-pressed={viewMode === 'list'}
           onClick={() => setViewMode('list')}
         >
-          <UnorderedListOutlined /> 列表
-        </Tag>
-        <Tag
-          color={viewMode === 'timeline' ? 'blue' : 'default'}
-          style={{ cursor: 'pointer', fontSize: 12 }}
+          列表
+        </Button>
+        <Button
+          size="small"
+          type={viewMode === 'timeline' ? 'primary' : 'default'}
+          icon={<ClockCircleOutlined />}
+          className="compact-filter-button"
+          aria-pressed={viewMode === 'timeline'}
           onClick={() => setViewMode('timeline')}
         >
-          <ClockCircleOutlined /> 时间线
-        </Tag>
+          时间线
+        </Button>
       </div>
 
       {/* Quick event type tags */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>快速筛选事件大类:</span>
         {mainEventTypes.map(type => (
-          <Tag
+          <Button
             key={type}
-            color={search === type ? 'blue' : 'default'}
+            size="small"
+            type={search === type ? 'primary' : 'default'}
             className="event-filter-tag"
-            style={{ cursor: 'pointer', fontSize: 12 }}
+            disabled={!!sourceIdFilter}
+            aria-pressed={search === type}
             onClick={() => {
               if (sourceIdFilter) return;
               const next = search === type ? '' : type;
@@ -479,7 +525,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
             }}
           >
             {type}
-          </Tag>
+          </Button>
         ))}
       </div>
 

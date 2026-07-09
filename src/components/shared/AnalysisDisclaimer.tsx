@@ -19,7 +19,7 @@ const DEFAULT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const AnalysisDisclaimer: React.FC<AnalysisDisclaimerProps> = ({
-  title = '郑重说明',
+  title = '分析边界',
   description,
   variant = 'netlog',
 }) => {
@@ -43,7 +43,7 @@ export const AnalysisDisclaimer: React.FC<AnalysisDisclaimerProps> = ({
       style={{
         background: 'rgba(251, 191, 36, 0.06)',
         border: '1px solid rgba(251, 191, 36, 0.2)',
-        borderRadius: 12,
+        borderRadius: 10,
         marginBottom: 16,
       }}
     />

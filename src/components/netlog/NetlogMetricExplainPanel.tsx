@@ -29,6 +29,7 @@ const MetricExplainItem: React.FC<{ title: string; value: string; detail: string
   const color = tone === 'danger' ? '#dc2626' : tone === 'warning' ? '#d97706' : tone === 'success' ? '#059669' : '#0284c7';
   return (
     <div
+      className="netlog-metric-explain-item"
       style={{
         position: 'relative',
         overflow: 'hidden',
@@ -89,6 +90,7 @@ const NetlogMetricExplainPanel: React.FC<NetlogMetricExplainPanelProps> = ({ res
 
   return (
     <Card
+      className="netlog-metric-explain-panel"
       title={<span style={{ fontWeight: 850 }}>核心指标解释</span>}
       style={{
         background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.82))',

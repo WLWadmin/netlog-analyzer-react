@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, Table, Tag, Input, Tooltip as AntTooltip, Modal, Descriptions, Select, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined } from '@ant-design/icons';
+import { SearchOutlined, ClockCircleOutlined, SwapOutlined, FilterOutlined, CloseOutlined } from '@ant-design/icons';
 import { AnalysisResult, URLRequest, formatDuration, truncateUrl } from '../../parsers/netlog/parser';
 import { SLOW_REQUEST_MS, NETLOG_WATERFALL_INITIAL_COUNT, NETLOG_WATERFALL_LOAD_STEP } from '../../constants/analysisThresholds';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
@@ -207,6 +207,34 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     return { min, max: Math.max(max, min + 1) };
   }, [filteredRequests]);
 
+  const hasActiveFilters = !!searchKeyword.trim()
+    || statusFilter !== 'all'
+    || hostFilter !== 'all'
+    || errorCodeFilter !== 'all'
+    || protocolFilter !== 'all'
+    || slowOnly;
+
+  const activeFilterCount = [
+    !!searchKeyword.trim(),
+    statusFilter !== 'all',
+    hostFilter !== 'all',
+    errorCodeFilter !== 'all',
+    protocolFilter !== 'all',
+    slowOnly,
+  ].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setSearchKeyword('');
+    setStatusFilter('all');
+    setHostFilter('all');
+    setErrorCodeFilter('all');
+    setProtocolFilter('all');
+    setSlowOnly(false);
+    setSelectedIndex(null);
+    setDetailReq(null);
+    setHighlightIds(new Set());
+  };
+
   // 列表列定义
   const columns: ColumnsType<URLRequest> = [
     {
@@ -234,9 +262,9 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       title: '方法',
       dataIndex: 'method',
       key: 'method',
-      width: 70,
+      width: 86,
       render: (m: string) => (
-        <Tag color="blue" style={{ fontSize: 11, fontWeight: 600, border: 'none' }}>
+        <Tag color="blue" className="netlog-request-method-tag" style={{ fontSize: 11, fontWeight: 600, border: 'none' }}>
           {m || 'GET'}
         </Tag>
       ),
@@ -245,9 +273,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 86,
       render: (s: string, r: URLRequest) => (
-        <StatusTag status={s as any} statusCode={r.statusCode}>{s === 'error' || r.error ? '失败' : r.statusCode || 'OK'}</StatusTag>
+        <StatusTag status={s as any} statusCode={r.statusCode} className="netlog-request-status-tag">
+          {s === 'error' || r.error ? '失败' : r.statusCode || 'OK'}
+        </StatusTag>
       ),
     },
     {
@@ -505,7 +535,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       <Card
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-            <span>请求列表（共 {filteredRequests.length} 条{searchKeyword || statusFilter !== 'all' || hostFilter !== 'all' || errorCodeFilter !== 'all' || protocolFilter !== 'all' || slowOnly ? ` / 总计 ${sortedRequests.length} 条` : ''}，按开始时间排序）</span>
+            <span>请求列表（共 {filteredRequests.length} 条{hasActiveFilters ? ` / 总计 ${sortedRequests.length} 条` : ''}，按开始时间排序）</span>
             <Input
               allowClear
               placeholder="搜索 URL、方法、状态码、错误..."
@@ -559,27 +589,24 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
               label: p === 'all' ? '全部协议' : p,
             }))}
           />
-          <Tag
-            color={slowOnly ? 'warning' : 'default'}
-            style={{ cursor: 'pointer', fontSize: 12, margin: 0 }}
+          <Button
+            size="small"
+            type={slowOnly ? 'primary' : 'default'}
+            className="compact-filter-button"
+            aria-pressed={slowOnly}
             onClick={() => setSlowOnly(!slowOnly)}
           >
             {slowOnly ? '仅慢请求 ✓' : '仅慢请求'}
-          </Tag>
-          {(statusFilter !== 'all' || hostFilter !== 'all' || errorCodeFilter !== 'all' || protocolFilter !== 'all' || slowOnly) && (
-            <Tag
-              color="blue"
-              style={{ cursor: 'pointer', fontSize: 12, margin: 0 }}
-              onClick={() => {
-                setStatusFilter('all');
-                setHostFilter('all');
-                setErrorCodeFilter('all');
-                setProtocolFilter('all');
-                setSlowOnly(false);
-              }}
-            >
-              重置筛选
+          </Button>
+          {hasActiveFilters && (
+            <Tag color="blue" style={{ fontSize: 12, margin: 0 }}>
+              已启用 {activeFilterCount} 个筛选
             </Tag>
+          )}
+          {hasActiveFilters && (
+            <Button size="small" icon={<CloseOutlined />} onClick={resetFilters}>
+              清空筛选
+            </Button>
           )}
         </div>
         <Table<URLRequest>

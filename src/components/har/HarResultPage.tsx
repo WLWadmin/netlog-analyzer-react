@@ -21,7 +21,8 @@ interface HarResultPageProps {
 // HAR 解析结果整体页面：请求详情优先，现象摘要仅描述请求层表现。
 const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveKey, setInternalActiveKey] = useState('requests');
-  const activeKey = externalActiveTab || internalActiveKey;
+  const validTabs = ['requests', 'summary', 'raw-evidence'];
+  const activeKey = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 

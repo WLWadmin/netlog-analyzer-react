@@ -53,7 +53,7 @@ const kindConfig: Record<FinalConclusionKind, { label: string; color: string; bg
   },
   'needs-more-data': {
     label: '需要补充采集',
-    color: '#6b7280',
+    color: 'var(--text-secondary)',
     bg: 'rgba(107, 114, 128, 0.08)',
     icon: <WarningOutlined />,
   },
@@ -157,6 +157,7 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
 
   return (
     <Card
+      className="final-diagnosis-panel"
       style={{
         position: 'relative',
         overflow: 'hidden',
@@ -186,7 +187,7 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
               {statusText(finalSummary.status)}
             </Tag>
           </div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.28, letterSpacing: -0.45 }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.28, letterSpacing: 0 }}>
             {title || '最终诊断摘要'}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 760, lineHeight: 1.7 }}>
@@ -305,6 +306,7 @@ const ConclusionCard: React.FC<{
   const config = kindConfig[conclusion.kind];
   return (
     <div
+      className="final-diagnosis-conclusion-card"
       style={{
         border: `1px solid ${config.color}33`,
         background: config.bg,
@@ -320,10 +322,10 @@ const ConclusionCard: React.FC<{
               <Tag style={{ border: 'none', background: `${config.color}18`, color: config.color, fontWeight: 700 }}>
                 {config.label}
               </Tag>
-              <Tag style={{ border: 'none', background: 'rgba(255,255,255,0.55)', color: 'var(--text-secondary)' }}>
+              <Tag className="final-diagnosis-soft-tag" style={{ border: 'none', background: 'rgba(255,255,255,0.55)', color: 'var(--text-secondary)' }}>
                 {categoryLabelMap[conclusion.category] || conclusion.category}
               </Tag>
-              <Tag style={{ border: 'none', background: 'rgba(255,255,255,0.55)', color: 'var(--text-secondary)' }}>
+              <Tag className="final-diagnosis-soft-tag" style={{ border: 'none', background: 'rgba(255,255,255,0.55)', color: 'var(--text-secondary)' }}>
                 置信度 {conclusion.confidenceText}
               </Tag>
             </div>
@@ -338,6 +340,7 @@ const ConclusionCard: React.FC<{
             </div>
             {conclusion.primaryAction && (
               <div
+                className="final-diagnosis-primary-action"
                 style={{
                   marginTop: 10,
                   padding: '10px 12px',
@@ -389,7 +392,7 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
   if (groups.length === 0) return null;
 
   return (
-    <div style={{ border: '1px solid rgba(14,165,233,0.18)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,0.68)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+    <div className="final-diagnosis-action-panel" style={{ border: '1px solid rgba(14,165,233,0.18)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,0.68)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
       <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.14)', color: '#d97706' }}>
           <ThunderboltOutlined />
@@ -404,7 +407,7 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {group.actions.slice(0, 3).map((action, index) => (
-                <div key={action.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(248,250,252,0.78)', border: '1px solid rgba(148,163,184,0.16)' }}>
+                <div key={action.id} className="final-diagnosis-action-item" style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(248,250,252,0.78)', border: '1px solid rgba(148,163,184,0.16)' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{index + 1}. {action.title}：</strong>{action.detail}
                   {action.command && (
                     <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#0284c7', wordBreak: 'break-all' }}>
@@ -424,7 +427,7 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
 const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => {
   if (items.length === 0) {
     return (
-      <div style={{ border: '1px solid rgba(16,185,129,0.22)', borderRadius: 18, padding: 16, background: 'rgba(236,253,245,0.46)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+      <div className="final-diagnosis-ok-panel" style={{ border: '1px solid rgba(16,185,129,0.22)', borderRadius: 18, padding: 16, background: 'rgba(236,253,245,0.46)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
         <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.14)', color: '#059669' }}>
             <CheckCircleOutlined />
@@ -439,7 +442,7 @@ const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => 
   }
 
   return (
-    <div style={{ border: '1px solid rgba(245, 158, 11, 0.24)', borderRadius: 18, padding: 16, background: 'linear-gradient(180deg, rgba(255,251,235,0.76), rgba(255,247,237,0.58))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
+    <div className="final-diagnosis-missing-panel" style={{ border: '1px solid rgba(245, 158, 11, 0.24)', borderRadius: 18, padding: 16, background: 'linear-gradient(180deg, rgba(255,251,235,0.76), rgba(255,247,237,0.58))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
       <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.16)', color: '#d97706' }}>
           <ClockCircleOutlined />
@@ -448,7 +451,7 @@ const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => 
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {items.slice(0, 4).map((item, index) => (
-          <div key={item.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,0.62)', border: '1px solid rgba(245,158,11,0.14)' }}>
+          <div key={item.id} className="final-diagnosis-missing-item" style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,0.62)', border: '1px solid rgba(245,158,11,0.14)' }}>
             <strong style={{ color: 'var(--text-primary)' }}>{index + 1}. {item.title}：</strong>
             {item.reason}
             <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
@@ -456,6 +459,7 @@ const MissingInfoPanel: React.FC<{ items: MissingInfoItem[] }> = ({ items }) => 
             </div>
             {item.detailGroups && item.detailGroups.length > 0 && (
               <Collapse
+                className="final-diagnosis-detail-collapse"
                 ghost
                 bordered={false}
                 style={{ marginTop: 6, background: 'rgba(255,255,255,0.45)', borderRadius: 8 }}

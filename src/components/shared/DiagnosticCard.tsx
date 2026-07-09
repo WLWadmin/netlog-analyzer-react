@@ -118,7 +118,13 @@ const confidenceLabelMap = {
 const confidenceColorMap = {
   high: '#10b981',
   medium: '#f59e0b',
-  low: '#6b7280',
+  low: 'var(--text-secondary)',
+};
+
+const evidenceSourceClassMap = {
+  har: 'diagnostic-source-tag--har',
+  netlog: 'diagnostic-source-tag--netlog',
+  derived: 'diagnostic-source-tag--derived',
 };
 
 const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index }) => {
@@ -342,6 +348,7 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
                           {ev.label}
                           <Tag
+                            className={`diagnostic-source-tag ${evidenceSourceClassMap[ev.source] || 'diagnostic-source-tag--derived'}`}
                             style={{
                               marginLeft: 8,
                               fontSize: 10,
@@ -520,6 +527,7 @@ const CommandItem: React.FC<{ command: TroubleshootingCommand }> = ({ command })
           {command.title}
         </span>
         <Tag
+          className="diagnostic-platform-tag"
           style={{
             fontSize: 10,
             background: '#ede9fe',
@@ -553,7 +561,7 @@ const CommandItem: React.FC<{ command: TroubleshootingCommand }> = ({ command })
           type="text"
           icon={<CodeOutlined />}
           onClick={() => navigator.clipboard.writeText(command.command)}
-          style={{ color: '#94a3b8', flexShrink: 0 }}
+          style={{ color: '#cbd5e1', flexShrink: 0 }}
         >
           复制
         </Button>
@@ -639,7 +647,7 @@ const ActionItem: React.FC<{ action: DiagnosticAction; index: number }> = ({ act
               onClick={() => {
                 navigator.clipboard.writeText(action.command!);
               }}
-              style={{ color: '#94a3b8', flexShrink: 0 }}
+              style={{ color: '#cbd5e1', flexShrink: 0 }}
             >
               复制
             </Button>

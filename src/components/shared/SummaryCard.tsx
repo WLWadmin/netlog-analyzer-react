@@ -39,20 +39,33 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
   bgGradient,
   onClick,
 }) => {
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (!onClick) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <Card
+      className="summary-card"
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `${title}，查看相关详情` : undefined}
       style={{
         background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.86))',
         border: `1px solid ${onClick ? `${color}55` : 'rgba(148,163,184,0.24)'}`,
-        borderRadius: 18,
+        borderRadius: 14,
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
         boxShadow: '0 14px 34px rgba(15,23,42,0.06)',
       }}
       styles={{ body: { padding: 0 } }}
-      hoverable
+      hoverable={Boolean(onClick)}
     >
       <div style={{ padding: '16px 16px 15px', position: 'relative', minHeight: 126 }}>
         {/* 渐变背景 */}
@@ -66,10 +79,11 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             background: bgGradient,
             opacity: 0.62,
             pointerEvents: 'none',
-            borderRadius: 18,
+            borderRadius: 14,
           }}
         />
         <div
+          className="summary-card-highlight"
           style={{
             position: 'absolute',
             inset: 0,
@@ -89,10 +103,11 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
           }}
         >
           <span
+            className="summary-card-icon"
             style={{
               width: 32,
               height: 32,
-              borderRadius: 12,
+              borderRadius: 10,
               background: `linear-gradient(135deg, ${color}22, rgba(255,255,255,0.74))`,
               border: `1px solid ${color}35`,
               color,
@@ -111,8 +126,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
               fontSize: 11,
               color: 'var(--text-secondary)',
               fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
+              letterSpacing: 0,
               lineHeight: 1.3,
             }}
           >
@@ -129,7 +143,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
             position: 'relative',
             zIndex: 1,
             fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-            letterSpacing: -0.8,
+            letterSpacing: 0,
           }}
         >
           {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}

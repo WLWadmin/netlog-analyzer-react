@@ -111,7 +111,7 @@ const GeneralRow: React.FC<{ label: string; children: React.ReactNode }> = ({ la
 );
 
 const JsonTree: React.FC<{ data: any; depth?: number }> = ({ data, depth = 0 }) => {
-  if (data === null) return <span style={{ color: '#9ca3af' }}>null</span>;
+  if (data === null) return <span style={{ color: 'var(--text-muted)' }}>null</span>;
   if (typeof data !== 'object') return <span style={{ color: typeof data === 'string' ? '#34d399' : '#fbbf24' }}>{JSON.stringify(data)}</span>;
 
   const isArray = Array.isArray(data);

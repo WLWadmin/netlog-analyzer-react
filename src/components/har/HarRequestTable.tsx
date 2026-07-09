@@ -265,6 +265,24 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     return classes.join(' ');
   };
 
+  const hasActiveFilters = category !== 'all' || status !== 'all' || !!keyword.trim() || blockedDomains.length > 0;
+  const activeFilterCount = [
+    category !== 'all',
+    status !== 'all',
+    !!keyword.trim(),
+    blockedDomains.length > 0,
+  ].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setCat('all');
+    setStatus('all');
+    setKeyword('');
+    setBlockedInput('');
+    setBlockedDomains([]);
+    setSelected(null);
+    setHighlightIds(new Set());
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* 高亮样式注入 */}
@@ -285,10 +303,13 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           const isActive = category === c.key;
           const st = filterTagStyle(c.key);
           return (
-            <span
+            <button
               key={c.key}
+              type="button"
+              aria-pressed={isActive}
               onClick={() => setCat(c.key)}
               style={{
+                appearance: 'none',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -302,6 +323,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
                 border: `1.5px solid ${isActive ? st.color : 'var(--border-color)'}`,
                 transform: isActive ? 'scale(1.02)' : 'scale(1)',
                 transition: 'all 0.2s',
+                fontFamily: 'inherit',
               }}
             >
               {c.label}
@@ -318,7 +340,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
               >
                 {count}
               </span>
-            </span>
+            </button>
           );
         })}
       </div>
@@ -330,10 +352,13 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           {STATUS_FILTERS.map(f => {
             const isActive = status === f.key;
             return (
-              <span
+              <button
                 key={f.key}
+                type="button"
+                aria-pressed={isActive}
                 onClick={() => setStatus(f.key)}
                 style={{
+                  appearance: 'none',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -346,21 +371,22 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
                   border: `1.5px solid ${isActive ? f.color : 'var(--border-color)'}`,
                   transform: isActive ? 'scale(1.02)' : 'scale(1)',
                   transition: 'all 0.2s',
+                  fontFamily: 'inherit',
                 }}
               >
                 {f.label}
-              </span>
+              </button>
             );
           })}
         </div>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           共 {filtered.length} 条请求
-          {category !== 'all' || keyword || status !== 'all' ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
+          {hasActiveFilters ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
         </span>
       </div>
 
       {/* 第三行：搜索框独占一行 */}
-      <div style={{ display: 'flex', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input
           allowClear
           placeholder="按 URL 关键词过滤"
@@ -380,6 +406,16 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           }}
           style={{ flex: 1 }}
         />
+        {hasActiveFilters && (
+          <>
+            <Tag color="blue" style={{ margin: 0, fontSize: 12 }}>
+              已启用 {activeFilterCount} 个筛选
+            </Tag>
+            <Button size="small" icon={<CloseOutlined />} onClick={resetFilters}>
+              清空筛选
+            </Button>
+          </>
+        )}
       </div>
 
       {filtering && (

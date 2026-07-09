@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Tag, Progress } from 'antd';
+import { Alert, Card, Tag, Progress } from 'antd';
 import {
   PieChartOutlined,
   GlobalOutlined,
@@ -19,6 +19,13 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
 
   return (
     <div className="log-stats-charts">
+      <Alert
+        className="log-stats-note"
+        type="info"
+        showIcon
+        message="日志统计用于辅助阅读"
+        description="这些图表帮助快速找到 logid / request id、URL、状态码、耗时和错误关键词分布，不直接生成服务端根因结论。"
+      />
       {/* 错误类型分布 */}
       <Card
         title={
@@ -173,6 +180,9 @@ const LogStatsCharts: React.FC<LogStatsChartsProps> = ({ stats }) => {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 14px;
+        }
+        .log-stats-note {
+          grid-column: 1 / -1;
         }
         .log-chart-card {
           background: var(--bg-surface) !important;

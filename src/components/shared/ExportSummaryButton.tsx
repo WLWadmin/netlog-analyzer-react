@@ -78,7 +78,7 @@ const ExportSummaryButton: React.FC<ExportSummaryButtonProps> = ({ summary }) =>
           </Button>,
         ]}
       >
-        <div style={{ marginBottom: 12, fontSize: 12, color: '#6b7280' }}>
+        <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
           以下报告已自动脱敏：Cookie、Authorization、Token、URL 敏感参数、可能包含个人信息的 Header。
           分享前仍建议人工复核。
         </div>

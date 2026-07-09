@@ -1284,11 +1284,11 @@ const AppContent: React.FC = () => {
               setActiveSubTab(nextSubTab);
               window.location.hash = buildAppHash('netlog', nextTab, nextSubTab);
             }} />}
-            <AnalysisDisclaimer variant="netlog" />
             <NetlogWorkbenchNav activeKey={activeTab} onChange={handleNetlogTabChange} />
             <div className="netlog-workbench-content">
               {activeNetlogContent}
             </div>
+            <AnalysisDisclaimer variant="netlog" title="分析边界" />
           </div>
         )}
       </Content>

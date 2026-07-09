@@ -65,17 +65,18 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
         style={{
           position: 'relative',
           overflow: 'hidden',
-          borderRadius: 28,
+          borderRadius: 18,
           border: '1px solid rgba(37,99,235,0.18)',
-          background: 'linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,64,175,0.88) 58%, rgba(14,165,233,0.72))',
-          boxShadow: '0 28px 70px rgba(15,23,42,0.24)',
+          background: 'linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,64,175,0.90) 58%, rgba(14,165,233,0.74))',
+          boxShadow: '0 18px 48px rgba(15,23,42,0.18)',
         }}
       >
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(circle at 18% 10%, rgba(56,189,248,0.36), transparent 28%), radial-gradient(circle at 78% 18%, rgba(255,255,255,0.20), transparent 24%)',
+            background: 'radial-gradient(circle at 18% 10%, rgba(56,189,248,0.28), transparent 28%), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(0deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
+            backgroundSize: 'auto, 32px 32px, 32px 32px',
             pointerEvents: 'none',
           }}
         />
@@ -84,14 +85,14 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
             position: 'absolute',
             right: -120,
             top: -120,
-            width: 320,
-            height: 320,
+            width: 260,
+            height: 260,
             borderRadius: '50%',
             border: '1px solid rgba(255,255,255,0.22)',
             pointerEvents: 'none',
           }}
         />
-        <div style={{ position: 'relative', padding: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
+        <div style={{ position: 'relative', padding: 22, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
             <Space size={8} wrap>
               <Tag style={{ border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.13)', color: '#e0f2fe', fontWeight: 800, margin: 0 }}>
@@ -102,7 +103,7 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
               </Tag>
             </Space>
             <div>
-              <Typography.Title level={2} style={{ margin: 0, color: '#fff', letterSpacing: -0.8, lineHeight: 1.16 }}>
+              <Typography.Title level={2} style={{ margin: 0, color: '#fff', letterSpacing: 0, lineHeight: 1.18 }}>
                 结论先行，证据后置
               </Typography.Title>
               <Typography.Text style={{ display: 'block', marginTop: 10, color: 'rgba(226,232,240,0.88)', fontSize: 14, lineHeight: 1.8, maxWidth: 720 }}>
@@ -110,15 +111,15 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
               </Typography.Text>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 4 }}>
-              <div style={{ padding: 12, borderRadius: 16, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
+              <div style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
                 <Typography.Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12 }}>URL 请求</Typography.Text>
                 <div style={{ color: '#fff', fontSize: 24, fontWeight: 900, fontFamily: "'SF Mono', monospace" }}>{result.urlRequests.length}</div>
               </div>
-              <div style={{ padding: 12, borderRadius: 16, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
+              <div style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
                 <Typography.Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12 }}>错误事件</Typography.Text>
                 <div style={{ color: result.errors.length > 0 ? '#fecaca' : '#bbf7d0', fontSize: 24, fontWeight: 900, fontFamily: "'SF Mono', monospace" }}>{result.errors.length}</div>
               </div>
-              <div style={{ padding: 12, borderRadius: 16, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
+              <div style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)' }}>
                 <Typography.Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12 }}>代理 / VPN</Typography.Text>
                 <div style={{ color: result.proxyInfo.hasProxy || result.proxyInfo.isVPN ? '#fde68a' : '#bfdbfe', fontSize: 24, fontWeight: 900 }}>
                   {result.proxyInfo.hasProxy || result.proxyInfo.isVPN ? '有' : '无'}
@@ -138,7 +139,7 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
                   border: '1px solid rgba(255,255,255,0.16)',
                   background: 'rgba(255,255,255,0.12)',
                   color: '#fff',
-                  borderRadius: 18,
+                  borderRadius: 12,
                   padding: '14px 14px',
                   cursor: 'pointer',
                   display: 'grid',
@@ -148,7 +149,7 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12)',
                 }}
               >
-                <span style={{ width: 42, height: 42, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${card.color}26`, color: '#fff', fontSize: 18 }}>
+                <span style={{ width: 42, height: 42, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${card.color}26`, color: '#fff', fontSize: 18 }}>
                   {card.icon}
                 </span>
                 <span style={{ minWidth: 0 }}>
@@ -178,12 +179,13 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
       <NetlogMetricExplainPanel result={result} />
 
       <Card
+        className="netlog-combined-status-card"
         title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ApiOutlined /> HAR + NetLog 联合诊断状态</span>}
         style={{
           background: 'linear-gradient(180deg, rgba(255,255,255,0.94), rgba(248,250,252,0.88))',
           borderColor: 'rgba(148,163,184,0.24)',
-          borderRadius: 22,
-          boxShadow: '0 18px 44px rgba(15,23,42,0.06)',
+          borderRadius: 14,
+          boxShadow: '0 10px 28px rgba(15,23,42,0.06)',
         }}
         styles={{ body: { padding: 18 } }}
       >
