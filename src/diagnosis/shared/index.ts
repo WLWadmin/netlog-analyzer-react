@@ -76,3 +76,23 @@ export {
   compareBaselines,
   buildBaselineCompareSummary,
 } from './baselineComparator';
+
+export {
+  buildHarIssueClusters,
+  getHarEvidenceLevelLabel,
+  getHarRoleLabel,
+} from './harIssueClusters';
+
+export type {
+  HarIssueCategory,
+  HarEvidenceLevel,
+  HarIssueCluster,
+} from './harIssueClusters';
+
+export {
+  buildHarNoviceDiagnosis,
+} from './harNoviceDiagnosis';
+
+export type {
+  HarNoviceDiagnosis,
+} from './harNoviceDiagnosis';

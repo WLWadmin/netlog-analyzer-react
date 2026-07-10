@@ -23,6 +23,7 @@ export interface HarRequestFilterState {
   hasServerTiming: 'all' | 'yes' | 'no';
   keyword: string;
   blockedDomains: string[];
+  requestIds?: number[];
 }
 
 export const DEFAULT_HAR_REQUEST_FILTER_STATE: HarRequestFilterState = {
@@ -35,6 +36,7 @@ export const DEFAULT_HAR_REQUEST_FILTER_STATE: HarRequestFilterState = {
   hasServerTiming: 'all',
   keyword: '',
   blockedDomains: [],
+  requestIds: undefined,
 };
 
 function getMethodBucket(method: string): HarRequestFilterState['method'] {
@@ -76,6 +78,7 @@ export function filterHarRequests(entries: HarRequestEntry[], filters: HarReques
     if (filters.hasServerTiming === 'yes' && entry.serverTiming.length === 0) return false;
     if (filters.hasServerTiming === 'no' && entry.serverTiming.length > 0) return false;
     if (keyword && !entry.url.toLowerCase().includes(keyword)) return false;
+    if (filters.requestIds?.length && !filters.requestIds.includes(entry.id)) return false;
     if (blockedDomains.length > 0 && blockedDomains.some(domain => entry.domain.toLowerCase().includes(domain))) return false;
     return true;
   });

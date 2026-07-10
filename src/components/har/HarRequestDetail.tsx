@@ -17,6 +17,8 @@ import HarCodeViewer from './HarCodeViewer';
 import { loadHarResponseBody, type HarResponseBodySource } from './harResponseBodyGateway';
 import { decodeHarResponseBody, sanitizeHarHtmlForPreview, type DecodedHarBody } from './decodeHarResponseBody';
 import type { HarResponseBodyPayload } from '../../workers/protocols';
+import { buildHarIssueClusters, getHarEvidenceLevelLabel, getHarRoleLabel } from '../../diagnosis/shared/harIssueClusters';
+import { buildHarClusterCopyText } from './buildHarClusterCopyText';
 
 interface HarRequestDetailProps {
   entry: HarRequestEntry;
@@ -249,6 +251,11 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
   const [bodyError, setBodyError] = useState<string | null>(null);
   const bodyRequestVersion = useRef(0);
   const issue = useMemo(() => getHarRequestIssue(entry), [entry]);
+  const issueClusters = useMemo(() => buildHarIssueClusters(allEntries), [allEntries]);
+  const issueCluster = useMemo(
+    () => issueClusters.find(cluster => cluster.affectedRequestIds.includes(entry.id)),
+    [issueClusters, entry.id]
+  );
   const redirectLinks = useMemo(() => buildHarRedirectLinks(allEntries), [allEntries]);
   const outgoingRedirect = useMemo(() => redirectLinks.find(link => link.fromRequestId === entry.id), [redirectLinks, entry.id]);
   const incomingRedirect = useMemo(() => redirectLinks.find(link => link.toRequestId === entry.id), [redirectLinks, entry.id]);
@@ -860,6 +867,35 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
 
   const diagnosisTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {issueCluster && (
+        <div>
+          {sectionTitle('所属问题组')}
+          <div
+            style={{
+              padding: '12px 14px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              fontSize: 13,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+              <strong style={{ color: 'var(--text-primary)' }}>{issueCluster.title}</strong>
+              <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(buildHarClusterCopyText(issueCluster))}>复制问题组摘要</Button>
+            </div>
+            <div>证据等级：{getHarEvidenceLevelLabel(issueCluster.evidenceLevel)} · 同组 {issueCluster.affectedRequestCount} 个请求 · {issueCluster.affectedDomainCount} 个域名</div>
+            <div>归组依据：{issueCluster.groupingReason}</div>
+            <div>当前请求{issueCluster.representativeRequestIds.includes(entry.id) ? '是' : '不是'}代表请求；代表请求：{issueCluster.representativeRequestIds.map(id => `#${id + 1}`).join('、')}</div>
+            <div>建议先看：{issueCluster.roleHints.map(getHarRoleLabel).join(' / ')}。这是优先排查方向，不代表确定责任归属。</div>
+            {issueCluster.requiresNetLog && <div>需要补证：建议补充同次 NetLog，以确认底层网络栈原因。</div>}
+          </div>
+        </div>
+      )}
       <div>
         {sectionTitle('关键字段速查')}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

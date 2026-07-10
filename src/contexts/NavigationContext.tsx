@@ -45,6 +45,8 @@ export interface NavigationFilters {
   durationMax?: number;
   /** 请求 ID */
   requestId?: number;
+  /** 请求 ID 列表 */
+  requestIds?: number[];
 }
 
 export interface NavigationHighlight {

@@ -20,6 +20,7 @@ import {
   HAR_SEVERITY_THRESHOLDS,
 } from './harThresholds';
 import { buildHarNavigationTarget } from './navigation';
+import { buildHarIssueClusters, getHarRoleLabel, type HarIssueCategory, type HarIssueCluster } from './harIssueClusters';
 
 // ========== 工具函数 ==========
 
@@ -75,6 +76,67 @@ function buildScope(
     type: type || 'global',
     summary: `影响 ${affectedCount} 个请求`,
     affectedRequestCount: affectedCount,
+  };
+}
+
+function mapClusterCategory(category: HarIssueCategory): DiagnosticCategory {
+  switch (category) {
+    case 'dns': return 'dns';
+    case 'connection': return 'connect';
+    case 'tls': return 'tls';
+    case 'proxy': return 'proxy';
+    case 'browser-block': return 'security';
+    case 'cors': return 'cors';
+    case 'auth': return 'security';
+    case 'server-error': return 'server';
+    case 'http-error': return 'client';
+    case 'queueing':
+    case 'stalled': return 'browser-queue';
+    case 'ttfb': return 'server';
+    case 'download': return 'performance';
+    case 'unknown-failure': return 'unknown';
+  }
+}
+
+function clusterToActions(cluster: HarIssueCluster): DiagnosticAction[] {
+  return cluster.roleHints.slice(0, 3).map(role => ({
+    role,
+    title: `建议${getHarRoleLabel(role)}先看`,
+    detail: cluster.requiresNetLog && role === 'it'
+      ? 'HAR 已记录请求现象，但需要补充同次 NetLog 确认底层网络栈原因。'
+      : `${cluster.title}。这是优先排查方向，不代表确定责任归属。`,
+  }));
+}
+
+function clusterToDiagnosticCard(cluster: HarIssueCluster, index: number): DiagnosticCard {
+  const category = mapClusterCategory(cluster.category);
+  return {
+    id: `har-cluster-${index}-${cluster.id}`,
+    source: 'har',
+    category,
+    severity: cluster.severity,
+    confidence: cluster.evidenceLevel === 'explicit-observation' ? 'high' : cluster.evidenceLevel === 'timing-signal' ? 'medium' : 'low',
+    title: cluster.title,
+    conclusion: cluster.userFacingSummary,
+    scope: buildScope(
+      cluster.affectedRequestCount,
+      cluster.affectedDomainCount,
+      cluster.affectedDomainCount > 1 ? 'multi-domain' : cluster.affectedRequestCount === 1 ? 'single-request' : 'single-domain'
+    ),
+    evidence: cluster.evidence.map(item => ({
+      label: item.label,
+      value: item.value.replace(/https?:\/\/\S+/g, '<URL>'),
+      source: item.source,
+      requestIds: item.requestIds,
+    })),
+    actions: clusterToActions(cluster),
+    limitations: [
+      cluster.requiresNetLog
+        ? 'HAR 只能说明请求现象，底层 DNS/TLS/代理/系统网络栈原因需补充 NetLog。'
+        : 'HAR 记录的是请求现象，不代表确定责任归属。',
+    ],
+    relatedRequestIds: cluster.affectedRequestIds,
+    navigationTarget: buildHarNavigationTarget(category, { requestIds: cluster.affectedRequestIds }),
   };
 }
 
@@ -383,9 +445,13 @@ export function harDiagnosisToCards(
 ): DiagnosticCard[] {
   const cards: DiagnosticCard[] = [];
   const entries = harResult.entries;
+  const clusterCards = buildHarIssueClusters(entries)
+    .slice(0, 5)
+    .map(clusterToDiagnosticCard);
+  cards.push(...clusterCards);
 
   // 1. 整体健康状态卡片
-  if (diagnosis.overallStatus !== 'healthy') {
+  if (diagnosis.overallStatus !== 'healthy' && clusterCards.length === 0) {
     cards.push({
       id: generateId('har-overview', 0),
       source: 'har',
@@ -414,8 +480,8 @@ export function harDiagnosisToCards(
     });
   }
 
-  // 2. 网络阶段问题卡片
-  diagnosis.networkStatus.forEach((phase, idx) => {
+  // 2. 网络阶段问题卡片（无 cluster 时保留旧兼容入口）
+  if (clusterCards.length === 0) diagnosis.networkStatus.forEach((phase, idx) => {
     if (phase.status === 'healthy') return;
 
     const categoryMap: Record<string, DiagnosticCategory> = {
@@ -460,7 +526,7 @@ export function harDiagnosisToCards(
   });
 
   // 3. HTTP 状态异常卡片
-  if (diagnosis.httpStatus.countFailed > 0) {
+  if (diagnosis.httpStatus.countFailed > 0 && clusterCards.length === 0) {
     const evidence: DiagnosticEvidence[] = [
       { label: '失败请求数', value: `${diagnosis.httpStatus.countFailed} 个`, source: 'har' },
       { label: '5xx 错误', value: `${diagnosis.httpStatus.count5xx} 个`, source: 'har' },

@@ -86,4 +86,13 @@ describe('harRequestFilterState', () => {
       entry({ domain: '-' }),
     ])).toEqual(['b.example.com', 'a.example.com']);
   });
+
+  it('filters by explicit request ids from cluster navigation', () => {
+    const entries = [entry({ id: 1 }), entry({ id: 2 }), entry({ id: 3 })];
+
+    expect(filterHarRequests(entries, {
+      ...DEFAULT_HAR_REQUEST_FILTER_STATE,
+      requestIds: [2, 3],
+    }).map(e => e.id)).toEqual([2, 3]);
+  });
 });

@@ -414,9 +414,9 @@ const AppContent: React.FC = () => {
         }
 
         setFileType('har');
-        setActiveTab('requests');
+        setActiveTab('summary');
         setActiveSubTab(undefined);
-        window.location.hash = buildAppHash('har', 'requests');
+        window.location.hash = buildAppHash('har', 'summary');
         setHasData(true);
         finishLoad();
         message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求`);
@@ -569,9 +569,9 @@ const AppContent: React.FC = () => {
           message.success(`追加 HAR 成功（${parsed.result.totalRequests} 请求），联合诊断已启用`);
         } else {
           setFileType('har');
-          setActiveTab('requests');
+          setActiveTab('summary');
           setActiveSubTab(undefined);
-          window.location.hash = buildAppHash('har', 'requests');
+          window.location.hash = buildAppHash('har', 'summary');
           message.success(`追加 HAR 成功（${parsed.result.totalRequests} 请求）`);
         }
 

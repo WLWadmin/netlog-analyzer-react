@@ -4,7 +4,7 @@ import { UnorderedListOutlined, MedicineBoxOutlined, ToolOutlined, FileSearchOut
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
 import HarRequestTable, { StatusFilter } from './HarRequestTable';
-import HarSummaryDiagnosis from './HarSummaryDiagnosis';
+import HarNoviceDiagnosisOverview from './HarNoviceDiagnosisOverview';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 import RawEvidenceExplorer from '../raw/RawEvidenceExplorer';
 
@@ -20,7 +20,7 @@ interface HarResultPageProps {
 
 // HAR 解析结果整体页面：请求详情优先，现象摘要仅描述请求层表现。
 const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
-  const [internalActiveKey, setInternalActiveKey] = useState('requests');
+  const [internalActiveKey, setInternalActiveKey] = useState('summary');
   const validTabs = ['requests', 'summary', 'raw-evidence'];
   const activeKey = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -64,10 +64,10 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <MedicineBoxOutlined />
-          HAR 现象摘要
+          网络问题定位
         </span>
       ),
-      children: <HarSummaryDiagnosis result={result} />,
+      children: <HarNoviceDiagnosisOverview result={result} onOpenRequests={() => handleTabChange('requests')} />,
     },
     {
       key: 'raw-evidence',

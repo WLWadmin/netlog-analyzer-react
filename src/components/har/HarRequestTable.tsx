@@ -148,6 +148,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<HarColumnKey[]>(DEFAULT_COLUMN_KEYS);
   const [waterfallSort, setWaterfallSort] = useState<HarWaterfallSortKey>('start-time');
+  const [focusedRequestIds, setFocusedRequestIds] = useState<number[] | undefined>(undefined);
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [filtering, setFiltering] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
@@ -181,6 +182,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setDomainFilter('all');
     setHasLogidFilter('all');
     setHasServerTimingFilter('all');
+    setFocusedRequestIds(undefined);
     setSelected(null);
     setHighlightIds(new Set());
 
@@ -189,8 +191,11 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     if (filters?.requestId) {
       const entry = result.entries.find(e => e.id === filters.requestId);
       if (entry) {
-        setKeyword(entry.url);
+        setFocusedRequestIds([entry.id]);
       }
+    }
+    if (filters?.requestIds?.length) {
+      setFocusedRequestIds(filters.requestIds);
     }
     if (filters?.errorOnly) {
       setInnerStatus('failed');
@@ -200,6 +205,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     // 应用高亮
     if (highlight?.requestIds && highlight.requestIds.length > 0) {
       setHighlightIds(new Set(highlight.requestIds));
+      setFocusedRequestIds(highlight.requestIds);
     }
 
     consumeIntent();
@@ -223,7 +229,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     hasServerTiming: hasServerTimingFilter,
     keyword,
     blockedDomains,
-  }), [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains]);
+    requestIds: focusedRequestIds,
+  }), [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains, focusedRequestIds]);
 
   const filtered = useMemo(() => {
     return filterHarRequests(result.entries, filterState);

@@ -175,7 +175,7 @@ describe('App Phase 3 upload behavior', () => {
     render(<App />);
     await userEvent.click(screen.getByText('上传 HAR'));
 
-    await waitFor(() => expect(window.location.hash).toBe('#har/requests'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
   });
 
   it('Log 首次上传后进入概览入口', async () => {
@@ -250,7 +250,7 @@ describe('App Phase 3 upload behavior', () => {
 
     render(<App />);
     await userEvent.click(screen.getByText('上传 HAR'));
-    await waitFor(() => expect(window.location.hash).toBe('#har/requests'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
     await userEvent.click(screen.getByText('追加 NetLog'));
 
     await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
@@ -434,7 +434,7 @@ describe('App Phase 3 upload behavior', () => {
 
     render(<App />);
     await userEvent.click(screen.getByText('上传 HAR'));
-    await waitFor(() => expect(window.location.hash).toBe('#har/requests'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
     releaseRawDataInWorkerMock.mockClear();
     releaseRawDataInWorkerMock.mockResolvedValue({ released: true });
     await userEvent.click(screen.getByText('重新上传'));
