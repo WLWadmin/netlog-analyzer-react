@@ -361,10 +361,12 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* 瀑布流图表区域 */}
       <Card
+        className="netlog-request-waterfall-card"
         title="请求耗时瀑布流（按时间顺序）"
         style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-color)' }}
       >
         <div
+          className="netlog-request-waterfall"
           ref={waterfallRef}
           style={{
             width: '100%',
@@ -374,11 +376,12 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
           }}
         >
           {/* 表头：时间轴 */}
-          <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)', paddingBottom: 4 }}>
-            <div style={{ width: 280, flexShrink: 0, paddingLeft: 8, fontWeight: 600, color: 'var(--text-secondary)' }}>URL</div>
+          <div className="netlog-request-waterfall-axis" style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)', paddingBottom: 4 }}>
+            <div className="netlog-request-waterfall-axis-label" style={{ width: 280, flexShrink: 0, paddingLeft: 8, fontWeight: 600, color: 'var(--text-secondary)' }}>URL</div>
             <div style={{ flex: 1, position: 'relative', height: 24 }}>
               {timeTicks.map((t, i) => (
                 <div
+                  className="netlog-request-waterfall-tick"
                   key={`tick-${i}-${t.toFixed(2)}`}
                   style={{
                     position: 'absolute',
@@ -413,6 +416,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
             return (
               <div
+                className="netlog-request-waterfall-row"
                 key={buildRequestVisualKey(req, idx)}
                 style={{
                   display: 'flex',
@@ -429,6 +433,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
               >
                 {/* URL 名称 */}
                 <div
+                  className="netlog-request-waterfall-url"
                   style={{
                     width: 260,
                     flexShrink: 0,
@@ -484,6 +489,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
                 {/* 耗时文本 */}
                 <div
+                  className="netlog-request-waterfall-duration"
                   style={{
                     width: 70,
                     textAlign: 'right',
@@ -533,6 +539,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
       {/* 请求列表 */}
       <Card
+        className="netlog-request-table-card"
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <span>请求列表（共 {filteredRequests.length} 条{hasActiveFilters ? ` / 总计 ${sortedRequests.length} 条` : ''}，按开始时间排序）</span>
