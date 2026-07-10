@@ -1,5 +1,12 @@
 import type { HarRequestEntry } from '../../harParser';
-import { buildHarWaterfallRange, getHarWaterfallPosition } from './harWaterfall';
+import {
+  buildHarWaterfallRange,
+  getHarWaterfallMarkers,
+  getHarWaterfallPosition,
+  getHarWaterfallSegments,
+  getHarWaterfallSortValue,
+  sortHarWaterfallEntries,
+} from './harWaterfall';
 
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
   return {
@@ -95,5 +102,80 @@ describe('harWaterfall', () => {
     expect(getHarWaterfallPosition(entries[0], range)).toMatchObject({ available: true, widthPercent: 0, durationMs: 0 });
     expect(getHarWaterfallPosition(entries[1], range).available).toBe(true);
     expect(getHarWaterfallPosition(entries[1], range).widthPercent).toBeGreaterThan(0);
+  });
+
+  it('builds phase segments without double counting ssl', () => {
+    const segments = getHarWaterfallSegments(entry({
+      time: 100,
+      timings: { blocked: 10, dns: 10, connect: 50, ssl: 20, send: 5, wait: 20, receive: 5 },
+      timingAvailability: { blocked: true, dns: true, connect: true, ssl: true, send: true, wait: true, receive: true },
+    }));
+
+    expect(segments.map(segment => segment.key)).toEqual(['stalled', 'dns', 'tcp', 'ssl', 'send', 'wait', 'receive']);
+    expect(segments.find(segment => segment.key === 'tcp')?.durationMs).toBe(30);
+    expect(segments.find(segment => segment.key === 'ssl')?.durationMs).toBe(20);
+    expect(segments.reduce((sum, segment) => sum + segment.durationMs, 0)).toBe(100);
+  });
+
+  it('includes queueing, proxy, stalled and unaccounted segments', () => {
+    const segments = getHarWaterfallSegments(entry({
+      time: 120,
+      timings: { blocked: 30, dns: 0, connect: 0, ssl: 0, send: 0, wait: 50, receive: 10 },
+      chromeTiming: { blockedQueueingMs: 10, blockedProxyMs: 5 },
+    }));
+
+    expect(segments.map(segment => segment.key)).toEqual(['queueing', 'proxy', 'stalled', 'dns', 'tcp', 'ssl', 'send', 'wait', 'receive', 'unaccounted']);
+    expect(segments.find(segment => segment.key === 'stalled')?.durationMs).toBe(15);
+    expect(segments.find(segment => segment.key === 'unaccounted')?.durationMs).toBe(30);
+  });
+
+  it('keeps segment widths within the request bar when recorded phases exceed HAR total', () => {
+    const segments = getHarWaterfallSegments(entry({
+      time: 50,
+      timings: { blocked: 10, dns: 10, connect: 20, ssl: 5, send: 5, wait: 20, receive: 5 },
+    }));
+
+    expect(segments.reduce((sum, segment) => sum + segment.widthPercent, 0)).toBeLessThanOrEqual(100.001);
+  });
+
+  it('supports all five stable waterfall sort values', () => {
+    const slowResponse = entry({
+      id: 1,
+      startMs: 1000,
+      time: 200,
+      timings: { blocked: 10, dns: 0, connect: 0, ssl: 0, send: 10, wait: 150, receive: 30 },
+    });
+    const fastResponse = entry({
+      id: 2,
+      startMs: 1050,
+      time: 100,
+      timings: { blocked: 10, dns: 0, connect: 0, ssl: 0, send: 5, wait: 20, receive: 65 },
+    });
+
+    expect(sortHarWaterfallEntries([fastResponse, slowResponse], 'start-time').map(item => item.id)).toEqual([1, 2]);
+    expect(sortHarWaterfallEntries([slowResponse, fastResponse], 'response-time').map(item => item.id)).toEqual([2, 1]);
+    expect(sortHarWaterfallEntries([slowResponse, fastResponse], 'end-time').map(item => item.id)).toEqual([2, 1]);
+    expect(sortHarWaterfallEntries([slowResponse, fastResponse], 'total-duration').map(item => item.id)).toEqual([2, 1]);
+    expect(sortHarWaterfallEntries([slowResponse, fastResponse], 'latency').map(item => item.id)).toEqual([2, 1]);
+    expect(getHarWaterfallSortValue(slowResponse, 'response-time')).toBe(1170);
+  });
+
+  it('positions DCL and Load markers on the global waterfall range', () => {
+    const range = buildHarWaterfallRange([
+      entry({ startMs: 1000, time: 100 }),
+      entry({ startMs: 1200, time: 100 }),
+    ]);
+    const markers = getHarWaterfallMarkers([{
+      pageId: 'page-1',
+      title: 'Example',
+      startMs: 1000,
+      domContentLoadedMs: 150,
+      loadMs: 250,
+    }], range);
+
+    expect(markers).toEqual([
+      expect.objectContaining({ key: 'page-1-dcl', leftPercent: 50 }),
+      expect.objectContaining({ key: 'page-1-load', leftPercent: 83.33333333333334 }),
+    ]);
   });
 });

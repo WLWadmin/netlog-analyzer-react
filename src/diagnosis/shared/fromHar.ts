@@ -309,7 +309,7 @@ function buildThirdPartyConcentrationCard(entries: HarRequestEntry[]): Diagnosti
   });
   if (entries.length < 20 || thirdPartyEntries.length < Math.max(8, entries.length * 0.35)) return null;
 
-  const totalSize = thirdPartyEntries.reduce((sum, entry) => sum + entry.size, 0);
+  const totalSize = thirdPartyEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0);
   const totalTime = thirdPartyEntries.reduce((sum, entry) => sum + entry.time, 0);
   const slowCount = thirdPartyEntries.filter(entry => entry.isSlow).length;
   const domains = Array.from(new Set(thirdPartyEntries.map(entry => entry.domain).filter(Boolean))).slice(0, 8);
@@ -362,7 +362,7 @@ function buildLargePayloadCard(entries: HarRequestEntry[]): DiagnosticCard | nul
     scope: buildScope(largeEntries.length, Array.from(new Set(largeEntries.map(e => e.domain).filter(Boolean))).length, 'global'),
     evidence: largeEntries.slice(0, 6).map((entry, i) => ({
       label: `大资源 ${i + 1}`,
-      value: `${entry.name} · transfer ${(entry.size / 1024 / 1024).toFixed(2)}MB · content ${(entry.contentSize / 1024 / 1024).toFixed(2)}MB`,
+      value: `${entry.name} · transfer ${entry.size >= 0 ? `${(entry.size / 1024 / 1024).toFixed(2)}MB` : '未记录'} · content ${entry.contentSize >= 0 ? `${(entry.contentSize / 1024 / 1024).toFixed(2)}MB` : '未记录'}`,
       source: 'har' as const,
       requestIds: [entry.id],
     })),

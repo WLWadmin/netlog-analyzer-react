@@ -144,7 +144,32 @@ describe('harRequestIssue', () => {
     }));
 
     expect(ttfb.label).toContain('TTFB 慢');
-    expect(queueing.label).toContain('Queueing 慢');
+    expect(queueing.label).toContain('Stalled 慢');
+  });
+
+  test('Chrome queueing detail is used when available', () => {
+    const issue = getHarRequestIssue(entry({
+      time: 1000,
+      isSlow: true,
+      timings: { blocked: 700, dns: 0, connect: 0, ssl: 0, send: 0, wait: 0, receive: 0 },
+      chromeTiming: { blockedQueueingMs: 650 },
+    }));
+
+    expect(issue.kind).toBe('slow');
+    expect(issue.phase).toBe('blocked');
+    expect(issue.label).toContain('Queueing 慢');
+  });
+
+  test('TCP slow uses connect minus ssl instead of double counting ssl', () => {
+    const issue = getHarRequestIssue(entry({
+      time: 1000,
+      isSlow: true,
+      timings: { blocked: 0, dns: 0, connect: 900, ssl: 850, send: 0, wait: 0, receive: 0 },
+    }));
+
+    expect(issue.kind).toBe('slow');
+    expect(issue.phase).toBe('ssl');
+    expect(issue.label).toContain('TLS 慢');
   });
 
   test('normal 2xx request is normal', () => {

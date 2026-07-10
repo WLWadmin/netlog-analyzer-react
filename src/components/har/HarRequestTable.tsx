@@ -20,13 +20,19 @@ import HarWaterfallCell from './HarWaterfallCell';
 import { sanitizeHarUrl } from './buildHarRequestCopyText';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
-import { buildHarWaterfallRange } from '../../diagnosis/shared/harWaterfall';
+import {
+  buildHarWaterfallRange,
+  getHarWaterfallMarkers,
+  sortHarWaterfallEntries,
+  type HarWaterfallSortKey,
+} from '../../diagnosis/shared/harWaterfall';
 import {
   DEFAULT_HAR_REQUEST_FILTER_STATE,
   filterHarRequests,
   getTopHarDomains,
   type HarIssueFilter,
 } from './harRequestFilterState';
+import type { HarResponseBodySource } from './harResponseBodyGateway';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -36,6 +42,7 @@ interface HarRequestTableProps {
   onStatusFilterChange?: (f: StatusFilter) => void;
   categoryFilter?: string;
   onCategoryFilterChange?: (c: string) => void;
+  bodySource?: HarResponseBodySource;
 }
 
 const STATUS_FILTERS: { key: StatusFilter; label: string; color: string; bg: string }[] = [
@@ -59,28 +66,44 @@ const ISSUE_FILTERS: { key: HarIssueFilter; label: string }[] = [
 
 type HarColumnKey =
   | 'name'
+  | 'requestNumber'
   | 'status'
   | 'issue'
   | 'method'
+  | 'path'
+  | 'url'
+  | 'scheme'
   | 'protocol'
   | 'domain'
   | 'remoteAddress'
   | 'category'
   | 'size'
+  | 'resourceSize'
   | 'time'
   | 'waterfall'
   | 'initiator'
   | 'priority'
-  | 'connection';
+  | 'connection'
+  | 'requestCookieCount'
+  | 'setCookieCount'
+  | 'cacheSource';
 
 const DEFAULT_COLUMN_KEYS: HarColumnKey[] = ['name', 'status', 'issue', 'protocol', 'domain', 'category', 'size', 'time', 'waterfall'];
 const REQUIRED_COLUMN_KEYS: HarColumnKey[] = DEFAULT_COLUMN_KEYS;
 const COLUMN_OPTIONS: { key: HarColumnKey; label: string }[] = [
+  { key: 'requestNumber', label: 'Request #' },
   { key: 'method', label: 'Method' },
+  { key: 'path', label: 'Path' },
+  { key: 'url', label: 'URL' },
+  { key: 'scheme', label: 'Scheme' },
   { key: 'remoteAddress', label: 'Remote Address' },
   { key: 'initiator', label: 'Initiator' },
   { key: 'priority', label: 'Priority' },
   { key: 'connection', label: 'Connection' },
+  { key: 'requestCookieCount', label: 'Request Cookies' },
+  { key: 'setCookieCount', label: 'Set-Cookies' },
+  { key: 'cacheSource', label: 'Cache Source' },
+  { key: 'resourceSize', label: 'Resource Size' },
 ];
 
 function issueStyle(severity: HarRequestIssue['severity']): { color: string; bg: string } {
@@ -99,7 +122,19 @@ function compactHarName(name: string, maxLength = 72): string {
   return `${name.slice(0, head)}…${name.slice(-tail)}`;
 }
 
-const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter, onStatusFilterChange, categoryFilter, onCategoryFilterChange }) => {
+function safeUrlPart(url: string, part: 'pathname' | 'protocol' | 'originless'): string {
+  try {
+    const parsed = new URL(url);
+    if (part === 'pathname') return parsed.pathname || '/';
+    if (part === 'protocol') return parsed.protocol.replace(':', '') || '-';
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    if (part === 'protocol') return '-';
+    return url.split('?')[0].split('#')[0];
+  }
+}
+
+const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter, onStatusFilterChange, categoryFilter, onCategoryFilterChange, bodySource }) => {
   const [keyword, setKeyword] = useState('');
   const [blockedInput, setBlockedInput] = useState('');
   const [blockedDomains, setBlockedDomains] = useState<string[]>([]);
@@ -112,6 +147,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   const [hasServerTimingFilter, setHasServerTimingFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<HarColumnKey[]>(DEFAULT_COLUMN_KEYS);
+  const [waterfallSort, setWaterfallSort] = useState<HarWaterfallSortKey>('start-time');
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [filtering, setFiltering] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
@@ -193,8 +229,17 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     return filterHarRequests(result.entries, filterState);
   }, [result.entries, filterState]);
 
+  const sortedFiltered = useMemo(
+    () => sortHarWaterfallEntries(filtered, waterfallSort),
+    [filtered, waterfallSort],
+  );
+
   const topDomains = useMemo(() => getTopHarDomains(result.entries), [result.entries]);
   const waterfallRange = useMemo(() => buildHarWaterfallRange(result.entries), [result.entries]);
+  const waterfallMarkers = useMemo(
+    () => getHarWaterfallMarkers(result.pageMarkers, waterfallRange),
+    [result.pageMarkers, waterfallRange],
+  );
 
   const issueById = useMemo(() => {
     const map = new Map<number, HarRequestIssue>();
@@ -206,18 +251,26 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
 
   const columns: ColumnsType<HarRequestEntry> = [
     {
+      title: '#',
+      key: 'requestNumber',
+      width: 70,
+      sorter: (a, b) => a.id - b.id,
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.id + 1}</span>,
+    },
+    {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
       width: 320,
       ellipsis: true,
+      sorter: (a, b) => a.name.localeCompare(b.name),
       render: (name: string, r) => {
         const displayName = compactHarName(name || sanitizeHarUrl(r.url));
         return (
           <Tooltip
             title={
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, wordBreak: 'break-all' }}>
-                {r.url}
+                {sanitizeHarUrl(r.url)}
               </div>
             }
             placement="topLeft"
@@ -262,10 +315,10 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'status',
       width: 80,
       sorter: (a, b) => a.status - b.status,
-      render: (s: number) => (
+      render: (s: number, r) => (
         <StatusTag statusCode={s}>
           <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-            {s === 0 ? '失败' : s}
+            {s === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : s}
           </span>
         </StatusTag>
       ),
@@ -291,15 +344,40 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       dataIndex: 'method',
       key: 'method',
       width: 90,
+      sorter: (a, b) => a.method.localeCompare(b.method),
       render: (method: string) => (
         <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{method}</span>
       ),
+    },
+    {
+      title: 'Path',
+      key: 'path',
+      width: 220,
+      ellipsis: true,
+      sorter: (a, b) => safeUrlPart(a.url, 'pathname').localeCompare(safeUrlPart(b.url, 'pathname')),
+      render: (_: unknown, r) => <span title={safeUrlPart(r.url, 'pathname')} style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{safeUrlPart(r.url, 'pathname')}</span>,
+    },
+    {
+      title: 'URL',
+      key: 'url',
+      width: 260,
+      ellipsis: true,
+      sorter: (a, b) => sanitizeHarUrl(a.url).localeCompare(sanitizeHarUrl(b.url)),
+      render: (_: unknown, r) => <CopyText text={sanitizeHarUrl(r.url)} label="URL（脱敏）" />,
+    },
+    {
+      title: 'Scheme',
+      key: 'scheme',
+      width: 90,
+      sorter: (a, b) => safeUrlPart(a.url, 'protocol').localeCompare(safeUrlPart(b.url, 'protocol')),
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{safeUrlPart(r.url, 'protocol')}</span>,
     },
     {
       title: 'Protocol',
       dataIndex: 'protocol',
       key: 'protocol',
       width: 90,
+      sorter: (a, b) => a.protocol.localeCompare(b.protocol),
       render: (p: string) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p}</span>,
     },
     {
@@ -307,6 +385,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'initiator',
       width: 210,
       ellipsis: true,
+      sorter: (a, b) => (a.initiator?.type || '').localeCompare(b.initiator?.type || ''),
       render: (_: unknown, entry) => {
         if (!entry.initiator) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
         const url = entry.initiator.url ? sanitizeHarUrl(entry.initiator.url) : '';
@@ -319,6 +398,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       dataIndex: 'priority',
       key: 'priority',
       width: 90,
+      sorter: (a, b) => (a.priority || '').localeCompare(b.priority || ''),
       render: (priority?: string) => (
         <span style={{ color: priority ? 'var(--text-secondary)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{priority || '-'}</span>
       ),
@@ -327,6 +407,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       title: 'Connection',
       key: 'connection',
       width: 110,
+      sorter: (a, b) => (a.connectionInfo?.connectionId || a.connectionId || '').localeCompare(b.connectionInfo?.connectionId || b.connectionId || ''),
       render: (_: unknown, entry) => (
         <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
           {entry.connectionInfo?.connectionId || entry.connectionId || '-'}
@@ -373,8 +454,39 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'size',
       width: 90,
       align: 'right',
-      sorter: (a, b) => a.size - b.size,
-      render: (s: number) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatBytes(s)}</span>,
+      sorter: (a, b) => (a.sizeInfo?.transferSize ?? a.size) - (b.sizeInfo?.transferSize ?? b.size),
+      render: (s: number, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatBytes(r.sizeInfo?.transferSize ?? s)}</span>,
+    },
+    {
+      title: 'Resource Size',
+      key: 'resourceSize',
+      width: 120,
+      align: 'right',
+      sorter: (a, b) => (a.sizeInfo?.resourceSize || a.contentSize || 0) - (b.sizeInfo?.resourceSize || b.contentSize || 0),
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{formatBytes(r.sizeInfo?.resourceSize ?? r.contentSize)}</span>,
+    },
+    {
+      title: 'Req Cookies',
+      key: 'requestCookieCount',
+      width: 115,
+      align: 'right',
+      sorter: (a, b) => (a.requestCookies?.length || 0) - (b.requestCookies?.length || 0),
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.requestCookies?.length || 0}</span>,
+    },
+    {
+      title: 'Set-Cookies',
+      key: 'setCookieCount',
+      width: 110,
+      align: 'right',
+      sorter: (a, b) => (a.responseCookies?.length || 0) - (b.responseCookies?.length || 0),
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.responseCookies?.length || 0}</span>,
+    },
+    {
+      title: 'Cache Source',
+      key: 'cacheSource',
+      width: 120,
+      sorter: (a, b) => (a.cacheInfo?.source || '').localeCompare(b.cacheInfo?.source || ''),
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: r.cacheInfo?.source ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{r.cacheInfo?.source || '-'}</span>,
     },
     {
       title: 'Time',
@@ -397,6 +509,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         <HarWaterfallCell
           entry={r}
           range={waterfallRange}
+          markers={waterfallMarkers}
           issue={issueById.get(r.id) || getHarRequestIssue(r)}
         />
       ),
@@ -411,7 +524,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     960,
     visibleColumns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 120), 0)
   );
-  const useVirtualScroll = filtered.length > 500;
+  const useVirtualScroll = sortedFiltered.length > 500;
 
   const rowClassName = (record: HarRequestEntry) => {
     const classes: string[] = [];
@@ -552,10 +665,26 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
             );
           })}
         </div>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-          共 {filtered.length} 条请求
-          {hasActiveFilters ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Select
+            aria-label="Waterfall 排序"
+            size="small"
+            value={waterfallSort}
+            onChange={value => setWaterfallSort(value as HarWaterfallSortKey)}
+            style={{ width: 190 }}
+            options={[
+              { value: 'start-time', label: 'Waterfall：Start Time' },
+              { value: 'response-time', label: 'Waterfall：Response Time' },
+              { value: 'end-time', label: 'Waterfall：End Time' },
+              { value: 'total-duration', label: 'Waterfall：Total Duration' },
+              { value: 'latency', label: 'Waterfall：Latency' },
+            ]}
+          />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            共 {filtered.length} 条请求
+            {hasActiveFilters ? `（已从 ${result.totalRequests} 条中筛选）` : ''}
+          </span>
+        </div>
       </div>
 
       {/* 第三行：搜索框独占一行 */}
@@ -689,6 +818,32 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         </div>
       )}
 
+      {result.pageMarkers?.length ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+          <span style={{ color: 'var(--text-muted)' }}>Page markers:</span>
+          {result.pageMarkers.map((marker, index) => (
+            <span
+              key={`${marker.pageId || index}`}
+              style={{
+                display: 'inline-flex',
+                gap: 6,
+                alignItems: 'center',
+                padding: '4px 8px',
+                borderRadius: 999,
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-surface)',
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-mono)',
+              }}
+              title={marker.title || marker.pageId || undefined}
+            >
+              {marker.domContentLoadedMs !== undefined && <span>DCL {formatHarTime(marker.domContentLoadedMs)}</span>}
+              {marker.loadMs !== undefined && <span>Load {formatHarTime(marker.loadMs)}</span>}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {filtering && (
         <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
           筛选中...
@@ -699,7 +854,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
             大 HAR 使用虚拟滚动，避免一次性渲染全部 DOM 行。 */}
         <Table<HarRequestEntry>
           columns={visibleColumns}
-          dataSource={filtered}
+          dataSource={sortedFiltered}
           rowKey="id"
           size="small"
           tableLayout="fixed"
@@ -787,7 +942,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
 
             {/* 详情面板内容 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '0 24px 24px' }}>
-              <HarRequestDetail entry={selected} allEntries={result.entries} />
+              <HarRequestDetail entry={selected} allEntries={result.entries} bodySource={bodySource} />
             </div>
           </div>
         </div>

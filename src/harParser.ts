@@ -14,6 +14,15 @@ export interface HarTiming {
   receive: number;
 }
 
+export interface HarChromeTimingEvidence {
+  blockedQueueingMs?: number;
+  blockedProxyMs?: number;
+  workerStartMs?: number;
+  workerReadyMs?: number;
+  workerFetchStartMs?: number;
+  workerRespondWithSettledMs?: number;
+}
+
 export type HarTimingPhaseKey =
   | 'blocked'
   | 'dns'
@@ -81,6 +90,8 @@ export interface HarRedirectInfo {
   status?: number;
 }
 
+export type HarCacheSource = 'disk' | 'memory' | 'service-worker' | 'prefetch';
+
 export interface HarCacheInfo {
   cacheControl?: string;
   etag?: string;
@@ -93,12 +104,43 @@ export interface HarCacheInfo {
   fromPrefetchCache?: boolean;
   fromCache?: boolean;
   status304?: boolean;
+  source?: HarCacheSource;
+  sourceRecorded?: boolean;
+  rawSource?: string;
 }
 
 export interface HarConnectionInfo {
   connectionId?: string;
+  harConnection?: string;
   remoteAddress?: string;
   protocol?: string;
+}
+
+export interface HarSizeInfo {
+  transferSize: number;
+  resourceSize: number;
+  requestHeadersSize?: number;
+  requestBodySize?: number;
+  responseHeadersSize?: number;
+  responseBodySize?: number;
+}
+
+export type HarResponseBodyState = 'inline' | 'deferred' | 'absent';
+
+export interface HarResponseBodyDescriptor {
+  state: HarResponseBodyState;
+  originalLength: number;
+  encoding?: string;
+  mimeType?: string;
+}
+
+export interface HarPageMarker {
+  pageId?: string;
+  title?: string;
+  startedDateTime?: string;
+  startMs?: number;
+  domContentLoadedMs?: number;
+  loadMs?: number;
 }
 
 export interface HarRequestEntry {
@@ -120,11 +162,14 @@ export interface HarRequestEntry {
   time: number; // 总耗时 ms
   startedDateTime: string;
   startMs: number;
+  pageRef?: string;
   timings: HarTiming;
   timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>;
+  chromeTiming?: HarChromeTimingEvidence;
   requestHeaders: HarHeader[];
   responseHeaders: HarHeader[];
   responseBody: string;
+  responseBodyDescriptor?: HarResponseBodyDescriptor;
   responseBodyOmitted?: boolean;
   responseBodyOriginalLength?: number;
   responseBodyOmitReason?: string;
@@ -138,6 +183,7 @@ export interface HarRequestEntry {
   priority?: string;
   cacheInfo?: HarCacheInfo;
   connectionInfo?: HarConnectionInfo;
+  sizeInfo?: HarSizeInfo;
   // 关键诊断字段
   serverTiming: HarServerTiming[];
   failureText?: string;
@@ -163,6 +209,7 @@ export interface HarAnalysisResult {
   totalTime: number;
   creator: string;
   typeCounts: Record<HarCategory, number>;
+  pageMarkers?: HarPageMarker[];
   /** 响应体保留策略，用于解释大 HAR 的内存降峰行为 */
   bodyRetention: {
     mode: 'full' | 'optimized';
@@ -342,10 +389,46 @@ function optionalBoolean(value: any): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
+function optionalNonNegativeNumber(value: any): number | undefined {
+  const n = optionalNumber(value);
+  return n !== undefined && n >= 0 ? n : undefined;
+}
+
 function mergeOptionalBoolean(...values: any[]): boolean | undefined {
   const booleans = values.filter((value): value is boolean => typeof value === 'boolean');
   if (booleans.some(Boolean)) return true;
   if (booleans.length > 0) return false;
+  return undefined;
+}
+
+function parseChromeTimingEvidence(timings: any): HarChromeTimingEvidence | undefined {
+  const evidence: HarChromeTimingEvidence = {
+    blockedQueueingMs: optionalNonNegativeNumber(timings?._blocked_queueing),
+    blockedProxyMs: optionalNonNegativeNumber(timings?._blocked_proxy),
+    workerStartMs: optionalNonNegativeNumber(timings?._workerStart),
+    workerReadyMs: optionalNonNegativeNumber(timings?._workerReady),
+    workerFetchStartMs: optionalNonNegativeNumber(timings?._workerFetchStart),
+    workerRespondWithSettledMs: optionalNonNegativeNumber(timings?._workerRespondWithSettled),
+  };
+  return Object.values(evidence).some(v => v !== undefined) ? evidence : undefined;
+}
+
+function parseCacheSource(raw: any): { source?: HarCacheSource; rawSource?: string } {
+  const rawSource = optionalString(raw);
+  if (!rawSource) return {};
+  const normalized = rawSource.toLowerCase().replace(/[\s_]+/g, '-');
+  if (normalized === 'disk') return { source: 'disk', rawSource };
+  if (normalized === 'memory') return { source: 'memory', rawSource };
+  if (normalized === 'service-worker' || normalized === 'serviceworker') return { source: 'service-worker', rawSource };
+  if (normalized === 'prefetch') return { source: 'prefetch', rawSource };
+  return { rawSource };
+}
+
+function pickCacheSource(cacheInfo: Pick<HarCacheInfo, 'fromDiskCache' | 'fromMemoryCache' | 'fromServiceWorker' | 'fromPrefetchCache'>): HarCacheSource | undefined {
+  if (cacheInfo.fromServiceWorker) return 'service-worker';
+  if (cacheInfo.fromMemoryCache) return 'memory';
+  if (cacheInfo.fromDiskCache) return 'disk';
+  if (cacheInfo.fromPrefetchCache) return 'prefetch';
   return undefined;
 }
 
@@ -441,10 +524,11 @@ function parseRedirect(resp: any, responseHeaders: HarHeader[], status: number):
 }
 
 function parseCacheInfo(entry: any, resp: any, responseHeaders: HarHeader[], status: number): HarCacheInfo | undefined {
-  const fromDiskCache = mergeOptionalBoolean(resp._fromDiskCache, entry._fromDiskCache);
-  const fromMemoryCache = mergeOptionalBoolean(resp._fromMemoryCache, entry._fromMemoryCache);
-  const fromServiceWorker = mergeOptionalBoolean(resp._fromServiceWorker, entry._fromServiceWorker);
-  const fromPrefetchCache = mergeOptionalBoolean(resp._fromPrefetchCache, entry._fromPrefetchCache);
+  const parsedSource = parseCacheSource(resp._fromCache ?? entry._fromCache);
+  const fromDiskCache = mergeOptionalBoolean(resp._fromDiskCache, entry._fromDiskCache, parsedSource.source === 'disk' ? true : undefined);
+  const fromMemoryCache = mergeOptionalBoolean(resp._fromMemoryCache, entry._fromMemoryCache, parsedSource.source === 'memory' ? true : undefined);
+  const fromServiceWorker = mergeOptionalBoolean(resp._fromServiceWorker, entry._fromServiceWorker, parsedSource.source === 'service-worker' ? true : undefined);
+  const fromPrefetchCache = mergeOptionalBoolean(resp._fromPrefetchCache, entry._fromPrefetchCache, parsedSource.source === 'prefetch' ? true : undefined);
   const hasCacheBoolean = fromDiskCache !== undefined
     || fromMemoryCache !== undefined
     || fromServiceWorker !== undefined
@@ -465,19 +549,39 @@ function parseCacheInfo(entry: any, resp: any, responseHeaders: HarHeader[], sta
     fromPrefetchCache,
     fromCache,
     status304: status === 304 ? true : undefined,
+    source: pickCacheSource({ fromDiskCache, fromMemoryCache, fromServiceWorker, fromPrefetchCache }),
+    sourceRecorded: parsedSource.source !== undefined ? true : undefined,
+    rawSource: parsedSource.rawSource,
   };
 
   const hasCacheInfo = Object.values(cacheInfo).some(v => v !== undefined) || hasCacheBoolean;
   return hasCacheInfo ? cacheInfo : undefined;
 }
 
-function parseConnectionInfo(connectionId: string | undefined, remoteAddress: string | undefined, protocol: string): HarConnectionInfo | undefined {
+function parseConnectionInfo(connectionId: string | undefined, harConnection: string | undefined, remoteAddress: string | undefined, protocol: string): HarConnectionInfo | undefined {
   const info: HarConnectionInfo = {
     connectionId,
+    harConnection,
     remoteAddress: optionalString(remoteAddress),
     protocol: protocol !== '-' ? protocol : undefined,
   };
   return Object.values(info).some(v => v !== undefined) ? info : undefined;
+}
+
+function optionalNonNegativeSize(value: any): number | undefined {
+  const n = optionalNumber(value);
+  return n !== undefined && n >= 0 ? n : undefined;
+}
+
+function buildSizeInfo(req: any, resp: any, content: any, transferSize: number): HarSizeInfo {
+  return {
+    transferSize,
+    resourceSize: optionalNonNegativeSize(content.size) ?? -1,
+    requestHeadersSize: optionalNonNegativeSize(req.headersSize),
+    requestBodySize: optionalNonNegativeSize(req.bodySize),
+    responseHeadersSize: optionalNonNegativeSize(resp.headersSize),
+    responseBodySize: optionalNonNegativeSize(resp.bodySize),
+  };
 }
 
 function extractNetErrorText(text?: string): string | undefined {
@@ -526,16 +630,14 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
 
   const { domain, name } = parseUrlParts(req.url || '');
 
-  // 传输大小：优先 _transferSize，其次 bodySize，最后 content.size
-  let size = -1;
-  if (typeof resp._transferSize === 'number' && resp._transferSize >= 0) size = resp._transferSize;
-  else if (typeof resp.bodySize === 'number' && resp.bodySize > 0) size = resp.bodySize;
-  else if (typeof content.size === 'number' && content.size > 0) size = content.size;
-  if (size < 0) size = 0;
+  // 传输大小：优先 _transferSize，其次 bodySize，最后 content.size；-1 表示未记录。
+  const size = optionalNonNegativeSize(resp._transferSize)
+    ?? optionalNonNegativeSize(resp.bodySize)
+    ?? optionalNonNegativeSize(content.size)
+    ?? -1;
 
   const status = num(resp.status);
   const time = num(entry.time);
-  const isFailed = status === 0 || status >= 400;
   const isSlow = time >= HAR_SLOW_THRESHOLD_MS;
   const rawResponseBody = content.text || '';
   const keepResponseBody = shouldKeepResponseBody(rawResponseBody, mimeType, status, options);
@@ -549,7 +651,13 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     resp.error,
     status === 0 || status >= 400 ? resp.statusText : '',
   ]);
-  const netErrorText = extractNetErrorText(failureText);
+  const explicitNetErrorText = firstNonEmptyString([
+    entry._netError,
+    entry.netError,
+    resp._netError,
+    resp.netError,
+  ]);
+  const netErrorText = extractNetErrorText(explicitNetErrorText) || extractNetErrorText(failureText);
   const netErrorCode = firstFiniteNumber([
     entry._netError,
     entry.netError,
@@ -563,11 +671,18 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     resp._blockedReason,
     resp.blockedReason,
   ]);
+  const isFailed = status === 0
+    || status >= 400
+    || Boolean(netErrorText)
+    || netErrorCode !== undefined
+    || Boolean(blockedReason)
+    || Boolean(failureText);
   const xTtLogid = getHeader(responseHeaders, 'x-tt-logid') || getHeader(requestHeaders, 'x-tt-logid');
   const xTtCip = getHeader(responseHeaders, 'x-tt-cip') || getHeader(requestHeaders, 'x-tt-cip');
   const xLscSourceIp = getHeader(responseHeaders, 'x-lsc-source-ip') || getHeader(requestHeaders, 'x-lsc-source-ip');
   const remoteAddress = optionalString(entry.serverIPAddress);
-  const connectionId = optionalString(entry.connection);
+  const harConnection = optionalString(entry.connection);
+  const connectionId = optionalString(entry._connectionId) || optionalString(resp._connectionId) || harConnection;
   const protocol = normalizeProtocol(resp.httpVersion || req.httpVersion || '');
   const initiator = parseInitiator(entry._initiator);
   const redirect = parseRedirect(resp, responseHeaders, status);
@@ -575,7 +690,15 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const responseCookies = parseCookies(resp.cookies);
   const priority = optionalString(entry._priority);
   const cacheInfo = parseCacheInfo(entry, resp, responseHeaders, status);
-  const connectionInfo = parseConnectionInfo(connectionId, remoteAddress, protocol);
+  const connectionInfo = parseConnectionInfo(connectionId, harConnection, remoteAddress, protocol);
+  const chromeTiming = parseChromeTimingEvidence(t);
+  const sizeInfo = buildSizeInfo(req, resp, content, size);
+  const responseBodyDescriptor: HarResponseBodyDescriptor = {
+    state: rawResponseBody ? (keepResponseBody ? 'inline' : 'deferred') : 'absent',
+    originalLength: rawResponseBody ? rawResponseBody.length : 0,
+    encoding: optionalString(content.encoding),
+    mimeType: optionalString(mimeType),
+  };
   // 提取 queryString 和 postData
   const queryString: HarQueryParam[] = Array.isArray(req.queryString)
     ? req.queryString.map((q: any) => ({
@@ -608,10 +731,11 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     rawType: rawType || category,
     mimeType,
     size,
-    contentSize: num(content.size),
+    contentSize: optionalNonNegativeSize(content.size) ?? -1,
     time,
     startedDateTime: entry.startedDateTime || '',
     startMs: entry.startedDateTime ? (new Date(entry.startedDateTime).getTime() || 0) : 0,
+    pageRef: optionalString(entry.pageref),
     timings: {
       blocked: num(t.blocked),
       dns: num(t.dns),
@@ -630,9 +754,11 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
       wait: isAvailableTiming(t.wait),
       receive: isAvailableTiming(t.receive),
     },
+    chromeTiming,
     requestHeaders,
     responseHeaders,
     responseBody: keepResponseBody ? rawResponseBody : '',
+    responseBodyDescriptor,
     responseBodyOmitted: Boolean(rawResponseBody && !keepResponseBody),
     responseBodyOriginalLength: rawResponseBody ? rawResponseBody.length : 0,
     responseBodyOmitReason: rawResponseBody && !keepResponseBody
@@ -648,6 +774,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     priority,
     cacheInfo,
     connectionInfo,
+    sizeInfo,
     serverTiming,
     failureText,
     netErrorText,
@@ -685,7 +812,7 @@ export function parseHar(data: any): HarAnalysisResult {
 
   for (const e of entries) {
     typeCounts[e.category]++;
-    totalSize += e.size;
+    totalSize += Math.max(0, e.size);
     if (e.isFailed) failedCount++;
     if (e.isSlow) slowCount++;
     if (e.responseBodyOmitted) {
@@ -700,6 +827,19 @@ export function parseHar(data: any): HarAnalysisResult {
 
   const totalTime = minStart !== Infinity && maxEnd > minStart ? maxEnd - minStart : 0;
   const creator = log.creator ? `${log.creator.name || ''} ${log.creator.version || ''}`.trim() : '';
+  const pageMarkers = Array.isArray(log.pages)
+    ? log.pages.map((page: any): HarPageMarker => {
+      const startedDateTime = optionalString(page.startedDateTime);
+      return {
+        pageId: optionalString(page.id),
+        title: optionalString(page.title),
+        startedDateTime,
+        startMs: startedDateTime ? (new Date(startedDateTime).getTime() || undefined) : undefined,
+        domContentLoadedMs: optionalNonNegativeNumber(page.pageTimings?.onContentLoad),
+        loadMs: optionalNonNegativeNumber(page.pageTimings?.onLoad),
+      };
+    }).filter((page: HarPageMarker) => page.domContentLoadedMs !== undefined || page.loadMs !== undefined)
+    : undefined;
 
   return {
     entries,
@@ -710,6 +850,7 @@ export function parseHar(data: any): HarAnalysisResult {
     totalTime,
     creator,
     typeCounts,
+    pageMarkers,
     bodyRetention: {
       mode: optimizeResponseBodies ? 'optimized' : 'full',
       omittedCount,

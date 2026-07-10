@@ -1,9 +1,14 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { HarRequestEntry } from '../../harParser';
 import HarRequestDetail from './HarRequestDetail';
+import { loadHarResponseBody } from './harResponseBodyGateway';
+
+jest.mock('./harResponseBodyGateway', () => ({
+  loadHarResponseBody: jest.fn(),
+}));
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -40,7 +45,7 @@ jest.mock('@ant-design/icons', () => {
 
 jest.mock('./HarTimingChart', () => ({ __esModule: true, default: () => <div>Timing chart</div> }));
 
-function entry(): HarRequestEntry {
+function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
   return {
     id: 1,
     name: 'api',
@@ -75,6 +80,7 @@ function entry(): HarRequestEntry {
     xLscSourceIp: '',
     isFailed: false,
     isSlow: false,
+    ...overrides,
   };
 }
 
@@ -113,5 +119,44 @@ describe('HarRequestDetail', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Response' }));
     expect(screen.getByText('{"ok":true}')).toBeInTheDocument();
+  });
+
+  it('does not let an old deferred body request overwrite the newly selected entry', async () => {
+    let resolveOldBody: ((value: any) => void) | undefined;
+    (loadHarResponseBody as jest.Mock).mockReturnValueOnce(new Promise(resolve => {
+      resolveOldBody = resolve;
+    }));
+    const oldEntry = entry({
+      id: 1,
+      responseBody: '',
+      mimeType: 'text/plain',
+      responseBodyDescriptor: { state: 'deferred', originalLength: 5 * 1024 * 1024, mimeType: 'text/plain' },
+    });
+    const newEntry = entry({
+      id: 2,
+      responseBody: 'new-response-body',
+      mimeType: 'text/plain',
+      responseBodyDescriptor: { state: 'inline', originalLength: 17, mimeType: 'text/plain' },
+    });
+    const { rerender } = render(<HarRequestDetail entry={oldEntry} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    await userEvent.click(screen.getByRole('button', { name: '加载响应内容' }));
+    rerender(<HarRequestDetail entry={newEntry} />);
+
+    await act(async () => {
+      resolveOldBody?.({
+        state: 'available',
+        text: 'old-response-body',
+        encoding: '',
+        mimeType: 'text/plain',
+        originalLength: 17,
+      });
+      await Promise.resolve();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: 'Response' }));
+
+    expect(screen.getByText('new-response-body')).toBeInTheDocument();
+    expect(screen.queryByText('old-response-body')).not.toBeInTheDocument();
   });
 });

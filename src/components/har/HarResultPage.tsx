@@ -55,6 +55,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
           onStatusFilterChange={setStatusFilter}
           categoryFilter={categoryFilter}
           onCategoryFilterChange={setCategoryFilter}
+          bodySource={{ rawData, rawDataId }}
         />
       ),
     },

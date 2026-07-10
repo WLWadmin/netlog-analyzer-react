@@ -9,6 +9,8 @@ interface HarCodeViewerProps {
   url: string;
   format?: boolean;
   maxHeight?: number;
+  truncateLines?: boolean;
+  showLineNumbers?: boolean;
 }
 
 const MAX_RENDERED_LINES = 10000;
@@ -20,7 +22,16 @@ const LANGUAGE_LABELS = {
   text: 'Text',
 };
 
-const HarCodeViewer: React.FC<HarCodeViewerProps> = ({ source, mimeType, rawType, url, format = true, maxHeight = 520 }) => {
+const HarCodeViewer: React.FC<HarCodeViewerProps> = ({
+  source,
+  mimeType,
+  rawType,
+  url,
+  format = true,
+  maxHeight = 520,
+  truncateLines = true,
+  showLineNumbers = true,
+}) => {
   const language = useMemo(() => detectHarPreviewLanguage(mimeType, rawType, url), [mimeType, rawType, url]);
   const [wrap, setWrap] = useState(false);
   const [result, setResult] = useState<HarPreviewFormatResult>({ text: source, language, formatted: false });
@@ -45,6 +56,9 @@ const HarCodeViewer: React.FC<HarCodeViewerProps> = ({ source, mimeType, rawType
   }, [format, language, mimeType, rawType, source, url]);
 
   const rendered = useMemo(() => {
+    if (!truncateLines) {
+      return { text: result.text, lineCount: 0, truncated: false };
+    }
     const lines = result.text.split('\n');
     if (lines.length <= MAX_RENDERED_LINES) return { text: result.text, lineCount: lines.length, truncated: false };
     return {
@@ -52,11 +66,13 @@ const HarCodeViewer: React.FC<HarCodeViewerProps> = ({ source, mimeType, rawType
       lineCount: MAX_RENDERED_LINES + 1,
       truncated: true,
     };
-  }, [result.text]);
+  }, [result.text, truncateLines]);
 
   const lineNumbers = useMemo(
-    () => Array.from({ length: rendered.lineCount }, (_, index) => String(index + 1)).join('\n'),
-    [rendered.lineCount],
+    () => showLineNumbers
+      ? Array.from({ length: rendered.lineCount }, (_, index) => String(index + 1)).join('\n')
+      : '',
+    [rendered.lineCount, showLineNumbers],
   );
 
   return (
@@ -85,7 +101,7 @@ const HarCodeViewer: React.FC<HarCodeViewerProps> = ({ source, mimeType, rawType
         </Button>
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', maxHeight, overflow: 'auto' }}>
-        {!wrap && (
+        {showLineNumbers && !wrap && (
           <pre
             aria-hidden="true"
             style={{
@@ -113,7 +129,7 @@ const HarCodeViewer: React.FC<HarCodeViewerProps> = ({ source, mimeType, rawType
           aria-label={`${LANGUAGE_LABELS[language]} source preview`}
           style={{
             flex: '0 0 auto',
-            minWidth: wrap ? '100%' : 'calc(100% - 48px)',
+            minWidth: wrap || !showLineNumbers ? '100%' : 'calc(100% - 48px)',
             margin: 0,
             padding: 10,
             color: 'var(--text-primary)',

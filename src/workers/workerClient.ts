@@ -6,6 +6,7 @@
 import type {
   NetlogDatasetImportResult,
   NetlogDatasetReleaseResult,
+  HarResponseBodyPayload,
   QueryNetlogEventsRequest,
   RawReleaseResult,
   WorkerRequest,
@@ -616,6 +617,23 @@ export async function getRawValueInWorker(
     options
   );
   return response.payload as RawValuePreview;
+}
+
+export async function getHarResponseBodyInWorker(
+  rawDataId: string,
+  entryId: number,
+  options?: WorkerClientOptions
+): Promise<HarResponseBodyPayload> {
+  const id = nextId();
+  const response = await sendToWorker(
+    {
+      type: 'get-har-response-body',
+      id,
+      payload: { rawDataId, entryId },
+    },
+    options
+  );
+  return response.payload as HarResponseBodyPayload;
 }
 
 /**

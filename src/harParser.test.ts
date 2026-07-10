@@ -179,6 +179,7 @@ describe('harParser', () => {
     expect(entry.connectionId).toBe('0');
     expect(entry.connectionInfo).toEqual({
       connectionId: '0',
+      harConnection: '0',
       remoteAddress: '203.0.113.10',
       protocol: 'h2',
     });
@@ -282,6 +283,7 @@ describe('harParser', () => {
       fromServiceWorker: false,
       fromPrefetchCache: false,
       fromCache: true,
+      source: 'memory',
       status304: true,
     });
   });
@@ -434,6 +436,191 @@ describe('harParser', () => {
       fromMemoryCache: false,
       fromServiceWorker: true,
       fromCache: true,
+      source: 'service-worker',
     });
+  });
+
+  test('parseHar should parse Chrome timing evidence, _fromCache string, _connectionId and size details', () => {
+    const data = {
+      log: {
+        entries: [
+          {
+            _connectionId: 'CONN-42',
+            connection: '443',
+            _fromCache: 'disk',
+            startedDateTime: '2026-06-25T00:00:00.000Z',
+            time: 123,
+            request: {
+              method: 'POST',
+              url: 'https://example.com/chrome-private',
+              headers: [],
+              headersSize: 123,
+              bodySize: 45,
+              queryString: [],
+            },
+            response: {
+              status: 200,
+              statusText: 'OK',
+              httpVersion: 'h2',
+              headers: [],
+              headersSize: 234,
+              bodySize: 456,
+              _transferSize: 789,
+              content: { mimeType: 'application/javascript', size: 4567, text: 'console.log("ok")', encoding: '' },
+            },
+            timings: {
+              blocked: 30,
+              _blocked_queueing: 10,
+              _blocked_proxy: 5,
+              _workerStart: 12,
+              _workerReady: 20,
+              _workerFetchStart: 22,
+              _workerRespondWithSettled: 70,
+              dns: 1,
+              connect: 20,
+              ssl: 5,
+              send: 1,
+              wait: 60,
+              receive: 11,
+            },
+          },
+        ],
+      },
+    };
+
+    const entry = parseHar(data as any).entries[0];
+    expect(entry.chromeTiming).toEqual({
+      blockedQueueingMs: 10,
+      blockedProxyMs: 5,
+      workerStartMs: 12,
+      workerReadyMs: 20,
+      workerFetchStartMs: 22,
+      workerRespondWithSettledMs: 70,
+    });
+    expect(entry.cacheInfo).toEqual(expect.objectContaining({
+      fromDiskCache: true,
+      fromCache: true,
+      source: 'disk',
+      sourceRecorded: true,
+      rawSource: 'disk',
+    }));
+    expect(entry.connectionId).toBe('CONN-42');
+    expect(entry.connectionInfo).toEqual({
+      connectionId: 'CONN-42',
+      harConnection: '443',
+      protocol: 'h2',
+    });
+    expect(entry.size).toBe(789);
+    expect(entry.contentSize).toBe(4567);
+    expect(entry.sizeInfo).toEqual({
+      transferSize: 789,
+      resourceSize: 4567,
+      requestHeadersSize: 123,
+      requestBodySize: 45,
+      responseHeadersSize: 234,
+      responseBodySize: 456,
+    });
+    expect(entry.responseBodyDescriptor).toEqual({
+      state: 'inline',
+      originalLength: 17,
+      mimeType: 'application/javascript',
+    });
+  });
+
+  test('parseHar should keep unknown _fromCache as raw evidence without cache hit', () => {
+    const data = {
+      log: {
+        entries: [
+          {
+            _fromCache: 'mystery-cache',
+            startedDateTime: '2026-06-25T00:00:00.000Z',
+            time: 1,
+            request: { method: 'GET', url: 'https://example.com/cache', headers: [], queryString: [] },
+            response: { status: 200, statusText: 'OK', httpVersion: 'h2', headers: [], content: { mimeType: '', size: 0, text: '', encoding: '' } },
+            timings: {},
+          },
+        ],
+      },
+    };
+
+    const entry = parseHar(data as any).entries[0];
+    expect(entry.cacheInfo).toEqual({
+      rawSource: 'mystery-cache',
+    });
+    expect(entry.cacheInfo?.fromCache).toBeUndefined();
+    expect(entry.cacheInfo?.source).toBeUndefined();
+  });
+
+  test('parseHar should mark explicit netError and blockedReason as failed even with HTTP 200', () => {
+    const result = parseHar({
+      log: {
+        entries: [
+          {
+            _error: 'net::ERR_BLOCKED_BY_CLIENT',
+            startedDateTime: '2026-06-25T00:00:00.000Z',
+            time: 1,
+            request: { method: 'GET', url: 'https://example.com/blocked', headers: [], queryString: [] },
+            response: { status: 200, statusText: 'OK', httpVersion: 'h2', headers: [], content: { mimeType: '', size: 0, text: '', encoding: '' } },
+            timings: {},
+          },
+          {
+            _blockedReason: 'mixed-content',
+            startedDateTime: '2026-06-25T00:00:00.000Z',
+            time: 1,
+            request: { method: 'GET', url: 'https://example.com/mixed', headers: [], queryString: [] },
+            response: { status: 200, statusText: 'OK', httpVersion: 'h2', headers: [], content: { mimeType: '', size: 0, text: '', encoding: '' } },
+            timings: {},
+          },
+        ],
+      },
+    } as any);
+
+    expect(result.entries[0].isFailed).toBe(true);
+    expect(result.entries[1].isFailed).toBe(true);
+    expect(result.failedCount).toBe(2);
+  });
+
+  test('parseHar should read textual _netError directly from explicit HAR fields', () => {
+    const entry = parseHar({
+      log: {
+        entries: [{
+          _netError: 'net::ERR_NAME_NOT_RESOLVED',
+          startedDateTime: '2026-06-25T00:00:00.000Z',
+          time: 1,
+          request: { method: 'GET', url: 'https://example.com/net-error', headers: [], queryString: [] },
+          response: { status: 200, statusText: 'OK', httpVersion: 'h2', headers: [], content: { mimeType: '', size: -1 } },
+          timings: {},
+        }],
+      },
+    } as any).entries[0];
+
+    expect(entry.netErrorText).toBe('net::ERR_NAME_NOT_RESOLVED');
+    expect(entry.isFailed).toBe(true);
+    expect(entry.size).toBe(-1);
+    expect(entry.contentSize).toBe(-1);
+    expect(entry.sizeInfo).toMatchObject({ transferSize: -1, resourceSize: -1 });
+  });
+
+  test('parseHar should parse page load markers from log.pages', () => {
+    const result = parseHar({
+      log: {
+        pages: [
+          { id: 'page_1', title: 'Example', startedDateTime: '2026-06-25T00:00:00.000Z', pageTimings: { onContentLoad: 123, onLoad: 456 } },
+          { id: 'page_2', pageTimings: { onContentLoad: -1, onLoad: undefined } },
+        ],
+        entries: [],
+      },
+    } as any);
+
+    expect(result.pageMarkers).toEqual([
+      {
+        pageId: 'page_1',
+        title: 'Example',
+        startedDateTime: '2026-06-25T00:00:00.000Z',
+        startMs: new Date('2026-06-25T00:00:00.000Z').getTime(),
+        domContentLoadedMs: 123,
+        loadMs: 456,
+      },
+    ]);
   });
 });

@@ -1,16 +1,14 @@
 import { Tooltip } from 'antd';
-import { HarTiming, HarTimingPhaseKey, formatHarTime } from '../../harParser';
-import { CHART_COLORS } from '../../constants/chartColors';
+import { HarRequestEntry, formatHarTime } from '../../harParser';
+import { normalizeHarTiming, type HarDisplayTimingPhaseKey } from '../../diagnosis/shared/harTimingNormalization';
 
 interface HarTimingChartProps {
-  timings: HarTiming;
-  total: number;
-  timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>;
+  entry: HarRequestEntry;
 }
 
 interface TimingRow {
   group: string;
-  key: HarTimingPhaseKey;
+  key: HarDisplayTimingPhaseKey;
   label: string;
   help: string;
   color: string;
@@ -22,38 +20,31 @@ interface RowPosition {
 }
 
 const TIMING_ROWS: TimingRow[] = [
-  { group: 'Resource Scheduling', key: 'blocked', label: 'Queueing', help: '浏览器排队/等待连接槽/代理调度', color: '#94a3b8' },
-  { group: 'Connection Start', key: 'dns', label: 'DNS Lookup', help: '域名解析', color: CHART_COLORS.phases.dns },
-  { group: 'Connection Start', key: 'connect', label: 'Initial connection', help: 'TCP 建连', color: CHART_COLORS.phases.connect },
-  { group: 'Connection Start', key: 'ssl', label: 'SSL', help: 'TLS 握手', color: CHART_COLORS.phases.ssl },
-  { group: 'Request / Response', key: 'send', label: 'Request sent', help: '发送请求', color: CHART_COLORS.phases.send },
-  { group: 'Request / Response', key: 'wait', label: 'Waiting for server response', help: '等待服务端首字节响应，TTFB', color: CHART_COLORS.phases.wait },
-  { group: 'Request / Response', key: 'receive', label: 'Content Download', help: '下载响应内容', color: CHART_COLORS.phases.download },
+  { group: 'Resource Scheduling', key: 'queueing', label: 'Queueing', help: 'Chrome 记录的浏览器排队/连接槽调度', color: '#94a3b8' },
+  { group: 'Connection Start', key: 'stalled', label: 'Stalled / Blocked', help: 'HAR blocked 总量中无法归入 Queueing/Proxy 的部分', color: '#64748b' },
+  { group: 'Connection Start', key: 'proxy', label: 'Proxy negotiation', help: 'Chrome 记录的代理协商耗时', color: '#9ca3af' },
+  { group: 'Connection Start', key: 'dns', label: 'DNS Lookup', help: '域名解析', color: '#60a5fa' },
+  { group: 'Connection Start', key: 'tcp', label: 'Initial connection (TCP)', help: 'TCP 建连；当 HAR 同时有 connect 和 ssl 时，TCP = connect - ssl', color: '#fb923c' },
+  { group: 'Connection Start', key: 'ssl', label: 'SSL', help: 'TLS 握手；HAR 中 ssl 已包含在 connect 内，不会重复加入总耗时', color: '#a855f7' },
+  { group: 'Service Worker', key: 'service-worker-preparation', label: 'ServiceWorker Preparation', help: 'Service Worker 准备阶段，可能与标准 timing 重叠', color: '#14b8a6' },
+  { group: 'Service Worker', key: 'service-worker-request', label: 'Request to ServiceWorker', help: '请求交给 Service Worker 的阶段，可能与标准 timing 重叠', color: '#0d9488' },
+  { group: 'Request / Response', key: 'send', label: 'Request sent', help: '发送请求', color: '#7dd3fc' },
+  { group: 'Request / Response', key: 'wait', label: 'Waiting for server response', help: '等待服务端首字节响应，TTFB', color: '#4ade80' },
+  { group: 'Request / Response', key: 'receive', label: 'Content Download', help: '下载响应内容', color: '#16a34a' },
 ];
 
-function isTimingAvailable(key: HarTimingPhaseKey, timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>): boolean {
-  return timingAvailability?.[key] !== false;
-}
-
-function getRecordedDuration(row: TimingRow, timings: HarTiming, timingAvailability?: Partial<Record<HarTimingPhaseKey, boolean>>): number {
-  if (!isTimingAvailable(row.key, timingAvailability)) return 0;
-  return Math.max(0, timings[row.key] || 0);
-}
-
-function buildPositions(rows: TimingRow[], timings: HarTiming, timingAvailability: HarTimingChartProps['timingAvailability'], denom: number): Map<HarTimingPhaseKey, RowPosition> {
-  const positions = new Map<HarTimingPhaseKey, RowPosition>();
-  let currentOffset = 0;
+function buildPositions(rows: TimingRow[], timing: ReturnType<typeof normalizeHarTiming>, denom: number): Map<HarDisplayTimingPhaseKey, RowPosition> {
+  const positions = new Map<HarDisplayTimingPhaseKey, RowPosition>();
   rows.forEach(row => {
-    if (!isTimingAvailable(row.key, timingAvailability)) {
+    const phase = timing.phases.find(p => p.key === row.key);
+    if (!phase?.available) {
       positions.set(row.key, { left: 0, width: 0 });
       return;
     }
-    const duration = getRecordedDuration(row, timings, timingAvailability);
     positions.set(row.key, {
-      left: (currentOffset / denom) * 100,
-      width: (duration / denom) * 100,
+      left: (phase.startOffsetMs / denom) * 100,
+      width: (phase.durationMs / denom) * 100,
     });
-    currentOffset += duration;
   });
   return positions;
 }
@@ -72,21 +63,25 @@ function groupRows(rows: TimingRow[]): { group: string; rows: TimingRow[] }[] {
 }
 
 // 请求耗时瀑布图（浏览器 Network Timing 风格）
-const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total, timingAvailability }) => {
-  const recordedSum = TIMING_ROWS.reduce((sum, row) => sum + getRecordedDuration(row, timings, timingAvailability), 0);
-  const denom = Math.max(total || 0, recordedSum, 1);
-  const positions = buildPositions(TIMING_ROWS, timings, timingAvailability, denom);
+const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
+  const normalized = normalizeHarTiming(entry);
+  const denom = Math.max(normalized.totalMs || 0, normalized.accountedMs, 1);
+  const positions = buildPositions(TIMING_ROWS, normalized, denom);
+  const phaseByKey = new Map(normalized.phases.map(phase => [phase.key, phase]));
   const primary = TIMING_ROWS
-    .map(row => ({ row, duration: getRecordedDuration(row, timings, timingAvailability) }))
+    .map(row => ({ row, duration: phaseByKey.get(row.key)?.durationMs || 0 }))
     .filter(item => item.duration > 0)
     .sort((a, b) => b.duration - a.duration)[0];
   const primaryPercent = primary ? Math.round((primary.duration / denom) * 100) : 0;
-  const requestStarted = getRecordedDuration(TIMING_ROWS[0], timings, timingAvailability);
-  const queueingAvailable = isTimingAvailable('blocked', timingAvailability);
-  const unaccounted = Math.max(0, total - recordedSum);
+  const queueing = phaseByKey.get('queueing');
+  const queueingAvailable = Boolean(queueing);
+  const requestSent = phaseByKey.get('send');
+  const requestStartedAvailable = Boolean(requestSent?.available);
+  const requestStarted = requestSent?.startOffsetMs || 0;
+  const unaccounted = normalized.unaccountedMs;
   const groups = groupRows(TIMING_ROWS);
 
-  const hasRecordedTiming = recordedSum > 0;
+  const hasRecordedTiming = normalized.phases.some(phase => phase.available && phase.durationMs > 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -113,9 +108,10 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total, timingA
       </div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: 'var(--text-muted)' }}>
-        <span>Queueing <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(timings.blocked || 0) : '未记录'}</strong></span>
-        <span>Request started <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(requestStarted) : '未记录'}</strong></span>
-        <span>Total <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(total)}</strong></span>
+        <span>Queueing <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(queueing?.durationMs || 0) : '未记录'}</strong></span>
+        <span>Request started <strong style={{ color: 'var(--text-primary)', fontFamily: requestStartedAvailable ? 'var(--font-mono)' : undefined }}>{requestStartedAvailable ? formatHarTime(requestStarted) : '未记录'}</strong></span>
+        <span>Total <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(normalized.totalMs)}</strong></span>
+        <span>Accounted <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(normalized.accountedMs)}</strong></span>
       </div>
 
       {!hasRecordedTiming ? (
@@ -155,8 +151,9 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ timings, total, timingA
                   {group.group}
                 </div>
                 {group.rows.map(row => {
-                  const available = isTimingAvailable(row.key, timingAvailability);
-                  const duration = getRecordedDuration(row, timings, timingAvailability);
+                  const phase = phaseByKey.get(row.key);
+                  const available = Boolean(phase?.available);
+                  const duration = phase?.durationMs || 0;
                   const pos = positions.get(row.key) || { left: 0, width: 0 };
                   const shouldMarker = duration > 0 && pos.width < 1;
                   const width = shouldMarker ? 3 : `${pos.width}%`;

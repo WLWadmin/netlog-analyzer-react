@@ -114,6 +114,38 @@ function getStoredRawData(id: string): unknown {
   return rawDataStore.get(id);
 }
 
+function readHarResponseBody(rawData: unknown, entryId: number) {
+  if (!Number.isInteger(entryId) || entryId < 0) {
+    throw new Error('HAR response body entryId 无效');
+  }
+  const entries = (rawData as any)?.log?.entries;
+  if (!Array.isArray(entries)) {
+    throw new Error('HAR 原始数据已不可用或结构无效');
+  }
+  if (entryId >= entries.length) {
+    throw new Error('HAR response body entryId 越界');
+  }
+  const content = entries[entryId]?.response?.content;
+  const text = content?.text;
+  if (text === undefined || text === null) {
+    return {
+      state: 'absent' as const,
+      text: '',
+      encoding: '',
+      mimeType: content?.mimeType ? String(content.mimeType) : '',
+      originalLength: 0,
+    };
+  }
+  const bodyText = String(text);
+  return {
+    state: 'available' as const,
+    text: bodyText,
+    encoding: content?.encoding ? String(content.encoding) : '',
+    mimeType: content?.mimeType ? String(content.mimeType) : '',
+    originalLength: bodyText.length,
+  };
+}
+
 function stringifyPreview(value: unknown, maxChars: number): { text: string; truncated: boolean } {
   const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
   if (text.length <= maxChars) return { text, truncated: false };
@@ -566,6 +598,21 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
             value,
             msg.payload.maxChars ?? RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS
           ),
+          duration,
+        });
+        break;
+      }
+
+      case 'get-har-response-body': {
+        sendProgress(msg.id, '正在读取 HAR 响应体...', 10);
+        const rawData = getStoredRawData(msg.payload.rawDataId);
+        const payload = readHarResponseBody(rawData, msg.payload.entryId);
+        const duration = performance.now() - start;
+        sendResponse({
+          type: 'success',
+          id: msg.id,
+          resultType: 'har-response-body',
+          payload,
           duration,
         });
         break;

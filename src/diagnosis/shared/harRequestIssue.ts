@@ -3,6 +3,7 @@ import { formatHarTime } from '../../harParser';
 import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import { HAR_DIAG_THRESHOLDS } from './harThresholds';
+import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
 
 export interface HarRequestIssue {
   label: string;
@@ -26,18 +27,20 @@ export interface HarRequestIssue {
 
 interface PhaseRule {
   phase: HarTimingPhaseKey;
+  normalizedPhase: HarDisplayTimingPhaseKey;
   threshold: number;
   label: string;
   detailName: string;
 }
 
 const SLOW_PHASE_RULES: PhaseRule[] = [
-  { phase: 'blocked', threshold: HAR_DIAG_THRESHOLDS.blockedSlow, label: 'Queueing 慢', detailName: '浏览器排队/连接槽/代理调度' },
-  { phase: 'dns', threshold: HAR_DIAG_THRESHOLDS.dnsSlow, label: 'DNS 慢', detailName: '域名解析' },
-  { phase: 'connect', threshold: HAR_DIAG_THRESHOLDS.connectSlow, label: 'TCP 建连慢', detailName: 'TCP 建连' },
-  { phase: 'ssl', threshold: HAR_DIAG_THRESHOLDS.sslSlow, label: 'TLS 慢', detailName: 'TLS 握手' },
-  { phase: 'wait', threshold: HAR_DIAG_THRESHOLDS.ttfbSlow, label: 'TTFB 慢', detailName: 'Waiting for server response' },
-  { phase: 'receive', threshold: HAR_DIAG_THRESHOLDS.receiveSlow, label: '下载慢', detailName: 'Content Download' },
+  { phase: 'blocked', normalizedPhase: 'queueing', threshold: HAR_DIAG_THRESHOLDS.blockedSlow, label: 'Queueing 慢', detailName: '浏览器排队/连接槽调度' },
+  { phase: 'blocked', normalizedPhase: 'stalled', threshold: HAR_DIAG_THRESHOLDS.blockedSlow, label: 'Stalled 慢', detailName: '浏览器 blocked/stalled' },
+  { phase: 'dns', normalizedPhase: 'dns', threshold: HAR_DIAG_THRESHOLDS.dnsSlow, label: 'DNS 慢', detailName: '域名解析' },
+  { phase: 'connect', normalizedPhase: 'tcp', threshold: HAR_DIAG_THRESHOLDS.connectSlow, label: 'TCP 建连慢', detailName: 'TCP 建连' },
+  { phase: 'ssl', normalizedPhase: 'ssl', threshold: HAR_DIAG_THRESHOLDS.sslSlow, label: 'TLS 慢', detailName: 'TLS 握手' },
+  { phase: 'wait', normalizedPhase: 'wait', threshold: HAR_DIAG_THRESHOLDS.ttfbSlow, label: 'TTFB 慢', detailName: 'Waiting for server response' },
+  { phase: 'receive', normalizedPhase: 'receive', threshold: HAR_DIAG_THRESHOLDS.receiveSlow, label: '下载慢', detailName: 'Content Download' },
 ];
 
 function roleFromNetError(entry: HarRequestEntry): HarRequestIssue['roleHint'] {
@@ -73,10 +76,12 @@ function hasCorsPreflightSignal(entry: HarRequestEntry): boolean {
 
 function getSlowPhaseIssue(entry: HarRequestEntry): HarRequestIssue | undefined {
   let primary: (PhaseRule & { durationMs: number }) | undefined;
+  const normalized = normalizeHarTiming(entry);
 
   for (const rule of SLOW_PHASE_RULES) {
-    if (entry.timingAvailability?.[rule.phase] === false) continue;
-    const durationMs = entry.timings[rule.phase] || 0;
+    const phase = getHarTimingPhase(normalized, rule.normalizedPhase);
+    if (!phase?.available) continue;
+    const durationMs = phase.durationMs || 0;
     if (durationMs <= rule.threshold) continue;
     if (!primary || durationMs > primary.durationMs) {
       primary = { ...rule, durationMs };

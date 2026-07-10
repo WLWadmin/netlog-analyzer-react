@@ -1,10 +1,9 @@
-import { useMemo, useState, Fragment } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { Tabs, Tag, Tooltip, Button, message } from 'antd';
 import { CopyOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
 import {
   HarRequestEntry,
   HarCookie,
-  decodeResponseBody,
   statusStyle,
   formatBytes,
 } from '../../harParser';
@@ -15,10 +14,14 @@ import { buildHarRedirectLinks } from '../../diagnosis/shared/harRedirectChain';
 import { copyText } from '../../utils/copyText';
 import { buildHarRequestCopyText, sanitizeHarUrl } from './buildHarRequestCopyText';
 import HarCodeViewer from './HarCodeViewer';
+import { loadHarResponseBody, type HarResponseBodySource } from './harResponseBodyGateway';
+import { decodeHarResponseBody, sanitizeHarHtmlForPreview, type DecodedHarBody } from './decodeHarResponseBody';
+import type { HarResponseBodyPayload } from '../../workers/protocols';
 
 interface HarRequestDetailProps {
   entry: HarRequestEntry;
   allEntries?: HarRequestEntry[];
+  bodySource?: HarResponseBodySource;
 }
 
 const sectionTitle = (text: string) => (
@@ -225,14 +228,80 @@ function issueTagColor(severity: HarRequestIssue['severity']): string {
   }
 }
 
-const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries = [entry] }) => {
+const AUTO_LOAD_BODY_LIMIT = 4 * 1024 * 1024;
+const EMPTY_BODY_SOURCE: HarResponseBodySource = {};
+
+function initialBodyPayload(entry: HarRequestEntry): HarResponseBodyPayload | null {
+  if (!entry.responseBody) return null;
+  return {
+    state: 'available',
+    text: entry.responseBody,
+    encoding: entry.responseEncoding || entry.responseBodyDescriptor?.encoding || '',
+    mimeType: entry.mimeType || entry.responseBodyDescriptor?.mimeType || '',
+    originalLength: entry.responseBodyDescriptor?.originalLength || entry.responseBody.length,
+  };
+}
+
+const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries = [entry], bodySource = EMPTY_BODY_SOURCE }) => {
   const [showAllInitiatorFrames, setShowAllInitiatorFrames] = useState(false);
-  const decoded = useMemo(() => decodeResponseBody(entry), [entry]);
+  const [bodyPayload, setBodyPayload] = useState<HarResponseBodyPayload | null>(() => initialBodyPayload(entry));
+  const [bodyLoading, setBodyLoading] = useState(false);
+  const [bodyError, setBodyError] = useState<string | null>(null);
+  const bodyRequestVersion = useRef(0);
   const issue = useMemo(() => getHarRequestIssue(entry), [entry]);
   const redirectLinks = useMemo(() => buildHarRedirectLinks(allEntries), [allEntries]);
   const outgoingRedirect = useMemo(() => redirectLinks.find(link => link.fromRequestId === entry.id), [redirectLinks, entry.id]);
   const incomingRedirect = useMemo(() => redirectLinks.find(link => link.toRequestId === entry.id), [redirectLinks, entry.id]);
   const safeSummary = useMemo(() => buildHarRequestCopyText(entry), [entry]);
+  const loadBody = useMemo(() => {
+    return async () => {
+      const requestVersion = ++bodyRequestVersion.current;
+      setBodyLoading(true);
+      setBodyError(null);
+      try {
+        const payload = await loadHarResponseBody(bodySource, entry);
+        if (bodyRequestVersion.current === requestVersion) setBodyPayload(payload);
+      } catch (error) {
+        if (bodyRequestVersion.current === requestVersion) {
+          setBodyError(error instanceof Error ? error.message.replace(/https?:\/\/\S+/g, '<URL>') : '响应体读取失败');
+        }
+      } finally {
+        if (bodyRequestVersion.current === requestVersion) setBodyLoading(false);
+      }
+    };
+  }, [bodySource, entry]);
+  useEffect(() => {
+    let cancelled = false;
+    const requestVersion = ++bodyRequestVersion.current;
+    setBodyPayload(initialBodyPayload(entry));
+    setBodyError(null);
+    setBodyLoading(false);
+    if (entry.responseBody) return () => { cancelled = true; };
+
+    const shouldAutoLoad = entry.responseBodyDescriptor?.state === 'inline'
+      || entry.responseBodyDescriptor?.state === 'absent'
+      || (entry.responseBodyDescriptor?.state === 'deferred' && (entry.responseBodyDescriptor.originalLength || 0) <= AUTO_LOAD_BODY_LIMIT);
+    if (!shouldAutoLoad) return () => { cancelled = true; };
+
+    setBodyLoading(true);
+    loadHarResponseBody(bodySource, entry)
+      .then(payload => {
+        if (!cancelled && bodyRequestVersion.current === requestVersion) setBodyPayload(payload);
+      })
+      .catch(error => {
+        if (!cancelled && bodyRequestVersion.current === requestVersion) {
+          setBodyError(error instanceof Error ? error.message.replace(/https?:\/\/\S+/g, '<URL>') : '响应体读取失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled && bodyRequestVersion.current === requestVersion) setBodyLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [bodySource, entry]);
+  const decoded: DecodedHarBody | null = useMemo(
+    () => bodyPayload?.state === 'available' ? decodeHarResponseBody(bodyPayload) : null,
+    [bodyPayload]
+  );
 
   const { priorityHeaders, otherResponseHeaders } = useMemo(() => {
     const priority: { name: string; value: string }[] = [];
@@ -371,42 +440,89 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
     </div>
   );
 
+  const bodyPlaceholder = bodyLoading ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 12 }}>正在读取响应内容...</div>
+    </div>
+  ) : bodyError ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>响应内容读取失败</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>{bodyError}</div>
+      <Button size="small" style={{ marginTop: 12 }} onClick={loadBody}>重新读取</Button>
+    </div>
+  ) : entry.responseBodyDescriptor?.state === 'deferred' ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>大型响应体未进入初始结果</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>
+        可按需从本地 HAR 读取。原始长度约 {formatBytes(entry.responseBodyDescriptor.originalLength)}。
+      </div>
+      <Button size="small" type="primary" style={{ marginTop: 12 }} onClick={loadBody}>加载响应内容</Button>
+    </div>
+  ) : (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该请求未捕获响应体</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>可能是 OPTIONS 预检请求或响应被拦截</div>
+    </div>
+  );
+
+  const binaryBodyPlaceholder = decoded?.isBinary ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该响应为二进制内容，无法按文本预览</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>
+        {decoded.mimeType || '未知 MIME'}{decoded.bytes ? ` · 解码后 ${formatBytes(decoded.bytes.byteLength)}` : ''}
+      </div>
+    </div>
+  ) : null;
+
   // Preview Tab
-  const previewTab = decoded.isImage && decoded.imageSrc ? (
+  const previewTab = decoded?.isImage && decoded.dataUrl ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
         图片预览 · {entry.mimeType || '未知类型'} · {formatBytes(entry.contentSize)}
       </div>
       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, textAlign: 'center', maxHeight: 520, overflow: 'auto' }}>
         <img
-          src={decoded.imageSrc}
+          src={decoded.dataUrl}
           alt={entry.name}
           style={{ maxWidth: '100%', maxHeight: 480, borderRadius: 4, objectFit: 'contain' }}
         />
       </div>
     </div>
-  ) : decoded.isMedia && decoded.imageSrc ? (
+  ) : decoded?.isMedia && decoded.dataUrl ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
         媒体预览 · {entry.mimeType || '未知类型'} · {formatBytes(entry.contentSize)}
       </div>
       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, textAlign: 'center' }}>
         <video
-          src={decoded.imageSrc}
+          src={decoded.dataUrl}
           controls
           style={{ maxWidth: '100%', maxHeight: 480, borderRadius: 4 }}
         />
       </div>
     </div>
-  ) : decoded.text ? (
+  ) : decoded?.text ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-        {decoded.isJson ? 'JSON 已格式化' : '响应预览'} · {entry.mimeType || '未知类型'}
+        {decoded.isJson ? 'JSON 已格式化' : decoded.mimeType.toLowerCase().includes('html') ? '安全 HTML 预览' : '响应预览'} · {entry.mimeType || '未知类型'}
+        {decoded.decodeError ? ` · ${decoded.decodeError}` : ''}
       </div>
       {decoded.isJson && decoded.parsed ? (
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 12.5, maxHeight: 480, overflow: 'auto' }}>
           <JsonTree data={decoded.parsed} />
         </div>
+      ) : decoded.mimeType.toLowerCase().includes('html') ? (
+        <iframe
+          title="安全 HTML 预览"
+          sandbox=""
+          srcDoc={sanitizeHarHtmlForPreview(decoded.text)}
+          style={{ width: '100%', minHeight: 520, border: '1px solid var(--border-color)', borderRadius: 8, background: '#fff' }}
+        />
       ) : (
         <HarCodeViewer
           source={decoded.text}
@@ -417,49 +533,27 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
         />
       )}
     </div>
-  ) : entry.responseBodyOmitted ? (
-    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>大型响应体已省略</div>
-      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>
-        {entry.responseBodyOmitReason || '为降低大 HAR 文件的浏览器内存占用，已保留 headers、timing 和核心诊断字段，但未保留完整 body。'}
-        {entry.responseBodyOriginalLength ? ` 原始长度约 ${formatBytes(entry.responseBodyOriginalLength)}。` : ''}
-      </div>
-    </div>
-  ) : (
-    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该请求未捕获响应体</div>
-      <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>可能是OPTIONS预检请求或响应被拦截</div>
-    </div>
-  );
+  ) : binaryBodyPlaceholder || bodyPlaceholder;
 
-  const responseTab = entry.responseBodyOmitted ? (
-    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
-      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>大型响应体已省略</div>
-      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>
-        {entry.responseBodyOmitReason || '为降低大 HAR 文件的浏览器内存占用，未保留完整响应体。'}
-      </div>
-    </div>
-  ) : entry.responseBody ? (
+  const responseTab = decoded?.text ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-        原始响应内容 · {entry.mimeType || '未知类型'}
-        {entry.responseEncoding ? ` · encoding=${entry.responseEncoding}` : ''}
+        解码后的原始响应内容 · {entry.mimeType || '未知类型'}
+        {bodyPayload?.encoding ? ` · encoding=${bodyPayload.encoding}` : ''}
+        {decoded.decodeError ? ` · ${decoded.decodeError}` : ''}
       </div>
       <HarCodeViewer
-        source={entry.responseBody}
+        source={decoded.text}
         mimeType={entry.mimeType}
         rawType={entry.rawType}
         url={entry.url}
         format={false}
         maxHeight={520}
+        truncateLines={false}
+        showLineNumbers={false}
       />
     </div>
-  ) : (
-    <EmptyState text="该请求未捕获响应内容。" />
-  );
+  ) : binaryBodyPlaceholder || bodyPlaceholder;
 
   // Timing Tab
   const timingTab = (
@@ -479,7 +573,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
           该请求未拿到完整 HTTP 响应，Timing 只能说明失败前浏览器记录到的阶段耗时。若要确认 DNS、TLS、代理或系统网络栈原因，建议补充 NetLog。
         </div>
       )}
-      <HarTimingChart timings={entry.timings} total={entry.time} timingAvailability={entry.timingAvailability} />
+      <HarTimingChart entry={entry} />
     </div>
   );
 
