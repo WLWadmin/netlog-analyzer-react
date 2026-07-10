@@ -97,6 +97,10 @@ describe('harRequestIssue', () => {
     expect(issue.kind).toBe('http-error');
   });
 
+  test('out-of-range status is not classified as an HTTP 5xx error', () => {
+    expect(getHarRequestIssue(entry({ status: 600, isFailed: true })).kind).toBe('unknown-failure');
+  });
+
   test('status=0 with preflight signal is classified as cors', () => {
     const issue = getHarRequestIssue(entry({
       status: 0,

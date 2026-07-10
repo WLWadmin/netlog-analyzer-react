@@ -47,6 +47,60 @@ export interface HarPostData {
   params?: { name: string; value: string }[];
 }
 
+export interface HarCookie {
+  name: string;
+  value?: string;
+  path?: string;
+  domain?: string;
+  expires?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: string;
+  comment?: string;
+}
+
+export interface HarInitiatorFrame {
+  functionName?: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
+
+export interface HarInitiatorInfo {
+  type?: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  requestId?: string;
+  stack?: HarInitiatorFrame[];
+}
+
+export interface HarRedirectInfo {
+  redirectURL?: string;
+  location?: string;
+  status?: number;
+}
+
+export interface HarCacheInfo {
+  cacheControl?: string;
+  etag?: string;
+  age?: string;
+  expires?: string;
+  lastModified?: string;
+  fromDiskCache?: boolean;
+  fromMemoryCache?: boolean;
+  fromServiceWorker?: boolean;
+  fromPrefetchCache?: boolean;
+  fromCache?: boolean;
+  status304?: boolean;
+}
+
+export interface HarConnectionInfo {
+  connectionId?: string;
+  remoteAddress?: string;
+  protocol?: string;
+}
+
 export interface HarRequestEntry {
   id: number;
   name: string;
@@ -77,6 +131,13 @@ export interface HarRequestEntry {
   responseEncoding: string;
   queryString: HarQueryParam[];
   postData?: HarPostData;
+  initiator?: HarInitiatorInfo;
+  redirect?: HarRedirectInfo;
+  requestCookies?: HarCookie[];
+  responseCookies?: HarCookie[];
+  priority?: string;
+  cacheInfo?: HarCacheInfo;
+  connectionInfo?: HarConnectionInfo;
   // 关键诊断字段
   serverTiming: HarServerTiming[];
   failureText?: string;
@@ -203,9 +264,11 @@ function parseUrlParts(url: string): { domain: string; name: string } {
   try {
     const u = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
-    let name = segs.length ? segs[segs.length - 1] : u.hostname;
-    if (u.search) name += u.search;
-    if (!name) name = u.hostname + '/';
+    const lastSegment = segs.length ? segs[segs.length - 1] : '';
+    const pathName = lastSegment && u.pathname.endsWith('/') ? `${lastSegment}/` : lastSegment;
+    const name = pathName
+      ? `${pathName}${u.search}`
+      : u.search || u.hostname || '/';
     return { domain: u.hostname, name };
   } catch {
     return { domain: '-', name: url.slice(0, 80) };
@@ -255,6 +318,166 @@ function firstFiniteNumber(values: any[]): number | undefined {
     if (Number.isFinite(n) && n < 0) return n;
   }
   return undefined;
+}
+
+function optionalString(value: any): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  return text ? text : undefined;
+}
+
+function optionalRawString(value: any): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return String(value);
+}
+
+function optionalNumber(value: any): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function optionalBoolean(value: any): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function mergeOptionalBoolean(...values: any[]): boolean | undefined {
+  const booleans = values.filter((value): value is boolean => typeof value === 'boolean');
+  if (booleans.some(Boolean)) return true;
+  if (booleans.length > 0) return false;
+  return undefined;
+}
+
+function parseCookies(cookies: any): HarCookie[] {
+  if (!Array.isArray(cookies)) return [];
+  return cookies.reduce<HarCookie[]>((acc, cookie) => {
+    const name = optionalString(cookie?.name);
+    if (!name) return acc;
+
+    acc.push({
+      name,
+      value: optionalRawString(cookie?.value),
+      path: optionalString(cookie?.path),
+      domain: optionalString(cookie?.domain),
+      expires: optionalString(cookie?.expires),
+      httpOnly: optionalBoolean(cookie?.httpOnly),
+      secure: optionalBoolean(cookie?.secure),
+      sameSite: optionalString(cookie?.sameSite),
+      comment: optionalString(cookie?.comment),
+    });
+    return acc;
+  }, []);
+}
+
+function parseInitiatorFrame(frame: any): HarInitiatorFrame | undefined {
+  const parsed: HarInitiatorFrame = {
+    functionName: optionalString(frame?.functionName),
+    url: optionalString(frame?.url),
+    lineNumber: optionalNumber(frame?.lineNumber),
+    columnNumber: optionalNumber(frame?.columnNumber),
+  };
+  return Object.values(parsed).some(v => v !== undefined) ? parsed : undefined;
+}
+
+function parseInitiatorStack(stack: any): HarInitiatorFrame[] | undefined {
+  const frames: HarInitiatorFrame[] = [];
+
+  if (Array.isArray(stack)) {
+    stack.forEach(frame => {
+      const parsed = parseInitiatorFrame(frame);
+      if (parsed) frames.push(parsed);
+    });
+  } else if (stack && typeof stack === 'object') {
+    let node: any = stack;
+    let depth = 0;
+    while (node && typeof node === 'object' && depth < 50) {
+      if (Array.isArray(node.callFrames)) {
+        node.callFrames.forEach((frame: any) => {
+          const parsed = parseInitiatorFrame(frame);
+          if (parsed) frames.push(parsed);
+        });
+      }
+      node = node.parent;
+      depth++;
+    }
+  }
+
+  return frames.length ? frames : undefined;
+}
+
+function parseInitiator(raw: any): HarInitiatorInfo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const initiator: HarInitiatorInfo = {
+    type: optionalString(raw.type),
+    url: optionalString(raw.url),
+    lineNumber: optionalNumber(raw.lineNumber),
+    columnNumber: optionalNumber(raw.columnNumber),
+    requestId: optionalString(raw.requestId),
+    stack: parseInitiatorStack(raw.stack),
+  };
+  return Object.values(initiator).some(v => v !== undefined) ? initiator : undefined;
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status === 300
+    || status === 301
+    || status === 302
+    || status === 303
+    || status === 305
+    || status === 307
+    || status === 308;
+}
+
+function parseRedirect(resp: any, responseHeaders: HarHeader[], status: number): HarRedirectInfo | undefined {
+  const redirectURL = optionalString(resp.redirectURL);
+  const location = optionalString(getHeader(responseHeaders, 'location'));
+  if (!redirectURL && !location && !isRedirectStatus(status)) return undefined;
+  return {
+    redirectURL,
+    location,
+    status: isRedirectStatus(status) ? status : undefined,
+  };
+}
+
+function parseCacheInfo(entry: any, resp: any, responseHeaders: HarHeader[], status: number): HarCacheInfo | undefined {
+  const fromDiskCache = mergeOptionalBoolean(resp._fromDiskCache, entry._fromDiskCache);
+  const fromMemoryCache = mergeOptionalBoolean(resp._fromMemoryCache, entry._fromMemoryCache);
+  const fromServiceWorker = mergeOptionalBoolean(resp._fromServiceWorker, entry._fromServiceWorker);
+  const fromPrefetchCache = mergeOptionalBoolean(resp._fromPrefetchCache, entry._fromPrefetchCache);
+  const hasCacheBoolean = fromDiskCache !== undefined
+    || fromMemoryCache !== undefined
+    || fromServiceWorker !== undefined
+    || fromPrefetchCache !== undefined;
+  const fromCache = [fromDiskCache, fromMemoryCache, fromServiceWorker, fromPrefetchCache].some(v => v === true)
+    ? true
+    : undefined;
+
+  const cacheInfo: HarCacheInfo = {
+    cacheControl: optionalString(getHeader(responseHeaders, 'cache-control')),
+    etag: optionalString(getHeader(responseHeaders, 'etag')),
+    age: optionalString(getHeader(responseHeaders, 'age')),
+    expires: optionalString(getHeader(responseHeaders, 'expires')),
+    lastModified: optionalString(getHeader(responseHeaders, 'last-modified')),
+    fromDiskCache,
+    fromMemoryCache,
+    fromServiceWorker,
+    fromPrefetchCache,
+    fromCache,
+    status304: status === 304 ? true : undefined,
+  };
+
+  const hasCacheInfo = Object.values(cacheInfo).some(v => v !== undefined) || hasCacheBoolean;
+  return hasCacheInfo ? cacheInfo : undefined;
+}
+
+function parseConnectionInfo(connectionId: string | undefined, remoteAddress: string | undefined, protocol: string): HarConnectionInfo | undefined {
+  const info: HarConnectionInfo = {
+    connectionId,
+    remoteAddress: optionalString(remoteAddress),
+    protocol: protocol !== '-' ? protocol : undefined,
+  };
+  return Object.values(info).some(v => v !== undefined) ? info : undefined;
 }
 
 function extractNetErrorText(text?: string): string | undefined {
@@ -343,8 +566,16 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const xTtLogid = getHeader(responseHeaders, 'x-tt-logid') || getHeader(requestHeaders, 'x-tt-logid');
   const xTtCip = getHeader(responseHeaders, 'x-tt-cip') || getHeader(requestHeaders, 'x-tt-cip');
   const xLscSourceIp = getHeader(responseHeaders, 'x-lsc-source-ip') || getHeader(requestHeaders, 'x-lsc-source-ip');
-  const remoteAddress = entry.serverIPAddress || '';
-  const connectionId = entry.connection ? String(entry.connection) : '';
+  const remoteAddress = optionalString(entry.serverIPAddress);
+  const connectionId = optionalString(entry.connection);
+  const protocol = normalizeProtocol(resp.httpVersion || req.httpVersion || '');
+  const initiator = parseInitiator(entry._initiator);
+  const redirect = parseRedirect(resp, responseHeaders, status);
+  const requestCookies = parseCookies(req.cookies);
+  const responseCookies = parseCookies(resp.cookies);
+  const priority = optionalString(entry._priority);
+  const cacheInfo = parseCacheInfo(entry, resp, responseHeaders, status);
+  const connectionInfo = parseConnectionInfo(connectionId, remoteAddress, protocol);
   // 提取 queryString 和 postData
   const queryString: HarQueryParam[] = Array.isArray(req.queryString)
     ? req.queryString.map((q: any) => ({
@@ -369,7 +600,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     method: req.method || 'GET',
     status,
     statusText: resp.statusText || '',
-    protocol: normalizeProtocol(resp.httpVersion || req.httpVersion || ''),
+    protocol,
     domain,
     remoteAddress: remoteAddress || '-',
     connectionId,
@@ -410,6 +641,13 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     responseEncoding: content.encoding || '',
     queryString,
     postData,
+    initiator,
+    redirect,
+    requestCookies,
+    responseCookies,
+    priority,
+    cacheInfo,
+    connectionInfo,
     serverTiming,
     failureText,
     netErrorText,

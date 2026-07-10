@@ -130,7 +130,7 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
     };
   }
 
-  if (entry.status >= 500) {
+  if (entry.status >= 500 && entry.status < 600) {
     return {
       label: `HTTP ${entry.status} 服务端错误`,
       detail: `服务端返回 HTTP ${entry.status}，建议结合服务端日志、接口稳定性和请求时间点排查。`,
@@ -160,7 +160,7 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
     };
   }
 
-  if (entry.status >= 400) {
+  if (entry.status >= 400 && entry.status < 500) {
     return {
       label: `HTTP ${entry.status} 请求错误`,
       detail: `服务端返回 HTTP ${entry.status}，建议检查请求路径、参数、权限或接口约定。`,

@@ -44,6 +44,17 @@ function mapSeverity(severity: 'healthy' | 'warning' | 'critical'): DiagnosticCa
   return 'info';
 }
 
+function isHarRedirectEntry(entry: HarRequestEntry): boolean {
+  if (entry.redirect) return true;
+  return entry.status === 300
+    || entry.status === 301
+    || entry.status === 302
+    || entry.status === 303
+    || entry.status === 305
+    || entry.status === 307
+    || entry.status === 308;
+}
+
 function buildScope(
   affectedCount: number,
   domainCount?: number,
@@ -816,7 +827,7 @@ export function harDiagnosisToCards(
 
   // ========== 批次 B 增强：Redirect 诊断 ==========
   const { redirectSlow } = HAR_DIAG_THRESHOLDS;
-  const redirectEntries = entries.filter(e => e.status >= 300 && e.status < 400);
+  const redirectEntries = entries.filter(isHarRedirectEntry);
   const longRedirectChains = redirectEntries.filter(e => e.time > redirectSlow);
   if (longRedirectChains.length > 0) {
     cards.push({

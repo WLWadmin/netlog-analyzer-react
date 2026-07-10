@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Table, Input, Tag, Badge, Spin, Button, Tooltip } from 'antd';
+import { Table, Input, Tag, Badge, Spin, Button, Tooltip, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined, CloseOutlined } from '@ant-design/icons';
 import {
@@ -16,8 +16,17 @@ import {
 import { StatusTag } from '../../components/shared/StatusTag';
 import HarRequestDetail from './HarRequestDetail';
 import CopyText from './CopyText';
+import HarWaterfallCell from './HarWaterfallCell';
+import { sanitizeHarUrl } from './buildHarRequestCopyText';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
+import { buildHarWaterfallRange } from '../../diagnosis/shared/harWaterfall';
+import {
+  DEFAULT_HAR_REQUEST_FILTER_STATE,
+  filterHarRequests,
+  getTopHarDomains,
+  type HarIssueFilter,
+} from './harRequestFilterState';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -35,6 +44,45 @@ const STATUS_FILTERS: { key: StatusFilter; label: string; color: string; bg: str
   { key: 'slow', label: '慢请求', color: '#c2410c', bg: '#ffedd5' },
 ];
 
+const ISSUE_FILTERS: { key: HarIssueFilter; label: string }[] = [
+  { key: 'all', label: '全部主问题' },
+  { key: 'slow', label: '慢请求' },
+  { key: 'ttfb', label: 'TTFB 慢' },
+  { key: 'queueing', label: 'Queueing 慢' },
+  { key: 'dns', label: 'DNS 慢' },
+  { key: 'tls', label: 'TLS 慢' },
+  { key: 'status-zero', label: 'status=0' },
+  { key: 'net-error', label: 'netError' },
+  { key: '5xx', label: '5xx' },
+  { key: '4xx', label: '4xx' },
+];
+
+type HarColumnKey =
+  | 'name'
+  | 'status'
+  | 'issue'
+  | 'method'
+  | 'protocol'
+  | 'domain'
+  | 'remoteAddress'
+  | 'category'
+  | 'size'
+  | 'time'
+  | 'waterfall'
+  | 'initiator'
+  | 'priority'
+  | 'connection';
+
+const DEFAULT_COLUMN_KEYS: HarColumnKey[] = ['name', 'status', 'issue', 'protocol', 'domain', 'category', 'size', 'time', 'waterfall'];
+const REQUIRED_COLUMN_KEYS: HarColumnKey[] = DEFAULT_COLUMN_KEYS;
+const COLUMN_OPTIONS: { key: HarColumnKey; label: string }[] = [
+  { key: 'method', label: 'Method' },
+  { key: 'remoteAddress', label: 'Remote Address' },
+  { key: 'initiator', label: 'Initiator' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'connection', label: 'Connection' },
+];
+
 function issueStyle(severity: HarRequestIssue['severity']): { color: string; bg: string } {
   switch (severity) {
     case 'critical': return { color: '#b91c1c', bg: '#fee2e2' };
@@ -44,12 +92,26 @@ function issueStyle(severity: HarRequestIssue['severity']): { color: string; bg:
   }
 }
 
+function compactHarName(name: string, maxLength = 72): string {
+  if (name.length <= maxLength) return name;
+  const head = Math.ceil((maxLength - 1) * 0.58);
+  const tail = Math.floor((maxLength - 1) * 0.42);
+  return `${name.slice(0, head)}…${name.slice(-tail)}`;
+}
+
 const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter, onStatusFilterChange, categoryFilter, onCategoryFilterChange }) => {
   const [keyword, setKeyword] = useState('');
   const [blockedInput, setBlockedInput] = useState('');
   const [blockedDomains, setBlockedDomains] = useState<string[]>([]);
   const [innerStatus, setInnerStatus] = useState<StatusFilter>('all');
   const [innerCategory, setInnerCategory] = useState<string>('all');
+  const [issueFilter, setIssueFilter] = useState<HarIssueFilter>('all');
+  const [methodFilter, setMethodFilter] = useState<'all' | 'GET' | 'POST' | 'OPTIONS' | 'other'>('all');
+  const [domainFilter, setDomainFilter] = useState<string>('all');
+  const [hasLogidFilter, setHasLogidFilter] = useState<'all' | 'yes' | 'no'>('all');
+  const [hasServerTimingFilter, setHasServerTimingFilter] = useState<'all' | 'yes' | 'no'>('all');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<HarColumnKey[]>(DEFAULT_COLUMN_KEYS);
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [filtering, setFiltering] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
@@ -78,6 +140,11 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setBlockedInput('');
     setInnerStatus('all');
     setInnerCategory('all');
+    setIssueFilter('all');
+    setMethodFilter('all');
+    setDomainFilter('all');
+    setHasLogidFilter('all');
+    setHasServerTimingFilter('all');
     setSelected(null);
     setHighlightIds(new Set());
 
@@ -107,19 +174,27 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setFiltering(true);
     const timer = setTimeout(() => setFiltering(false), 80);
     return () => clearTimeout(timer);
-  }, [category, status, keyword, blockedDomains]);
+  }, [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains]);
+
+  const filterState = useMemo(() => ({
+    ...DEFAULT_HAR_REQUEST_FILTER_STATE,
+    category: category as any,
+    status,
+    issue: issueFilter,
+    method: methodFilter,
+    domain: domainFilter,
+    hasLogid: hasLogidFilter,
+    hasServerTiming: hasServerTimingFilter,
+    keyword,
+    blockedDomains,
+  }), [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains]);
 
   const filtered = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    return result.entries.filter(e => {
-      if (category !== 'all' && e.category !== category) return false;
-      if (status === 'failed' && !e.isFailed) return false;
-      if (status === 'slow' && !e.isSlow) return false;
-      if (kw && !e.url.toLowerCase().includes(kw)) return false;
-      if (blockedDomains.length > 0 && blockedDomains.some(d => e.domain.toLowerCase().includes(d))) return false;
-      return true;
-    });
-  }, [result.entries, category, status, keyword, blockedDomains]);
+    return filterHarRequests(result.entries, filterState);
+  }, [result.entries, filterState]);
+
+  const topDomains = useMemo(() => getTopHarDomains(result.entries), [result.entries]);
+  const waterfallRange = useMemo(() => buildHarWaterfallRange(result.entries), [result.entries]);
 
   const issueById = useMemo(() => {
     const map = new Map<number, HarRequestIssue>();
@@ -134,32 +209,50 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      width: 300,
+      width: 320,
+      ellipsis: true,
       render: (name: string, r) => {
-        // 域名 + 路径，超宽省略号
-        const path = r.url.includes('?')
-          ? r.url.substring(r.url.indexOf('?'))
-          : name !== r.domain ? name : '/';
-        const display = r.domain + path;
+        const displayName = compactHarName(name || sanitizeHarUrl(r.url));
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', minWidth: 0 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: categoryColor(r.category), flexShrink: 0 }} />
-            <span
+          <Tooltip
+            title={
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, wordBreak: 'break-all' }}>
+                {r.url}
+              </div>
+            }
+            placement="topLeft"
+          >
+            <div
               style={{
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--accent-blue)',
-                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                width: '100%',
+                maxWidth: '100%',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
                 minWidth: 0,
-                flex: '1 1 auto',
               }}
-              title={r.url}
             >
-              {display}
-            </span>
-          </span>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: categoryColor(r.category), flexShrink: 0 }} />
+              <span
+                style={{
+                  display: 'block',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--accent-blue)',
+                  cursor: 'pointer',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                  flex: '1 1 auto',
+                  letterSpacing: -0.15,
+                }}
+              >
+                {displayName}
+              </span>
+            </div>
+          </Tooltip>
         );
       },
     },
@@ -194,11 +287,51 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       },
     },
     {
+      title: 'Method',
+      dataIndex: 'method',
+      key: 'method',
+      width: 90,
+      render: (method: string) => (
+        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{method}</span>
+      ),
+    },
+    {
       title: 'Protocol',
       dataIndex: 'protocol',
       key: 'protocol',
       width: 90,
       render: (p: string) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{p}</span>,
+    },
+    {
+      title: 'Initiator',
+      key: 'initiator',
+      width: 210,
+      ellipsis: true,
+      render: (_: unknown, entry) => {
+        if (!entry.initiator) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
+        const url = entry.initiator.url ? sanitizeHarUrl(entry.initiator.url) : '';
+        const label = [entry.initiator.type, url].filter(Boolean).join(' · ') || '-';
+        return <span title={label} style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{label}</span>;
+      },
+    },
+    {
+      title: 'Priority',
+      dataIndex: 'priority',
+      key: 'priority',
+      width: 90,
+      render: (priority?: string) => (
+        <span style={{ color: priority ? 'var(--text-secondary)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{priority || '-'}</span>
+      ),
+    },
+    {
+      title: 'Connection',
+      key: 'connection',
+      width: 110,
+      render: (_: unknown, entry) => (
+        <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+          {entry.connectionInfo?.connectionId || entry.connectionId || '-'}
+        </span>
+      ),
     },
     {
       title: 'Domain',
@@ -256,7 +389,29 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         </span>
       ),
     },
+    {
+      title: 'Waterfall',
+      key: 'waterfall',
+      width: 300,
+      render: (_: unknown, r) => (
+        <HarWaterfallCell
+          entry={r}
+          range={waterfallRange}
+          issue={issueById.get(r.id) || getHarRequestIssue(r)}
+        />
+      ),
+    },
   ];
+
+  const visibleColumns = columns.filter(column => {
+    const key = column.key as HarColumnKey | undefined;
+    return key ? visibleColumnKeys.includes(key) : true;
+  });
+  const visibleTableWidth = Math.max(
+    960,
+    visibleColumns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 120), 0)
+  );
+  const useVirtualScroll = filtered.length > 500;
 
   const rowClassName = (record: HarRequestEntry) => {
     const classes: string[] = [];
@@ -265,10 +420,23 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     return classes.join(' ');
   };
 
-  const hasActiveFilters = category !== 'all' || status !== 'all' || !!keyword.trim() || blockedDomains.length > 0;
+  const hasActiveFilters = category !== 'all'
+    || status !== 'all'
+    || issueFilter !== 'all'
+    || methodFilter !== 'all'
+    || domainFilter !== 'all'
+    || hasLogidFilter !== 'all'
+    || hasServerTimingFilter !== 'all'
+    || !!keyword.trim()
+    || blockedDomains.length > 0;
   const activeFilterCount = [
     category !== 'all',
     status !== 'all',
+    issueFilter !== 'all',
+    methodFilter !== 'all',
+    domainFilter !== 'all',
+    hasLogidFilter !== 'all',
+    hasServerTimingFilter !== 'all',
     !!keyword.trim(),
     blockedDomains.length > 0,
   ].filter(Boolean).length;
@@ -276,6 +444,11 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   const resetFilters = () => {
     setCat('all');
     setStatus('all');
+    setIssueFilter('all');
+    setMethodFilter('all');
+    setDomainFilter('all');
+    setHasLogidFilter('all');
+    setHasServerTimingFilter('all');
     setKeyword('');
     setBlockedInput('');
     setBlockedDomains([]);
@@ -418,21 +591,121 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         )}
       </div>
 
+      {/* 第四行：主问题快捷筛选 */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 2 }}>主问题：</span>
+        {ISSUE_FILTERS.map(item => {
+          const isActive = issueFilter === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => setIssueFilter(item.key)}
+              style={{
+                appearance: 'none',
+                cursor: 'pointer',
+                padding: '5px 10px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? '#0e7490' : 'var(--text-secondary)',
+                background: isActive ? '#cffafe' : 'var(--bg-elevated)',
+                border: `1px solid ${isActive ? '#0e7490' : 'var(--border-color)'}`,
+                fontFamily: 'inherit',
+              }}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+        <Button size="small" type="text" onClick={() => setShowMoreFilters(v => !v)}>
+          {showMoreFilters ? '收起更多筛选' : '更多筛选'}
+        </Button>
+      </div>
+
+      {showMoreFilters && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 10,
+            padding: 12,
+            border: '1px solid var(--border-color)',
+            borderRadius: 10,
+            background: 'var(--bg-surface)',
+          }}
+        >
+          <Select
+            size="small"
+            value={methodFilter}
+            onChange={setMethodFilter}
+            options={[
+              { value: 'all', label: '全部 Method' },
+              { value: 'GET', label: 'GET' },
+              { value: 'POST', label: 'POST' },
+              { value: 'OPTIONS', label: 'OPTIONS' },
+              { value: 'other', label: '其他 Method' },
+            ]}
+          />
+          <Select
+            size="small"
+            value={domainFilter}
+            onChange={setDomainFilter}
+            options={[
+              { value: 'all', label: '全部 Domain' },
+              ...topDomains.map(domain => ({ value: domain, label: domain })),
+            ]}
+          />
+          <Select
+            size="small"
+            value={hasLogidFilter}
+            onChange={setHasLogidFilter}
+            options={[
+              { value: 'all', label: '全部 logid' },
+              { value: 'yes', label: '有 x-tt-logid' },
+              { value: 'no', label: '无 x-tt-logid' },
+            ]}
+          />
+          <Select
+            size="small"
+            value={hasServerTimingFilter}
+            onChange={setHasServerTimingFilter}
+            options={[
+              { value: 'all', label: '全部 Server-Timing' },
+              { value: 'yes', label: '有 Server-Timing' },
+              { value: 'no', label: '无 Server-Timing' },
+            ]}
+          />
+          <Select
+            mode="multiple"
+            size="small"
+            value={visibleColumnKeys.filter(key => !REQUIRED_COLUMN_KEYS.includes(key))}
+            onChange={keys => setVisibleColumnKeys([...REQUIRED_COLUMN_KEYS, ...(keys as HarColumnKey[])])}
+            options={COLUMN_OPTIONS.map(item => ({ value: item.key, label: item.label }))}
+            maxTagCount="responsive"
+            placeholder="添加扩展列"
+          />
+        </div>
+      )}
+
       {filtering && (
         <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
           筛选中...
         </div>
       )}
       <Spin spinning={filtering} size="small">
-        {/* HAR 请求表使用 antd 分页（表格型数据更适合分页浏览）；
-            NetLog / Log 长列表使用 useLoadMore "加载更多" 模式 */}
+        {/* HAR 请求列表对标浏览器 Network：关闭分页，使用连续滚动；
+            大 HAR 使用虚拟滚动，避免一次性渲染全部 DOM 行。 */}
         <Table<HarRequestEntry>
-          columns={columns}
+          columns={visibleColumns}
           dataSource={filtered}
           rowKey="id"
           size="small"
-          scroll={{ x: 1320, y: 'calc(100vh - 320px)' }}
-          pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['20', '50', '100', '200'] }}
+          tableLayout="fixed"
+          scroll={{ x: visibleTableWidth, y: useVirtualScroll ? 560 : 'calc(100vh - 320px)' }}
+          virtual={useVirtualScroll}
+          pagination={false}
           onRow={record => ({
             onClick: () => setSelected(record),
             style: { cursor: 'pointer' },
@@ -514,7 +787,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
 
             {/* 详情面板内容 */}
             <div style={{ flex: 1, overflow: 'auto', padding: '0 24px 24px' }}>
-              <HarRequestDetail entry={selected} />
+              <HarRequestDetail entry={selected} allEntries={result.entries} />
             </div>
           </div>
         </div>

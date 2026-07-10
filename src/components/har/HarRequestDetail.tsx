@@ -1,8 +1,9 @@
-import { useMemo, Fragment } from 'react';
-import { Tabs, Tag, Tooltip } from 'antd';
-import { FileTextOutlined, InboxOutlined } from '@ant-design/icons';
+import { useMemo, useState, Fragment } from 'react';
+import { Tabs, Tag, Tooltip, Button, message } from 'antd';
+import { CopyOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
 import {
   HarRequestEntry,
+  HarCookie,
   decodeResponseBody,
   statusStyle,
   formatBytes,
@@ -10,9 +11,14 @@ import {
 import CopyText from './CopyText';
 import HarTimingChart from './HarTimingChart';
 import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
+import { buildHarRedirectLinks } from '../../diagnosis/shared/harRedirectChain';
+import { copyText } from '../../utils/copyText';
+import { buildHarRequestCopyText, sanitizeHarUrl } from './buildHarRequestCopyText';
+import HarCodeViewer from './HarCodeViewer';
 
 interface HarRequestDetailProps {
   entry: HarRequestEntry;
+  allEntries?: HarRequestEntry[];
 }
 
 const sectionTitle = (text: string) => (
@@ -110,6 +116,10 @@ const GeneralRow: React.FC<{ label: string; children: React.ReactNode }> = ({ la
   </div>
 );
 
+const EmptyState: React.FC<{ text: string }> = ({ text }) => (
+  <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>{text}</div>
+);
+
 const JsonTree: React.FC<{ data: any; depth?: number }> = ({ data, depth = 0 }) => {
   if (data === null) return <span style={{ color: 'var(--text-muted)' }}>null</span>;
   if (typeof data !== 'object') return <span style={{ color: typeof data === 'string' ? '#34d399' : '#fbbf24' }}>{JSON.stringify(data)}</span>;
@@ -140,6 +150,72 @@ const ROLE_HINT_LABELS: Record<NonNullable<HarRequestIssue['roleHint']>, string>
   backend: '后端先看',
 };
 
+function maskCookieValue(value?: string): string {
+  if (value === undefined) return '-';
+  if (!value) return '(empty)';
+  if (value.length <= 6) return '••••••';
+  return `${value.slice(0, 3)}••••${value.slice(-3)}`;
+}
+
+const CookieList: React.FC<{ title: string; cookies?: HarCookie[] }> = ({ title, cookies = [] }) => {
+  const [visibleValues, setVisibleValues] = useState<Set<number>>(new Set());
+  if (!cookies.length) return null;
+
+  return (
+    <div>
+      {sectionTitle(title)}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {cookies.map((cookie, index) => {
+          const isVisible = visibleValues.has(index);
+          return (
+            <div
+              key={`${cookie.name}-${index}`}
+              style={{
+                padding: '10px 12px',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '160px minmax(0, 1fr) auto', gap: 10, alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{cookie.name}</span>
+                {isVisible ? (
+                  <CopyText text={cookie.value ?? ''} label={`${cookie.name} Cookie value`} emptyText="(empty)" />
+                ) : (
+                  <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
+                    {maskCookieValue(cookie.value)}
+                  </span>
+                )}
+                <Button
+                  size="small"
+                  type="text"
+                  onClick={() => setVisibleValues(current => {
+                    const next = new Set(current);
+                    if (next.has(index)) next.delete(index);
+                    else next.add(index);
+                    return next;
+                  })}
+                >
+                  {isVisible ? '隐藏' : '显示完整值'}
+                </Button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {cookie.domain && <Tag>{cookie.domain}</Tag>}
+                {cookie.path && <Tag>{cookie.path}</Tag>}
+                {cookie.httpOnly && <Tag color="blue">HttpOnly</Tag>}
+                {cookie.secure && <Tag color="green">Secure</Tag>}
+                {cookie.sameSite && <Tag color="purple">SameSite={cookie.sameSite}</Tag>}
+                {cookie.expires && <Tag>Expires={cookie.expires}</Tag>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 function issueTagColor(severity: HarRequestIssue['severity']): string {
   switch (severity) {
     case 'critical': return '#b91c1c';
@@ -149,9 +225,14 @@ function issueTagColor(severity: HarRequestIssue['severity']): string {
   }
 }
 
-const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
+const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries = [entry] }) => {
+  const [showAllInitiatorFrames, setShowAllInitiatorFrames] = useState(false);
   const decoded = useMemo(() => decodeResponseBody(entry), [entry]);
   const issue = useMemo(() => getHarRequestIssue(entry), [entry]);
+  const redirectLinks = useMemo(() => buildHarRedirectLinks(allEntries), [allEntries]);
+  const outgoingRedirect = useMemo(() => redirectLinks.find(link => link.fromRequestId === entry.id), [redirectLinks, entry.id]);
+  const incomingRedirect = useMemo(() => redirectLinks.find(link => link.toRequestId === entry.id), [redirectLinks, entry.id]);
+  const safeSummary = useMemo(() => buildHarRequestCopyText(entry), [entry]);
 
   const { priorityHeaders, otherResponseHeaders } = useMemo(() => {
     const priority: { name: string; value: string }[] = [];
@@ -235,6 +316,11 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
         <GeneralRow label="Protocol">
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{entry.protocol}</span>
         </GeneralRow>
+        <GeneralRow label="Priority">
+          <span style={{ fontFamily: 'var(--font-mono)', color: entry.priority ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+            {entry.priority || 'HAR 未记录'}
+          </span>
+        </GeneralRow>
       </div>
 
       {priorityHeaders.length > 0 && (
@@ -315,32 +401,20 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
   ) : decoded.text ? (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-        {decoded.isJson ? 'JSON 已格式化' : '原始响应体'} · {entry.mimeType || '未知类型'}
+        {decoded.isJson ? 'JSON 已格式化' : '响应预览'} · {entry.mimeType || '未知类型'}
       </div>
       {decoded.isJson && decoded.parsed ? (
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14, fontSize: 12.5, maxHeight: 480, overflow: 'auto' }}>
           <JsonTree data={decoded.parsed} />
         </div>
       ) : (
-        <pre
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 8,
-            padding: 14,
-            fontSize: 12.5,
-            lineHeight: 1.6,
-            color: 'var(--text-primary)',
-            fontFamily: 'var(--font-mono)',
-            maxHeight: 480,
-            overflow: 'auto',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            margin: 0,
-          }}
-        >
-          {decoded.text}
-        </pre>
+        <HarCodeViewer
+          source={decoded.text}
+          mimeType={entry.mimeType}
+          rawType={entry.rawType}
+          url={entry.url}
+          maxHeight={520}
+        />
       )}
     </div>
   ) : entry.responseBodyOmitted ? (
@@ -358,6 +432,33 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
       <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>该请求未捕获响应体</div>
       <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>可能是OPTIONS预检请求或响应被拦截</div>
     </div>
+  );
+
+  const responseTab = entry.responseBodyOmitted ? (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <FileTextOutlined style={{ fontSize: 40, color: 'var(--text-disabled)', display: 'block', marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>大型响应体已省略</div>
+      <div style={{ fontSize: 12, color: 'var(--text-disabled)', lineHeight: 1.7 }}>
+        {entry.responseBodyOmitReason || '为降低大 HAR 文件的浏览器内存占用，未保留完整响应体。'}
+      </div>
+    </div>
+  ) : entry.responseBody ? (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+        原始响应内容 · {entry.mimeType || '未知类型'}
+        {entry.responseEncoding ? ` · encoding=${entry.responseEncoding}` : ''}
+      </div>
+      <HarCodeViewer
+        source={entry.responseBody}
+        mimeType={entry.mimeType}
+        rawType={entry.rawType}
+        url={entry.url}
+        format={false}
+        maxHeight={520}
+      />
+    </div>
+  ) : (
+    <EmptyState text="该请求未捕获响应内容。" />
   );
 
   // Timing Tab
@@ -458,6 +559,193 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
     </div>
   );
 
+  const initiatorFrames = entry.initiator?.stack || [];
+  const visibleInitiatorFrames = showAllInitiatorFrames ? initiatorFrames : initiatorFrames.slice(0, 5);
+
+  const initiatorTab = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div>
+        {sectionTitle('Initiator')}
+        {entry.initiator ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <GeneralRow label="Type">
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.initiator.type || '-'}</span>
+            </GeneralRow>
+            <GeneralRow label="URL">
+              {entry.initiator.url
+                ? <CopyText text={sanitizeHarUrl(entry.initiator.url)} label="Initiator URL（脱敏）" />
+                : <span style={{ color: 'var(--text-muted)' }}>HAR 未记录</span>}
+            </GeneralRow>
+            <GeneralRow label="Line / Column">
+              <span style={{ fontFamily: 'var(--font-mono)' }}>
+                {entry.initiator.lineNumber ?? '-'} / {entry.initiator.columnNumber ?? '-'}
+              </span>
+            </GeneralRow>
+            {visibleInitiatorFrames.length ? (
+              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 12 }}>
+                {visibleInitiatorFrames.map((frame, index) => (
+                  <div key={index} style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    {frame.functionName || '(anonymous)'} · {frame.url ? sanitizeHarUrl(frame.url) : '-'}:{frame.lineNumber ?? '-'}:{frame.columnNumber ?? '-'}
+                  </div>
+                ))}
+                {initiatorFrames.length > 5 && (
+                  <Button size="small" type="link" onClick={() => setShowAllInitiatorFrames(value => !value)} style={{ paddingInline: 0 }}>
+                    {showAllInitiatorFrames ? '收起调用栈' : `展开其余 ${initiatorFrames.length - 5} 条`}
+                  </Button>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState text="HAR 未提供 Initiator 信息。" />
+        )}
+      </div>
+    </div>
+  );
+
+  const cookiesTab = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <CookieList title="Request Cookies" cookies={entry.requestCookies} />
+      <CookieList title="Response Cookies" cookies={entry.responseCookies} />
+      {!entry.requestCookies?.length && !entry.responseCookies?.length && (
+        <div>
+          {sectionTitle('Cookies')}
+          <EmptyState text="HAR 未提供结构化 Cookie 字段。" />
+        </div>
+      )}
+    </div>
+  );
+
+  const cacheRows: Array<{ label: string; value: string }> = entry.cacheInfo ? [
+    { label: 'Cache-Control', value: entry.cacheInfo.cacheControl || '' },
+    { label: 'ETag', value: entry.cacheInfo.etag || '' },
+    { label: 'Age', value: entry.cacheInfo.age || '' },
+    { label: 'Expires', value: entry.cacheInfo.expires || '' },
+    { label: 'Last-Modified', value: entry.cacheInfo.lastModified || '' },
+    { label: 'Disk Cache', value: entry.cacheInfo.fromDiskCache === undefined ? '' : entry.cacheInfo.fromDiskCache ? '是' : '否' },
+    { label: 'Memory Cache', value: entry.cacheInfo.fromMemoryCache === undefined ? '' : entry.cacheInfo.fromMemoryCache ? '是' : '否' },
+    { label: 'Service Worker', value: entry.cacheInfo.fromServiceWorker === undefined ? '' : entry.cacheInfo.fromServiceWorker ? '是' : '否' },
+    { label: 'Prefetch Cache', value: entry.cacheInfo.fromPrefetchCache === undefined ? '' : entry.cacheInfo.fromPrefetchCache ? '是' : '否' },
+    { label: '浏览器缓存命中标记', value: entry.cacheInfo.fromCache ? '是' : '' },
+    { label: '协商缓存', value: entry.cacheInfo.status304 ? '返回 304 Not Modified' : '' },
+  ].filter(row => row.value !== '') : [];
+
+  const networkTab = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div>
+        {sectionTitle('安全请求摘要')}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            默认摘要会移除 query/hash，不包含请求体、Cookie、Authorization 或完整 Header。
+          </div>
+          <Button
+            size="small"
+            icon={<CopyOutlined />}
+            style={{ alignSelf: 'flex-start' }}
+            onClick={async () => {
+              try {
+                await copyText(safeSummary);
+                message.success('已复制安全请求摘要');
+              } catch {
+                message.error('复制失败，请手动复制');
+              }
+            }}
+          >
+            复制请求摘要
+          </Button>
+          <pre
+            style={{
+              margin: 0,
+              padding: 12,
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {safeSummary}
+          </pre>
+        </div>
+      </div>
+
+      <div>
+        {sectionTitle('Redirect')}
+        {entry.redirect || outgoingRedirect || incomingRedirect ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {entry.redirect?.status !== undefined && (
+              <GeneralRow label="Status">
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.redirect.status}</span>
+              </GeneralRow>
+            )}
+            {entry.redirect?.redirectURL && (
+              <GeneralRow label="redirectURL">
+                <CopyText text={entry.redirect.redirectURL} label="redirectURL" />
+              </GeneralRow>
+            )}
+            {entry.redirect?.location && (
+              <GeneralRow label="Location">
+                <CopyText text={entry.redirect.location} label="Location" />
+              </GeneralRow>
+            )}
+            {outgoingRedirect && (
+              <GeneralRow label="疑似下一跳">
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  请求 #{outgoingRedirect.toRequestId} · {outgoingRedirect.targetUrl} · 基于显式目标匹配
+                </span>
+              </GeneralRow>
+            )}
+            {incomingRedirect && (
+              <GeneralRow label="疑似来源">
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  请求 #{incomingRedirect.fromRequestId} · 基于显式目标匹配
+                </span>
+              </GeneralRow>
+            )}
+          </div>
+        ) : (
+          <EmptyState text="未发现 Redirect 原始证据。" />
+        )}
+      </div>
+
+      <div>
+        {sectionTitle('Cache')}
+        {cacheRows.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {cacheRows.map(row => (
+              <GeneralRow key={row.label} label={row.label}>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{row.value}</span>
+              </GeneralRow>
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="未发现 cache header 或浏览器缓存命中线索。" />
+        )}
+      </div>
+
+      <div>
+        {sectionTitle('Connection')}
+        {entry.connectionInfo ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <GeneralRow label="Connection ID">
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.connectionInfo.connectionId || '-'}</span>
+            </GeneralRow>
+            <GeneralRow label="Remote Address">
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.connectionInfo.remoteAddress || entry.remoteAddress || '-'}</span>
+            </GeneralRow>
+            <GeneralRow label="Protocol">
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.connectionInfo.protocol || entry.protocol || '-'}</span>
+            </GeneralRow>
+          </div>
+        ) : (
+          <EmptyState text="HAR 未提供连接聚合信息。" />
+        )}
+      </div>
+    </div>
+  );
+
   // 诊断 Tab
   const diagItem = (label: string, value: string, hint?: string) => (
     <div
@@ -547,9 +835,13 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry }) => {
 
   const items = [
     { key: 'headers', label: 'Headers', children: headersTab },
-    { key: 'preview', label: 'Preview', children: previewTab },
     ...(hasPayload ? [{ key: 'payload', label: 'Payload', children: payloadTab }] : []),
+    { key: 'preview', label: 'Preview', children: previewTab },
+    { key: 'response', label: 'Response', children: responseTab },
+    { key: 'initiator', label: 'Initiator', children: initiatorTab },
     { key: 'timing', label: 'Timing', children: timingTab },
+    { key: 'cookies', label: 'Cookies', children: cookiesTab },
+    { key: 'network', label: 'Network', children: networkTab },
     { key: 'diagnosis', label: '诊断', children: diagnosisTab },
   ];
 
