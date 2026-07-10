@@ -216,7 +216,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setFiltering(true);
     const timer = setTimeout(() => setFiltering(false), 80);
     return () => clearTimeout(timer);
-  }, [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains]);
+  }, [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains, focusedRequestIds]);
 
   const filterState = useMemo(() => ({
     ...DEFAULT_HAR_REQUEST_FILTER_STATE,
@@ -548,7 +548,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     || hasLogidFilter !== 'all'
     || hasServerTimingFilter !== 'all'
     || !!keyword.trim()
-    || blockedDomains.length > 0;
+    || blockedDomains.length > 0
+    || Boolean(focusedRequestIds?.length);
   const activeFilterCount = [
     category !== 'all',
     status !== 'all',
@@ -559,7 +560,21 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     hasServerTimingFilter !== 'all',
     !!keyword.trim(),
     blockedDomains.length > 0,
+    Boolean(focusedRequestIds?.length),
   ].filter(Boolean).length;
+
+  const activeFilterChips = [
+    category !== 'all' ? { key: 'category', label: `类型：${CATEGORY_LABELS.find(item => item.key === category)?.label || category}`, onClose: () => setCat('all') } : undefined,
+    status !== 'all' ? { key: 'status', label: `状态：${STATUS_FILTERS.find(item => item.key === status)?.label || status}`, onClose: () => setStatus('all') } : undefined,
+    issueFilter !== 'all' ? { key: 'issue', label: `主问题：${ISSUE_FILTERS.find(item => item.key === issueFilter)?.label || issueFilter}`, onClose: () => setIssueFilter('all') } : undefined,
+    focusedRequestIds?.length ? { key: 'requestIds', label: `相关请求：${focusedRequestIds.length} 条`, onClose: () => { setFocusedRequestIds(undefined); setHighlightIds(new Set()); } } : undefined,
+    methodFilter !== 'all' ? { key: 'method', label: `Method：${methodFilter}`, onClose: () => setMethodFilter('all') } : undefined,
+    domainFilter !== 'all' ? { key: 'domain', label: `Domain：${domainFilter}`, onClose: () => setDomainFilter('all') } : undefined,
+    hasLogidFilter !== 'all' ? { key: 'logid', label: `Logid：${hasLogidFilter === 'yes' ? '有' : '无'}`, onClose: () => setHasLogidFilter('all') } : undefined,
+    hasServerTimingFilter !== 'all' ? { key: 'serverTiming', label: `Server-Timing：${hasServerTimingFilter === 'yes' ? '有' : '无'}`, onClose: () => setHasServerTimingFilter('all') } : undefined,
+    keyword.trim() ? { key: 'keyword', label: `关键词：${keyword.trim()}`, onClose: () => setKeyword('') } : undefined,
+    blockedDomains.length > 0 ? { key: 'blocked', label: `屏蔽域名：${blockedDomains.length} 个`, onClose: () => { setBlockedDomains([]); setBlockedInput(''); } } : undefined,
+  ].filter((item): item is { key: string; label: string; onClose: () => void } => Boolean(item));
 
   const resetFilters = () => {
     setCat('all');
@@ -572,6 +587,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setKeyword('');
     setBlockedInput('');
     setBlockedDomains([]);
+    setFocusedRequestIds(undefined);
     setSelected(null);
     setHighlightIds(new Set());
   };
@@ -716,14 +732,55 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           style={{ flex: 1 }}
         />
         {hasActiveFilters && (
-          <>
-            <Tag color="blue" style={{ margin: 0, fontSize: 12 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 12,
+              border: '1px solid rgba(14, 116, 144, 0.18)',
+              background: 'linear-gradient(135deg, rgba(236, 254, 255, 0.72), rgba(248, 250, 252, 0.88))',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.75)',
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#0e7490', fontWeight: 700, marginRight: 2 }}>
               已启用 {activeFilterCount} 个筛选
-            </Tag>
-            <Button size="small" icon={<CloseOutlined />} onClick={resetFilters}>
-              清空筛选
+            </span>
+            {activeFilterChips.map(chip => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onClose}
+                title={`取消${chip.label}`}
+                style={{
+                  appearance: 'none',
+                  border: '1px solid rgba(14, 116, 144, 0.22)',
+                  background: 'rgba(255,255,255,0.86)',
+                  color: '#155e75',
+                  borderRadius: 999,
+                  padding: '4px 8px 4px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  maxWidth: 260,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: 12,
+                  lineHeight: 1.2,
+                  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chip.label}</span>
+                <CloseOutlined style={{ fontSize: 10, color: '#0e7490', flexShrink: 0 }} />
+              </button>
+            ))}
+            <Button size="small" type="text" icon={<CloseOutlined />} onClick={resetFilters} style={{ marginLeft: 'auto', color: '#0e7490' }}>
+              全部清空
             </Button>
-          </>
+          </div>
         )}
       </div>
 
@@ -737,21 +794,28 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
               key={item.key}
               type="button"
               aria-pressed={isActive}
-              onClick={() => setIssueFilter(item.key)}
+              onClick={() => setIssueFilter(isActive && item.key !== 'all' ? 'all' : item.key)}
               style={{
                 appearance: 'none',
                 cursor: 'pointer',
-                padding: '5px 10px',
-                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: isActive && item.key !== 'all' ? '5px 8px 5px 11px' : '5px 11px',
+                borderRadius: 999,
                 fontSize: 12,
                 fontWeight: isActive ? 700 : 500,
                 color: isActive ? '#0e7490' : 'var(--text-secondary)',
-                background: isActive ? '#cffafe' : 'var(--bg-elevated)',
-                border: `1px solid ${isActive ? '#0e7490' : 'var(--border-color)'}`,
+                background: isActive ? 'linear-gradient(135deg, #ecfeff, #cffafe)' : 'var(--bg-elevated)',
+                border: `1px solid ${isActive ? 'rgba(14, 116, 144, 0.45)' : 'var(--border-color)'}`,
+                boxShadow: isActive ? '0 2px 8px rgba(14, 116, 144, 0.12)' : 'none',
                 fontFamily: 'inherit',
               }}
             >
               {item.label}
+              {isActive && item.key !== 'all' && (
+                <CloseOutlined style={{ fontSize: 9, color: '#0e7490' }} />
+              )}
             </button>
           );
         })}
