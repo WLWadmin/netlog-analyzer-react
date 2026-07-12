@@ -21,6 +21,7 @@ import {
 } from './harThresholds';
 import { buildHarNavigationTarget } from './navigation';
 import { buildHarIssueClusters, getHarRoleLabel, type HarIssueCategory, type HarIssueCluster } from './harIssueClusters';
+import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
 
 // ========== 工具函数 ==========
 
@@ -54,6 +55,29 @@ function isHarRedirectEntry(entry: HarRequestEntry): boolean {
     || entry.status === 305
     || entry.status === 307
     || entry.status === 308;
+}
+
+function timingPhaseMs(entry: HarRequestEntry, key: HarDisplayTimingPhaseKey): number {
+  return getHarTimingPhase(normalizeHarTiming(entry), key)?.durationMs || 0;
+}
+
+function blockedTimingMs(entry: HarRequestEntry): number {
+  return timingPhaseMs(entry, 'queueing')
+    + timingPhaseMs(entry, 'stalled')
+    + timingPhaseMs(entry, 'proxy');
+}
+
+function sanitizeHarEvidenceUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    return `${url.origin}${url.pathname || '/'}`;
+  } catch {
+    return rawUrl.split(/[?#]/, 1)[0];
+  }
+}
+
+function sanitizeHarEvidenceText(value: string): string {
+  return value.replace(/https?:\/\/[^\s，。；]+/g, match => sanitizeHarEvidenceUrl(match));
 }
 
 function buildScope(
@@ -185,7 +209,7 @@ function buildAttributionEvidence(attr: AttributionItem, entries: HarRequestEntr
     attr.evidence.forEach((e, i) => {
       evidence.push({
         label: i === 0 ? '关键证据' : `证据 ${i + 1}`,
-        value: e,
+        value: sanitizeHarEvidenceText(e),
         source: 'har',
       });
     });
@@ -195,10 +219,10 @@ function buildAttributionEvidence(attr: AttributionItem, entries: HarRequestEntr
   const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked, maxRelatedRequestsPerAttr } = HAR_EVIDENCE_THRESHOLDS;
   const relatedIds = entries
     .filter(e => {
-      if (attr.type === 'server') return e.timings.wait > attributionServerWait;
-      if (attr.type === 'dns') return e.timings.dns > attributionDns;
-      if (attr.type === 'network') return e.timings.dns > attributionNetworkDns || e.timings.connect > attributionNetworkConnect;
-      if (attr.type === 'client') return e.timings.blocked > attributionClientBlocked;
+      if (attr.type === 'server') return timingPhaseMs(e, 'wait') > attributionServerWait;
+      if (attr.type === 'dns') return timingPhaseMs(e, 'dns') > attributionDns;
+      if (attr.type === 'network') return timingPhaseMs(e, 'dns') > attributionNetworkDns || timingPhaseMs(e, 'tcp') > attributionNetworkConnect;
+      if (attr.type === 'client') return blockedTimingMs(e) > attributionClientBlocked;
       return false;
     })
     .map(e => e.id)
@@ -333,16 +357,16 @@ function addHarConfidenceFactors(card: DiagnosticCard, harResult: HarAnalysisRes
   if (card.category === 'server' && harResult.entries.some(e => e.serverTiming.length > 0)) {
     positives.push({ label: 'Server-Timing', impact: 'positive', detail: 'HAR 中存在 Server-Timing，可辅助定位服务端阶段' });
   }
-  if (card.category === 'tls' && harResult.entries.some(e => e.timings.ssl > 0)) {
+  if (card.category === 'tls' && harResult.entries.some(e => timingPhaseMs(e, 'ssl') > 0)) {
     positives.push({ label: 'TLS timing', impact: 'positive', detail: 'HAR 记录了 SSL/TLS timing，可量化握手耗时' });
   }
-  if (card.category === 'dns' && harResult.entries.some(e => e.timings.dns > 0)) {
+  if (card.category === 'dns' && harResult.entries.some(e => timingPhaseMs(e, 'dns') > 0)) {
     positives.push({ label: 'DNS timing', impact: 'positive', detail: 'HAR 记录了 DNS timing，可量化解析耗时' });
   }
 
   const entriesWithMissingTimings = harResult.entries.filter(e => {
-    const t = e.timings;
-    return t.dns <= 0 && t.connect <= 0 && t.ssl <= 0 && t.wait <= 0;
+    const timing = normalizeHarTiming(e);
+    return ['dns', 'tcp', 'ssl', 'wait'].every(key => !getHarTimingPhase(timing, key as HarDisplayTimingPhaseKey)?.available);
   });
   if (entriesWithMissingTimings.length > harResult.entries.length * 0.3) {
     negatives.push({ label: 'timing 缺失', impact: 'negative', detail: `${entriesWithMissingTimings.length} 个请求缺少关键 timing，阶段判断可能不完整` });
@@ -445,7 +469,9 @@ export function harDiagnosisToCards(
 ): DiagnosticCard[] {
   const cards: DiagnosticCard[] = [];
   const entries = harResult.entries;
-  const clusterCards = buildHarIssueClusters(entries)
+  const issueClusters = buildHarIssueClusters(entries);
+  const clusterCategories = new Set(issueClusters.map(cluster => cluster.category));
+  const clusterCards = issueClusters
     .slice(0, 5)
     .map(clusterToDiagnosticCard);
   cards.push(...clusterCards);
@@ -511,13 +537,12 @@ export function harDiagnosisToCards(
       ],
       relatedRequestIds: entries
         .filter(e => {
-          const t = e.timings;
           const { dnsSlow, connectSlow, sslSlow, ttfbSlow, receiveSlow } = HAR_DIAG_THRESHOLDS;
-          if (phase.label === 'DNS') return t.dns > dnsSlow;
-          if (phase.label === 'TCP') return t.connect > connectSlow;
-          if (phase.label === 'TLS') return t.ssl > sslSlow;
-          if (phase.label === 'TTFB') return t.wait > ttfbSlow;
-          if (phase.label === '下载') return t.receive > receiveSlow;
+          if (phase.label === 'DNS') return timingPhaseMs(e, 'dns') > dnsSlow;
+          if (phase.label === 'TCP') return timingPhaseMs(e, 'tcp') > connectSlow;
+          if (phase.label === 'TLS') return timingPhaseMs(e, 'ssl') > sslSlow;
+          if (phase.label === 'TTFB') return timingPhaseMs(e, 'wait') > ttfbSlow;
+          if (phase.label === '下载') return timingPhaseMs(e, 'receive') > receiveSlow;
           return false;
         })
         .map(e => e.id)
@@ -588,7 +613,9 @@ export function harDiagnosisToCards(
   // ========== Phase 3 增强：鉴权/权限 与 5xx 错误摘要 ==========
   const authEntries = entries.filter(e => e.status === 401 || e.status === 403);
   const proxyAuthEntries = entries.filter(e => e.status === 407);
-  if (authEntries.length > 0 || proxyAuthEntries.length > 0) {
+  if ((authEntries.length > 0 || proxyAuthEntries.length > 0)
+    && !clusterCategories.has('auth')
+    && !clusterCategories.has('proxy')) {
     const requestIds = [...authEntries, ...proxyAuthEntries].slice(0, 30).map(e => e.id);
     cards.push({
       id: generateId('har-auth', cards.length),
@@ -606,7 +633,7 @@ export function harDiagnosisToCards(
         { label: '407 数量', value: `${proxyAuthEntries.length} 个`, source: 'har' },
         ...[...authEntries, ...proxyAuthEntries].slice(0, 5).map((e, i) => ({
           label: `样例 ${i + 1}`,
-          value: `${e.status} ${e.method} ${e.url}`,
+          value: `${e.status} ${e.method} ${sanitizeHarEvidenceUrl(e.url)}`,
           source: 'har' as const,
           requestIds: [e.id],
         })),
@@ -624,7 +651,7 @@ export function harDiagnosisToCards(
   }
 
   const serverErrorEntries = entries.filter(e => e.status >= 500 && e.status < 600);
-  if (serverErrorEntries.length > 0) {
+  if (serverErrorEntries.length > 0 && !clusterCategories.has('server-error')) {
     const requestIds = serverErrorEntries.slice(0, 30).map(e => e.id);
     const logids = serverErrorEntries.map(e => e.xTtLogid).filter(Boolean).slice(0, 5);
     cards.push({
@@ -641,7 +668,7 @@ export function harDiagnosisToCards(
         ...(logids.length > 0 ? [{ label: 'x-tt-logid', value: logids.join('、'), source: 'har' as const }] : []),
         ...serverErrorEntries.slice(0, 5).map((e, i) => ({
           label: `错误样例 ${i + 1}`,
-          value: `${e.status} ${e.method} ${e.url}`,
+          value: `${e.status} ${e.method} ${sanitizeHarEvidenceUrl(e.url)}`,
           source: 'har' as const,
           requestIds: [e.id],
         })),
@@ -657,7 +684,7 @@ export function harDiagnosisToCards(
   }
 
   // 4. 问题归因卡片
-  diagnosis.attributions.forEach((attr, idx) => {
+  if (clusterCards.length === 0) diagnosis.attributions.forEach((attr, idx) => {
     cards.push({
       id: generateId('har-attr', idx),
       source: 'har',
@@ -669,10 +696,10 @@ export function harDiagnosisToCards(
       scope: buildScope(
         entries.filter(e => {
           const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked } = HAR_EVIDENCE_THRESHOLDS;
-          if (attr.type === 'server') return e.timings.wait > attributionServerWait;
-          if (attr.type === 'dns') return e.timings.dns > attributionDns;
-          if (attr.type === 'network') return e.timings.dns > attributionNetworkDns || e.timings.connect > attributionNetworkConnect;
-          if (attr.type === 'client') return e.timings.blocked > attributionClientBlocked;
+          if (attr.type === 'server') return timingPhaseMs(e, 'wait') > attributionServerWait;
+          if (attr.type === 'dns') return timingPhaseMs(e, 'dns') > attributionDns;
+          if (attr.type === 'network') return timingPhaseMs(e, 'dns') > attributionNetworkDns || timingPhaseMs(e, 'tcp') > attributionNetworkConnect;
+          if (attr.type === 'client') return blockedTimingMs(e) > attributionClientBlocked;
           return false;
         }).length,
         undefined,
@@ -806,7 +833,7 @@ export function harDiagnosisToCards(
       scope: buildScope(diagnosis.duplicateRequests.reduce((s, d) => s + d.count, 0), undefined, 'global'),
       evidence: diagnosis.duplicateRequests.slice(0, 5).map((d, i) => ({
         label: `重复 ${i + 1}`,
-        value: `${d.url} (×${d.count})`,
+        value: `${sanitizeHarEvidenceUrl(d.url)} (×${d.count})`,
         source: 'har',
       })),
       actions: [
@@ -836,7 +863,7 @@ export function harDiagnosisToCards(
     const hasOrigin = e.requestHeaders.some(h => h.name.toLowerCase() === 'origin');
     return isXhr && hasOrigin && !hasCorsHeaders && e.status > 0;
   });
-  if (corsFailedEntries.length > 0 || corsBlockedEntries.length > 0) {
+  if ((corsFailedEntries.length > 0 || corsBlockedEntries.length > 0) && !clusterCategories.has('cors')) {
     const evidence: DiagnosticEvidence[] = [];
     const actions: DiagnosticAction[] = [];
     if (corsFailedEntries.length > 0) {
@@ -907,7 +934,7 @@ export function harDiagnosisToCards(
       scope: buildScope(longRedirectChains.length, undefined, 'global'),
       evidence: longRedirectChains.slice(0, 5).map((e, i) => ({
         label: `慢重定向 ${i + 1}`,
-        value: `${e.url} → ${e.status} (${e.time}ms)`,
+        value: `${sanitizeHarEvidenceUrl(e.url)} → ${e.status} (${e.time}ms)`,
         source: 'har',
         requestIds: [e.id],
       })),
@@ -1017,7 +1044,7 @@ export function harDiagnosisToCards(
   if (entriesWithLogid.length > 0) {
     const failedWithLogid = entriesWithLogid.filter(e => e.isFailed);
     const logidList = failedWithLogid.slice(0, 10).map(e => ({
-      url: e.url,
+      url: sanitizeHarEvidenceUrl(e.url),
       logid: e.xTtLogid,
       status: e.status,
     }));
@@ -1058,7 +1085,7 @@ export function harDiagnosisToCards(
 
   if (entriesWithManySetCookies.length > 0) {
     const domains = [...new Set(entriesWithManySetCookies.map(e => {
-      try { return new URL(e.url).hostname; } catch { return e.url; }
+      try { return new URL(e.url).hostname; } catch { return sanitizeHarEvidenceUrl(e.url); }
     }))];
 
     cards.push({
@@ -1106,7 +1133,15 @@ export function harDiagnosisToCards(
   const largePayloadCard = buildLargePayloadCard(entries);
   if (largePayloadCard) cards.push(largePayloadCard);
 
-  const enrichedCards = cards.map(card => addHarConfidenceFactors(card, harResult));
+  const enrichedCards = cards.map(card => addHarConfidenceFactors(card, harResult)).map(card => ({
+    ...card,
+    title: sanitizeHarEvidenceText(card.title),
+    conclusion: sanitizeHarEvidenceText(card.conclusion),
+    evidence: card.evidence.map(item => ({ ...item, value: sanitizeHarEvidenceText(item.value) })),
+    actions: card.actions.map(action => ({ ...action, detail: sanitizeHarEvidenceText(action.detail) })),
+    limitations: card.limitations?.map(sanitizeHarEvidenceText),
+    confidenceFactors: card.confidenceFactors?.map(factor => ({ ...factor, detail: sanitizeHarEvidenceText(factor.detail) })),
+  }));
 
   // 按严重程度排序
   const severityOrder = { critical: 0, warning: 1, info: 2 };
@@ -1135,15 +1170,17 @@ export function checkHarQuality(result: HarAnalysisResult): CollectionQuality {
 
   // 检查 timing 可用性
   const entriesWithMissingTimings = result.entries.filter(e => {
-    const t = e.timings;
-    return t.dns === -1 || t.connect === -1 || t.ssl === -1 || t.wait === -1;
+    const availability = e.timingAvailability;
+    return availability
+      ? availability.dns === false || availability.connect === false || availability.ssl === false || availability.wait === false
+      : e.timings.dns < 0 || e.timings.connect < 0 || e.timings.ssl < 0 || e.timings.wait < 0;
   });
   if (entriesWithMissingTimings.length > result.totalRequests * 0.3) {
     issues.push({
       type: 'missing_field',
       severity: 'warning',
       message: '大量 timing 数据缺失',
-      detail: `${entriesWithMissingTimings.length} 个请求存在 -1 timing，可能未开启 Preserve log 或采集不完整`,
+      detail: `${entriesWithMissingTimings.length} 个请求存在未记录的 timing，可能未开启 Preserve log 或采集不完整`,
     });
     missingFields.push('timings (dns, connect, ssl, wait)');
     recommendations.push('采集 HAR 时确保开启 Preserve log，并完整记录页面加载过程');

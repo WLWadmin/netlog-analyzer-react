@@ -134,4 +134,55 @@ describe('buildHarIssueClusters', () => {
     expect(clusters[0].category).toBe('cors');
     expect(clusters[0].evidenceLevel).toBe('heuristic');
   });
+
+  it.each([
+    ['net::ERR_NAME_NOT_RESOLVED', 'dns'],
+    ['net::ERR_CONNECTION_TIMED_OUT', 'connection'],
+    ['net::ERR_CERT_AUTHORITY_INVALID', 'tls'],
+    ['net::ERR_PROXY_CONNECTION_FAILED', 'proxy'],
+    ['net::ERR_BLOCKED_BY_CLIENT', 'browser-block'],
+  ])('classifies text-only netError %s', (netErrorText, category) => {
+    const clusters = buildHarIssueClusters([
+      entry({ id: 0, status: 0, isFailed: true, netErrorText, netErrorCode: undefined }),
+    ]);
+
+    expect(clusters[0].category).toBe(category);
+    expect(clusters[0].evidenceLevel).toBe('explicit-observation');
+  });
+
+  it('keeps one isolated slow request as an info-level request observation', () => {
+    const clusters = buildHarIssueClusters([
+      entry({
+        id: 0,
+        time: 3200,
+        isSlow: true,
+        timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 100, receive: 3099 },
+      }),
+      entry({ id: 1, time: 100, isSlow: false }),
+    ]);
+
+    expect(clusters[0]).toMatchObject({ category: 'download', severity: 'info', affectedRequestCount: 1 });
+    expect(clusters[0].title).not.toContain('集中');
+  });
+
+  it('merges request role hints with the category playbook roles', () => {
+    const cors = buildHarIssueClusters([
+      entry({ id: 0, status: 0, isFailed: true, method: 'OPTIONS', rawType: 'preflight' }),
+    ])[0];
+    const auth = buildHarIssueClusters([
+      entry({ id: 0, status: 401, isFailed: true }),
+    ])[0];
+    const download = buildHarIssueClusters([
+      entry({
+        id: 0,
+        time: 2200,
+        isSlow: true,
+        timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 100, receive: 2099 },
+      }),
+    ])[0];
+
+    expect(cors.roleHints).toEqual(expect.arrayContaining(['frontend', 'backend']));
+    expect(auth.roleHints).toEqual(expect.arrayContaining(['user', 'frontend', 'backend']));
+    expect(download.roleHints).toEqual(expect.arrayContaining(['frontend', 'it']));
+  });
 });

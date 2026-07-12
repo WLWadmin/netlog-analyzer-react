@@ -89,4 +89,34 @@ describe('harDiagnosisToCards redirect classification', () => {
 
     expect(cards.some(card => card.id.startsWith('har-redirect'))).toBe(true);
   });
+
+  it('does not expose URL query values in any diagnostic evidence', () => {
+    const secret = 'SECRET_QUERY_VALUE';
+    const failed = entry({
+      id: 0,
+      url: `https://example.com/api?token=${secret}`,
+      status: 500,
+      statusText: 'Server Error',
+      isFailed: true,
+    });
+    const cards = harDiagnosisToCards(harResult([failed]), {
+      ...diagnosis(),
+      overallStatus: 'critical',
+      httpStatus: { total: 1, count2xx: 0, count3xx: 0, count4xx: 0, count5xx: 1, count0: 0, countFailed: 1 },
+    });
+
+    expect(JSON.stringify(cards)).not.toContain(secret);
+  });
+
+  it('does not emit a second legacy 5xx card when a server-error cluster exists', () => {
+    const failed = entry({ id: 0, status: 500, statusText: 'Server Error', isFailed: true });
+    const cards = harDiagnosisToCards(harResult([failed]), {
+      ...diagnosis(),
+      overallStatus: 'critical',
+      httpStatus: { total: 1, count2xx: 0, count3xx: 0, count4xx: 0, count5xx: 1, count0: 0, countFailed: 1 },
+    });
+
+    expect(cards.filter(card => card.id.startsWith('har-cluster') && card.category === 'server')).toHaveLength(1);
+    expect(cards.some(card => card.id.startsWith('har-5xx'))).toBe(false);
+  });
 });

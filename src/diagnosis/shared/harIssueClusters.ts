@@ -77,7 +77,12 @@ function safeRequestName(entry: HarRequestEntry): string {
 }
 
 function netErrorCategory(entry: HarRequestEntry): HarIssueCategory {
-  if (entry.status === 407 || /proxy/i.test(entry.netErrorText || '')) return 'proxy';
+  const text = (entry.netErrorText || '').toUpperCase();
+  if (entry.status === 407 || /ERR_(?:PROXY|TUNNEL)|PROXY/.test(text)) return 'proxy';
+  if (/ERR_(?:NAME_|DNS_)/.test(text)) return 'dns';
+  if (/ERR_(?:CERT_|SSL_)|CERTIFICATE/.test(text)) return 'tls';
+  if (/ERR_BLOCKED_BY_/.test(text)) return 'browser-block';
+  if (/ERR_(?:CONNECTION_|ADDRESS_|NETWORK_|INTERNET_DISCONNECTED|TIMED_OUT)/.test(text)) return 'connection';
   if (entry.netErrorCode === undefined) return 'unknown-failure';
   const category = classifyNetError(entry.netErrorCode).catName;
   if (category === 'DNS') return 'dns';
@@ -160,8 +165,9 @@ function defaultRoles(category: HarIssueCategory): HarIssueCluster['roleHints'] 
       return ['backend'];
     case 'http-error':
     case 'cors':
-    case 'auth':
       return ['frontend', 'backend'];
+    case 'auth':
+      return ['user', 'frontend', 'backend'];
     case 'queueing':
       return ['frontend'];
     case 'download':
@@ -175,8 +181,9 @@ function defaultRoles(category: HarIssueCategory): HarIssueCluster['roleHints'] 
   }
 }
 
-function severityFor(category: HarIssueCategory, count: number, issueSeverity: HarRequestIssue['severity']): HarIssueCluster['severity'] {
-  if (issueSeverity === 'critical' || ['dns', 'connection', 'tls', 'proxy', 'server-error'].includes(category)) return 'critical';
+function severityFor(count: number, issueSeverity: HarRequestIssue['severity'], evidenceLevel: HarEvidenceLevel): HarIssueCluster['severity'] {
+  if (evidenceLevel === 'timing-signal' && count === 1) return 'info';
+  if (issueSeverity === 'critical') return 'critical';
   if (count > 1 || issueSeverity === 'warning') return 'warning';
   return 'info';
 }
@@ -200,6 +207,7 @@ function makeTitle(category: HarIssueCategory, count: number): string {
   if (category === 'unknown-failure') return `${count} 个请求未拿到 HTTP 响应，HAR 缺少更底层错误`;
   if (category === 'browser-block') return `浏览器阻止了 ${count} 个请求`;
   if (['ttfb', 'queueing', 'stalled', 'dns', 'connection', 'tls', 'download'].includes(category)) {
+    if (count === 1) return `1 个请求的${categoryLabel(category)}阶段耗时较长`;
     return `${count} 个请求集中慢在${categoryLabel(category)}阶段`;
   }
   if (category === 'server-error') return `${count} 个请求出现 5xx 服务端错误`;
@@ -248,8 +256,11 @@ export function buildHarIssueClusters(entries: HarRequestEntry[], options?: { ma
     const maxDurationMs = Math.max(...items.map(item => item.issue.durationMs || item.entry.time || 0), 0);
     const affectedRequestIds = entriesInGroup.map(entry => entry.id).sort((a, b) => a - b);
     const representativeRequestIds = representativeIds(items);
-    const roles = Array.from(new Set(items.flatMap(item => item.issue.roleHint ? [item.issue.roleHint] : defaultRoles(category))));
-    const severity = severityFor(category, items.length, issue.severity);
+    const roles = Array.from(new Set(items.flatMap(item => [
+      ...defaultRoles(category),
+      ...(item.issue.roleHint ? [item.issue.roleHint] : []),
+    ])));
+    const severity = severityFor(items.length, issue.severity, evidenceLevel);
     const basis = issue.kind === 'slow' ? `${categoryLabel(category)} timing` : issue.label;
     const clusterBase = {
       id: key.replace(/[^a-zA-Z0-9:_-]/g, '-'),

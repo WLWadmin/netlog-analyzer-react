@@ -45,14 +45,22 @@ const HarNoviceDiagnosisOverview: React.FC<HarNoviceDiagnosisOverviewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <style>{`
+        .har-novice-primary { grid-template-columns: minmax(0, 1fr) auto; }
+        .har-novice-support { grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr); }
+        @media (max-width: 760px) {
+          .har-novice-primary, .har-novice-support { grid-template-columns: minmax(0, 1fr); }
+          .har-novice-primary-actions { justify-content: flex-start !important; }
+        }
+      `}</style>
       <div
+        className="har-novice-primary"
         style={{
           border: `1px solid ${tone.color}33`,
           background: `linear-gradient(135deg, ${tone.bg}, var(--bg-surface) 48%)`,
           borderRadius: 16,
           padding: 18,
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto',
           gap: 16,
           alignItems: 'start',
         }}
@@ -76,13 +84,13 @@ const HarNoviceDiagnosisOverview: React.FC<HarNoviceDiagnosisOverviewProps> = ({
             </span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div className="har-novice-primary-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {primary && <Button icon={<CopyOutlined />} onClick={() => copyText(buildHarClusterCopyText(primary))}>复制排查摘要</Button>}
           {primary && <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => openCluster(primary)}>查看相关请求</Button>}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(260px, 0.75fr)', gap: 14 }}>
+      <div className="har-novice-support" style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, background: 'var(--bg-surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: 'var(--text-primary)', fontWeight: 700 }}>
             <ExperimentOutlined /> 现在先做

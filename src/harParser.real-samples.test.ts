@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { loadHarResponseBody } from './components/har/harResponseBodyGateway';
+import { buildHarIssueClusters } from './diagnosis/shared/harIssueClusters';
+import { buildHarNoviceDiagnosis } from './diagnosis/shared/harNoviceDiagnosis';
 import { getHarTimingPhase, normalizeHarTiming } from './diagnosis/shared/harTimingNormalization';
 import type { HarAnalysisResult } from './harParser';
 import { parseHar } from './harParser';
@@ -70,6 +72,18 @@ function getSampleFiles(): string[] {
       const ssl = getHarTimingPhase(normalized, 'ssl')?.durationMs || 0;
       expect(tcp + ssl).toBeCloseTo(entry.timings.connect, 3);
     });
+  });
+
+  it('keeps isolated slow requests as request-level observations', () => {
+    const clusters = buildHarIssueClusters(parsed.entries);
+    const diagnosis = buildHarNoviceDiagnosis(parsed);
+
+    expect(parsed.failedCount).toBe(0);
+    expect(clusters).toHaveLength(2);
+    expect(clusters.every(cluster => cluster.severity === 'info')).toBe(true);
+    expect(clusters.every(cluster => !cluster.title.includes('集中'))).toBe(true);
+    expect(diagnosis.primaryCluster?.severity).toBe('info');
+    expect(diagnosis.summary).not.toContain('全局网络');
   });
 
   it('loads every deferred body through the safe main-thread gateway', async () => {

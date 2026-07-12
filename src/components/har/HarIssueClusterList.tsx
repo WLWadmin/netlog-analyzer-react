@@ -27,22 +27,37 @@ const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onO
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {clusters.map(cluster => (
-        <div
-          key={cluster.id}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(220px, 1.5fr) 110px 120px 130px auto',
-            gap: 12,
-            alignItems: 'center',
-            padding: '12px 14px',
-            borderRadius: 12,
-            border: '1px solid var(--border-color)',
-            background: 'var(--bg-surface)',
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
+    <>
+      <style>{`
+        .har-issue-cluster-row {
+          display: grid;
+          grid-template-columns: minmax(220px, 1.5fr) 110px 120px 130px auto;
+        }
+        @media (max-width: 900px) {
+          .har-issue-cluster-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+          .har-issue-cluster-title, .har-issue-cluster-actions { grid-column: 1 / -1; }
+          .har-issue-cluster-actions { justify-content: flex-start !important; }
+        }
+        @media (max-width: 520px) {
+          .har-issue-cluster-row { grid-template-columns: minmax(0, 1fr); }
+          .har-issue-cluster-title, .har-issue-cluster-actions { grid-column: auto; }
+        }
+      `}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {clusters.map(cluster => (
+          <div
+            key={cluster.id}
+            className="har-issue-cluster-row"
+            style={{
+              gap: 12,
+              alignItems: 'center',
+              padding: '12px 14px',
+              borderRadius: 8,
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-surface)',
+            }}
+          >
+          <div className="har-issue-cluster-title" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: severityColor[cluster.severity], flexShrink: 0 }} />
               <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>{cluster.title}</strong>
@@ -58,13 +73,14 @@ const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onO
           <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
             {cluster.maxDurationMs ? formatHarTime(cluster.maxDurationMs) : '-'} · {cluster.roleHints.map(getHarRoleLabel).join('/')}
           </span>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div className="har-issue-cluster-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(buildHarClusterCopyText(cluster))}>复制摘要</Button>
             <Button size="small" type="primary" icon={<ArrowRightOutlined />} onClick={() => onOpenCluster(cluster)}>查看请求</Button>
           </div>
-        </div>
-      ))}
-    </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 };
 
