@@ -1,30 +1,26 @@
-# NetLog / HAR / Go 服务日志 网络诊断分析工具
+# NetLog / HAR / Go 服务日志网络诊断分析工具
 
-> 一个面向 Chrome / Edge `NetLog`、`HAR` 与 Go 服务 `.log` 文件的本地可视化分析工具。NetLog 是浏览器网络栈诊断核心入口，HAR 用于查看请求现象和接口证据，Go 服务日志用于服务端关联字段提取和日志可阅读化。上传文件后会**自动识别类型**（NetLog JSON / HAR / Go Log），分别进入对应的解析结果页面。
+一个面向 Chrome / Edge `NetLog`、浏览器 `HAR` 和 Go 服务 `.log` 的本地可视化分析工具。文件在浏览器本地解析，不上传服务器；上传后自动识别类型，并进入对应的诊断页面。
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
 ## 项目现状
 
-当前项目的 NetLog Viewer parity 已基本收口，日常使用路径、专家分析、Dataset 查询、证据链、Raw search 保护、导出与定因防误判都已具备可用实现。
+当前项目已经形成较完整的本地网络诊断工作台：NetLog、HAR、Go 服务日志可独立解析；HAR + NetLog 可联合诊断；正常/异常样本可做 A-B 对比；普通用户入口和专家分析入口共用同一套诊断模型与证据导航。
 
-- **NetLog 大文件路径已可用**：已支持大文件 Dataset Worker 索引、上传阶段 telemetry、`single scan` 主路径、`fallback` 双扫回退路径，以及 Raw search / Raw detail / DNS State / Endpoint Evidence / Sockets / Proxy / QUIC / HTTP/2 等 Dataset 化查询。
-- **默认策略仍保持保守**：虽然大文件 `single scan` 已有实现且已有真实回归证据，但默认开启门禁尚未完全解除；当前仍保留 `fallback` 回退能力，并继续以“证据完整性优先”作为默认策略。
-- **当前唯一外部阻塞**：还缺少第二个可触发大文件 `single scan` 路径的真实 NetLog 样本，因此项目当前结论是“能力已基本完成，但 `single scan` 默认开启暂不放开”。
-
-如果你是普通使用者，可以直接按下文“快速使用”操作；如果你是协作者，建议把 README 理解为“产品能力与使用说明”，而不是内部 benchmark 记录。
+自动化测试已经覆盖核心诊断模型、真实样本基线、性能预算和发布前风险检查。正式发布前仍建议补齐脱敏故障样本、浏览器桌面与窄屏截图，以及非网络专业用户的可理解性验证。
 
 
 ## 项目用途
 
-本项目用于解析 `chrome://net-export/` 或 `edge://net-export/` 导出的 `.json` 网络日志文件，并在浏览器本地完成分析与展示。工具不会把日志上传到服务器，适合用于包含访问链路、网络错误、代理配置、TLS 握手、HTTP/2、QUIC、DNS 解析、请求耗时等信息的排查场景。
+本项目用于解析 `chrome://net-export/` 或 `edge://net-export/` 导出的 `.json` 网络日志文件，并在浏览器本地完成分析与展示。它适合用于包含访问链路、网络错误、代理配置、TLS 握手、HTTP/2、QUIC、DNS 解析、请求耗时等信息的排查场景。
 
 除 NetLog 外，工具还支持：
 
-- **HAR 文件**：浏览器 DevTools → Network 面板导出的 `.har` 文件，进入独立的「请求详情 + HAR 现象摘要 + 原始证据」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键字段。HAR 不能单独证明 DNS / TCP / TLS / 代理根因。
+- **HAR 文件**：浏览器 DevTools → Network 面板导出的 `.har` 文件，进入独立的「请求详情 + HAR 现象摘要 + 原始证据」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键字段。HAR 单独使用时只描述请求现象，不把 DNS / TCP / TLS / 代理写成确定根因。
 - **Go 服务日志解析**：Go 后端服务输出的 `.log` 文件（如 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式），支持解析 Success / Error / Retrying / Network Error 等多种日志格式，展示核心发现、统计图表、操作流程分组和原始日志列表。
-- **HAR + NetLog 联合诊断**：支持同时上传 HAR 和 NetLog 两个文件，系统按 host 粒度对齐请求与事件，生成「HAR 看到什么现象，NetLog 提供哪些网络栈证据」的联合诊断卡片。联合诊断作为 NetLog「证据链」的一部分展示，而非独立页面。
-- **正常/异常 A-B 对比**：上传两份同源 HAR 文件（正常环境 + 异常环境），系统自动对比域名级别耗时差异，定位性能退化根因。
+- **HAR + NetLog 联合诊断**：支持同时上传同次复现的 HAR 和 NetLog，系统按请求、域名、时间和网络栈 source 关联证据，输出支持证据、反证、冲突说明和置信度因子。
+- **正常/异常 A-B 对比**：支持 HAR、NetLog 和 HAR + NetLog 三种模式，对比正常环境与异常环境新增了什么。差异本身不是根因，结果会保留证据跳转和限制说明。
 
 典型使用场景包括：
 
@@ -32,7 +28,7 @@
 - 从大量 NetLog 事件中提取 URL 请求、错误来源、失败域名、慢请求与关键链路。
 - 判断是否存在代理、VPN、PAC、HTTP/2 GOAWAY、QUIC 错误、网络切换等异常线索。
 - 将分析结果导出为 Markdown 报告，便于沉淀到工单、文档或排查记录中。
-- 通过统一诊断卡片快速获取结构化诊断结论、可执行动作和排查命令。
+- 通过统一第一屏快速知道最值得先看的问题、影响范围、证据是否足够、下一步该找谁。
 
 ## 核心特性
 
@@ -41,7 +37,7 @@
 - **纯前端本地解析**：通过 `FileReader` 在浏览器内读取文件，不上传服务器。
 - **三种格式自动识别**：上传后根据文件结构自动判断 NetLog JSON、HAR 或 Go 服务日志，并进入对应的解析结果页面。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
-- **NetLog 结论与行动**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成面向普通用户的结论、行动清单和缺失信息。
+- **NetLog 结论与行动**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成面向普通用户的结论、行动建议和缺失信息。
 - **专家分析保留完整能力**：事件列表、源链路、安全与协议、性能分析、A-B 对比和完整诊断报告收敛到 NetLog「专家分析」二级入口。
 - **Dataset 模式（支持大文件路径）**：为避免大文件把完整 events 拉回主线程，项目提供 Worker Dataset 索引与查询协议，并已支持大文件 `single scan` 主路径与 `fallback` 双扫回退路径。大文件会优先尝试在上传链路中完成 summary + Dataset 建立；小文件也可在「专家分析 → Data Loaded」手动点击「启动 Dataset 索引」启用。Dataset 就绪后，事件分页查询、DNS State、证据跳转、Raw Event Detail、部分状态视图与专家分析查询都以 Dataset 为主，摘要路径作为 fallback。Dataset 状态为 `unavailable` 时表示当前文件未启用 Dataset（或 Worker 不可用），此时专家视图只展示解析摘要字段。
 - **Chromium `net_error` 行动知识库**：基于 Chromium 错误码分类和项目诊断证据生成分角色行动清单，覆盖 DNS、连接、证书、代理、协议、阻止、缓存等场景；代理诊断优先做代理/直连对比，采集类动作不会进入“用户先做”清单。
@@ -49,6 +45,13 @@
 - **HAR 关键响应头置顶**：`server-timing`、`x-response-cinfo`、`x-response-sinfo`、`x-tt-logid`、`server` 等诊断字段以卡片形式置顶展示，支持一键复制。
 - **Go 服务日志解析**：支持 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式，自动识别 Success / Error / Retrying / Network Error，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR 文件损坏自动修复**：上传损坏的 HAR 文件时，自动检测并尝试修复（状态机扫描 entries 数组 + 括号栈补全），修复成功后展示恢复率与丢弃请求数，用户确认后进入解析页面。
+- **诊断观察与覆盖率**：HAR 和 NetLog 先生成 `DiagnosisObservation`，再汇总为诊断卡和覆盖率，区分已解释、部分解释、未解释和分母不完整。
+- **请求关联与证据融合**：联合诊断使用 method、origin、pathname、时间窗口和 NetLog source 关联请求；融合结果会保留支持证据、反证、冲突说明、置信度因子和限制说明。
+- **故障 episode**：多个连续异常会聚合成 incident episode，包含开始/结束时间、恢复状态、影响请求、影响域名、代表证据和叙事文案；时间不可比时不会伪造持续时间。
+- **影响范围和业务权重**：诊断会区分单请求、单域、多域、全局、服务端侧和 HTTPS 专属影响；document、业务 XHR/fetch、POST/API 等请求在排序中优先于图片、媒体和埋点请求。
+- **行动 Playbook 与验证会话**：DNS、连接、TLS、代理、网络切换、服务端、CORS、性能等类别都有低风险优先的行动建议；用户记录验证结果后，系统只给下一步方向，不把“改善”直接写成新的确定根因。
+- **正常/异常联合对比**：HAR 对比共同请求的状态码类别、协议、缓存来源和阶段耗时；NetLog 对比 DNS server、代理/PAC、IP、TLS、协议、网络切换和错误分布；Combined 对比关联率、episode 数量和 Top 结论变化。
+- **发布前风险检查**：`diagnosisReleaseGate` 汇总样本校准、覆盖率、禁用结论、敏感值泄漏、性能预算和产品验收结果，帮助在发布前发现高风险回归。
 
 ### 交互体验
 
@@ -56,6 +59,8 @@
 - **详情面板文本截断与 Hover 提示**：超长 URL、header value、query string、params 等自动截断并以省略号显示，hover 以浅色主题 Tooltip 展示完整内容，未超长时不显示 Tooltip。
 - **使用说明引导**：首页提供 HAR、NetLog 和 Go 日志文件获取教程链接，帮助新用户快速上手。
 - **模块化可视化界面**：NetLog 一级入口收敛为「结论与行动」「请求详情」「证据链」「专家分析」「原始数据」；HAR 收敛为「请求详情」「HAR 现象摘要」「原始证据」；Log 收敛为「日志概览」「操作流程 / 结构化日志」「日志统计」「原始日志」。
+- **统一第一屏**：HAR、NetLog 和 Combined 诊断都通过 `FinalDiagnosisPanel` 收敛，第一屏展示主 episode、影响范围、关键证据、覆盖率、缺失信息和下一步行动。
+- **证据导航**：主 episode 可跳转到 HAR 请求表、NetLog source chain、Raw Event Detail 或未解释对象列表，避免结论和原始证据脱节。
 - **深浅色主题切换**：支持浅色 / 深色主题，并将选择保存在本地。
 - **报告导出**：可一键导出 Markdown / JSON / CSV 三种格式的分析报告（NetLog 模式）。
 - **更稳健的基础交互 Hook**：键盘导航会自动避开 `input` / `textarea` / `contenteditable` 编辑场景，响应式断点在挂载后立即同步，减少误触和首屏状态偏差。
@@ -118,13 +123,13 @@
 
 **NetLog 文件**解析完成后，页面会展示摘要卡片和多个分析模块。可以按以下顺序阅读：
 
-1. **结论与行动**：先看最终结论、分角色行动清单、缺失信息和下一步入口。
+1. **结论与行动**：先看统一第一屏，确认主 episode、影响范围、证据是否足够和第一步行动。
 2. **请求详情**：查看失败/慢请求、错误码、耗时和关键请求字段。
 3. **证据链**：查看代理/VPN、DNS 与 CIP/SIP、失败域名与错误码、HAR + NetLog 联合证据。
 4. **专家分析**：需要深挖时再进入事件列表、源链路、安全与协议、性能分析、A-B 对比和完整诊断报告。
 5. **原始数据**：必要时回到原始 JSON / 结构化数据核对证据。
 
-**HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求详情」「HAR 现象摘要」「原始证据」三个 Tab。HAR 现象摘要只描述请求层表现，不单独证明浏览器网络栈根因。
+**HAR 文件**解析完成后，页面会进入独立的 HAR 结果页：顶部为汇总卡片（总请求数 / 失败 / 慢请求 / 总传输大小 / 总耗时），下方为「请求详情」「HAR 现象摘要」「原始证据」三个 Tab。HAR 现象摘要会复用统一第一屏，但仍只描述请求层表现，不单独证明浏览器网络栈根因。
 
 **Go 服务日志**解析完成后，页面会展示：
 
@@ -143,9 +148,10 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 
 ## 当前限制
 
-- `single scan` 已具备实现和回归验证，但默认仍保持保守策略，暂不作为无门禁默认路径。
-- 当前默认不开启的核心原因不是功能缺失，而是还缺少第二个可触发大文件 `single scan` 的真实样本来完成最终门禁验证。
-- 因此，项目当前更强调：大文件能稳定解析、证据不丢、回退可用；而不是为了追求更激进的默认策略而牺牲证据完整性。
+- HAR 单独使用时不能确认 DNS / TCP / TLS / 代理等浏览器网络栈根因；这类结论需要同次 NetLog 或外部链路测试支撑。
+- A-B 对比回答“异常环境新增了什么”或“哪里退化了”，差异本身不是根因。无共同请求、无共同域名或采集不完整时，对比结果会降级。
+- `single scan` 和 Dataset 大文件路径已可用，但仍保留 fallback 路径；大文件场景继续以证据完整性优先。
+- 发布前风险检查已具备自动化测试入口，但真实脱敏故障样本、浏览器截图和用户可理解性验证仍需要按发布要求补齐。
 
 ## 页面模块说明
 
@@ -223,11 +229,12 @@ NetLog 默认入口，面向普通用户优先回答“现在该做什么”：
 
 对应文件：`src/components/shared/BaselineCompareTab.tsx`
 
-支持上传两份同源 HAR 文件（正常环境 + 异常环境），自动对比域名级别耗时差异：
+支持 HAR、NetLog 和 HAR + NetLog 三种对比模式：
 
-- 按域名分组计算平均耗时差异。
-- 自动归因退化根因阶段（DNS / TCP 连接 / TLS 握手 / 服务端响应 / 资源下载）。
-- 为每个退化域名生成对比诊断卡片，包含推荐排查命令。
+- **HAR 对比**：对比共同请求的状态码类别、协议、缓存来源和阶段耗时，识别异常环境新增失败、协议变化或缓存路径变化。
+- **NetLog 对比**：对比 DNS server、DoH、代理/PAC/VPN、IP、TLS、协议路径、网络切换和错误分布。
+- **HAR + NetLog 对比**：对比强关联率、episode 数量和 Top 结论变化。
+- 对比结果只说明新增差异或退化线索，不把差异本身写成根因。
 
 ### 事件列表页：`EventsTab`
 
@@ -288,16 +295,6 @@ NetLog 和 HAR 结果页都可以进入该模块，用于回看原始输入数�
 - 用统一诊断面板展示联合线索，减少在多个结果页之间来回切换。
 
 适合排查“同一次复现既有浏览器网络层日志，也有页面请求层日志”的问题。
-
-### A-B 对比页：`BaselineCompareTab`
-
-对应文件：`src/components/shared/BaselineCompareTab.tsx`
-
-A-B 对比页用于人工记录和对照两次分析结果的差异，当前提供轻量级的手工对比能力：
-
-- 填写基线版本和对照版本说明。
-- 记录现象、差异点和结论。
-- 适合作为复现前后、优化前后或不同环境之间的差异备注页。
 
 ### SSL/TLS 分析页：`SSLTab`
 
@@ -503,11 +500,28 @@ SSL/TLS 分析页聚焦证书和加密握手相关问题，包括：
 - `AnalysisDisclaimer`：统一免责声明组件，支持 `netlog` / `har` / `log` 三种变体，使用 `CHART_COLORS.semantic.warning` 语义化颜色，替代各页面中分散的硬编码免责声明块。
 - `DiagnosisPanel`：统一诊断卡片容器，渲染 `DiagnosticCard` 列表，支持健康分展示和脱敏导出按钮。
 - `DiagnosticCard`：统一诊断卡片，包含结论、证据列表、动作项（按角色分配）、限制说明、排查命令库（内嵌展开区块）和证据跳转按钮。
+- `FinalDiagnosisPanel`：统一第一屏，展示主 episode、覆盖率、缺失信息、行动计划和复制摘要。
+- `DiagnosisCoveragePanel`：展示已解释、部分解释、未解释和分母不完整状态，支持跳转未解释对象。
+- `IncidentEpisodeList`：展示主 episode、次要 episode、影响范围、关键证据和 HAR / NetLog 证据跳转按钮。
 - `ExportSummaryButton`：脱敏导出按钮，生成 Markdown 格式的协作摘要报告，自动脱敏敏感信息。
 - `CombinedDiagnosisTab`：联合诊断证据组件，将 HAR 请求与 NetLog 事件对齐生成跨源线索，当前由 NetLog「证据链」承载。
-- `BaselineCompareTab`：A-B 对比 Tab，支持两份 HAR 文件的域名级别耗时差异对比。
+- `BaselineCompareTab`：A-B 对比 Tab，支持 HAR、NetLog 和 HAR + NetLog 三种正常/异常样本对比。
 
 ## 核心代码模块说明
+
+### 诊断共享层：`src/diagnosis/shared`
+
+诊断共享层把 HAR、NetLog、Combined、A-B 对比和发布前风险检查统一到一组纯函数模块：
+
+- `diagnosisObservation.ts`：从 HAR / NetLog 生成 observation，区分支持证据、候选证据和证据缺口。
+- `diagnosisCoverage.ts`：计算已解释、部分解释、未解释和采集不完整状态。
+- `requestCorrelation.ts`：按 method、origin、pathname、时间窗口和 source id 关联 HAR 请求与 NetLog 请求。
+- `evidenceFusion.ts`：合并 HAR / NetLog 支持证据、反证、冲突说明和置信度因子。
+- `incidentEpisode.ts` / `incidentNarrative.ts`：把连续异常收敛成 episode，输出恢复状态、影响范围和可读叙事。
+- `impactScope.ts` / `requestImportance.ts`：判断单请求、单域、多域、全局、服务端侧、HTTPS 专属影响，并按业务请求重要性排序。
+- `actionPlaybook.ts` / `verificationSession.ts`：为各类问题生成分角色行动，并根据验证结果给下一步。
+- `baselineComparator.ts`、`netlogBaselineComparator.ts`、`combinedBaselineComparator.ts`：正常/异常环境对比。
+- `diagnosisReleaseGate.ts`：发布前风险检查，汇总样本校准、覆盖率、禁用结论、敏感值泄漏、性能预算和产品验收结果。
 
 ### 应用入口：`src/App.tsx`
 
@@ -538,10 +552,12 @@ NetLog / HAR / Go Log 文件
   │    → workers/analysisWorker + workerClient 支撑大文件原始证据查询
   │    → parsers/netlog/sourceGraphCache + requestLifecycle 做链路/生命周期加速
   │    → diagnosis.exportReport 导出报告
-  │    → diagnosis/fromCombined 对齐 HAR + NetLog 生成联合诊断卡片
+  │    → diagnosis/shared/fromNetlog + finalSummaryBuilder 生成统一第一屏
+  │    → diagnosis/shared/fromCombined 对齐 HAR + NetLog 生成联合诊断卡片
   ├─ HAR：harParser.parseHar → HarAnalysisResult
   │    → HarResultPage（HarSummaryCards / HarRequestTable / HarSummaryDiagnosis / RawEvidenceExplorer）
   │    → harDiagnosis.ts 生成 HAR 请求现象摘要
+  │    → diagnosis/shared/fromHar + finalSummaryBuilder 生成 HAR 第一屏诊断
   │    → 损坏时：harRepair.parseHarWithRepair → 自动修复 → 用户确认 → 解析
   │    → 联合诊断：追加 NetLog 后进入 NetLog 结论与行动 / 证据链
   └─ Go Log：logParser.parseLogFile → LogAnalysisResult
@@ -710,6 +726,9 @@ src/
 │   └── shared/                      # 共享组件与联合分析视图
 │       ├── CombinedDiagnosisTab.tsx
 │       ├── BaselineCompareTab.tsx
+│       ├── FinalDiagnosisPanel.tsx
+│       ├── DiagnosisCoveragePanel.tsx
+│       ├── IncidentEpisodeList.tsx
 │       ├── CollectionQualityAlert.tsx
 │       ├── DnsAndIpEvidencePanel.tsx
 │       ├── DiagnosisPanel.tsx
@@ -746,7 +765,22 @@ src/
 │       ├── fromNetlogLifecycle.ts
 │       ├── fromHar.ts
 │       ├── fromCombined.ts
+│       ├── finalSummaryBuilder.ts
+│       ├── diagnosisObservation.ts
+│       ├── diagnosisCoverage.ts
+│       ├── requestCorrelation.ts
+│       ├── evidenceFusion.ts
+│       ├── incidentEpisode.ts
+│       ├── impactScope.ts
+│       ├── requestImportance.ts
+│       ├── actionPlaybook.ts
+│       ├── verificationSession.ts
 │       ├── baselineComparator.ts
+│       ├── netlogBaselineComparator.ts
+│       ├── combinedBaselineComparator.ts
+│       ├── baselineHarUpload.ts
+│       ├── baselineNetlogUpload.ts
+│       ├── diagnosisReleaseGate.ts
 │       ├── evidenceNavigation.ts
 │       ├── maskedExport.ts
 │       ├── navigation.ts
@@ -849,6 +883,21 @@ Go 服务日志模式下，`parseLogFile()` 返回的核心结构是 `LogAnalysi
 
 每条 `LogEntry` 含 worker 名、日志级别（Info/Error/Warn/Debug）、时间戳、HTTP 方法、URL、域名、路径、状态（Success/Error）、状态码、状态文本、请求头、响应体、耗时、友好名称和原始日志行。
 
+### 统一诊断：`FinalDiagnosisSummary`
+
+HAR、NetLog 和 Combined 诊断最终会收敛到 `FinalDiagnosisSummary`：
+
+| 字段 | 说明 |
+| --- | --- |
+| `headline` | 小白第一屏结论，包含问题、原因、影响、置信度、关键证据和第一步行动 |
+| `rootCauseClusters` | 按 episode 或类别收敛后的诊断簇 |
+| `actionPlan` | 分角色行动建议 |
+| `missingInfo` | 还缺什么证据，以及为什么缺 |
+| `expertCards` | 专家诊断卡片，保留完整证据、限制、反证和跳转信息 |
+| `executiveSummary` | 复制或导出时使用的摘要文本 |
+
+诊断卡片不会仅凭 HAR 现象或 A-B 差异写“确定根因”。当证据不足时，输出会保留 `limitations`、`missingInfo`、`confidenceFactors` 或 `conflictNotes`。
+
 ## 技术栈
 
 - React 19
@@ -887,6 +936,23 @@ npm run build
 npm test
 ```
 
+提交前建议使用 CI 模式跑完整测试：
+
+```bash
+CI=true npm test -- --watchAll=false
+npm run build
+git diff --check
+```
+
+诊断发布前风险检查相关测试集中在：
+
+```bash
+CI=true npm test -- --watchAll=false --runTestsByPath \
+  src/diagnosis/shared/diagnosisReleaseGate.test.ts \
+  src/diagnosis/shared/diagnosisGoldenCorpusGate.test.ts \
+  src/diagnosis/shared/diagnosisPerformanceBaseline.test.ts
+```
+
 ## 部署说明
 
 `package.json` 中配置了：
@@ -912,7 +978,7 @@ npm test
 
 ### NetLog 文件
 
-1. 先看 **结论与行动**，获取最终结论、行动清单和缺失信息。
+1. 先看 **结论与行动**，确认主 episode、影响范围、证据是否足够和第一步行动。
 2. 再看 **请求详情**，确认失败/慢请求、错误码和关键请求字段。
 3. 进入 **证据链** 核对代理/VPN、DNS 与 CIP/SIP、失败域名与错误码、HAR + NetLog 联合证据。
 4. 如果需要深挖，再进入 **专家分析** 的事件列表、源链路、安全与协议、性能分析、A-B 对比或完整诊断报告。
@@ -920,7 +986,7 @@ npm test
 
 ### HAR 文件
 
-先看 **汇总卡片** 与 **请求详情** 锁定失败 / 慢请求，再查看 **HAR 现象摘要** 理解请求层表现；如需判断 DNS / TCP / TLS / 代理原因，请补充同次 NetLog。
+先看 **HAR 第一屏诊断** 和 **请求详情** 锁定失败 / 慢请求，再查看 **HAR 现象摘要** 理解请求层表现；如需判断 DNS / TCP / TLS / 代理原因，请补充同次 NetLog。
 
 ### Go 服务日志
 
