@@ -12,29 +12,62 @@
  */
 
 import type { HarRequestEntry } from '../../harParser';
-import type { URLRequest } from '../../parsers/netlog/parser';
+import type { NetlogClockContext, URLRequest } from '../../parsers/netlog/parser';
 
 export interface TimeAlignmentContext {
   enabled: boolean;
   reason: string;
   windowMs?: number;
+  clockKind: NetlogClockContext['kind'] | 'missing';
+  confidence: NetlogClockContext['confidence'];
+  originMs?: number;
+  evidence?: string;
 }
 
 export function buildTimeAlignmentContext(
   harEntries: HarRequestEntry[],
-  netlogRequests: URLRequest[]
+  netlogRequests: URLRequest[],
+  netlogClockContext?: NetlogClockContext
 ): TimeAlignmentContext {
   const hasHarTime = harEntries.some(e => Number.isFinite(e.startMs));
   const hasNetlogTime = netlogRequests.some(r => Number.isFinite(r.startTime));
 
   if (!hasHarTime || !hasNetlogTime) {
-    return { enabled: false, reason: 'HAR 或 NetLog 缺少可比较时间字段，禁用时间窗口对齐' };
+    return {
+      enabled: false,
+      reason: 'HAR 或 NetLog 缺少可比较时间字段，禁用时间窗口对齐',
+      clockKind: netlogClockContext?.kind || 'missing',
+      confidence: netlogClockContext?.confidence || 'none',
+      evidence: netlogClockContext?.evidence,
+    };
   }
 
-  // 保守策略：当前项目尚未明确 NetLog startTime 是否为 epoch ms。
+  if (netlogClockContext?.confidence === 'verified' && Number.isFinite(netlogClockContext.originMs)) {
+    return {
+      enabled: true,
+      reason: 'NetLog time origin 已由结构化 clock context 验证，可启用时间窗口对齐',
+      windowMs: 5000,
+      clockKind: netlogClockContext.kind,
+      confidence: netlogClockContext.confidence,
+      originMs: netlogClockContext.originMs,
+      evidence: netlogClockContext.evidence,
+    };
+  }
+
   return {
     enabled: false,
     reason: 'NetLog event.time/startTime 的 time origin 未明确，禁用时间窗口对齐以避免误关联',
+    clockKind: netlogClockContext?.kind || 'missing',
+    confidence: netlogClockContext?.confidence || 'none',
+    evidence: netlogClockContext?.evidence,
   };
 }
 
+export function netlogTimeToEpochMs(time: number, context: TimeAlignmentContext): number | undefined {
+  if (!context.enabled || !Number.isFinite(time)) return undefined;
+  if (context.clockKind === 'epoch') return time;
+  if (context.clockKind === 'time-tick-offset' && Number.isFinite(context.originMs)) {
+    return (context.originMs || 0) + time;
+  }
+  return undefined;
+}

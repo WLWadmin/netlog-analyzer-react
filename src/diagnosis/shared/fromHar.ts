@@ -140,6 +140,9 @@ function clusterToDiagnosticCard(cluster: HarIssueCluster, index: number): Diagn
     category,
     severity: cluster.severity,
     confidence: cluster.evidenceLevel === 'explicit-observation' ? 'high' : cluster.evidenceLevel === 'timing-signal' ? 'medium' : 'low',
+    timeRange: cluster.timeWindow
+      ? { startMs: cluster.timeWindow.startMs, endMs: cluster.timeWindow.endMs, clock: 'epoch' }
+      : undefined,
     title: cluster.title,
     conclusion: cluster.userFacingSummary,
     scope: buildScope(

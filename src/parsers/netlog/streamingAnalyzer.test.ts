@@ -12,6 +12,19 @@ function event(overrides: any) {
 }
 
 describe('createNetlogStreamingAnalyzer', () => {
+  it('preserves a verified clock context on the streaming path', () => {
+    const analyzer = createNetlogStreamingAnalyzer({ constants: { timeTickOffset: 1_741_095_022_562 } });
+    const { result } = analyzer.finish();
+
+    expect(result.netlogClockContext).toEqual({
+      kind: 'time-tick-offset',
+      unit: 'ms',
+      originMs: 1_741_095_022_562,
+      confidence: 'verified',
+      evidence: 'constants.timeTickOffset',
+    });
+  });
+
   it('使用文件内 constants 还原事件名和 source 类型', () => {
     const analyzer = createNetlogStreamingAnalyzer();
     analyzer.applyMetadata({

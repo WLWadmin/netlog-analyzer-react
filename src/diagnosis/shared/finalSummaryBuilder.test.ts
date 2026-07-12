@@ -227,6 +227,55 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].kind).toBe('confirmed');
   });
 
+  it('优先按 incident episode 聚合 root cause clusters', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'dns-1',
+        source: 'combined',
+        category: 'dns',
+        severity: 'critical',
+        confidence: 'high',
+        title: 'DNS 解析失败 A',
+        conclusion: 'api.example.com DNS 失败',
+        evidence: [
+          { label: '错误码', value: 'ERR_NAME_NOT_RESOLVED api.example.com', source: 'netlog', originalSource: 'netlog', detail: 'startMs=1000; endMs=1200', requestIds: [1] },
+        ],
+        relatedRequestIds: [1],
+      }),
+      card({
+        id: 'dns-2',
+        source: 'combined',
+        category: 'dns',
+        severity: 'critical',
+        confidence: 'high',
+        title: 'DNS 解析失败 B',
+        conclusion: 'api.example.com DNS 失败',
+        evidence: [
+          { label: '错误码', value: 'ERR_NAME_NOT_RESOLVED api.example.com', source: 'netlog', originalSource: 'netlog', detail: 'startMs=3000; endMs=3200', requestIds: [2] },
+        ],
+        relatedRequestIds: [2],
+      }),
+      card({
+        id: 'tls-1',
+        source: 'combined',
+        category: 'tls',
+        severity: 'warning',
+        confidence: 'medium',
+        title: 'TLS 异常',
+        conclusion: 'tls.example.com TLS 异常',
+        evidence: [
+          { label: 'TLS', value: 'tls.example.com', source: 'netlog', originalSource: 'netlog', detail: 'startMs=20000; endMs=20200', requestIds: [3] },
+        ],
+        relatedRequestIds: [3],
+      }),
+    ]), 'combined');
+
+    expect(result.rootCauseClusters[0].id).toContain('episode-dns');
+    expect(result.rootCauseClusters[0].summary).toContain('DNS 解析失败');
+    expect(result.rootCauseClusters[0].affectedRequestCount).toBe(2);
+    expect(result.rootCauseClusters.map(cluster => cluster.id)).toContainEqual(expect.stringContaining('episode-tls'));
+  });
+
   it('Combined HAR TTFB 慢但无 NetLog 网络错误不能输出 confirmed', () => {
     const result = buildFinalDiagnosisSummary({
       ...summary([

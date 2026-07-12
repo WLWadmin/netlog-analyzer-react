@@ -110,4 +110,18 @@ function getSampleFiles(): string[] {
     expect(parsed.entries.every(entry => Array.isArray(entry.requestHeaders))).toBe(true);
     expect(parsed.entries.every(entry => Array.isArray(entry.responseHeaders))).toBe(true);
   });
+
+  it.each(files)('keeps diagnosis output sanitized for sample %s', file => {
+    const fullPath = path.join(SAMPLE_DIR || '', file);
+    const parsed = parseHar(JSON.parse(fs.readFileSync(fullPath, 'utf8')));
+    const clusters = buildHarIssueClusters(parsed.entries);
+    const diagnosis = buildHarNoviceDiagnosis(parsed);
+    const text = JSON.stringify({ clusters, diagnosis }).toLowerCase();
+
+    expect(text).not.toContain('authorization');
+    expect(text).not.toContain('cookie=');
+    expect(text).not.toContain('set-cookie');
+    expect(text).not.toContain('request body');
+    expect(text).not.toContain('response body');
+  });
 });

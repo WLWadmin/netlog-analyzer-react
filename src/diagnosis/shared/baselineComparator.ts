@@ -12,19 +12,31 @@ import type {
   CollectionQuality,
 } from './types';
 import { buildHarNavigationTarget } from './navigation';
+import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
 
 // ========== 对比维度 ==========
 
 type DiffCategory = 'dns' | 'connect' | 'tls' | 'server' | 'performance' | 'unknown';
-type PhaseKey = keyof HarRequestEntry['timings'];
+type PhaseKey = HarDisplayTimingPhaseKey;
+
+interface RequestShape {
+  host: string;
+  path: string;
+  method: string;
+  statusClass: string;
+  protocol: string;
+  cacheSource: string;
+  requestIds: number[];
+}
 
 const COMPARED_PHASES: { key: PhaseKey; category: DiffCategory; label: string }[] = [
   { key: 'dns', category: 'dns', label: 'DNS' },
-  { key: 'connect', category: 'connect', label: 'TCP 连接' },
+  { key: 'tcp', category: 'connect', label: 'TCP 连接' },
   { key: 'ssl', category: 'tls', label: 'TLS 握手' },
   { key: 'wait', category: 'server', label: 'TTFB/服务端等待' },
   { key: 'receive', category: 'performance', label: '下载接收' },
-  { key: 'blocked', category: 'performance', label: '浏览器排队' },
+  { key: 'queueing', category: 'performance', label: '浏览器排队' },
+  { key: 'stalled', category: 'performance', label: '连接等待' },
 ];
 
 interface PhaseDiff {
@@ -65,8 +77,52 @@ function groupByHost(entries: HarRequestEntry[]): Map<string, HarRequestEntry[]>
   return map;
 }
 
+function safeRequestShape(entry: HarRequestEntry): RequestShape {
+  let host = entry.domain;
+  let path = '/';
+  try {
+    const parsed = new URL(entry.url);
+    host = host || parsed.hostname;
+    path = parsed.pathname || '/';
+  } catch {
+    path = entry.name || '/';
+  }
+  const statusClass = entry.status === 0 ? 'status-0' : `${Math.floor(entry.status / 100)}xx`;
+  const cacheInfo = entry.cacheInfo;
+  const cacheSource = cacheInfo?.source || (cacheInfo?.fromCache ? 'cache' : 'network');
+  return {
+    host: host || '',
+    path,
+    method: (entry.method || 'GET').toUpperCase(),
+    statusClass,
+    protocol: entry.protocol || entry.connectionInfo?.protocol || 'unknown',
+    cacheSource,
+    requestIds: [entry.id],
+  };
+}
+
+function groupByRequestKey(entries: HarRequestEntry[]): Map<string, RequestShape[]> {
+  const map = new Map<string, RequestShape[]>();
+  entries.forEach(entry => {
+    const shape = safeRequestShape(entry);
+    if (!shape.host) return;
+    const key = `${shape.method} ${shape.host}${shape.path}`;
+    map.set(key, [...(map.get(key) || []), shape]);
+  });
+  return map;
+}
+
+function dominant<T extends string>(values: T[]): T | undefined {
+  const counts = new Map<T, number>();
+  values.forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+}
+
 function avgTiming(entries: HarRequestEntry[], phase: PhaseKey): number {
-  const values = entries.map(e => Math.max(e.timings[phase], 0)).filter(v => v > 0);
+  const values = entries
+    .map(entry => getHarTimingPhase(normalizeHarTiming(entry), phase))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item?.available && item.durationMs > 0))
+    .map(item => item.durationMs);
   return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
 }
 
@@ -193,6 +249,126 @@ function buildDiffActions(diff: DomainDiff): DiagnosticAction[] {
   return actions;
 }
 
+function buildRequestShapeDiffCards(
+  baseline: HarAnalysisResult,
+  current: HarAnalysisResult
+): DiagnosticCard[] {
+  const baselineByKey = groupByRequestKey(baseline.entries);
+  const currentByKey = groupByRequestKey(current.entries);
+  const commonKeys = [...baselineByKey.keys()].filter(key => currentByKey.has(key));
+  if (commonKeys.length === 0) return [];
+
+  const cards: DiagnosticCard[] = [];
+  const statusChanges: Array<{ key: string; baseline: string; current: string; ids: number[] }> = [];
+  const protocolChanges: Array<{ key: string; baseline: string; current: string; ids: number[] }> = [];
+  const cacheChanges: Array<{ key: string; baseline: string; current: string; ids: number[] }> = [];
+
+  commonKeys.forEach(key => {
+    const baselineShapes = baselineByKey.get(key)!;
+    const currentShapes = currentByKey.get(key)!;
+    const ids = currentShapes.flatMap(item => item.requestIds);
+    const baselineStatus = dominant(baselineShapes.map(item => item.statusClass));
+    const currentStatus = dominant(currentShapes.map(item => item.statusClass));
+    const baselineProtocol = dominant(baselineShapes.map(item => item.protocol));
+    const currentProtocol = dominant(currentShapes.map(item => item.protocol));
+    const baselineCache = dominant(baselineShapes.map(item => item.cacheSource));
+    const currentCache = dominant(currentShapes.map(item => item.cacheSource));
+
+    if (baselineStatus && currentStatus && baselineStatus !== currentStatus) {
+      statusChanges.push({ key, baseline: baselineStatus, current: currentStatus, ids });
+    }
+    if (baselineProtocol && currentProtocol && baselineProtocol !== currentProtocol) {
+      protocolChanges.push({ key, baseline: baselineProtocol, current: currentProtocol, ids });
+    }
+    if (baselineCache && currentCache && baselineCache !== currentCache) {
+      cacheChanges.push({ key, baseline: baselineCache, current: currentCache, ids });
+    }
+  });
+
+  if (statusChanges.length > 0) {
+    cards.push({
+      id: 'baseline-status-class-changes',
+      source: 'har',
+      category: statusChanges.some(item => item.current === '5xx') ? 'server' : 'client',
+      severity: statusChanges.some(item => item.current === '5xx' || item.current === 'status-0') ? 'critical' : 'warning',
+      confidence: 'high',
+      confidenceFactors: [{ label: '共同请求状态变化', impact: 'positive', detail: `${statusChanges.length} 个共同 method+host+path 状态类别变化` }],
+      title: '异常样本出现共同请求状态变化',
+      conclusion: '相同 method/host/path 在异常样本中的 HTTP 状态类别发生变化，这是新增差异，不等同于自动根因。',
+      scope: { type: 'multi-domain', summary: `${statusChanges.length} 个共同请求状态变化`, affectedRequestCount: statusChanges.length },
+      evidence: statusChanges.slice(0, 10).map((item, index) => ({
+        label: `状态变化 ${index + 1}`,
+        value: `${item.key}: ${item.baseline} → ${item.current}`,
+        source: 'derived',
+        requestIds: item.ids.slice(0, 5),
+      })),
+      limitations: ['差异本身不是根因，需要结合响应体、服务端日志或 NetLog 网络层证据判断。'],
+      actions: [{
+        role: 'backend',
+        title: '核对状态变化请求',
+        detail: '按共同请求 path、状态码和时间点查询服务端/网关日志。',
+      }],
+      relatedRequestIds: statusChanges.flatMap(item => item.ids).slice(0, 30),
+    });
+  }
+
+  if (protocolChanges.length > 0) {
+    cards.push({
+      id: 'baseline-protocol-changes',
+      source: 'har',
+      category: 'protocol',
+      severity: 'warning',
+      confidence: 'medium',
+      confidenceFactors: [{ label: '共同请求协议变化', impact: 'positive', detail: `${protocolChanges.length} 个共同请求协议不同` }],
+      title: '异常样本出现协议变化',
+      conclusion: '共同请求在异常样本中协议不同，可能是 HTTP/2、HTTP/3、QUIC 或代理/CDN 路径变化的线索。',
+      scope: { type: 'multi-domain', summary: `${protocolChanges.length} 个共同请求协议变化`, affectedRequestCount: protocolChanges.length },
+      evidence: protocolChanges.slice(0, 10).map((item, index) => ({
+        label: `协议变化 ${index + 1}`,
+        value: `${item.key}: ${item.baseline} → ${item.current}`,
+        source: 'derived',
+        requestIds: item.ids.slice(0, 5),
+      })),
+      limitations: ['协议变化是路径差异线索，不单独证明协议故障。'],
+      actions: [{
+        role: 'it',
+        title: '核对协议和代理/CDN 路径',
+        detail: '检查异常环境是否经过不同代理、CDN、HTTP/2/HTTP/3/QUIC 策略。',
+      }],
+      relatedRequestIds: protocolChanges.flatMap(item => item.ids).slice(0, 30),
+    });
+  }
+
+  if (cacheChanges.length > 0) {
+    cards.push({
+      id: 'baseline-cache-source-changes',
+      source: 'har',
+      category: 'cache',
+      severity: 'info',
+      confidence: 'medium',
+      confidenceFactors: [{ label: '共同请求缓存来源变化', impact: 'neutral', detail: `${cacheChanges.length} 个共同请求缓存来源不同` }],
+      title: '异常样本出现缓存来源变化',
+      conclusion: '共同请求在正常/异常样本中的缓存来源不同，这可能解释耗时变化，但缓存命中本身不是性能问题。',
+      scope: { type: 'multi-domain', summary: `${cacheChanges.length} 个共同请求缓存来源变化`, affectedRequestCount: cacheChanges.length },
+      evidence: cacheChanges.slice(0, 10).map((item, index) => ({
+        label: `缓存变化 ${index + 1}`,
+        value: `${item.key}: ${item.baseline} → ${item.current}`,
+        source: 'derived',
+        requestIds: item.ids.slice(0, 5),
+      })),
+      limitations: ['缓存差异可能来自正常缓存状态变化或采集步骤不同，不能直接作为根因。'],
+      actions: [{
+        role: 'frontend',
+        title: '核对缓存策略',
+        detail: '对比 Cache-Control、Service Worker、CDN 缓存命中和刷新方式。',
+      }],
+      relatedRequestIds: cacheChanges.flatMap(item => item.ids).slice(0, 30),
+    });
+  }
+
+  return cards;
+}
+
 // ========== 核心对比函数 ==========
 
 export function compareBaselines(
@@ -202,6 +378,7 @@ export function compareBaselines(
   const cards: DiagnosticCard[] = [];
   const baselineByHost = groupByHost(baseline.entries);
   const currentByHost = groupByHost(current.entries);
+  const requestShapeCards = buildRequestShapeDiffCards(baseline, current);
 
   const commonHosts = [...baselineByHost.keys()].filter(h => currentByHost.has(h));
   const currentOnlyHosts = [...currentByHost.keys()].filter(h => !baselineByHost.has(h));
@@ -309,6 +486,7 @@ export function compareBaselines(
   }
 
   if (diffs.length === 0) {
+    if (requestShapeCards.length > 0) return cards.concat(requestShapeCards);
     return [{
       id: 'baseline-no-regression',
       source: 'har',
@@ -368,7 +546,7 @@ export function compareBaselines(
     });
   }
 
-  return cards;
+  return cards.concat(requestShapeCards);
 }
 
 function buildBaselineQuality(

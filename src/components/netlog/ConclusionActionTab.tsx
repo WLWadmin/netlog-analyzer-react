@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Alert, Button, Card, Space, Tag, Typography } from 'antd';
 import { ApiOutlined, ArrowRightOutlined, FileSearchOutlined, GlobalOutlined, RadarChartOutlined, ReadOutlined } from '@ant-design/icons';
 import type { HarAnalysisResult } from '../../harParser';
@@ -8,6 +8,8 @@ import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
 import DiagnosisPanel from '../shared/DiagnosisPanel';
 import UploadZone from './UploadZone';
 import NetlogMetricExplainPanel from './NetlogMetricExplainPanel';
+import { buildNetlogObservations, calculateNetlogDiagnosisCoverage } from '../../diagnosis/shared';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface ConclusionActionTabProps {
   result: AnalysisResult;
@@ -30,6 +32,13 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
   onNavigate,
 }) => {
   const { loading, finalSummary } = useNetlogDiagnosisSummary(result, events);
+  const { navigateTo } = useNavigation();
+  const datasetComplete = !result.largeFileMode?.truncatedEventsPreview && result.largeFileMode?.reachedEventsEnd !== false;
+  const observations = useMemo(() => buildNetlogObservations(result, { datasetComplete }), [result, datasetComplete]);
+  const coverage = useMemo(
+    () => calculateNetlogDiagnosisCoverage(result, observations, { datasetComplete }),
+    [result, observations, datasetComplete]
+  );
   const statusTone = finalSummary?.status === 'has-conclusion'
     ? { bg: 'rgba(34,197,94,0.18)', label: '已有可执行结论' }
     : finalSummary?.status === 'limited-conclusion'
@@ -168,11 +177,33 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
       ) : (
         <FinalDiagnosisPanel
           finalSummary={finalSummary}
+          coverage={coverage}
           hideReferenceConclusions
           title="诊断结论与下一步"
           evidenceButton={{ text: '查看关键证据', onClick: () => onNavigate('evidence') }}
           expertButtonText="查看完整专家报告"
           onShowExpertDetails={() => onNavigate('expert', 'report')}
+          onOpenHarRequests={requestIds => navigateTo({
+            tab: 'requests',
+            fileType: 'netlog',
+            source: 'netlog-final-diagnosis',
+            filters: { requestId: requestIds.length === 1 ? requestIds[0] : undefined },
+            highlight: { requestIds },
+          })}
+          onOpenNetlogEvidence={(sourceIds, eventIds) => navigateTo({
+            tab: 'events',
+            fileType: 'netlog',
+            evidenceSource: 'netlog',
+            source: 'netlog-final-diagnosis',
+            filters: { sourceId: sourceIds.length === 1 ? String(sourceIds[0]) : undefined },
+            highlight: { sourceIds },
+            scrollTo: eventIds[0] ? { type: 'event', id: eventIds[0] } : undefined,
+          })}
+          onOpenUnexplained={(requestIds, sourceIds) => {
+            if (requestIds.length > 0) navigateTo({ tab: 'requests', fileType: 'netlog', highlight: { requestIds } });
+            else if (sourceIds.length > 0) navigateTo({ tab: 'events', fileType: 'netlog', filters: { sourceId: sourceIds.length === 1 ? String(sourceIds[0]) : undefined }, highlight: { sourceIds } });
+            else onNavigate('evidence');
+          }}
         />
       )}
 

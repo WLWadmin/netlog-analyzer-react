@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Collapse, Tag, message } from 'antd';
 import {
   CheckCircleOutlined,
@@ -12,12 +12,17 @@ import {
 } from '@ant-design/icons';
 import type {
   ActionGroup,
+  DiagnosisCoverage,
   FinalConclusion,
   FinalConclusionKind,
   FinalDiagnosisSummary,
   MissingInfoItem,
   RootCauseCluster,
+  VerificationRecord,
 } from '../../diagnosis/shared';
+import { evaluateVerificationSession } from '../../diagnosis/shared';
+import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
+import IncidentEpisodeList from './IncidentEpisodeList';
 
 interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
@@ -30,6 +35,10 @@ interface FinalDiagnosisPanelProps {
     text: string;
     onClick: () => void;
   };
+  coverage?: DiagnosisCoverage;
+  onOpenHarRequests?: (requestIds: number[]) => void;
+  onOpenNetlogEvidence?: (sourceIds: number[], eventIds: string[]) => void;
+  onOpenUnexplained?: (requestIds: number[], sourceIds: number[]) => void;
 }
 
 const kindConfig: Record<FinalConclusionKind, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -99,6 +108,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
     `摘要：${finalSummary.executiveSummary}`,
+    `数据质量：${statusText(finalSummary.status)}`,
     '',
     '最终结论：',
     ...finalSummary.headline.map((item, index) => [
@@ -117,6 +127,15 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
     });
   }
 
+  if (finalSummary.rootCauseClusters.length > 0) {
+    lines.push('', '主事件：');
+    finalSummary.rootCauseClusters.slice(0, 3).forEach((cluster, index) => {
+      lines.push(`${index + 1}. ${cluster.summary}`);
+      lines.push(`   影响：${cluster.affectedRequestCount} 个请求 / ${cluster.affectedDomainCount} 个域名`);
+      cluster.keyEvidence.slice(0, 3).forEach(item => lines.push(`   证据：${item.label}=${item.value}`));
+    });
+  }
+
   return lines.join('\n');
 }
 
@@ -128,6 +147,10 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
   modeLabelOverride,
   expertButtonText,
   evidenceButton,
+  coverage,
+  onOpenHarRequests,
+  onOpenNetlogEvidence,
+  onOpenUnexplained,
 }) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
 
@@ -209,7 +232,19 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginTop: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginTop: 16 }}>
+        <IncidentEpisodeList
+          finalSummary={finalSummary}
+          onOpenHarRequests={onOpenHarRequests}
+          onOpenNetlogEvidence={onOpenNetlogEvidence}
+        />
+        <DiagnosisCoveragePanel
+          coverage={coverage}
+          onOpenUnexplained={onOpenUnexplained}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginTop: 14 }}>
         <ActionPlanPanel groups={finalSummary.actionPlan} />
         <MissingInfoPanel items={finalSummary.missingInfo} />
       </div>
@@ -389,7 +424,15 @@ const ConclusionCard: React.FC<{
 };
 
 const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
+  const actions = useMemo(() => groups.flatMap(group => group.actions).slice(0, 6), [groups]);
+  const [records, setRecords] = useState<VerificationRecord[]>([]);
+  const actionKey = useMemo(() => actions.map(action => action.id).join('|'), [actions]);
+  useEffect(() => setRecords([]), [actionKey]);
   if (groups.length === 0) return null;
+  const verification = evaluateVerificationSession(actions, records);
+  const record = (actionId: string, outcome: VerificationRecord['outcome']) => {
+    setRecords(current => [...current.filter(item => item.actionId !== actionId), { actionId, outcome }]);
+  };
 
   return (
     <div className="final-diagnosis-action-panel" style={{ border: '1px solid rgba(14,165,233,0.18)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,0.68)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
@@ -414,12 +457,29 @@ const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
                       {action.command}
                     </div>
                   )}
+                  {action.expectedResult && (
+                    <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+                      预期结果：{action.expectedResult}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                    <Button size="small" onClick={() => record(action.id, 'improved')}>已改善</Button>
+                    <Button size="small" onClick={() => record(action.id, 'unchanged')}>无变化</Button>
+                    <Button size="small" danger onClick={() => record(action.id, 'worse')}>更差</Button>
+                  </div>
                 </div>
               ))}
             </div>
           </Collapse.Panel>
         ))}
       </Collapse>
+      <Alert
+        type={verification.status === 'direction-supported' ? 'success' : verification.status === 'collect-more-evidence' ? 'warning' : 'info'}
+        showIcon
+        message="验证结果"
+        description={verification.message}
+        style={{ marginTop: 10 }}
+      />
     </div>
   );
 };

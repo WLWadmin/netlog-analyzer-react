@@ -603,7 +603,23 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
   const applyMetadata = (metadata: NetlogStreamingMetadata) => {
     if (metadata.constants) {
       const timeTickOffset = Number(metadata.constants.timeTickOffset);
-      if (Number.isFinite(timeTickOffset)) result.timeTickOffset = timeTickOffset;
+      if (Number.isFinite(timeTickOffset)) {
+        result.timeTickOffset = timeTickOffset;
+        result.netlogClockContext = {
+          kind: 'time-tick-offset',
+          unit: 'ms',
+          originMs: timeTickOffset,
+          confidence: 'verified',
+          evidence: 'constants.timeTickOffset',
+        };
+      } else {
+        result.netlogClockContext = {
+          kind: 'relative-only',
+          unit: 'ms',
+          confidence: 'none',
+          evidence: 'NetLog constants did not include a verified time origin',
+        };
+      }
       const maps = extractNameMapsFromConstants(metadata.constants);
       eventNames = { ...eventNames, ...maps.eventNames };
       sourceNames = { ...sourceNames, ...maps.sourceNames };

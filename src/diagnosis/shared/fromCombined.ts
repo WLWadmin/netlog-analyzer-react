@@ -17,6 +17,10 @@ import type {
 } from './types';
 import { HAR_DIAG_THRESHOLDS } from './harThresholds';
 import { buildTimeAlignmentContext } from './timeAlignment';
+import { correlateHarRequestToNetlog, correlateHarRequestsToNetlog, type CorrelationLevel, type RequestCorrelation } from './requestCorrelation';
+import { buildHarObservations, buildNetlogObservations, type DiagnosisObservation } from './diagnosisObservation';
+import { applyEvidenceFusion, fuseDiagnosisEvidence } from './evidenceFusion';
+import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
 
 // ========== 对齐逻辑 ==========
 
@@ -68,10 +72,30 @@ function normalizeHost(hostOrUrl: string | undefined | null): string {
 function parseUrlParts(url: string): { host: string; path: string } {
   try {
     const u = new URL(url);
-    return { host: u.hostname.toLowerCase(), path: `${u.pathname}${u.search}` };
+    return { host: u.hostname.toLowerCase(), path: u.pathname || '/' };
   } catch {
     return { host: '', path: '' };
   }
+}
+
+function mapCorrelationLevel(level: CorrelationLevel): AlignedEntry['alignLevel'] {
+  switch (level) {
+    case 'exact-url-method':
+      return 'exact-url';
+    case 'same-origin-path-method':
+    case 'same-host-path':
+      return 'same-path';
+    case 'same-host-time':
+      return 'same-host-time';
+    case 'same-host-only':
+      return 'same-host';
+    default:
+      return 'none';
+  }
+}
+
+function timingMs(entry: HarRequestEntry, phase: HarDisplayTimingPhaseKey): number {
+  return getHarTimingPhase(normalizeHarTiming(entry), phase)?.durationMs || 0;
 }
 
 function isDnsErrorDomain(domain: FailedDomain): boolean {
@@ -143,29 +167,13 @@ function alignHarWithNetlog(
     const { host, path } = parseUrlParts(harEntry.url);
     const hostIndex = host ? index.byHost.get(host) : undefined;
     const candidates = hostIndex?.requests || [];
-
-    let alignedRequests = candidates;
-    let alignLevel: AlignedEntry['alignLevel'] = candidates.length > 0 ? 'same-host' : 'none';
-    let alignScore = candidates.length > 0 ? 0.55 : 0;
-
-    const exactUrl = candidates.filter(ref => ref.request.url === harEntry.url);
-    if (exactUrl.length > 0) {
-      alignedRequests = exactUrl;
-      alignLevel = 'exact-url';
-      alignScore = 1;
-    } else {
-      const samePath = candidates.filter(ref => ref.path === path);
-      if (samePath.length > 0) {
-        alignedRequests = samePath;
-        alignLevel = 'same-path';
-        alignScore = 0.8;
-      } else if (timeContext.enabled && candidates.length > 0) {
-        // 预留：time window 对齐（当前默认禁用）。
-        // 注意该分支必须放在 same-path 未命中之后，否则有 path 的 URL 永远走不到时间窗口兜底。
-        alignLevel = 'same-host-time';
-        alignScore = 0.65;
-      }
-    }
+    const correlation = correlateHarRequestToNetlog(harEntry, netlogResult.urlRequests, timeContext);
+    const alignedIdSet = new Set(correlation.netlogSourceIds);
+    const alignedRequests = alignedIdSet.size > 0
+      ? candidates.filter(ref => alignedIdSet.has(ref.request.id))
+      : [];
+    const alignLevel = mapCorrelationLevel(correlation.level);
+    const alignScore = correlation.score;
 
     return {
       harEntry,
@@ -225,6 +233,127 @@ function buildAlignmentEvidence(entries: AlignedEntry[]) {
   return Object.entries(counts).map(([level, count]) => `${level} ${count} 个`).join('，');
 }
 
+function relevantHarObservations(card: DiagnosticCard, observations: DiagnosisObservation[]): DiagnosisObservation[] {
+  const ids = new Set(card.relatedRequestIds || []);
+  return observations.filter(item => ids.size > 0
+    ? item.subject.requestId !== undefined && ids.has(item.subject.requestId)
+    : item.category === card.category);
+}
+
+function relevantNetlogObservations(card: DiagnosticCard, observations: DiagnosisObservation[], harObservations: DiagnosisObservation[]): DiagnosisObservation[] {
+  const domains = new Set(harObservations.map(item => item.subject.domain).filter(Boolean));
+  return observations.filter(item => {
+    const categoryMatches = item.category === card.category || (card.category === 'server' && item.category === 'performance');
+    const domainMatches = domains.size === 0 || (item.subject.domain !== undefined && domains.has(item.subject.domain));
+    return categoryMatches && domainMatches;
+  });
+}
+
+const COMBINED_CATEGORY_LABEL: Partial<Record<DiagnosticCard['category'], string>> = {
+  dns: 'DNS',
+  connect: '连接',
+  tls: 'TLS/证书',
+  proxy: '代理',
+  protocol: '协议',
+  'network-change': '网络切换',
+  security: '浏览器/安全策略',
+};
+
+function buildCorrelatedFailureCards(
+  harObservations: DiagnosisObservation[],
+  netlogObservations: DiagnosisObservation[],
+  correlations: RequestCorrelation[]
+): DiagnosticCard[] {
+  const groups = new Map<string, Array<{ har: DiagnosisObservation; netlog: DiagnosisObservation; correlation: RequestCorrelation }>>();
+  harObservations.forEach(har => {
+    if (har.subject.requestId === undefined || !['confirmed-observation', 'insufficient'].includes(har.evidenceLevel)) return;
+    const correlation = correlations.find(item => item.harRequestId === har.subject.requestId && item.score >= 0.9);
+    if (!correlation) return;
+    const netlog = netlogObservations.find(item =>
+      item.evidenceLevel === 'confirmed-observation' &&
+      item.subject.domain === har.subject.domain &&
+      ['dns', 'connect', 'tls', 'proxy', 'protocol', 'network-change', 'security'].includes(item.category) &&
+      (har.category === 'unknown' || item.category === har.category)
+    );
+    if (!netlog) return;
+    const category = har.category === 'unknown' ? netlog.category : har.category;
+    const key = `${category}:${har.subject.domain || 'unknown'}`;
+    const items = groups.get(key) || [];
+    items.push({ har, netlog, correlation });
+    groups.set(key, items);
+  });
+
+  return Array.from(groups.entries()).map(([key, items]) => {
+    const category = items[0].har.category === 'unknown' ? items[0].netlog.category : items[0].har.category;
+    const requestIds = Array.from(new Set(items.map(item => item.har.subject.requestId).filter((id): id is number => id !== undefined)));
+    const sourceIds = Array.from(new Set(items.flatMap(item => item.correlation.netlogSourceIds)));
+    const ranges = items.map(item => item.har.timeRange).filter((range): range is NonNullable<typeof range> => Boolean(range));
+    const timeRange = ranges.length === items.length
+      ? { startMs: Math.min(...ranges.map(range => range.startMs)), endMs: Math.max(...ranges.map(range => range.endMs)), clock: 'epoch' as const }
+      : undefined;
+    const domain = items[0].har.subject.domain || '未知域名';
+    const label = COMBINED_CATEGORY_LABEL[category] || category;
+    return {
+      id: `combined-explicit-${key.replace(/[^a-zA-Z0-9:_-]/g, '-')}`,
+      source: 'combined',
+      category,
+      severity: items.some(item => item.har.severity === 'critical' || item.netlog.severity === 'critical') ? 'critical' : 'warning',
+      confidence: 'high',
+      timeRange,
+      title: `联合诊断：${label}失败证据在同请求上吻合`,
+      conclusion: `HAR 记录了 ${items.length} 个失败请求，NetLog 在 ${domain} 记录了同类网络栈错误，优先排查${label}链路。`,
+      scope: {
+        type: requestIds.length === 1 ? 'single-request' : 'single-domain',
+        summary: `影响 ${requestIds.length} 个请求 / 1 个域名`,
+        affectedRequestCount: requestIds.length,
+        affectedDomainCount: 1,
+      },
+      evidence: [
+        { label: 'HAR 失败请求', value: `${requestIds.length} 个`, source: 'har', requestIds },
+        { label: 'NetLog 同类错误', value: `${items.length} 条`, source: 'netlog', sourceIds },
+        { label: '关联方式', value: 'method + origin + pathname 强关联', source: 'derived' },
+      ],
+      actions: [],
+      limitations: ['联合证据确认的是同请求现象吻合，最终环境或责任归属仍需结合复现条件确认。'],
+      relatedRequestIds: requestIds,
+      relatedSourceIds: sourceIds,
+      mergedSources: ['har', 'netlog'],
+      navigationTarget: { tab: 'requests', requestIds, sourceIds, keyword: domain },
+    } satisfies DiagnosticCard;
+  });
+}
+
+function dedupeCombinedCards(cards: DiagnosticCard[]): DiagnosticCard[] {
+  return cards.filter((card, index) => {
+    const ids = new Set(card.relatedRequestIds || []);
+    return !cards.slice(0, index).some(previous =>
+      previous.category === card.category &&
+      (previous.relatedRequestIds || []).some(id => ids.has(id))
+    );
+  });
+}
+
+function applyCombinedEvidenceFusion(
+  cards: DiagnosticCard[],
+  harObservations: DiagnosisObservation[],
+  netlogObservations: DiagnosisObservation[],
+  correlations: RequestCorrelation[]
+): DiagnosticCard[] {
+  return cards.map(card => {
+    const harForCard = relevantHarObservations(card, harObservations);
+    const netlogForCard = relevantNetlogObservations(card, netlogObservations, harForCard);
+    const requestIds = new Set(card.relatedRequestIds || harForCard.map(item => item.subject.requestId).filter((id): id is number => id !== undefined));
+    const correlationsForCard = correlations.filter(item => requestIds.has(item.harRequestId));
+    const fusion = fuseDiagnosisEvidence({
+      harObservations: harForCard,
+      netlogObservations: netlogForCard,
+      correlations: correlationsForCard,
+      baseConfidence: card.confidence,
+    });
+    return applyEvidenceFusion(card, fusion);
+  });
+}
+
 // ========== 联合诊断卡片生成 ==========
 
 export function combinedDiagnosisToCards(
@@ -232,17 +361,20 @@ export function combinedDiagnosisToCards(
   netlogResult: AnalysisResult
 ): DiagnosticCard[] {
   const cards: DiagnosticCard[] = [];
-  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests);
+  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests, netlogResult.netlogClockContext);
   const timeLimitation = timeContext.enabled ? undefined : timeContext.reason;
   const aligned = alignHarWithNetlog(harResult, netlogResult, timeContext);
+  const correlations = correlateHarRequestsToNetlog(harResult.entries, netlogResult.urlRequests, timeContext);
+  const harObservations = buildHarObservations(harResult.entries);
+  const netlogObservations = buildNetlogObservations(netlogResult);
+  cards.push(...buildCorrelatedFailureCards(harObservations, netlogObservations, correlations));
   const slowAligned = aligned.filter(a => a.isSlow);
-  if (slowAligned.length === 0) return cards;
 
   const netlogIndex = buildAlignmentIndex(netlogResult);
 
   // 1. HAR DNS 慢 + 同 host NetLog DNS 失败
   const slowWithDnsIssue = slowAligned.filter(a =>
-    a.harEntry.timings.dns > HAR_DIAG_THRESHOLDS.dnsSlow &&
+    timingMs(a.harEntry, 'dns') > HAR_DIAG_THRESHOLDS.dnsSlow &&
     (a.hostIndex?.dnsFailures.length || 0) > 0
   );
   if (slowWithDnsIssue.length > 0) {
@@ -290,10 +422,10 @@ export function combinedDiagnosisToCards(
   const proxySensitiveSlow = slowAligned.filter(a =>
     netlogResult.proxyInfo.hasProxy &&
     (
-      a.harEntry.timings.blocked > HAR_DIAG_THRESHOLDS.blockedSlow ||
-      a.harEntry.timings.connect > HAR_DIAG_THRESHOLDS.connectSlow ||
-      a.harEntry.timings.ssl > HAR_DIAG_THRESHOLDS.sslSlow ||
-      a.harEntry.timings.wait > HAR_DIAG_THRESHOLDS.ttfbSlow
+      timingMs(a.harEntry, 'queueing') + timingMs(a.harEntry, 'stalled') + timingMs(a.harEntry, 'proxy') > HAR_DIAG_THRESHOLDS.blockedSlow ||
+      timingMs(a.harEntry, 'tcp') > HAR_DIAG_THRESHOLDS.connectSlow ||
+      timingMs(a.harEntry, 'ssl') > HAR_DIAG_THRESHOLDS.sslSlow ||
+      timingMs(a.harEntry, 'wait') > HAR_DIAG_THRESHOLDS.ttfbSlow
     )
   );
   if (proxySensitiveSlow.length > 0 && netlogIndex.proxyEventCount > 0) {
@@ -337,7 +469,7 @@ export function combinedDiagnosisToCards(
 
   // 3. HAR TLS 慢 + 同 host NetLog TLS/证书异常
   const slowWithTls = slowAligned.filter(a =>
-    a.harEntry.timings.ssl > HAR_DIAG_THRESHOLDS.sslSlow &&
+    timingMs(a.harEntry, 'ssl') > HAR_DIAG_THRESHOLDS.sslSlow &&
     (a.hostIndex?.tlsIssues.length || 0) > 0
   );
   if (slowWithTls.length > 0) {
@@ -380,7 +512,7 @@ export function combinedDiagnosisToCards(
   // 4. 反证/解释：HAR 慢但 NetLog 无同 host 错误，提醒可能偏服务端或采集不匹配。
   const slowWithoutNetlogCause = slowAligned.filter(a =>
     a.alignLevel !== 'none' &&
-    a.harEntry.timings.wait > HAR_DIAG_THRESHOLDS.ttfbSlow &&
+    timingMs(a.harEntry, 'wait') > HAR_DIAG_THRESHOLDS.ttfbSlow &&
     !(a.hostIndex?.failedDomains.length) &&
     !(a.hostIndex?.tlsIssues.length)
   );
@@ -420,7 +552,21 @@ export function combinedDiagnosisToCards(
     });
   }
 
-  return cards;
+  const withTimeRanges = dedupeCombinedCards(cards).map(card => {
+    if (card.timeRange) return card;
+    const requestIds = new Set(card.relatedRequestIds || []);
+    const entries = harResult.entries.filter(entry => requestIds.has(entry.id) && Number.isFinite(entry.startMs));
+    if (entries.length === 0) return card;
+    return {
+      ...card,
+      timeRange: {
+        startMs: Math.min(...entries.map(entry => entry.startMs)),
+        endMs: Math.max(...entries.map(entry => entry.startMs + entry.time)),
+        clock: 'epoch' as const,
+      },
+    };
+  });
+  return applyCombinedEvidenceFusion(withTimeRanges, harObservations, netlogObservations, correlations);
 }
 
 // ========== 联合采集质量 ==========
@@ -432,7 +578,7 @@ export function checkCombinedQuality(
   const issues: CollectionQuality['issues'] = [];
   const recommendations: string[] = [];
 
-  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests);
+  const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests, netlogResult.netlogClockContext);
   const aligned = alignHarWithNetlog(harResult, netlogResult, timeContext);
   const alignedCount = aligned.filter(a => a.alignLevel !== 'none').length;
   const strongAlignedCount = aligned.filter(a => a.alignLevel === 'exact-url' || a.alignLevel === 'same-path').length;
@@ -495,9 +641,12 @@ export function buildCombinedDiagnosisSummary(
     highConfidenceCount > 0 ? 'high' :
     cards.some(c => c.confidence === 'medium') ? 'medium' : 'low';
 
-  const fusionConflicts = quality.issues
-    .filter(issue => issue.severity === 'warning')
-    .map(issue => issue.message);
+  const fusionConflicts = Array.from(new Set([
+    ...quality.issues
+      .filter(issue => issue.severity === 'warning')
+      .map(issue => issue.message),
+    ...cards.flatMap(card => card.conflictNotes || []),
+  ]));
 
   return { cards, quality, overallSeverity, combinedConfidence, fusionConflicts };
 }

@@ -1,40 +1,101 @@
-import React, { useMemo, useState } from 'react';
-import { Upload, Button, Alert, Typography, Space } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Segmented, Space, Typography, Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import type { HarAnalysisResult } from '../../harParser';
+import type { AnalysisResult } from '../../parsers/netlog/parser';
 import { parseBaselineHarFile } from '../../diagnosis/shared/baselineHarUpload';
-import { buildBaselineCompareSummary } from '../../diagnosis/shared/baselineComparator';
+import {
+  buildBaselineCompareSummary,
+  buildCombinedDiagnosisSummary,
+  buildFinalDiagnosisSummary,
+  compareCombinedBaselines,
+  compareNetlogBaselines,
+  parseBaselineNetlogFile,
+  type DiagnosisSummary,
+  type DiagnosticCard,
+} from '../../diagnosis/shared';
 import DiagnosisPanel from './DiagnosisPanel';
 
 const { Text } = Typography;
+type CompareMode = 'har' | 'netlog' | 'combined';
 
-const BaselineCompareTab: React.FC = () => {
-  const [baseline, setBaseline] = useState<HarAnalysisResult | null>(null);
-  const [current, setCurrent] = useState<HarAnalysisResult | null>(null);
-  const [baselineError, setBaselineError] = useState<string | null>(null);
-  const [currentError, setCurrentError] = useState<string | null>(null);
+interface BaselineCompareTabProps {
+  currentNetlog?: AnalysisResult;
+}
 
-  const handleUpload = (
-    setter: (r: HarAnalysisResult | null) => void,
-    setError: (message: string | null) => void
-  ) => (file: File) => {
-    setError(null);
+function cardsToSummary(cards: DiagnosticCard[], source: 'netlog' | 'combined'): DiagnosisSummary {
+  return {
+    cards,
+    quality: { source, isDiagnosable: true, issues: [] },
+    overallSeverity: cards.some(card => card.severity === 'critical')
+      ? 'critical'
+      : cards.some(card => card.severity === 'warning') ? 'warning' : 'info',
+  };
+}
+
+const BaselineCompareTab: React.FC<BaselineCompareTabProps> = ({ currentNetlog: initialCurrentNetlog }) => {
+  const [mode, setMode] = useState<CompareMode>(initialCurrentNetlog ? 'netlog' : 'har');
+  const [baselineHar, setBaselineHar] = useState<HarAnalysisResult | null>(null);
+  const [currentHar, setCurrentHar] = useState<HarAnalysisResult | null>(null);
+  const [baselineNetlog, setBaselineNetlog] = useState<AnalysisResult | null>(null);
+  const [currentNetlog, setCurrentNetlog] = useState<AnalysisResult | null>(initialCurrentNetlog || null);
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
+
+  useEffect(() => {
+    if (initialCurrentNetlog) setCurrentNetlog(initialCurrentNetlog);
+  }, [initialCurrentNetlog]);
+
+  const setError = (key: string, error?: unknown) => {
+    setErrors(current => ({
+      ...current,
+      [key]: error ? (error instanceof Error ? error.message : String(error)) : undefined,
+    }));
+  };
+
+  const uploadHar = (key: string, setter: (value: HarAnalysisResult | null) => void) => (file: File) => {
+    setError(key);
     void parseBaselineHarFile(file)
-      .then(result => {
-        setter(result);
-        setError(null);
-      })
-      .catch(err => {
+      .then(value => setter(value))
+      .catch(error => {
         setter(null);
-        setError(err instanceof Error ? err.message : 'HAR 解析失败');
+        setError(key, error);
       });
-    return false; // 阻止自动上传
+    return false;
+  };
+
+  const uploadNetlog = (key: string, setter: (value: AnalysisResult | null) => void) => (file: File) => {
+    setError(key);
+    void parseBaselineNetlogFile(file)
+      .then(value => setter(value))
+      .catch(error => {
+        setter(null);
+        setError(key, error);
+      });
+    return false;
   };
 
   const summary = useMemo(() => {
-    if (!baseline || !current) return undefined;
-    return buildBaselineCompareSummary(baseline, current);
-  }, [baseline, current]);
+    if (mode === 'har') {
+      return baselineHar && currentHar ? buildBaselineCompareSummary(baselineHar, currentHar) : undefined;
+    }
+    if (mode === 'netlog') {
+      return baselineNetlog && currentNetlog
+        ? cardsToSummary(compareNetlogBaselines(baselineNetlog, currentNetlog), 'netlog')
+        : undefined;
+    }
+    if (!baselineHar || !currentHar || !baselineNetlog || !currentNetlog) return undefined;
+    const baselineDiagnosis = buildCombinedDiagnosisSummary(baselineHar, baselineNetlog);
+    const currentDiagnosis = buildCombinedDiagnosisSummary(currentHar, currentNetlog);
+    const cards = compareCombinedBaselines(
+      { har: baselineHar, netlog: baselineNetlog, finalSummary: buildFinalDiagnosisSummary(baselineDiagnosis, 'combined') },
+      { har: currentHar, netlog: currentNetlog, finalSummary: buildFinalDiagnosisSummary(currentDiagnosis, 'combined') }
+    );
+    return cardsToSummary(cards, 'combined');
+  }, [mode, baselineHar, currentHar, baselineNetlog, currentNetlog]);
+
+  const uploadStatus = (key: string, text: string) => errors[key]
+    ? <Text type="danger">{errors[key]}</Text>
+    : <Text type="success">{text}</Text>;
 
   return (
     <div style={{ padding: 16 }}>
@@ -42,34 +103,51 @@ const BaselineCompareTab: React.FC = () => {
         type="info"
         showIcon
         message="正常/异常 A-B 对比"
-        description="上传一份正常环境 HAR 和一份异常环境 HAR，系统自动对比域名级别耗时差异，定位退化根因。"
+        description="选择 HAR、NetLog 或联合模式，对比新增现象和退化线索。差异本身不是根因，所有结果都需要回到两侧证据确认。"
         style={{ marginBottom: 16 }}
       />
 
-      <Space style={{ marginBottom: 16 }}>
-        <Upload
-          accept=".har,.json"
-          showUploadList={false}
-          beforeUpload={handleUpload(setBaseline, setBaselineError)}
-        >
-          <Button icon={<UploadOutlined />}>
-            上传正常样本（Baseline）
-          </Button>
-        </Upload>
-        {baseline && <Text type="success">已加载 ({baseline.totalRequests} 请求)</Text>}
-        {baselineError && <Text type="danger">Baseline 解析失败：{baselineError}</Text>}
+      <Segmented
+        value={mode}
+        onChange={value => setMode(value as CompareMode)}
+        options={[
+          { label: 'HAR 对比', value: 'har' },
+          { label: 'NetLog 对比', value: 'netlog' },
+          { label: 'HAR + NetLog', value: 'combined' },
+        ]}
+        style={{ marginBottom: 16 }}
+      />
 
-        <Upload
-          accept=".har,.json"
-          showUploadList={false}
-          beforeUpload={handleUpload(setCurrent, setCurrentError)}
-        >
-          <Button icon={<UploadOutlined />}>
-            上传异常样本（Current）
-          </Button>
-        </Upload>
-        {current && <Text type="warning">已加载 ({current.totalRequests} 请求)</Text>}
-        {currentError && <Text type="danger">Current 解析失败：{currentError}</Text>}
+      <Space size={[12, 12]} wrap style={{ marginBottom: 16 }}>
+        {(mode === 'har' || mode === 'combined') && (
+          <>
+            <Upload accept=".har,.json" showUploadList={false} beforeUpload={uploadHar('baselineHar', setBaselineHar)}>
+              <Button icon={<UploadOutlined />}>正常 HAR</Button>
+            </Upload>
+            {baselineHar && uploadStatus('baselineHar', `${baselineHar.totalRequests} 请求`)}
+            {!baselineHar && errors.baselineHar && uploadStatus('baselineHar', '')}
+            <Upload accept=".har,.json" showUploadList={false} beforeUpload={uploadHar('currentHar', setCurrentHar)}>
+              <Button icon={<UploadOutlined />}>异常 HAR</Button>
+            </Upload>
+            {currentHar && uploadStatus('currentHar', `${currentHar.totalRequests} 请求`)}
+            {!currentHar && errors.currentHar && uploadStatus('currentHar', '')}
+          </>
+        )}
+
+        {(mode === 'netlog' || mode === 'combined') && (
+          <>
+            <Upload accept=".json" showUploadList={false} beforeUpload={uploadNetlog('baselineNetlog', setBaselineNetlog)}>
+              <Button icon={<UploadOutlined />}>正常 NetLog</Button>
+            </Upload>
+            {baselineNetlog && uploadStatus('baselineNetlog', `${baselineNetlog.totalEvents} events`)}
+            {!baselineNetlog && errors.baselineNetlog && uploadStatus('baselineNetlog', '')}
+            <Upload accept=".json" showUploadList={false} beforeUpload={uploadNetlog('currentNetlog', setCurrentNetlog)}>
+              <Button icon={<UploadOutlined />}>异常 NetLog</Button>
+            </Upload>
+            {currentNetlog && uploadStatus('currentNetlog', `${currentNetlog.totalEvents} events${initialCurrentNetlog === currentNetlog ? '（当前文件）' : ''}`)}
+            {!currentNetlog && errors.currentNetlog && uploadStatus('currentNetlog', '')}
+          </>
+        )}
       </Space>
 
       {summary ? (
@@ -77,7 +155,7 @@ const BaselineCompareTab: React.FC = () => {
       ) : (
         <Alert
           type="warning"
-          message="请同时上传正常样本和异常样本后查看对比结果"
+          message={mode === 'combined' ? '请补齐正常/异常两侧 HAR 与 NetLog' : '请同时提供正常样本和异常样本'}
           style={{ marginTop: 16 }}
         />
       )}

@@ -104,9 +104,18 @@ export interface DohCandidate {
   source: 'polledData' | 'dns_event' | 'unknown';
 }
 
+export interface NetlogClockContext {
+  kind: 'time-tick-offset' | 'epoch' | 'relative-only' | 'unknown';
+  unit: 'ms';
+  originMs?: number;
+  confidence: 'verified' | 'low' | 'none';
+  evidence: string;
+}
+
 export interface AnalysisResult {
   totalEvents: number;
   timeTickOffset?: number;
+  netlogClockContext?: NetlogClockContext;
   uniqueSources: number;
   peakConcurrency: number;
   urlRequests: URLRequest[];
@@ -217,7 +226,23 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
 
   const constants = logData.constants || {};
   const timeTickOffset = Number(constants.timeTickOffset);
-  if (Number.isFinite(timeTickOffset)) result.timeTickOffset = timeTickOffset;
+  if (Number.isFinite(timeTickOffset)) {
+    result.timeTickOffset = timeTickOffset;
+    result.netlogClockContext = {
+      kind: 'time-tick-offset',
+      unit: 'ms',
+      originMs: timeTickOffset,
+      confidence: 'verified',
+      evidence: 'constants.timeTickOffset',
+    };
+  } else {
+    result.netlogClockContext = {
+      kind: 'relative-only',
+      unit: 'ms',
+      confidence: 'none',
+      evidence: 'NetLog constants did not include a verified time origin',
+    };
+  }
 
   // Build NUMBER→STRING reverse maps from file's constants (STRING→NUMBER in the file)
   const eventNamesRaw = constants.logEventTypes || constants.eventTypes || {};

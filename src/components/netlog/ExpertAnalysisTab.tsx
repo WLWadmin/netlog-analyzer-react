@@ -2287,7 +2287,7 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
           message="A-B 对比适合已有正常/异常基线文件时使用"
           description="如果只有单个问题文件，优先查看结论与行动、请求详情和证据链。"
         />
-        <BaselineCompareTab />
+        <BaselineCompareTab currentNetlog={result} />
       </div>
     ),
     report: (

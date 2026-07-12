@@ -3,7 +3,15 @@ import { Alert, Card, Collapse, Table, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { HarAnalysisResult } from '../../harParser';
 import type { AnalysisResult, FailedDomain, ParsedEvent } from '../../parsers/netlog/parser';
-import { buildCombinedDiagnosisSummary, buildFinalDiagnosisSummary } from '../../diagnosis/shared';
+import {
+  buildCombinedDiagnosisSummary,
+  buildFinalDiagnosisSummary,
+  buildHarObservations,
+  buildNetlogObservations,
+  calculateCombinedDiagnosisCoverage,
+  correlateHarRequestsToNetlog,
+} from '../../diagnosis/shared';
+import { buildTimeAlignmentContext } from '../../diagnosis/shared/timeAlignment';
 import { extractDnsIpEvidenceFromNetlog, type IpRoutingConclusion } from '../../diagnosis/ipEvidence';
 import type { DnsIpEvidenceSummary } from '../../diagnosis/ipEvidence';
 import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
@@ -13,6 +21,7 @@ import DiagnosisPanel from '../shared/DiagnosisPanel';
 import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
 import NetlogProxyEvidencePanel from './NetlogProxyEvidencePanel';
 import UploadZone from './UploadZone';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface EvidenceChainTabProps {
   result: AnalysisResult;
@@ -56,6 +65,7 @@ const CombinedEvidenceEntry: React.FC<{
   netlogResult: AnalysisResult;
   onUploadMissingFile?: EvidenceChainTabProps['onUploadMissingFile'];
 }> = ({ harResult, netlogResult, onUploadMissingFile }) => {
+  const { navigateTo } = useNavigation();
   const summary = useMemo(() => {
     if (!harResult) return undefined;
     return buildCombinedDiagnosisSummary(harResult, netlogResult);
@@ -64,6 +74,15 @@ const CombinedEvidenceEntry: React.FC<{
     () => summary ? buildFinalDiagnosisSummary(summary, 'combined') : undefined,
     [summary]
   );
+  const coverage = useMemo(() => {
+    if (!harResult) return undefined;
+    const harObservations = buildHarObservations(harResult.entries);
+    const datasetComplete = !netlogResult.largeFileMode?.truncatedEventsPreview && netlogResult.largeFileMode?.reachedEventsEnd !== false;
+    const netlogObservations = buildNetlogObservations(netlogResult, { datasetComplete });
+    const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests, netlogResult.netlogClockContext);
+    const correlations = correlateHarRequestsToNetlog(harResult.entries, netlogResult.urlRequests, timeContext);
+    return calculateCombinedDiagnosisCoverage(harObservations, netlogObservations, correlations, !datasetComplete);
+  }, [harResult, netlogResult]);
 
   if (!harResult) {
     return (
@@ -85,7 +104,29 @@ const CombinedEvidenceEntry: React.FC<{
       {finalSummary && (
         <FinalDiagnosisPanel
           finalSummary={finalSummary}
+          coverage={coverage}
           hideReferenceConclusions
+          onOpenHarRequests={requestIds => navigateTo({
+            tab: 'requests',
+            fileType: 'har',
+            evidenceSource: 'har',
+            source: 'combined-diagnosis',
+            filters: { requestId: requestIds.length === 1 ? requestIds[0] : undefined, requestIds },
+            highlight: { requestIds },
+          })}
+          onOpenNetlogEvidence={(sourceIds, eventIds) => navigateTo({
+            tab: 'events',
+            fileType: 'netlog',
+            evidenceSource: 'netlog',
+            source: 'combined-diagnosis',
+            filters: { sourceId: sourceIds.length === 1 ? String(sourceIds[0]) : undefined },
+            highlight: { sourceIds },
+            scrollTo: eventIds[0] ? { type: 'event', id: eventIds[0] } : undefined,
+          })}
+          onOpenUnexplained={(requestIds, sourceIds) => {
+            if (requestIds.length > 0) navigateTo({ tab: 'requests', fileType: 'har', filters: { requestIds }, highlight: { requestIds } });
+            else navigateTo({ tab: 'events', fileType: 'netlog', filters: { sourceId: sourceIds.length === 1 ? String(sourceIds[0]) : undefined }, highlight: { sourceIds } });
+          }}
         />
       )}
       {summary && (

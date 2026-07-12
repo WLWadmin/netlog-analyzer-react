@@ -138,6 +138,22 @@ function compactValue(value: unknown, maxLength = 120): string {
   return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
 }
 
+function sanitizeDiagnosticUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname || '/'}`;
+  } catch {
+    return value.split(/[?#]/, 1)[0];
+  }
+}
+
+function sanitizeProxyValue(value: string): string {
+  return value.replace(/\b(PROXY|HTTPS?|SOCKS5?)\s+([^;\s]+)/gi, (_match, kind: string, endpoint: string) => {
+    const withoutCredentials = endpoint.includes('@') ? endpoint.slice(endpoint.lastIndexOf('@') + 1) : endpoint;
+    return `${kind.toUpperCase()} ${withoutCredentials}`;
+  });
+}
+
 function addUniqueEvidence(target: DiagnosticEvidence[], evidence: DiagnosticEvidence) {
   if (!target.some(ev => ev.label === evidence.label && ev.value === evidence.value)) {
     target.push(evidence);
@@ -943,7 +959,22 @@ export function netlogToCards(
 
   const enrichmentStart = performance.now();
   // 历史次瓶颈回归指标：用于观察诊断证据补全是否再次退化。
-  const enrichedCards = cards.map(card => enrichCardWithP1Evidence(card, result));
+  const requestById = new Map(result.urlRequests.map(request => [request.id, request]));
+  const enrichedCards = cards.map(card => {
+    const enriched = enrichCardWithP1Evidence(card, result);
+    const requests = (enriched.relatedSourceIds || [])
+      .map(id => requestById.get(id))
+      .filter((request): request is URLRequest => Boolean(request && Number.isFinite(request.startTime)));
+    if (requests.length === 0) return enriched;
+    return {
+      ...enriched,
+      timeRange: {
+        startMs: Math.min(...requests.map(request => request.startTime)),
+        endMs: Math.max(...requests.map(request => request.startTime + (request.duration || 0))),
+        clock: 'relative' as const,
+      },
+    };
+  });
   recordTiming(debugTiming, timingRows, 'enrichCardWithP1Evidence map', enrichmentStart, undefined, { cards: cards.length });
 
   const sortStart = performance.now();
@@ -1028,7 +1059,7 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
     scope: buildScope(failuresWithContext.length, new Set(failuresWithContext.map(item => hostFromUrl(item.failure.url)).filter(Boolean)).size, 'global'),
     evidence: failuresWithContext.slice(0, 6).map((item, i) => ({
       label: `相关失败 ${i + 1}`,
-      value: `${hostFromUrl(item.failure.url) || item.failure.url} · 错误 ${item.failure.error} · ${item.context.map(ctx => `${ctx.kind}/${ctx.event.typeName}(Δ${ctx.delta.toFixed(0)}ms)`).join('、')}`,
+      value: `${hostFromUrl(item.failure.url) || sanitizeDiagnosticUrl(item.failure.url)} · 错误 ${item.failure.error} · ${item.context.map(ctx => `${ctx.kind}/${ctx.event.typeName}(Δ${ctx.delta.toFixed(0)}ms)`).join('、')}`,
       source: 'derived' as const,
       requestIds: requestLookup.idsByUrl.get(item.failure.url) || [],
     })),
@@ -1125,8 +1156,8 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
     scope: buildScope(Math.max(result.proxyEvents.length, relatedFailures.length || 1), undefined, 'global'),
     evidence: [
       { label: '代理模式', value: result.proxyInfo.proxyType || '未识别', source: 'netlog' as const },
-      ...(result.proxyInfo.proxyList.length > 0 ? [{ label: '代理列表', value: result.proxyInfo.proxyList.slice(0, 5).join(', '), source: 'netlog' as const }] : []),
-      ...(result.proxyInfo.pacUrl ? [{ label: 'PAC 地址', value: result.proxyInfo.pacUrl, source: 'netlog' as const }] : []),
+      ...(result.proxyInfo.proxyList.length > 0 ? [{ label: '代理列表', value: result.proxyInfo.proxyList.slice(0, 5).map(sanitizeProxyValue).join(', '), source: 'netlog' as const }] : []),
+      ...(result.proxyInfo.pacUrl ? [{ label: 'PAC 地址', value: sanitizeDiagnosticUrl(result.proxyInfo.pacUrl), source: 'netlog' as const }] : []),
       ...result.proxyEvents.slice(0, 5).map((e, i) => ({
         label: `代理事件 ${i + 1}`,
         value: `${formatNetlogTime(e.time)} · ${e.typeName} · source#${e.source.id}`,
@@ -1263,14 +1294,14 @@ function buildProxyCard(proxyInfo: ProxyInfo, result: AnalysisResult): Diagnosti
   if (proxyInfo.proxyList.length > 0) {
     evidence.push({
       label: '代理服务器',
-      value: proxyInfo.proxyList.join(', '),
+      value: proxyInfo.proxyList.map(sanitizeProxyValue).join(', '),
       source: 'netlog',
     });
   }
   if (proxyInfo.pacUrl) {
     evidence.push({
       label: 'PAC 地址',
-      value: proxyInfo.pacUrl,
+      value: sanitizeDiagnosticUrl(proxyInfo.pacUrl),
       source: 'netlog',
     });
   }
@@ -1309,8 +1340,8 @@ function buildDnsHijackCard(hijackedDomains: FailedDomain[]): DiagnosticCard {
     category: 'dns',
     severity: 'critical',
     confidence: 'high',
-    title: `检测到 DNS 劫持 (${hijackedDomains.length} 个域名)`,
-    conclusion: 'DNS 劫持是严重的网络故障，通常是运营商 LOCAL DNS 故障导致，需要立即更换 DNS',
+    title: `域名解析到本机或空地址 (${hijackedDomains.length} 个域名)`,
+    conclusion: 'NetLog 记录到域名解析为 127.0.0.1、0.0.0.0 或 ::1，可能来自 hosts、广告过滤、安全软件、企业 DNS 或本机代理策略，需要先核对该解析是否符合预期。',
     scope: buildScope(hijackedDomains.reduce((s, d) => s + d.count, 0), hijackedDomains.length, 'multi-domain'),
     evidence: hijackedDomains.map((d, i) => ({
       label: `劫持域名 ${i + 1}`,
@@ -1320,11 +1351,11 @@ function buildDnsHijackCard(hijackedDomains: FailedDomain[]): DiagnosticCard {
     actions: [
       {
         role: 'user',
-        title: '紧急更换 DNS',
-        detail: '国内用户立即将 DNS 更改为 223.5.5.5 或 119.29.29.29；海外用户更改为 8.8.8.8 或 1.1.1.1',
+        title: '对比当前与公共 DNS 解析',
+        detail: '先使用当前 DNS 和一组可信公共 DNS 对比解析结果；不要在未确认企业策略前直接修改系统 DNS。',
         command: 'nslookup example.com 223.5.5.5',
         platform: 'all',
-        expectedResult: '应返回正确的公网 IP 地址',
+        expectedResult: '对比结果可以确认本机/企业解析是否与公共 DNS 不同；内网域名解析到私网或本机地址仍可能符合预期。',
       },
       {
         role: 'it',

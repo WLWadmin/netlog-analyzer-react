@@ -20,6 +20,8 @@ import type {
   RootCauseCluster,
 } from './finalSummaryTypes';
 import { buildNetErrorKnowledgeActionGroups } from './netErrorActionKnowledge';
+import { buildIncidentEpisodes, type IncidentEpisode } from './incidentEpisode';
+import { enrichActionsWithPlaybook } from './actionPlaybook';
 
 const CATEGORY_LABELS: Record<DiagnosticCategory, string> = {
   dns: 'DNS',
@@ -290,10 +292,10 @@ function toFinalAction(action: DiagnosticAction, sourceCardId: string, priority:
     nextIfFailed: action.nextIfFailed,
     sourceCardId,
     priority,
-    effort: action.role === 'user' ? 'low' : 'medium',
-    risk: /Include raw bytes|Cookie|Authorization|Token|请求体|敏感/i.test(`${action.title} ${action.detail}`)
+    effort: action.effort || (action.role === 'user' ? 'low' : 'medium'),
+    risk: action.risk || (/Include raw bytes|Cookie|Authorization|Token|请求体|敏感/i.test(`${action.title} ${action.detail}`)
       ? 'sensitive'
-      : 'safe',
+      : 'safe'),
   };
 }
 
@@ -530,6 +532,49 @@ function buildCluster(
   };
 }
 
+function buildClusterFromEpisode(
+  episode: IncidentEpisode,
+  mode: FinalDiagnosisMode,
+  summary: DiagnosisSummary
+): RootCauseCluster {
+  const sortedCards = [...episode.cards].sort((a, b) => scoreCard(b, summary) - scoreCard(a, summary));
+  const primary = sortedCards[0];
+  const actionSourceCards = sortedCards.filter(card => !isNetworkStateFactOnly(card) && card.confidence !== 'low');
+  const actions = actionSourceCards.flatMap((card, cardIndex) =>
+    card.actions.map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
+  );
+  const keyEvidence = episode.evidence.map(toFinalEvidence).slice(0, 5);
+  const explainEvidence = [
+    ...keyEvidence,
+    ...episode.counterEvidenceSummary.slice(0, 2).map((item, index) => ({
+      label: `反证摘要 ${index + 1}`,
+      value: item,
+      source: 'derived' as const,
+    })),
+    ...episode.rankingReasons.slice(0, 2).map((item, index) => ({
+      label: `排序理由 ${index + 1}`,
+      value: item,
+      source: 'derived' as const,
+    })),
+  ].slice(0, 7);
+  const cardScore = sortedCards.reduce((max, card) => Math.max(max, scoreCard(card, summary)), 0);
+
+  return {
+    id: episode.id,
+    category: episode.category,
+    title: episode.title,
+    kind: determineConclusionKind(primary, mode, summary),
+    summary: `${episode.narrative} 影响范围：${episode.impactScope.summary}`,
+    cards: sortedCards,
+    keyEvidence: explainEvidence,
+    actions,
+    affectedRequestCount: episode.impactScope.affectedRequestCount,
+    affectedDomainCount: episode.impactScope.affectedDomainCount,
+    confidence: episode.confidence,
+    score: episode.score + cardScore,
+  };
+}
+
 function buildConclusion(
   cluster: RootCauseCluster,
   mode: FinalDiagnosisMode,
@@ -591,7 +636,10 @@ export function buildFinalDiagnosisSummary(
   diagnosisSummary: DiagnosisSummary,
   mode: FinalDiagnosisMode
 ): FinalDiagnosisSummary {
-  const cards = diagnosisSummary.cards || [];
+  const cards = (diagnosisSummary.cards || []).map(card => ({
+    ...card,
+    actions: enrichActionsWithPlaybook(card),
+  }));
   const qualityMissing = buildMissingInfoFromQuality(diagnosisSummary.quality);
 
   if (cards.length === 0) {
@@ -635,9 +683,13 @@ export function buildFinalDiagnosisSummary(
     byCategory.set(card.category, list);
   });
 
-  const clusters = Array.from(byCategory.entries())
+  const categoryClusters = Array.from(byCategory.entries())
     .map(([category, clusterCards]) => buildCluster(category, clusterCards, mode, diagnosisSummary))
     .sort((a, b) => b.score - a.score);
+  const episodeClusters = buildIncidentEpisodes(sortedExpertCards)
+    .map(episode => buildClusterFromEpisode(episode, mode, diagnosisSummary))
+    .sort((a, b) => b.score - a.score);
+  const clusters = episodeClusters.length > 0 ? episodeClusters : categoryClusters;
 
   const modeMissing = buildModeMissingInfo(mode, []);
   const missingInfo = dedupeMissingInfo([...preliminaryMissing, ...modeMissing]);

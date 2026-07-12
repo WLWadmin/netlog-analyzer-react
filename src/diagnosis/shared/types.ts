@@ -68,6 +68,10 @@ export interface DiagnosticAction {
   platform?: 'windows' | 'macos' | 'linux' | 'all';
   expectedResult?: string;
   nextIfFailed?: string;
+  effort?: 'low' | 'medium' | 'high';
+  risk?: 'safe' | 'needs-approval' | 'sensitive';
+  rerunRequired?: Array<'har' | 'netlog' | 'both'>;
+  resultImprovesMeaning?: string;
 }
 
 export type DiagnosticConfidenceLevel = 'high' | 'medium' | 'low';
@@ -95,6 +99,7 @@ export interface DiagnosticCard {
   severity: 'critical' | 'warning' | 'info';
   confidence: DiagnosticConfidenceLevel;
   confidenceFactors?: DiagnosticConfidenceFactor[];
+  timeRange?: { startMs: number; endMs: number; clock: 'epoch' | 'relative' };
   title: string;
   conclusion: string;
   scope: DiagnosticScope;
