@@ -721,7 +721,7 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.missingInfo.length).toBeGreaterThan(0);
   });
 
-  it('代理场景优先输出直连对比和代理白名单行动', () => {
+  it('代理场景优先输出关闭代理验证和代理白名单行动', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
         id: 'proxy-card',
@@ -741,7 +741,7 @@ describe('buildFinalDiagnosisSummary', () => {
 
     const userGroup = result.actionPlan.find(group => group.role === 'user');
     const itGroup = result.actionPlan.find(group => group.role === 'it');
-    expect(userGroup?.actions.some(action => action.title === '做代理/直连对比')).toBe(true);
+    expect(userGroup?.actions[0]?.title).toBe('临时关闭代理/VPN后重试');
     expect(itGroup?.actions.some(action => action.title === '检查 PAC、代理服务器和域名白名单')).toBe(true);
     expect(userGroup?.actions.some(action => action.title === '先做直连对比')).toBe(false);
   });
@@ -765,9 +765,39 @@ describe('buildFinalDiagnosisSummary', () => {
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
     expect(userActions.some(action => action.title === '做代理/直连对比')).toBe(false);
+    expect(userActions.some(action => action.title === '临时关闭代理/VPN后重试')).toBe(false);
   });
 
-  it('候选状态事实不进入主行动清单，只生成验证线索行动', () => {
+  it('只要检测到正向代理环境，就把代理对比放在其他故障动作之前', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'proxy-environment-card',
+        category: 'proxy',
+        severity: 'info',
+        confidence: 'high',
+        title: '检测到代理服务器配置',
+        conclusion: '当前存在代理配置，尚不能据此确认根因',
+        evidence: [{ label: '代理模式', value: 'fixed_servers', source: 'netlog' }],
+        actions: [],
+      }),
+      card({
+        id: 'dns-failure-card',
+        category: 'dns',
+        severity: 'critical',
+        confidence: 'high',
+        title: 'DNS 解析失败',
+        conclusion: '请求记录到 ERR_NAME_NOT_RESOLVED',
+        evidence: [{ label: '错误码', value: '-105', source: 'netlog' }],
+      }),
+    ]), 'netlog');
+
+    const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
+    expect(userActions[0]?.title).toBe('临时关闭代理/VPN后重试');
+    expect(userActions[0]?.sourceCardId).toBe('proxy-environment-card');
+    expect(userActions.some(action => action.title === '切换网络验证 DNS')).toBe(true);
+  });
+
+  it('候选状态事实不复用原始修复动作，但保留按角色的低风险验证', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
         id: 'dns-answer-candidate-action',
@@ -787,9 +817,9 @@ describe('buildFinalDiagnosisSummary', () => {
 
     expect(result.headline[0].kind).toBe('needs-more-data');
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
-    const collectActions = result.actionPlan.find(group => group.role === 'collect')?.actions || [];
     expect(userActions.some(action => action.title === '立刻切换 DNS')).toBe(false);
-    expect(collectActions.some(action => action.title.includes('验证候选线索'))).toBe(true);
+    expect(userActions.some(action => action.title === '切换网络验证 DNS')).toBe(true);
+    expect(result.actionPlan.find(group => group.role === 'it')?.actions.some(action => action.title === '查询域名解析结果')).toBe(true);
   });
 
   it('主行动清单保留请求失败错误码行动，并过滤非根因候选卡动作', () => {
@@ -827,11 +857,11 @@ describe('buildFinalDiagnosisSummary', () => {
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
     const itActions = result.actionPlan.find(group => group.role === 'it')?.actions || [];
-    const collectActions = result.actionPlan.find(group => group.role === 'collect')?.actions || [];
     expect(userActions.some(action => action.title === '切换网络复测')).toBe(true);
     expect(userActions.some(action => action.title.includes('连接') || action.detail.includes('-101'))).toBe(true);
     expect(itActions.some(action => action.title === '封禁候选 IP')).toBe(false);
-    expect(collectActions.some(action => action.title.includes('验证候选线索'))).toBe(true);
+    expect(itActions.some(action => action.title === '封禁候选 IP')).toBe(false);
+    expect(userActions.some(action => action.title === '切换网络对比连接')).toBe(true);
   });
 
   it('根据 NetLog 错误码生成 DNS、网络稳定性和安全软件排查行动', () => {
@@ -890,7 +920,7 @@ describe('buildFinalDiagnosisSummary', () => {
     ]), 'netlog');
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
-    expect(userActions[0]?.title).toBe('做代理/直连对比');
+    expect(userActions[0]?.title).toBe('临时关闭代理/VPN后重试');
     expect(userActions[1]?.title).toBe('检查防火墙或安全软件拦截');
     expect(userActions[2]?.title).toBe('验证网络连接是否稳定');
     expect(userActions[2]?.detail).toContain('-100');

@@ -54,8 +54,8 @@ const HarNoviceDiagnosisOverview: React.FC<HarNoviceDiagnosisOverviewProps> = ({
         finalSummary={finalSummary}
         coverage={coverage}
         hideReferenceConclusions
-        title="HAR 第一屏诊断"
-        modeLabelOverride="HAR 请求现象"
+        title="网络问题处理"
+        modeLabelOverride="已完成请求检查"
         expertButtonText="查看详细分析"
         onShowExpertDetails={() => {
           const target = document.querySelector('[data-har-expert-diagnosis]');

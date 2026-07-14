@@ -49,6 +49,14 @@ const CATEGORY_WINDOW_MS: Partial<Record<DiagnosticCategory, number>> = {
 const SEVERITY_WEIGHT = { critical: 60, warning: 36, info: 12 };
 const CONFIDENCE_WEIGHT = { high: 24, medium: 14, low: 4 };
 
+function affectedCountScore(count: number): number {
+  if (count >= 1000) return 24;
+  if (count >= 100) return 18;
+  if (count >= 20) return 12;
+  if (count >= 5) return 8;
+  return count > 0 ? 4 : 0;
+}
+
 function evidenceTime(evidence: DiagnosticEvidence[]): Array<{ startMs: number; endMs: number }> {
   return evidence.flatMap(item => {
     const detail = [item.detail, item.value].filter(Boolean).join(' ');
@@ -197,7 +205,7 @@ function episodeFromCards(index: number, cards: DiagnosticCard[], options: Build
     representativeSourceIds: affectedSourceIds.slice(0, 3),
     cards,
     evidence,
-    score: SEVERITY_WEIGHT[severity] + CONFIDENCE_WEIGHT[confidence] + affectedRequestCount + affectedDomainCount * 4 + (timeComparable ? 6 : 0) + Math.round(importanceSummary.maxScore / 5),
+    score: SEVERITY_WEIGHT[severity] + CONFIDENCE_WEIGHT[confidence] + affectedCountScore(affectedRequestCount) + affectedDomainCount * 4 + (timeComparable ? 6 : 0) + Math.round(importanceSummary.maxScore / 5),
   };
   const episode = { ...partial, narrative: '' };
   return { ...episode, narrative: buildIncidentNarrative(episode) };

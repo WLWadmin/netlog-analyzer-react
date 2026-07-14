@@ -3,6 +3,7 @@
  * 将 harDiagnosis.ts 的输出转换为统一 DiagnosticCard 结构
  */
 
+import { formatBytes, formatHarTime } from '../../harParser';
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
 import type { HarDiagnosisResult, AttributionItem, NetworkPhaseStatus } from '../../harDiagnosis';
 import type {
@@ -464,6 +465,167 @@ function buildLargePayloadCard(entries: HarRequestEntry[]): DiagnosticCard | nul
   };
 }
 
+function isAbortedRequest(entry: HarRequestEntry): boolean {
+  return entry.netErrorCode === -3
+    || [entry.netErrorText, entry.failureText].some(value => /ERR_ABORTED/i.test(value || ''));
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
+}
+
+function peakStartsInWindow(entries: HarRequestEntry[], windowMs = 1000): number {
+  const starts = entries
+    .map(entry => entry.startMs)
+    .filter(startMs => Number.isFinite(startMs) && startMs > 0)
+    .sort((a, b) => a - b);
+  let left = 0;
+  let peak = 0;
+  for (let right = 0; right < starts.length; right++) {
+    while (starts[right] - starts[left] >= windowMs) left++;
+    peak = Math.max(peak, right - left + 1);
+  }
+  return peak;
+}
+
+function maxConcurrentRequests(entries: HarRequestEntry[]): number {
+  const events = entries.flatMap(entry => {
+    if (!Number.isFinite(entry.startMs) || entry.startMs <= 0 || !Number.isFinite(entry.time) || entry.time <= 0) return [];
+    return [
+      { at: entry.startMs, delta: 1 },
+      { at: entry.startMs + entry.time, delta: -1 },
+    ];
+  }).sort((a, b) => a.at - b.at || a.delta - b.delta);
+  let current = 0;
+  let peak = 0;
+  events.forEach(event => {
+    current += event.delta;
+    peak = Math.max(peak, current);
+  });
+  return peak;
+}
+
+function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCard | null {
+  const byDomain = new Map<string, HarRequestEntry[]>();
+  entries.forEach(entry => {
+    if (!entry.domain) return;
+    const list = byDomain.get(entry.domain) || [];
+    list.push(entry);
+    byDomain.set(entry.domain, list);
+  });
+
+  const candidates = Array.from(byDomain.entries()).map(([domain, domainEntries]) => {
+    const blockedEntries = domainEntries.filter(entry => blockedTimingMs(entry) > HAR_DIAG_THRESHOLDS.blockedSlow);
+    const abortedNearThirtySeconds = domainEntries.filter(entry => (
+      entry.status === 0
+      && isAbortedRequest(entry)
+      && entry.time >= 29000
+      && entry.time <= 31000
+    ));
+    return {
+      domain,
+      entries: domainEntries,
+      blockedEntries,
+      abortedNearThirtySeconds,
+      peakStarts: peakStartsInWindow(domainEntries),
+      maxConcurrent: maxConcurrentRequests(domainEntries),
+    };
+  }).filter(candidate => (
+    candidate.blockedEntries.length >= 10
+    && (candidate.peakStarts >= 20 || candidate.maxConcurrent >= 20)
+  )).sort((a, b) => (
+    b.abortedNearThirtySeconds.length - a.abortedNearThirtySeconds.length
+    || b.blockedEntries.length - a.blockedEntries.length
+    || b.peakStarts - a.peakStarts
+  ));
+
+  const primary = candidates[0];
+  if (!primary) return null;
+
+  const successfulGets = primary.entries.filter(entry => entry.method === 'GET' && entry.status >= 200 && entry.status < 300);
+  const optionsCount = primary.entries.filter(entry => entry.method === 'OPTIONS').length;
+  const getCount = primary.entries.filter(entry => entry.method === 'GET').length;
+  const http11Count = primary.entries.filter(entry => entry.protocol.toLowerCase() === 'http/1.1').length;
+  const successfulBytes = successfulGets.reduce((sum, entry) => sum + Math.max(entry.size, entry.contentSize, 0), 0);
+  const ttfbP95 = percentile(successfulGets.map(entry => timingPhaseMs(entry, 'wait')).filter(value => value > 0), 0.95);
+  const receiveP95 = percentile(successfulGets.map(entry => timingPhaseMs(entry, 'receive')).filter(value => value > 0), 0.95);
+  const affectedRequestIds = Array.from(new Set([
+    ...primary.blockedEntries.map(entry => entry.id),
+    ...primary.abortedNearThirtySeconds.map(entry => entry.id),
+  ]));
+  const startValues = primary.entries.map(entry => entry.startMs).filter(value => Number.isFinite(value) && value > 0);
+  const endValues = primary.entries.map(entry => entry.startMs + entry.time).filter(value => Number.isFinite(value) && value > 0);
+  const cancelConclusion = primary.abortedNearThirtySeconds.length > 0
+    ? `，其中 ${primary.abortedNearThirtySeconds.length} 个请求在约 30 秒后被取消且未取得 HTTP 响应`
+    : '';
+
+  const evidence: DiagnosticEvidence[] = [
+    { label: '同域请求突发', value: `${primary.domain} 在 1 秒内最多发起 ${primary.peakStarts} 个请求`, source: 'derived' },
+    { label: '最大并发', value: `${primary.maxConcurrent} 个请求同时进行`, source: 'derived' },
+    { label: '浏览器排队', value: `${primary.blockedEntries.length} 个请求 blocked 超过 ${HAR_DIAG_THRESHOLDS.blockedSlow}ms`, source: 'har', requestIds: primary.blockedEntries.slice(0, 20).map(entry => entry.id) },
+  ];
+  if (primary.abortedNearThirtySeconds.length > 0) {
+    evidence.push({
+      label: '集中取消',
+      value: `${primary.abortedNearThirtySeconds.length} 个 status=0 / ERR_ABORTED 请求耗时集中在约 30 秒`,
+      source: 'har',
+      requestIds: primary.abortedNearThirtySeconds.slice(0, 20).map(entry => entry.id),
+    });
+  }
+  if (optionsCount > 0) {
+    evidence.push({ label: '预检请求', value: `${optionsCount} 个 OPTIONS，对应 ${getCount} 个 GET`, source: 'har' });
+  }
+  if (http11Count > 0) {
+    evidence.push({ label: '协议表现', value: `${http11Count} 个已记录响应使用 HTTP/1.1，并发压力可能被放大`, source: 'har' });
+  }
+  if (successfulGets.length > 0) {
+    evidence.push({
+      label: '成功 GET 响应',
+      value: `TTFB P95 ${formatHarTime(ttfbP95)}；下载 P95 ${formatHarTime(receiveP95)}；传输 ${formatBytes(successfulBytes)}`,
+      source: 'har',
+      requestIds: successfulGets.slice(0, 20).map(entry => entry.id),
+    });
+  }
+
+  return {
+    id: `har-browser-queue-pressure-${primary.domain}`,
+    source: 'har',
+    category: 'browser-queue',
+    severity: primary.abortedNearThirtySeconds.length >= 10 ? 'critical' : 'warning',
+    confidence: 'high',
+    title: '同域请求突发导致浏览器排队',
+    conclusion: `${primary.domain} 在 1 秒内最多发起 ${primary.peakStarts} 个请求，最大并发 ${primary.maxConcurrent}；${primary.blockedEntries.length} 个请求长时间处于 blocked${cancelConclusion}。请求突发和浏览器连接调度是首要排查方向。`,
+    scope: buildScope(affectedRequestIds.length, 1, 'single-domain'),
+    evidence,
+    actions: [
+      {
+        role: 'user',
+        title: '停止批量加载后重试',
+        detail: '先停止批量预览或下载，减少一次打开的内容数量，再重新执行刚才的操作。',
+        expectedResult: '减少加载数量后恢复，说明同一时间请求过多是关键影响因素。',
+      },
+      {
+        role: 'frontend',
+        title: '限制同域请求并发',
+        detail: '为预览和下载增加并发上限、懒加载与去重，并检查约 30 秒的 AbortController、统一超时和页面卸载取消逻辑。',
+      },
+      {
+        role: 'backend',
+        title: '优化预览资源与预检',
+        detail: '提供更小的预览资源，并检查 CORS 预检缓存，减少 OPTIONS 和大响应对并发的放大。',
+      },
+    ],
+    limitations: ['HAR 能确认请求突发、排队和取消现象；连接池、代理或协议降级的底层原因仍需同次 NetLog 验证。'],
+    relatedRequestIds: affectedRequestIds,
+    timeRange: startValues.length && endValues.length
+      ? { startMs: Math.min(...startValues), endMs: Math.max(...endValues), clock: 'epoch' }
+      : undefined,
+    navigationTarget: buildHarNavigationTarget('browser-queue', { requestIds: affectedRequestIds }),
+  };
+}
+
 // ========== 主转换函数 ==========
 
 export function harDiagnosisToCards(
@@ -478,6 +640,9 @@ export function harDiagnosisToCards(
     .slice(0, 5)
     .map(clusterToDiagnosticCard);
   cards.push(...clusterCards);
+
+  const browserQueuePressureCard = buildBrowserQueuePressureCard(entries);
+  if (browserQueuePressureCard) cards.push(browserQueuePressureCard);
 
   // 1. 整体健康状态卡片
   if (diagnosis.overallStatus !== 'healthy' && clusterCards.length === 0) {
@@ -776,7 +941,7 @@ export function harDiagnosisToCards(
     });
   }
 
-  // 7. 安全问题卡片
+  // 7. 安全问题卡片。缺失安全响应头属于配置建议，不能作为访问故障主结论。
   if (diagnosis.securityStats.mixedContentCount > 0 || diagnosis.securityStats.missingSecurityHeaders.length > 0) {
     const evidence: DiagnosticEvidence[] = [];
     const actions: DiagnosticAction[] = [];
@@ -811,15 +976,18 @@ export function harDiagnosisToCards(
       id: generateId('har-security', 0),
       source: 'har',
       category: 'security',
-      severity: diagnosis.securityStats.mixedContentCount > 0 ? 'critical' : 'warning',
-      confidence: 'high',
-      title: '安全策略问题',
+      severity: diagnosis.securityStats.mixedContentCount > 0 ? 'critical' : 'info',
+      confidence: diagnosis.securityStats.mixedContentCount > 0 ? 'high' : 'low',
+      title: diagnosis.securityStats.mixedContentCount > 0 ? '混合内容可能被浏览器阻止' : '安全响应头配置建议',
       conclusion: diagnosis.securityStats.mixedContentCount > 0
         ? '检测到混合内容，可能导致安全警告或资源被拦截'
-        : '检测到缺失安全响应头，建议补充以提升安全性',
-      scope: buildScope(diagnosis.totalRequests, undefined, 'global'),
+        : '检测到缺失安全响应头；这是网站安全加固建议，不能用于解释请求失败或长耗时',
+      scope: buildScope(diagnosis.securityStats.mixedContentCount, undefined, diagnosis.securityStats.mixedContentCount > 0 ? 'global' : 'unknown'),
       evidence,
       actions,
+      limitations: diagnosis.securityStats.mixedContentCount > 0
+        ? undefined
+        : ['缺失安全响应头不代表浏览器插件、企业策略或网络链路阻止了请求。'],
     });
   }
 

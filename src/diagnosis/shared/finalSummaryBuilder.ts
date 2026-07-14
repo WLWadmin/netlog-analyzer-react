@@ -21,7 +21,7 @@ import type {
 } from './finalSummaryTypes';
 import { buildNetErrorKnowledgeActionGroups } from './netErrorActionKnowledge';
 import { buildIncidentEpisodes, type IncidentEpisode } from './incidentEpisode';
-import { enrichActionsWithPlaybook } from './actionPlaybook';
+import { enrichActionsWithPlaybook, getPlaybookActions } from './actionPlaybook';
 
 const CATEGORY_LABELS: Record<DiagnosticCategory, string> = {
   dns: 'DNS',
@@ -120,6 +120,15 @@ function isProxyConfigOnly(card: DiagnosticCard): boolean {
   if (hasExplicitFailureEvidence(card)) return false;
   const text = cardEvidenceText(card);
   return /代理|proxy|PAC|VPN|配置|模式|服务器/i.test(text);
+}
+
+function isPositiveProxyConfigOnly(card: DiagnosticCard): boolean {
+  if (!isProxyConfigOnly(card)) return false;
+  const text = cardEvidenceText(card);
+  if (/未检测到代理|没有代理|未包含代理事件|未识别代理|未配置代理|未解析出稳定代理配置|缺少代理解析过程/i.test(text)) {
+    return false;
+  }
+  return /检测到代理|检测到 VPN|当前存在代理配置|当前配置了代理|代理服务器配置|fixed_servers|pac_script|代理决策链路/i.test(text);
 }
 
 function isDnsAnswerSpecialIpOnly(card: DiagnosticCard): boolean {
@@ -326,6 +335,49 @@ function buildCandidateValidationAction(card: DiagnosticCard, priority: number):
   };
 }
 
+function buildCandidateActionGroups(cards: DiagnosticCard[]): ActionGroup[] {
+  const grouped = new Map<DiagnosticRole, FinalAction[]>();
+
+  cards.forEach(card => {
+    getPlaybookActions(card.category).forEach((action, index) => {
+      const list = grouped.get(action.role) || [];
+      const next = toFinalAction(action, card.id, list.length + index + 1);
+      if (!list.some(item => item.title === next.title && item.command === next.command)) {
+        list.push(next);
+      }
+      grouped.set(action.role, list);
+    });
+  });
+
+  return Array.from(grouped.entries())
+    .map(([role, actions]) => ({
+      role,
+      title: ROLE_LABELS[role],
+      actions: actions.slice(0, 3),
+      priority: ROLE_PRIORITY[role],
+    }))
+    .filter(group => group.actions.length > 0)
+    .sort((a, b) => a.priority - b.priority);
+}
+
+function mergeActionGroups(groups: ActionGroup[]): ActionGroup[] {
+  const merged = new Map<DiagnosticRole | 'collect', ActionGroup>();
+  groups.forEach(group => {
+    const current = merged.get(group.role);
+    if (!current) {
+      merged.set(group.role, { ...group, actions: [...group.actions] });
+      return;
+    }
+    group.actions.forEach(action => {
+      if (!current.actions.some(item => item.title === action.title && item.command === action.command)) {
+        current.actions.push(action);
+      }
+    });
+    current.actions = current.actions.slice(0, 5);
+  });
+  return Array.from(merged.values()).sort((a, b) => a.priority - b.priority);
+}
+
 function buildMissingInfoFromQuality(quality: CollectionQuality): MissingInfoItem[] {
   const items: MissingInfoItem[] = [];
   quality.issues.forEach((issue, index) => {
@@ -484,21 +536,17 @@ function buildGuardedActionGroups(cards: DiagnosticCard[], headline: FinalConclu
   const headlineCardIds = new Set(headline.flatMap(item => item.relatedCardIds));
   const primaryCards = cards.filter(card => isPrimaryActionCard(card, headlineCardIds));
   const candidateCards = cards.filter(card => headlineCardIds.has(card.id) && isNetworkStateFactOnly(card));
-  const groups = buildActionGroups(primaryCards, []);
-
-  if (candidateCards.length > 0) {
-    const collectActions = candidateCards
-      .slice(0, 3)
-      .map((card, index) => buildCandidateValidationAction(card, index + 1));
-    groups.push({
-      role: 'collect',
-      title: ROLE_LABELS.collect,
-      actions: collectActions,
-      priority: ROLE_PRIORITY.collect,
-    });
-  }
-
-  return groups.sort((a, b) => a.priority - b.priority);
+  const proxyEnvironmentCards = cards.filter(isPositiveProxyConfigOnly);
+  const otherCandidateCards = candidateCards.filter(card =>
+    card.category !== 'proxy' && !proxyEnvironmentCards.some(proxyCard => proxyCard.id === card.id)
+  );
+  // 候选状态不能直接当根因处理，但小白仍需要按角色做低风险验证。
+  // 只使用 playbook 的验证动作，不复用候选卡可能过度定因的原始动作。
+  return mergeActionGroups([
+    ...buildCandidateActionGroups(proxyEnvironmentCards),
+    ...buildActionGroups(primaryCards, []),
+    ...buildCandidateActionGroups(otherCandidateCards),
+  ]);
 }
 
 function buildCluster(

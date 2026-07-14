@@ -268,7 +268,8 @@ a:focus-visible {
 .ant-alert-warning { border-left-color: var(--accent-yellow) !important; }
 .ant-alert-info { border-left-color: var(--accent-blue) !important; }
 
-.ant-alert-message {
+.ant-alert-message,
+.ant-alert-title {
   color: var(--text-primary) !important;
   font-size: var(--font-size-base) !important;
   font-weight: var(--font-weight-medium) !important;
@@ -281,9 +282,13 @@ a:focus-visible {
 
 /* Force all alert types to use readable text colors */
 .ant-alert-success .ant-alert-message,
+.ant-alert-success .ant-alert-title,
 .ant-alert-error .ant-alert-message,
+.ant-alert-error .ant-alert-title,
 .ant-alert-warning .ant-alert-message,
-.ant-alert-info .ant-alert-message {
+.ant-alert-warning .ant-alert-title,
+.ant-alert-info .ant-alert-message,
+.ant-alert-info .ant-alert-title {
   color: var(--text-primary) !important;
 }
 
@@ -802,7 +807,8 @@ a:focus-visible {
   color: var(--text-primary) !important;
 }
 
-[data-theme="dark"] .ant-alert-message {
+[data-theme="dark"] .ant-alert-message,
+[data-theme="dark"] .ant-alert-title {
   color: var(--text-primary) !important;
 }
 

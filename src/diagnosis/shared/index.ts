@@ -34,6 +34,24 @@ export {
 } from './finalSummaryBuilder';
 
 export {
+  buildTroubleshootingPlan,
+  createTroubleshootingSession,
+  currentTroubleshootingStep,
+  recordTroubleshootingOutcome,
+  continueTroubleshootingSession,
+  getRelevantRoleTasks,
+} from './troubleshootingSop';
+
+export type {
+  TroubleshootingOutcome,
+  TroubleshootingState,
+  TroubleshootingStep,
+  TroubleshootingRoleTask,
+  TroubleshootingPlan,
+  TroubleshootingSession,
+} from './troubleshootingSop';
+
+export {
   harDiagnosisToCards,
   checkHarQuality,
   buildHarDiagnosisSummary,

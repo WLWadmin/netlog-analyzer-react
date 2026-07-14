@@ -179,7 +179,8 @@ const ConclusionActionTab: React.FC<ConclusionActionTabProps> = ({
           finalSummary={finalSummary}
           coverage={coverage}
           hideReferenceConclusions
-          title="诊断结论与下一步"
+          title="网络问题处理"
+          modeLabelOverride="已完成网络检查"
           evidenceButton={{ text: '查看关键证据', onClick: () => onNavigate('evidence') }}
           expertButtonText="查看完整专家报告"
           onShowExpertDetails={() => onNavigate('expert', 'report')}

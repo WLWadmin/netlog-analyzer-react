@@ -250,7 +250,7 @@ function addCategoryActions(ctx: ErrorContext, actions: KnowledgeAction[]) {
   const proxyCodes = ctx.codesByCategory.get('代理') || [];
   if (proxyCodes.length > 0 || ctx.hasConfirmedProxy) {
     actions.push(
-      action(ctx, 'user', 'proxy-compare', '做代理/直连对比', `检测到代理线索${proxyCodes.length ? `（${formatCodes(proxyCodes)}）` : ''}。在符合公司安全策略的前提下，临时关闭代理/VPN 或切换到不走代理的网络访问 ${hosts}，判断是否为代理链路问题。`, 5, 'needs-approval'),
+      action(ctx, 'user', 'proxy-compare', '临时关闭代理/VPN后重试', `检测到代理线索${proxyCodes.length ? `（${formatCodes(proxyCodes)}）` : ''}。在符合公司安全策略的前提下，临时关闭代理/VPN 或切换到不走代理的网络访问 ${hosts}，判断是否为代理链路问题。`, 5, 'needs-approval'),
       action(ctx, 'it', 'proxy-policy-check', '检查 PAC、代理服务器和域名白名单', `核对 ProxyMode、ProxyPacUrl、ProxyServer、ProxyBypassList、PAC 返回结果、代理认证和 ${hosts} 的分流/白名单策略。`, 10, 'needs-approval', 'medium')
     );
   }

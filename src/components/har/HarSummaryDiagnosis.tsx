@@ -429,8 +429,8 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
         finalSummary={finalSummary}
         onShowExpertDetails={showAndScrollExpertDiagnosis}
         hideReferenceConclusions
-        title="HAR 现象摘要"
-        modeLabelOverride="HAR 请求现象"
+        title="网络问题处理"
+        modeLabelOverride="已完成请求检查"
         expertButtonText="查看现象明细"
       />
 

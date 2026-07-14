@@ -52,7 +52,7 @@ const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
     action('tls', 'it', 'tls-inspection-check', '检查 HTTPS inspection', `确认安全网关、VPN、代理或终端安全软件是否对 ${HOST_PLACEHOLDER} 做 TLS 解密。`, '可信业务域名不应被错误替换证书或阻断握手。', '按策略加入绕过或修复根证书下发。', 'needs-approval', 'medium'),
   ],
   proxy: [
-    action('proxy', 'user', 'proxy-login-compare', '确认代理/VPN 登录状态', '确认代理、VPN、企业网关登录有效；必要时重新登录后复现。', '重新登录后 407/CONNECT/代理相关失败消失。', '检查 PAC、代理服务器和白名单策略。'),
+    action('proxy', 'user', 'proxy-bypass-compare', '临时关闭代理/VPN后重试', '在公司安全策略允许的情况下，临时关闭代理/VPN，或切换到不经过该代理的网络后重新访问。', '关闭代理后访问恢复，说明代理/VPN路径是导致问题的关键变量。', '如果仍未恢复，请重新开启公司要求的代理/VPN，再继续检查 DNS、连接或证书。', 'needs-approval'),
     action('proxy', 'it', 'proxy-pac-check', '检查 PAC 和 CONNECT 隧道', `核对 PAC 对 ${HOST_PLACEHOLDER} 的返回、代理认证、CONNECT tunnel 和白名单。`, 'PAC 返回符合预期，代理允许目标域名和端口。', '修复 PAC 或代理策略后重新采集 HAR/NetLog。', 'needs-approval', 'medium'),
   ],
   'network-change': [
@@ -71,7 +71,7 @@ const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
     action('performance', 'backend', 'download-ttfb-cdn', '区分 TTFB、下载和 CDN', '查看 Server-Timing、资源大小、缓存命中和 CDN 回源情况。', '能区分是服务端处理慢、资源过大还是 CDN/缓存问题。', '跨网络对比并重新采集 HAR。'),
   ],
   'browser-queue': [
-    action('browser-queue', 'user', 'queue-browser-retry', '减少并发后复现', '关闭其他标签页和扩展，重新加载页面观察队列等待是否下降。', '队列等待下降，说明浏览器并发或扩展影响较大。', '继续查看连接池、Service Worker 或扩展影响。'),
+    action('browser-queue', 'user', 'queue-browser-retry', '停止批量加载后重试', '先停止批量预览或下载，减少一次打开的内容数量，再重新执行刚才的操作。', '减少加载数量后恢复，说明同一时间请求过多是关键影响因素。', '如果仍未恢复，请前端继续检查请求并发、统一超时和取消逻辑。'),
   ],
   protocol: [
     action('protocol', 'it', 'protocol-gateway-check', '检查 HTTP/2、QUIC 或 WebSocket 兼容性', '核对代理、网关、防火墙是否支持对应协议和 Upgrade/ALPN。', '协议降级或放通后问题改善。', '继续按网关或代理策略排查。', 'needs-approval', 'medium'),

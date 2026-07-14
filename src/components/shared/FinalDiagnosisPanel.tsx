@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Card, Collapse, Tag, message } from 'antd';
 import {
   CheckCircleOutlined,
@@ -11,18 +11,16 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import type {
-  ActionGroup,
   DiagnosisCoverage,
   FinalConclusion,
   FinalConclusionKind,
   FinalDiagnosisSummary,
   MissingInfoItem,
   RootCauseCluster,
-  VerificationRecord,
 } from '../../diagnosis/shared';
-import { evaluateVerificationSession } from '../../diagnosis/shared';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
+import NoviceTroubleshootingFlow from './NoviceTroubleshootingFlow';
 
 interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
@@ -100,11 +98,11 @@ function copyText(text: string) {
     return;
   }
   navigator.clipboard.writeText(text)
-    .then(() => message.success('已复制诊断摘要'))
+    .then(() => message.success('已复制给 IT / 客服的信息'))
     .catch(() => message.error('复制失败，请手动复制'));
 }
 
-function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
+function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
     `摘要：${finalSummary.executiveSummary}`,
@@ -118,6 +116,9 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary): string {
       `   置信度：${item.confidenceText}`,
       item.primaryAction ? `   下一步：${item.primaryAction.title} - ${item.primaryAction.detail}` : undefined,
     ].filter(Boolean).join('\n')),
+    '',
+    '用户已尝试：',
+    troubleshootingRecordText,
   ];
 
   if (finalSummary.missingInfo.length > 0) {
@@ -153,8 +154,13 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
   onOpenUnexplained,
 }) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
+  const [troubleshootingRecordText, setTroubleshootingRecordText] = useState('尚未执行恢复操作。');
 
-  const copyableText = useMemo(() => finalSummary ? buildCopyText(finalSummary) : '', [finalSummary]);
+  const copyableText = useMemo(
+    () => finalSummary ? buildCopyText(finalSummary, troubleshootingRecordText) : '',
+    [finalSummary, troubleshootingRecordText]
+  );
+  const handleRecordTextChange = useCallback((text: string) => setTroubleshootingRecordText(text), []);
   const handleShowExpertDetails = () => {
     if (!onShowExpertDetails) {
       message.info('完整报告入口暂不可用，请查看当前页面下方诊断详情');
@@ -166,88 +172,89 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
 
   if (!finalSummary) return null;
 
-  if (finalSummary.headline.length === 0 && finalSummary.missingInfo.length === 0) {
-    return (
-      <Alert
-        type="info"
-        showIcon
-        message="当前文件未生成明确收敛结论"
-        description={finalSummary.fallbackReason || '请查看下方完整诊断报告和采集质量提示。'}
-        style={{ marginBottom: 16 }}
-      />
-    );
-  }
-
   return (
     <Card
       className="final-diagnosis-panel"
       style={{
         position: 'relative',
         overflow: 'hidden',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.88))',
+        background: 'var(--bg-elevated)',
         borderColor: 'rgba(14,165,233,0.20)',
-        borderRadius: 24,
+        borderRadius: 12,
         marginBottom: 16,
-        boxShadow: '0 20px 56px rgba(15,23,42,0.08)',
+        boxShadow: '0 8px 24px rgba(15,23,42,0.06)',
       }}
       styles={{ body: { padding: 22, position: 'relative' } }}
     >
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: 'radial-gradient(circle at 6% 0%, rgba(14,165,233,0.10), transparent 28%), radial-gradient(circle at 95% 8%, rgba(59,130,246,0.08), transparent 24%)',
-          pointerEvents: 'none',
-        }}
-      />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <Tag style={{ border: 'none', background: 'rgba(14, 165, 233, 0.12)', color: '#0284c7', fontWeight: 600 }}>
-              {modeLabelOverride || modeLabelMap[finalSummary.mode]}
+              {modeLabelOverride || '已完成网络检查'}
             </Tag>
             <Tag style={{ border: 'none', background: statusBg(finalSummary.status), color: statusColor(finalSummary.status), fontWeight: 600 }}>
-              {statusText(finalSummary.status)}
+              {noviceStatusText(finalSummary.status)}
             </Tag>
           </div>
           <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.28, letterSpacing: 0 }}>
-            {title || '最终诊断摘要'}
+            {title || '网络问题处理'}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 760, lineHeight: 1.7 }}>
-            {finalSummary.executiveSummary}
+            先按下面的一个步骤尝试恢复；完成后选择实际结果，产品会继续告诉你下一步。
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {evidenceButton && (
-            <Button size="small" style={{ borderRadius: 999 }} icon={<ThunderboltOutlined />} onClick={evidenceButton.onClick}>
-              {evidenceButton.text}
-            </Button>
-          )}
           <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={() => copyText(copyableText)}>
-            复制摘要
-          </Button>
-          <Button size="small" type="primary" style={{ borderRadius: 999, boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }} icon={<EyeOutlined />} onClick={handleShowExpertDetails}>
-            {expertButtonText || '查看完整报告'}
+            复制给 IT / 客服
           </Button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginTop: 16 }}>
-        <IncidentEpisodeList
-          finalSummary={finalSummary}
-          onOpenHarRequests={onOpenHarRequests}
-          onOpenNetlogEvidence={onOpenNetlogEvidence}
-        />
-        <DiagnosisCoveragePanel
-          coverage={coverage}
-          onOpenUnexplained={onOpenUnexplained}
-        />
-      </div>
+      <NoviceTroubleshootingFlow finalSummary={finalSummary} onRecordTextChange={handleRecordTextChange} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginTop: 14 }}>
-        <ActionPlanPanel groups={finalSummary.actionPlan} />
-        <MissingInfoPanel items={finalSummary.missingInfo} />
-      </div>
+      <Collapse
+        ghost
+        bordered={false}
+        style={{ marginTop: 14, background: 'var(--bg-surface)', borderRadius: 12, border: '1px solid var(--border-color)' }}
+        items={[
+          {
+            key: 'evidence',
+            label: <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>IT / 研发信息（小白无需查看）</span>,
+            children: (
+              <div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {evidenceButton && (
+                    <Button size="small" icon={<ThunderboltOutlined />} onClick={evidenceButton.onClick}>
+                      {evidenceButton.text}
+                    </Button>
+                  )}
+                  {onShowExpertDetails && (
+                    <Button size="small" icon={<EyeOutlined />} onClick={handleShowExpertDetails}>
+                      {expertButtonText || '查看完整报告'}
+                    </Button>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                  <IncidentEpisodeList
+                    finalSummary={finalSummary}
+                    onOpenHarRequests={onOpenHarRequests}
+                    onOpenNetlogEvidence={onOpenNetlogEvidence}
+                  />
+                  <DiagnosisCoveragePanel
+                    coverage={coverage}
+                    onOpenUnexplained={onOpenUnexplained}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          ...(finalSummary.missingInfo.length > 0 ? [{
+            key: 'missing',
+            label: <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>需要继续协查时再补充的信息</span>,
+            children: <MissingInfoPanel items={finalSummary.missingInfo} />,
+          }] : []),
+        ]}
+      />
 
       {!hideReferenceConclusions && (
         <ReferenceConclusionContent
@@ -319,6 +326,12 @@ function statusText(status: FinalDiagnosisSummary['status']): string {
   if (status === 'has-conclusion') return '已有可执行结论';
   if (status === 'limited-conclusion') return '有限结论';
   return '证据不足';
+}
+
+function noviceStatusText(status: FinalDiagnosisSummary['status']): string {
+  if (status === 'has-conclusion') return '可以开始处理';
+  if (status === 'limited-conclusion') return '先按步骤验证';
+  return '先补充信息';
 }
 
 function statusColor(status: FinalDiagnosisSummary['status']): string {
@@ -419,67 +432,6 @@ const ConclusionCard: React.FC<{
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const ActionPlanPanel: React.FC<{ groups: ActionGroup[] }> = ({ groups }) => {
-  const actions = useMemo(() => groups.flatMap(group => group.actions).slice(0, 6), [groups]);
-  const [records, setRecords] = useState<VerificationRecord[]>([]);
-  const actionKey = useMemo(() => actions.map(action => action.id).join('|'), [actions]);
-  useEffect(() => setRecords([]), [actionKey]);
-  if (groups.length === 0) return null;
-  const verification = evaluateVerificationSession(actions, records);
-  const record = (actionId: string, outcome: VerificationRecord['outcome']) => {
-    setRecords(current => [...current.filter(item => item.actionId !== actionId), { actionId, outcome }]);
-  };
-
-  return (
-    <div className="final-diagnosis-action-panel" style={{ border: '1px solid rgba(14,165,233,0.18)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,0.68)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)' }}>
-      <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ width: 30, height: 30, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.14)', color: '#d97706' }}>
-          <ThunderboltOutlined />
-        </span>
-        统一行动清单
-      </div>
-      <Collapse ghost bordered={false} defaultActiveKey={groups.slice(0, 1).map(group => group.role)}>
-        {groups.slice(0, 4).map(group => (
-          <Collapse.Panel
-            key={group.role}
-            header={<span style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>{group.title}</span>}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {group.actions.slice(0, 3).map((action, index) => (
-                <div key={action.id} className="final-diagnosis-action-item" style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, padding: '10px 11px', borderRadius: 12, background: 'rgba(248,250,252,0.78)', border: '1px solid rgba(148,163,184,0.16)' }}>
-                  <strong style={{ color: 'var(--text-primary)' }}>{index + 1}. {action.title}：</strong>{action.detail}
-                  {action.command && (
-                    <div style={{ marginTop: 4, fontFamily: 'monospace', color: '#0284c7', wordBreak: 'break-all' }}>
-                      {action.command}
-                    </div>
-                  )}
-                  {action.expectedResult && (
-                    <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
-                      预期结果：{action.expectedResult}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                    <Button size="small" onClick={() => record(action.id, 'improved')}>已改善</Button>
-                    <Button size="small" onClick={() => record(action.id, 'unchanged')}>无变化</Button>
-                    <Button size="small" danger onClick={() => record(action.id, 'worse')}>更差</Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Collapse.Panel>
-        ))}
-      </Collapse>
-      <Alert
-        type={verification.status === 'direction-supported' ? 'success' : verification.status === 'collect-more-evidence' ? 'warning' : 'info'}
-        showIcon
-        message="验证结果"
-        description={verification.message}
-        style={{ marginTop: 10 }}
-      />
     </div>
   );
 };

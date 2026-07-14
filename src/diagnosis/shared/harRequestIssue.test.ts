@@ -54,6 +54,25 @@ describe('harRequestIssue', () => {
     expect(issue.label).toBe('net::ERR_NAME_NOT_RESOLVED');
   });
 
+  test('ERR_ABORTED does not hide a long browser queue phase', () => {
+    const issue = getHarRequestIssue(entry({
+      status: 0,
+      statusText: '',
+      isFailed: true,
+      netErrorText: 'net::ERR_ABORTED',
+      netErrorCode: -3,
+      failureText: 'net::ERR_ABORTED',
+      timings: { blocked: 30000, dns: 0, connect: 0, ssl: 0, send: 0, wait: 0, receive: 0 },
+      time: 30000,
+      isSlow: true,
+    }));
+
+    expect(issue.kind).toBe('slow');
+    expect(issue.phase).toBe('blocked');
+    expect(issue.label).toContain('Stalled 慢');
+    expect(issue.detail).toContain('请求随后被取消');
+  });
+
   test('blockedReason has priority over HTTP error and slow phase', () => {
     const issue = getHarRequestIssue(entry({
       status: 500,

@@ -59,7 +59,7 @@ const IncidentEpisodeList: React.FC<IncidentEpisodeListProps> = ({
   return (
     <Card
       size="small"
-      title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BranchesOutlined /> 当前最值得先看</span>}
+      title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BranchesOutlined /> 重点线索（供 IT / 研发核验）</span>}
       style={{
         borderRadius: 18,
         borderColor: 'rgba(14,165,233,0.24)',

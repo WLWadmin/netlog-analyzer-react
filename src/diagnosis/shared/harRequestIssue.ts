@@ -58,6 +58,11 @@ function describeNetError(entry: HarRequestEntry): string {
   return entry.netErrorText || entry.failureText || '浏览器网络错误';
 }
 
+function isAbortedRequest(entry: HarRequestEntry): boolean {
+  return entry.netErrorCode === -3
+    || [entry.netErrorText, entry.failureText].some(value => /ERR_ABORTED/i.test(value || ''));
+}
+
 function hasCorsPreflightSignal(entry: HarRequestEntry): boolean {
   const text = [
     entry.failureText,
@@ -114,6 +119,23 @@ function getSlowPhaseIssue(entry: HarRequestEntry): HarRequestIssue | undefined 
 }
 
 export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
+  if (isAbortedRequest(entry)) {
+    const slowIssue = getSlowPhaseIssue(entry);
+    if (slowIssue) {
+      return {
+        ...slowIssue,
+        detail: `${slowIssue.detail} 请求随后被取消（ERR_ABORTED）；取消是结果，不足以证明插件、安全策略或底层网络错误。`,
+      };
+    }
+    return {
+      label: '请求已取消（ERR_ABORTED）',
+      detail: '浏览器记录到请求被取消。HAR 无法区分前端主动取消、页面生命周期变化或统一超时，需要结合前端日志或 NetLog 确认。',
+      severity: 'warning',
+      kind: entry.status === 0 ? 'status-zero' : 'unknown-failure',
+      roleHint: 'frontend',
+    };
+  }
+
   if (entry.netErrorText || entry.netErrorCode !== undefined) {
     const label = entry.netErrorText || describeNetError(entry);
     return {

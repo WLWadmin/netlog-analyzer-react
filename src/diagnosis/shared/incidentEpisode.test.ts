@@ -115,6 +115,31 @@ describe('incidentEpisode', () => {
     expect(episodes).toHaveLength(0);
   });
 
+  it('does not let a broad informational card outrank a focused critical incident', () => {
+    const informational = card({
+      id: 'cache-1',
+      category: 'cache',
+      severity: 'info',
+      confidence: 'medium',
+      scope: { type: 'global', summary: '10000 requests', affectedRequestCount: 10000 },
+      relatedRequestIds: [],
+      evidence: [{ label: '缓存建议', value: '缓存命中率偏低', source: 'har' }],
+    });
+    const critical = card({
+      id: 'queue-2',
+      category: 'browser-queue',
+      severity: 'critical',
+      confidence: 'high',
+      scope: { type: 'single-domain', summary: '30 requests', affectedRequestCount: 30, affectedDomainCount: 1 },
+      relatedRequestIds: Array.from({ length: 30 }, (_, index) => index),
+      evidence: [{ label: '取消请求', value: '30 个 ERR_ABORTED 请求', source: 'har', requestIds: Array.from({ length: 30 }, (_, index) => index) }],
+    });
+
+    const episodes = buildIncidentEpisodes([informational, critical]);
+
+    expect(episodes[0].category).toBe('browser-queue');
+  });
+
   it('keeps network change and multiple category order stable', () => {
     const episodes = buildIncidentEpisodes([
       card({ id: 'tls-2', category: 'tls', startMs: 5000, endMs: 5200 }),
