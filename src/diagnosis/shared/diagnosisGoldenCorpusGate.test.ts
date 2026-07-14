@@ -1,4 +1,18 @@
-import { buildDiagnosisReleaseGateReport, type GoldenCorpusCaseResult } from './diagnosisReleaseGate';
+import { parseHar } from '../../harParser';
+import { diagnoseHar } from '../../harDiagnosis';
+import { parseLog } from '../../parsers/netlog/parser';
+import { generateSuggestions } from '../../parsers/netlog/diagnosis';
+import {
+  buildDiagnosisReleaseGateReport,
+  evaluateGoldenCorpusCase,
+  type GoldenCorpusCaseResult,
+} from './diagnosisReleaseGate';
+import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
+import { buildHarDiagnosisSummary } from './fromHar';
+import { buildNetlogDiagnosisSummary } from './fromNetlog';
+import { getHarRequestIssue } from './harRequestIssue';
+import { compareBaselines } from './baselineComparator';
+import { buildTimeAlignmentContext } from './timeAlignment';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
 import type { DiagnosisCoverage } from './diagnosisCoverage';
 
@@ -28,24 +42,122 @@ const coverage: DiagnosisCoverage = {
   reasons: [],
 };
 
+function rawHarEntry(overrides: Record<string, any> = {}) {
+  const response = overrides.response || {};
+  return {
+    startedDateTime: overrides.startedDateTime || '2026-07-12T00:00:00.000Z',
+    time: overrides.time ?? 100,
+    request: {
+      method: 'GET',
+      url: 'https://api.example.test/v1/resource',
+      headers: [],
+      cookies: [],
+      queryString: [],
+    },
+    response: {
+      status: response.status ?? 200,
+      statusText: response.statusText ?? 'OK',
+      httpVersion: 'HTTP/2',
+      headers: [],
+      cookies: [],
+      content: { size: 0, mimeType: 'application/json', text: '' },
+      ...response,
+    },
+    timings: overrides.timings || { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 98, receive: 1 },
+    ...overrides,
+  };
+}
+
+function parseHarSample(overrides: Record<string, any> = {}) {
+  return parseHar({
+    log: {
+      version: '1.2',
+      creator: { name: 'Synthetic', version: '1.0' },
+      entries: [rawHarEntry(overrides)],
+    },
+  });
+}
+
+function harOutput(overrides: Record<string, any> = {}): string {
+  const parsed = parseHarSample(overrides);
+  const diagnosis = diagnoseHar(parsed);
+  return JSON.stringify({
+    aggregate: { failedCount: parsed.failedCount, slowCount: parsed.slowCount },
+    issue: getHarRequestIssue(parsed.entries[0]),
+    final: buildFinalDiagnosisSummary(buildHarDiagnosisSummary(parsed, diagnosis), 'har'),
+  });
+}
+
+function netlogOutput(code: number): string {
+  const { events, result } = parseLog({
+    constants: {},
+    events: [
+      { time: '0', type: 111, phase: 0, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
+      { time: '20', type: 1, phase: 2, source: { id: 10, type: 1 }, params: { net_error: code } },
+      { time: '30', type: 2, phase: 1, source: { id: 10, type: 1 }, params: {} },
+    ],
+  });
+  const final = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(result, generateSuggestions(result), events), 'netlog');
+  return JSON.stringify({ failures: result.connectionFailures, final });
+}
+
+function quicFallbackOutput(): string {
+  const { events, result } = parseLog({
+    constants: {},
+    events: [
+      { time: '0', type: 111, phase: 0, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
+      { time: '10', type: 252, phase: 2, source: { id: 20, type: 10 }, params: { source_dependency: { id: 10, type: 1 }, error_code: 42 } },
+      { time: '20', type: 181, phase: 2, source: { id: 10, type: 1 }, params: { status_code: 200 } },
+      { time: '30', type: 2, phase: 1, source: { id: 10, type: 1 }, params: {} },
+    ],
+  });
+  const final = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(result, generateSuggestions(result), events), 'netlog');
+  return JSON.stringify({ protocols: result.protocols, failures: result.connectionFailures, final });
+}
+
+function baselineOutput(): string {
+  const baseline = parseHarSample({ time: 100, response: { status: 200, statusText: 'OK' } });
+  const current = parseHarSample({
+    time: 2500,
+    response: { status: 500, statusText: 'Server Error' },
+    timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 2498, receive: 1 },
+  });
+  return JSON.stringify(compareBaselines(baseline, current));
+}
+
+function timeAlignmentOutput(): string {
+  const har = parseHarSample();
+  const context = buildTimeAlignmentContext(har.entries, [{
+    id: 10,
+    url: 'https://api.example.test/v1/resource',
+    method: 'GET',
+    startTime: 1000,
+    duration: 100,
+    events: [],
+    timeline: {},
+  }]);
+  return JSON.stringify(context);
+}
+
 const matrix: GoldenCorpusCaseResult[] = [
-  { id: '正常 HAR-REAL-01', requiredMatches: ['少量慢请求请求级观察', '无失败 episode'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'DNS NXDOMAIN', requiredMatches: ['DNS 明确现象', '受影响域名', '补证边界'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'DNS timeout', requiredMatches: ['DNS 超时 episode'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'TCP timeout/refused', requiredMatches: ['Connection 分类'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'TLS certificate error', requiredMatches: ['TLS/证书明确现象'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'Proxy 407/PAC failure', requiredMatches: ['Proxy 认证或 PAC 现象'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'status=0 无 netError', requiredMatches: ['未拿到 HTTP 响应', '需补证'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'blockedReason/CORS', requiredMatches: ['浏览器阻止或 CORS 疑似'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: '5xx + 高 TTFB', requiredMatches: ['服务端 HTTP/TTFB 现象', 'logid 建议'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'Network change/offline', requiredMatches: ['多域时间聚集', '网络切换证据'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: 'QUIC fallback success', requiredMatches: ['协议 fallback 观察'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: '正常与异常成对采集', requiredMatches: ['新增差异和退化'], forbiddenMatches: [], sanitized: true, passed: true },
-  { id: '不同时间 HAR+NetLog', requiredMatches: ['对齐率低', '联合诊断降级'], forbiddenMatches: [], sanitized: true, passed: true },
+  evaluateGoldenCorpusCase({ id: '正常 HAR-REAL-01', output: harOutput(), requiredMatches: ['"failedCount":0', '"kind":"normal"'], forbiddenMatches: ['"kind":"confirmed"'] }),
+  evaluateGoldenCorpusCase({ id: 'DNS NXDOMAIN', output: netlogOutput(-105), requiredMatches: ['ERR_NAME_NOT_RESOLVED', 'DNS'], forbiddenMatches: ['80%'] }),
+  evaluateGoldenCorpusCase({ id: 'DNS timeout', output: netlogOutput(-137), requiredMatches: ['ERR_NAME_RESOLUTION_FAILED', 'DNS'], forbiddenMatches: ['已确认根因'] }),
+  evaluateGoldenCorpusCase({ id: 'TCP timeout/refused', output: netlogOutput(-102), requiredMatches: ['ERR_CONNECTION_REFUSED', 'connect'], forbiddenMatches: ['说明存在 DNS 劫持'] }),
+  evaluateGoldenCorpusCase({ id: 'TLS certificate error', output: netlogOutput(-202), requiredMatches: ['ERR_CERT_AUTHORITY_INVALID', 'tls'], forbiddenMatches: ['90%'] }),
+  evaluateGoldenCorpusCase({ id: 'Proxy 407/PAC failure', output: harOutput({ response: { status: 407, statusText: 'Proxy Authentication Required' } }), requiredMatches: ['407', 'auth'], forbiddenMatches: ['已确认代理根因'] }),
+  evaluateGoldenCorpusCase({ id: 'status=0 无 netError', output: harOutput({ response: { status: 0, statusText: '' }, timings: { blocked: 0, dns: -1, connect: -1, ssl: -1, send: 0, wait: 0, receive: 0 } }), requiredMatches: ['浏览器没有拿到 HTTP 响应', 'NetLog'], forbiddenMatches: ['服务端状态码 0'] }),
+  evaluateGoldenCorpusCase({ id: 'blockedReason/CORS', output: harOutput({ _blockedReason: 'cors', response: { status: 0, statusText: '' } }), requiredMatches: ['CORS', 'blocked'], forbiddenMatches: ['已确认 CORS 根因'] }),
+  evaluateGoldenCorpusCase({ id: '5xx + 高 TTFB', output: harOutput({ time: 2500, response: { status: 500, statusText: 'Server Error' }, timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 2498, receive: 1 } }), requiredMatches: ['HTTP 500', 'server-error'], forbiddenMatches: ['网络根因'] }),
+  evaluateGoldenCorpusCase({ id: 'Network change/offline', output: netlogOutput(-106), requiredMatches: ['ERR_INTERNET_DISCONNECTED', '网络已断开'], forbiddenMatches: ['DNS 问题进一步排查'] }),
+  evaluateGoldenCorpusCase({ id: 'QUIC fallback success', output: quicFallbackOutput(), requiredMatches: ['QUIC', '"failures":[]'], forbiddenMatches: ['"kind":"confirmed"'] }),
+  evaluateGoldenCorpusCase({ id: '正常与异常成对采集', output: baselineOutput(), requiredMatches: ['baseline-status-class-changes', '差异本身不是根因'], forbiddenMatches: ['确定根因'] }),
+  evaluateGoldenCorpusCase({ id: '不同时间 HAR+NetLog', output: timeAlignmentOutput(), requiredMatches: ['"enabled":false', '禁用时间窗口对齐'], forbiddenMatches: ['"enabled":true'] }),
 ];
 
 describe('diagnosisGoldenCorpusGate', () => {
   it('accepts a fully calibrated and sanitized golden corpus matrix', () => {
+    expect(matrix.filter(item => !item.passed)).toEqual([]);
     const report = buildDiagnosisReleaseGateReport({
       summaries: [emptySummary()],
       coverageReports: [coverage],

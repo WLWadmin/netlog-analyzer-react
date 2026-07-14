@@ -22,9 +22,17 @@ export interface ProductAcceptanceMetrics {
 export interface GoldenCorpusCaseResult {
   id: string;
   requiredMatches: string[];
+  missingRequiredMatches?: string[];
   forbiddenMatches: string[];
   sanitized: boolean;
   passed: boolean;
+}
+
+export interface GoldenCorpusCaseEvaluationInput {
+  id: string;
+  output: string;
+  requiredMatches: string[];
+  forbiddenMatches?: string[];
 }
 
 export interface DiagnosisReleaseGateInput {
@@ -83,6 +91,22 @@ function textOfSummary(summary: FinalDiagnosisSummary): string {
 
 function countSensitiveLeaks(texts: string[]): number {
   return texts.reduce((count, text) => count + SENSITIVE_PATTERNS.filter(pattern => pattern.test(text)).length, 0);
+}
+
+export function evaluateGoldenCorpusCase(input: GoldenCorpusCaseEvaluationInput): GoldenCorpusCaseResult {
+  const normalizedOutput = input.output.toLowerCase();
+  const missingRequired = input.requiredMatches.filter(match => !normalizedOutput.includes(match.toLowerCase()));
+  const matchedForbidden = (input.forbiddenMatches || []).filter(match => normalizedOutput.includes(match.toLowerCase()));
+  const sanitized = countSensitiveLeaks([input.output]) === 0;
+
+  return {
+    id: input.id,
+    requiredMatches: input.requiredMatches,
+    missingRequiredMatches: missingRequired,
+    forbiddenMatches: matchedForbidden,
+    sanitized,
+    passed: missingRequired.length === 0 && matchedForbidden.length === 0 && sanitized,
+  };
 }
 
 function hasMissingInfoForCard(summary: FinalDiagnosisSummary, cardId: string): boolean {

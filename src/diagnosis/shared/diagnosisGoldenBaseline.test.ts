@@ -4,6 +4,7 @@ import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netl
 import { harDiagnosisToCards } from './fromHar';
 import { netlogToCards } from './fromNetlog';
 import { combinedDiagnosisToCards } from './fromCombined';
+import { generateNextStepInfo, generateSuggestions } from '../../parsers/netlog/diagnosis';
 import type { DiagnosticCard } from './types';
 
 const SECRET_QUERY = 'SECRET_QUERY_VALUE';
@@ -238,6 +239,186 @@ describe('Diagnosis Golden Baseline', () => {
 
     expect(text).not.toContain('PAC_SECRET');
     expect(text).not.toContain('PROXY_SECRET');
+  });
+
+  it('keeps structured NetLog suggestion categories and neutralizes causal claims', () => {
+    const sslEvent = event({
+      time: 1100,
+      typeName: 'SSL_CONNECT',
+      source: { id: 1, type: 1, typeName: 'URL_REQUEST' },
+      params: { net_error: -202 },
+    });
+    const result = netlogResult({
+      urlRequests: [urlRequest({ status: 'error', error: -202 })],
+      sslEvents: [sslEvent],
+      connectionFailures: [{ url: 'https://api.example.test/v1/resource', error: -202, time: 1100 }],
+    });
+
+    const cards = netlogToCards(result, generateSuggestions(result), [sslEvent]);
+    const errorCard = cards.find(card => card.title.includes('-202'));
+
+    expect(errorCard?.category).toBe('tls');
+    expect(errorCard?.conclusion).toContain('可确认错误现象');
+    expect(errorCard?.conclusion).not.toContain('90%');
+    expect(errorCard?.conclusion).not.toContain('根因');
+  });
+
+  it('keeps generic ERR_FAILED outside the server category', () => {
+    const request = urlRequest({ status: 'error', error: -2 });
+    const result = netlogResult({
+      urlRequests: [request],
+      connectionFailures: [{ requestId: request.id, url: request.url, error: -2, time: 1100 }],
+    });
+
+    const card = netlogToCards(result, generateSuggestions(result), [])
+      .find(item => item.title.includes('-2'));
+
+    expect(card?.category).toBe('unknown');
+    expect(card?.conclusion).toContain('可确认错误现象');
+    expect(card?.conclusion).not.toContain('服务端');
+  });
+
+  it('reports the full matched failure scope even when navigation ids are capped', () => {
+    const requests = Array.from({ length: 12 }, (_, index) => urlRequest({
+      id: index + 1,
+      url: `https://api.example.test/v1/resource/${index}`,
+      status: 'error',
+      error: -2,
+    }));
+    const result = netlogResult({
+      urlRequests: requests,
+      connectionFailures: requests.map((request, index) => ({
+        requestId: request.id,
+        url: request.url,
+        error: -2,
+        time: 1100 + index,
+      })),
+    });
+
+    const card = netlogToCards(result, generateSuggestions(result), [])
+      .find(item => item.title.includes('-2'));
+
+    expect(card?.relatedRequestIds).toHaveLength(10);
+    expect(card?.scope.affectedRequestCount).toBe(12);
+  });
+
+  it('routes ERR_INTERNET_DISCONNECTED to connectivity recovery instead of DNS', () => {
+    const result = netlogResult({
+      connectionFailures: [{ url: 'https://api.example.test/v1/resource', error: -106, time: 1100 }],
+    });
+    const categories = generateNextStepInfo(result).map(step => step.category);
+
+    expect(categories).toContain('📶 本机网络连接恢复');
+    expect(categories).not.toContain('🌐 DNS 问题进一步排查');
+  });
+
+  it('does not classify a mixed failed-domain summary as DNS root cause', () => {
+    const result = netlogResult({
+      failedDomains: [{
+        domain: 'api.example.test',
+        urls: ['https://api.example.test/v1/resource'],
+        errors: [
+          { code: -102, desc: 'ERR_CONNECTION_REFUSED', time: 1000 },
+          { code: -202, desc: 'ERR_CERT_AUTHORITY_INVALID', time: 1100 },
+        ],
+        errorCodes: [-102, -202],
+        ips: [],
+        resolvedIp: null,
+        remoteIp: null,
+        count: 2,
+        firstTime: 1000,
+        lastTime: 1100,
+      }],
+    });
+    const suggestion = generateSuggestions(result).find(item => item.title.includes('报错域名汇总'));
+
+    expect(suggestion?.category).toBe('unknown');
+    expect(suggestion?.conclusion).toContain('不能仅凭域名数量判断为 DNS 或防火墙问题');
+  });
+
+  it('treats local-address DNS answers as a candidate instead of confirmed hijacking', () => {
+    const result = netlogResult({
+      failedDomains: [{
+        domain: 'api.example.test',
+        urls: ['https://api.example.test/v1/resource'],
+        errors: [{ code: -105, desc: 'ERR_NAME_NOT_RESOLVED', time: 1000 }],
+        errorCodes: [-105],
+        ips: ['127.0.0.1'],
+        resolvedIp: '127.0.0.1',
+        remoteIp: null,
+        count: 1,
+        firstTime: 1000,
+        lastTime: 1000,
+      }],
+    });
+    const suggestion = generateSuggestions(result).find(item => item.title.includes('本地地址'));
+
+    expect(suggestion?.severity).toBe('warning');
+    expect(suggestion?.title).not.toContain('劫持');
+    expect(suggestion?.conclusion).toContain('不能单独确认运营商 DNS 故障');
+  });
+
+  it('does not turn cache event count into affected request count', () => {
+    const cacheEvents = Array.from({ length: 30 }, (_, index) => event({
+      time: 1000 + index,
+      typeName: 'HTTP_CACHE_OPEN_ENTRY',
+      source: { id: 100 + index, type: 2, typeName: 'HTTP_CACHE' },
+    }));
+    const cards = netlogToCards(netlogResult({
+      urlRequests: [urlRequest({})],
+      cacheEvents,
+    }), [], cacheEvents);
+    const cacheCard = cards.find(card => card.id.startsWith('netlog-cache-decision'));
+
+    expect(cacheCard?.severity).toBe('info');
+    expect(cacheCard?.scope.affectedRequestCount).toBeUndefined();
+    expect(cacheCard?.scope.summary).toContain('30 条缓存事件');
+  });
+
+  it('does not use unrelated nearby events as cross-layer failure evidence', () => {
+    const requests = [
+      urlRequest({ id: 1, url: 'https://one.example.test/a', status: 'error', error: -2, startTime: 1000 }),
+      urlRequest({ id: 2, url: 'https://two.example.test/b', status: 'error', error: -2, startTime: 2000 }),
+    ];
+    const unrelatedCacheEvents = [
+      event({ time: 1001, typeName: 'HTTP_CACHE_OPEN_ENTRY', source: { id: 91, type: 2, typeName: 'HTTP_CACHE' } }),
+      event({ time: 2001, typeName: 'HTTP_CACHE_OPEN_ENTRY', source: { id: 92, type: 2, typeName: 'HTTP_CACHE' } }),
+    ];
+    const requestEvents = requests.map(request => event({
+      time: request.startTime,
+      source: { id: request.id, type: 1, typeName: 'URL_REQUEST' },
+      params: { url: request.url },
+    }));
+    const cards = netlogToCards(netlogResult({
+      urlRequests: requests,
+      connectionFailures: [
+        { url: requests[0].url, error: -2, time: 1000 },
+        { url: requests[1].url, error: -2, time: 2000 },
+      ],
+      cacheEvents: unrelatedCacheEvents,
+    }), [], [...requestEvents, ...unrelatedCacheEvents]);
+
+    expect(cards.some(card => card.id.startsWith('netlog-time-correlation'))).toBe(false);
+  });
+
+  it('sanitizes query values in NetLog lifecycle evidence', () => {
+    const secret = 'LIFECYCLE_SECRET';
+    const request = urlRequest({
+      url: `https://api.example.test/v1/resource?token=${secret}`,
+      duration: 4000,
+      status: 'success',
+      timeline: { wait: { start: 1000, end: 5000, duration: 4000 } },
+    });
+    const requestEvent = event({
+      source: { id: request.id, type: 1, typeName: 'URL_REQUEST' },
+      params: { url: request.url },
+    });
+    const cards = netlogToCards(netlogResult({
+      urlRequests: [request],
+      slowRequests: [request],
+    }), [], [requestEvent]);
+
+    expect(JSON.stringify(cards)).not.toContain(secret);
   });
 
   it('freezes combined DNS correlation without leaking query values', () => {

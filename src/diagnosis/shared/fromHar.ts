@@ -68,6 +68,10 @@ function blockedTimingMs(entry: HarRequestEntry): number {
     + timingPhaseMs(entry, 'proxy');
 }
 
+function browserQueueTimingMs(entry: HarRequestEntry): number {
+  return timingPhaseMs(entry, 'queueing') + timingPhaseMs(entry, 'stalled');
+}
+
 function sanitizeHarEvidenceUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
@@ -393,33 +397,41 @@ function addHarConfidenceFactors(card: DiagnosticCard, harResult: HarAnalysisRes
 function buildThirdPartyConcentrationCard(entries: HarRequestEntry[]): DiagnosticCard | null {
   const thirdPartyEntries = entries.filter(entry => {
     const host = entry.domain || '';
-    const isStatic = ['js', 'css', 'img', 'font', 'media'].includes(entry.category);
-    const looksThirdParty = /(analytics|adservice|doubleclick|googletag|facebook|sentry|cdn|tracker|beacon|collect|monitor|sdk)/i.test(host + entry.url);
-    return looksThirdParty || (isStatic && !host.includes('localhost'));
+    const looksThirdParty = /(^|[.-])(analytics|adservice|doubleclick|googletag|facebook|sentry|cdn|tracker|beacon|collect|monitor|sdk)([.-]|$)/i.test(host);
+    return looksThirdParty;
   });
   if (entries.length < 20 || thirdPartyEntries.length < Math.max(8, entries.length * 0.35)) return null;
 
+  const problemEntries = thirdPartyEntries.filter(entry => (
+    entry.isFailed
+    || (entry.isSlow && !(
+      entry.primaryTimingPhase === 'blocked'
+      && browserQueueTimingMs(entry) > HAR_DIAG_THRESHOLDS.blockedSlow
+    ))
+  ));
+  if (problemEntries.length < 3) return null;
+
   const totalSize = thirdPartyEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0);
-  const totalTime = thirdPartyEntries.reduce((sum, entry) => sum + entry.time, 0);
-  const slowCount = thirdPartyEntries.filter(entry => entry.isSlow).length;
-  const domains = Array.from(new Set(thirdPartyEntries.map(entry => entry.domain).filter(Boolean))).slice(0, 8);
-  const relatedRequestIds = thirdPartyEntries.slice(0, 30).map(entry => entry.id);
+  const slowCount = problemEntries.filter(entry => entry.isSlow).length;
+  const failedCount = problemEntries.filter(entry => entry.isFailed).length;
+  const domains = Array.from(new Set(problemEntries.map(entry => entry.domain).filter(Boolean))).slice(0, 8);
+  const relatedRequestIds = problemEntries.slice(0, 30).map(entry => entry.id);
 
   return {
     id: generateId('har-third-party', 0),
     source: 'har',
     category: 'performance',
-    severity: slowCount > 5 || totalSize > 5 * 1024 * 1024 ? 'warning' : 'info',
+    severity: 'warning',
     confidence: 'medium',
     confidenceFactors: [
-      { label: '第三方请求占比', impact: 'positive', detail: `${thirdPartyEntries.length}/${entries.length} 个请求疑似第三方或静态依赖` },
-      ...(slowCount > 0 ? [{ label: '慢第三方请求', impact: 'positive' as const, detail: `${slowCount} 个第三方请求超过慢请求阈值` }] : []),
+      { label: '第三方请求占比', impact: 'neutral', detail: `${thirdPartyEntries.length}/${entries.length} 个请求命中第三方服务域名特征` },
+      { label: '异常第三方请求', impact: 'positive', detail: `${problemEntries.length} 个，其中失败 ${failedCount} 个、慢请求 ${slowCount} 个` },
     ],
-    title: `第三方/静态依赖占比较高 (${thirdPartyEntries.length} 个请求)`,
-    conclusion: `疑似第三方或静态依赖请求占比较高，总传输 ${(totalSize / 1024 / 1024).toFixed(1)}MB，总耗时 ${totalTime.toFixed(0)}ms；如果问题只在异常环境出现，应优先确认 SDK、CDN 或埋点资源是否阻塞关键链路`,
-    scope: buildScope(thirdPartyEntries.length, domains.length, domains.length > 1 ? 'multi-domain' : 'global'),
+    title: `第三方依赖异常请求集中 (${problemEntries.length} 个请求)`,
+    conclusion: `${thirdPartyEntries.length} 个请求命中第三方服务域名特征，其中 ${problemEntries.length} 个失败或在非排队阶段变慢；这只能说明外部依赖值得核查，不能仅凭请求数量认定其为当前网络根因。`,
+    scope: buildScope(problemEntries.length, domains.length, domains.length > 1 ? 'multi-domain' : 'global'),
     evidence: [
-      { label: '请求占比', value: `${thirdPartyEntries.length}/${entries.length}`, source: 'derived', requestIds: relatedRequestIds },
+      { label: '异常请求', value: `${problemEntries.length}/${thirdPartyEntries.length}`, source: 'derived', requestIds: relatedRequestIds },
       { label: '总传输体积', value: `${(totalSize / 1024 / 1024).toFixed(1)} MB`, source: 'har' },
       { label: '涉及域名', value: domains.join('、') || '未知', source: 'derived' },
     ],
@@ -517,7 +529,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   });
 
   const candidates = Array.from(byDomain.entries()).map(([domain, domainEntries]) => {
-    const blockedEntries = domainEntries.filter(entry => blockedTimingMs(entry) > HAR_DIAG_THRESHOLDS.blockedSlow);
+    const blockedEntries = domainEntries.filter(entry => browserQueueTimingMs(entry) > HAR_DIAG_THRESHOLDS.blockedSlow);
     const abortedNearThirtySeconds = domainEntries.filter(entry => (
       entry.status === 0
       && isAbortedRequest(entry)
@@ -1299,7 +1311,17 @@ export function harDiagnosisToCards(
   }
 
   const thirdPartyCard = buildThirdPartyConcentrationCard(entries);
-  if (thirdPartyCard) cards.push(thirdPartyCard);
+  if (thirdPartyCard) {
+    cards.push(browserQueuePressureCard ? {
+      ...thirdPartyCard,
+      severity: 'info',
+      confidence: 'low',
+      limitations: [
+        ...(thirdPartyCard.limitations || []),
+        '当前同时存在同域请求突发和浏览器排队，第三方依赖只作为次要观察，不参与首要原因排序。',
+      ],
+    } : thirdPartyCard);
+  }
 
   const largePayloadCard = buildLargePayloadCard(entries);
   if (largePayloadCard) cards.push(largePayloadCard);

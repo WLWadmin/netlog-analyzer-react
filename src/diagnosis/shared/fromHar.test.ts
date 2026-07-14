@@ -188,4 +188,64 @@ describe('harDiagnosisToCards redirect classification', () => {
     expect(finalSummary.headline[0]?.category).toBe('browser-queue');
     expect(finalSummary.actionPlan.find(group => group.role === 'user')?.actions[0]?.title).toContain('停止批量加载');
   });
+
+  it('does not classify ordinary first-party static resources as third-party dependencies', () => {
+    const entries = Array.from({ length: 30 }, (_, index) => entry({
+      id: index,
+      name: `chunk-${index}.js`,
+      url: `https://static.example.com/assets/chunk-${index}.js`,
+      domain: 'static.example.com',
+      category: 'js',
+      rawType: 'script',
+      status: 200,
+      size: 20 * 1024,
+      contentSize: 20 * 1024,
+      time: 100,
+      isSlow: false,
+    }));
+
+    const cards = harDiagnosisToCards(harResult(entries), diagnosis());
+
+    expect(cards.some(card => card.id.startsWith('har-third-party'))).toBe(false);
+  });
+
+  it('does not promote healthy CDN resources into a diagnosis card', () => {
+    const entries = Array.from({ length: 30 }, (_, index) => entry({
+      id: index,
+      name: `chunk-${index}.js`,
+      url: `https://cdn.example.com/assets/chunk-${index}.js`,
+      domain: 'cdn.example.com',
+      category: 'js',
+      rawType: 'script',
+      status: 200,
+      size: 20 * 1024,
+      contentSize: 20 * 1024,
+      time: 100,
+      isSlow: false,
+    }));
+
+    const cards = harDiagnosisToCards(harResult(entries), diagnosis());
+
+    expect(cards.some(card => card.id.startsWith('har-third-party'))).toBe(false);
+  });
+
+  it('does not report proxy-only blocked time as browser queue pressure', () => {
+    const base = Date.parse('2026-06-25T00:00:00.000Z');
+    const entries = Array.from({ length: 30 }, (_, index) => entry({
+      id: index,
+      name: `proxy-${index}`,
+      url: `https://proxy.example.com/resource/${index}`,
+      domain: 'proxy.example.com',
+      startMs: base + index * 4,
+      startedDateTime: new Date(base + index * 4).toISOString(),
+      time: 2200,
+      timings: { blocked: 2000, dns: 0, connect: 0, ssl: 0, send: 0, wait: 200, receive: 0 },
+      chromeTiming: { blockedQueueingMs: 0, blockedProxyMs: 2000 },
+      isSlow: true,
+    }));
+
+    const cards = harDiagnosisToCards(harResult(entries), diagnosis());
+
+    expect(cards.some(card => card.id.startsWith('har-browser-queue-pressure'))).toBe(false);
+  });
 });

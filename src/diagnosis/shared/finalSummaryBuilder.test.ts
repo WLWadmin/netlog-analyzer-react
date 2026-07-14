@@ -191,6 +191,38 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline[0].userFacingSummary).toContain('已确认');
   });
 
+  it('NetLog aggregate decision card remains a candidate even with error events', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'netlog-protocol-decision-test',
+        category: 'protocol',
+        confidence: 'high',
+        title: '协议选择与降级线索',
+        conclusion: '协议事件中记录到 net_error=-352，只能作为协议异常线索',
+        relatedSourceIds: [1001],
+        evidence: [{ label: '协议错误', value: 'net_error=-352', source: 'netlog', sourceIds: [1001] }],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).toBe('needs-more-data');
+    expect(result.headline[0].userFacingSummary).toContain('需要补充采集');
+  });
+
+  it('does not repeat request and domain counts in final impact text', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        scope: {
+          type: 'multi-domain',
+          summary: '影响 12 个请求，涉及 3 个域名',
+          affectedRequestCount: 12,
+          affectedDomainCount: 3,
+        },
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].impact).toBe('影响 12 个请求，涉及 3 个域名');
+  });
+
   it('HAR-only 不输出已确认网络根因', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
@@ -628,6 +660,28 @@ describe('buildFinalDiagnosisSummary', () => {
     ]), 'netlog');
 
     expect(result.headline[0].kind).not.toBe('confirmed');
+  });
+
+  it('NetLog 通用 ERR_FAILED 即使有关联锚点也只能确认失败现象', () => {
+    const result = buildFinalDiagnosisSummary(summary([
+      card({
+        id: 'generic-error-with-anchor',
+        category: 'unknown',
+        severity: 'critical',
+        confidence: 'high',
+        title: 'ERR_FAILED (-2) — 通用请求失败',
+        conclusion: 'NetLog 记录到请求以 ERR_FAILED (-2) 结束，但该错误码本身不包含具体失败原因。',
+        evidence: [
+          { label: '错误码', value: 'ERR_FAILED (-2)', source: 'netlog', sourceIds: [1001], eventIds: ['2001'] },
+        ],
+        relatedSourceIds: [1001],
+        relatedEventIds: ['2001'],
+      }),
+    ]), 'netlog');
+
+    expect(result.headline[0].kind).toBe('symptom-only');
+    expect(result.headline[0].userFacingSummary).toContain('仅能确认现象');
+    expect(result.status).toBe('limited-conclusion');
   });
 
   it('Combined HAR 失败 + NetLog 明确错误 + 关联证据可以输出 confirmed', () => {

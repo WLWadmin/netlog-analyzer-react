@@ -12,7 +12,7 @@ export interface Suggestion {
   /** 结构化错误码，避免下游正则提取 */
   errorCode?: number;
   /** 结构化分类，避免下游从标题推断 */
-  category?: 'dns' | 'proxy' | 'tls' | 'connect' | 'protocol' | 'network-change' | 'security' | 'performance' | 'cache' | 'server' | 'unknown';
+  category?: 'dns' | 'proxy' | 'tls' | 'connect' | 'protocol' | 'network-change' | 'security' | 'performance' | 'cache' | 'server' | 'client' | 'unknown';
   /** 结构化严重程度 */
   severity?: 'critical' | 'warning' | 'info';
 }
@@ -34,11 +34,22 @@ interface ErrorSolution {
 // ============================================================
 
 const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
+  [-2]: {
+    title: 'ERR_FAILED (-2) — 通用请求失败',
+    detail: '浏览器只记录到通用失败，没有提供足以区分 DNS、TCP、TLS、代理或服务端阶段的专用错误码。',
+    conclusion: '可以确认请求失败，但 ERR_FAILED 本身不能说明失败层级或责任方，需要查看同一 URL_REQUEST 的 source chain、相邻 net_error 和 HAR 表现。',
+    actions: [
+      '先在网络稳定的情况下重新执行刚才操作；若仍失败，再切换手机热点或其他网络做对比',
+      '打开失败请求的 Source Chain，查找更具体的 DNS、TCP、TLS、代理或协议事件',
+      '在稳定网络下重新复现，并同时采集 HAR 与 NetLog 对齐失败请求',
+      '对比手机热点或其他网络；仅在结果随网络变化时再转交 IT 排查',
+    ],
+  },
   // ---- DNS Errors (-100~-199 range includes DNS) ----
   [-105]: {
     title: 'ERR_NAME_NOT_RESOLVED (-105) — DNS 域名解析失败',
     detail: 'DNS 服务器无法解析目标域名，返回 NXDOMAIN 或超时无响应。根据 oncall 经验，此类问题通常由以下原因导致：1) 本地 DNS 服务器（Local DNS）故障或不稳定；2) 域名确实不存在或已下线；3) hosts 文件被异常修改；4) 企业自建 DNS 配置错误；5) 网络环境变更后 DNS 未更新。',
-    conclusion: 'DNS 解析失败是网络访问的首要关卡故障。根据字节跳动网络 oncall 统计，80% 以上的 DNS 问题可通过更换公共 DNS 解决。优先排查 DNS 配置，其次检查 hosts 文件和域名有效性。',
+    conclusion: '已观察到 DNS 解析失败。可能原因包括域名不存在、当前 DNS 无响应、企业 DNS/代理接管或 hosts 映射；需要对比当前解析器与其他解析器结果后再判断原因。',
     actions: [
       '【对比】按用户所在地和网络环境，对比运营商 DNS、企业 DNS 与公共 DNS（如 223.5.5.5、119.29.29.29、8.8.8.8、1.1.1.1）的解析结果',
       '【注意】公共 DNS 不一定代表当前运营商本地最优解析；若怀疑 DNS/CDN 调度异常，避免只依赖单一公共 DNS',
@@ -77,7 +88,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-100]: {
     title: 'ERR_CONNECTION_CLOSED (-100) — 连接被关闭（收到 FIN 报文）',
     detail: 'TCP 连接在数据传输阶段收到了对端的 FIN 报文，连接被正常或异常关闭。根据字节跳动网络 oncall 实战经验，此错误绝大部分发生在数据传输阶段（非握手阶段），主要原因为：1) 代理服务器或安全软件中断了连接；2) 服务器主动关闭了连接；3) 网络中间设备（如负载均衡器）断开了长连接。',
-    conclusion: 'ERR_CONNECTION_CLOSED 在企业环境中 80% 以上由代理或安全软件导致。如果仅个别用户出现，优先排查本地安全软件；如果大面积出现，排查代理服务器或网络中间设备。',
+    conclusion: '连接在数据传输阶段被关闭。关闭方可能是服务端、代理、安全软件或其他网络中间设备，需要结合同一 source chain 的 TCP/TLS/代理事件判断。',
     actions: [
       '【关键】检查是否使用了代理/VPN，尝试关闭代理后对比测试',
       '临时禁用杀毒软件/安全软件（如 360、火绒、卡巴斯基等）后测试',
@@ -89,7 +100,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-101]: {
     title: 'ERR_CONNECTION_RESET (-101) — 连接被重置（收到 RST 报文）',
     detail: 'TCP 连接在建立后收到了对端的 RST 报文，连接被强制重置。根据 oncall 实战经验，此错误最常见且最难排查：1) 大部分发生在 SSL/TLS 握手阶段（已完成 TCP 三次握手）；2) 企业环境中 70% 以上由防火墙 TLS SNI 深度检测或审计准入系统导致；3) 安全软件（如 360、火绒）拦截；4) 少数情况下是 GFW（国家防火墙）阻断。',
-    conclusion: 'ERR_CONNECTION_RESET 是最常见的网络错误之一。根据 2024-2025 年字节跳动 oncall 统计，企业环境中 70% 以上的此类问题由防火墙 TLS SNI 深度检测或审计准入系统导致，需要联系 IT 排查安全策略。',
+    conclusion: '连接收到了 RST，可确认连接被重置，但无法仅凭该错误判断重置来自服务端、代理、防火墙、安全软件还是链路设备。',
     actions: [
       '【关键】联系 IT 排查防火墙是否有针对目标域名的 TLS SNI 拦截或深度检测规则',
       '检查目标域名是否已加入防火墙白名单（建议使用泛域名形式，如 *.feishu.cn、*.larkoffice.com）',
@@ -103,10 +114,10 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-102]: {
     title: 'ERR_CONNECTION_REFUSED (-102) — 连接被拒绝（TCP 握手阶段收到 RST）',
     detail: 'TCP 三次握手阶段收到了对端的 RST 报文，连接被明确拒绝。根据 oncall 经验：1) 一般出现在 TCP 握手阶段（与 -101 不同，-101 出现在握手完成后）；2) 主要原因是 IP 未加白或端口未放行（常见于企业防火墙）；3) 使用了非常用端口（非 80/443）且未放行；4) DNS 劫持到本地地址（127.0.0.1/0.0.0.0）。',
-    conclusion: '连接被拒绝通常意味着网络层可达但应用层拒绝，需优先排查 DNS 劫持和防火墙 IP/端口白名单策略。',
+    conclusion: 'TCP 建连阶段收到拒绝响应。可能是目标端口未监听、服务或负载均衡异常，也可能是防火墙/代理主动拒绝；DNS 只有在解析结果异常时才应进入排查。',
     actions: [
-      '【优先】使用 nslookup <域名> 检查解析结果，如果解析到 127.0.0.1、0.0.0.0 或 ::1，说明存在 DNS 劫持',
-      '将 DNS 服务器更改为国内 223.5.5.5/119.29.29.29 或海外 8.8.8.8/1.1.1.1，排除运营商 DNS 劫持',
+      '【优先】使用 nslookup <域名> 检查解析结果；若解析到 127.0.0.1、0.0.0.0 或 ::1，继续检查 hosts、本地代理、安全软件和企业策略',
+      '对比当前 DNS、企业 DNS 与公共 DNS 的解析结果，确认是否存在解析差异',
       '联系 IT 排查防火墙是否有 IP/端口封禁策略，确认目标 IP 和端口是否已加白',
       '如果使用了非标准端口（非 80/443），确认该端口是否已放行',
       '使用 telnet <域名> <端口> 测试目标端口是否开放',
@@ -116,7 +127,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-103]: {
     title: 'ERR_CONNECTION_ABORTED (-103) — 连接异常终止',
     detail: '连接异常终止，与 -101（CONNECTION_RESET）表现类似。根据 oncall 经验：1) 可能是防火墙或安全软件导致的连接中断；2) 少数情况下是 GFW（国家防火墙）阻断；3) 如果仅个别用户出现，大概率是本地安全软件导致；4) 如果大面积出现，可能是企业防火墙策略或网络中间设备问题。',
-    conclusion: '-103 与 -101 根因高度相似，大部分由防火墙或安全软件导致。个别用户问题优先排查本地安全软件，大面积问题排查企业防火墙策略。',
+    conclusion: '连接被异常终止。服务端、客户端取消、代理、安全软件和网络中间设备都可能产生该现象，需要按影响范围和 source chain 继续区分。',
     actions: [
       '【关键】联系 IT 排查防火墙是否有拦截规则',
       '临时禁用杀毒软件/安全软件后测试',
@@ -169,7 +180,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-107]: {
     title: 'ERR_SSL_PROTOCOL_ERROR (-107) — SSL/TLS 协议错误',
     detail: 'SSL/TLS 握手过程中发生协议级错误。根据 oncall 实战经验：1) 如果该错误大量出现（多个请求、多个域名），则 90% 以上是防火墙 SSL 解密或 HTTPS Inspection 导致；2) 服务器使用了不支持的 SSL 版本；3) 证书链不完整；4) 中间人设备修改了 TLS 握手数据；5) 浏览器与服务器密码套件不兼容。',
-    conclusion: 'SSL 协议错误如果大面积出现，极大概率是防火墙 SSL 解密或中间设备干扰导致。个别请求可能是服务器配置问题。',
+    conclusion: 'TLS 握手记录到协议错误。服务端 TLS 配置、客户端兼容性、代理或 HTTPS Inspection 都是候选方向，必须结合握手事件和证书字段确认。',
     actions: [
       '【第一步】更新 Chrome 到最新版本，排除浏览器版本过旧导致的协议不兼容',
       '【关键】如果大面积出现，联系 IT 排查防火墙/安全软件是否有 SSL 解密、HTTPS Inspection 功能',
@@ -193,7 +204,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-200]: {
     title: 'ERR_CERT_COMMON_NAME_INVALID (-200) — 证书域名不匹配',
     detail: '服务器返回的证书公共名称（CN）或 Subject Alternative Name（SAN）与访问的域名不匹配。根据 oncall 实战经验：1) 排查 SSL 块中的 server_cert_common_name，如果关键字包含 "wifi" 之类，是没登录 Wi-Fi 认证页面；2) 如果收到 *.bytedance.net 证书，大概率也是没登录工区 Wi-Fi；3) 防火墙/审计系统替换证书；4) 中间人攻击；5) 操作系统 DNS 搜索后缀导致域名缩短。',
-    conclusion: '证书域名不匹配极大概率是中间人攻击或企业安全设备（防火墙/审计系统）替换证书导致，也可能是未登录 Wi-Fi 认证页面。需要立即排查安全软件和 Wi-Fi 认证状态。',
+    conclusion: '证书名称与访问域名不匹配。可能是服务端证书/SAN 配置错误、未完成 Wi-Fi 门户认证、DNS 指向错误或中间设备替换证书，需要先查看实际证书主题、SAN 和颁发者。',
     actions: [
       '【关键】点击浏览器地址栏域名前的"小锁"图标，查看证书详情，确认颁发者和证书链',
       '【自查】检查是否连接了需要认证的 Wi-Fi（如酒店、机场、公司访客网络），尝试访问任意网页完成 Wi-Fi 认证',
@@ -217,7 +228,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-202]: {
     title: 'ERR_CERT_AUTHORITY_INVALID (-202) — 证书颁发机构不受信任',
     detail: '服务器证书的颁发机构（CA）不在客户端信任列表中。根据 oncall 实战经验：1) 防火墙/审计系统想要进行中间人攻击（MITM），替换了原始证书；2) 使用了自签名证书；3) 企业私有 CA 未导入；4) 证书链不完整（中间证书缺失）。这是企业环境中最头疼的证书问题之一。',
-    conclusion: '-202 错误在企业环境中 90% 以上由防火墙/安全软件的 HTTPS 解密（MITM）导致。需要客户 IT 配合查清拦截软件或防火墙，并单独对目标域名流量进行加白，避免劫持证书。',
+    conclusion: '证书链无法建立到受信任根。候选原因包括自签名证书、企业私有 CA 未导入、中间证书缺失或 HTTPS Inspection；需要查看实际证书链后再确定处理方。',
     actions: [
       '【关键】联系 IT 排查防火墙、审计系统、安全软件是否进行了 HTTPS 解密/证书替换',
       '【建议】使用飞书医生（或类似工具）的域名检测功能，可以检测出证书劫持问题',
@@ -258,7 +269,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-352]: {
     title: 'ERR_HTTP2_PROTOCOL_ERROR (-352) — HTTP/2 协议错误（连接黑洞）',
     detail: 'HTTP/2 连接出现协议错误，通常表现为连接"黑洞"——请求发出后无响应。根据 oncall 经验：1) 最常见原因是应用切后台休眠后恢复，HTTP/2 连接状态不一致；2) 代理服务器对 HTTP/2 支持不佳；3) 网络中间设备（如防火墙）修改了 HTTP/2 帧；4) 服务器端 HTTP/2 实现异常。',
-    conclusion: '-352 错误最常见于移动端/桌面端应用切后台后恢复的场景。如果频繁出现，建议检查代理对 HTTP/2 的支持，或考虑强制降级到 HTTP/1.1 测试。',
+    conclusion: 'HTTP/2 会话记录到协议错误。服务端实现、代理/网关、连接复用状态或客户端生命周期都可能相关，降级到 HTTP/1.1 只能用于验证协议路径是否相关。',
     actions: [
       '【建议】在 chrome://flags 中搜索 HTTP/2，尝试禁用 HTTP/2 强制走 HTTP/1.1 进行对比测试',
       '检查代理服务器是否支持 HTTP/2（部分代理对 H2 支持不佳）',
@@ -272,7 +283,7 @@ const ERROR_SOLUTIONS: Record<number, ErrorSolution> = {
   [-356]: {
     title: 'ERR_QUIC_PROTOCOL_ERROR (-356) — QUIC 协议错误',
     detail: 'QUIC 连接出现协议错误。根据 oncall 经验：1) 大多数是网络波动造成 QUIC 请求异常（弱网环境）；2) 少数情况下是用户内网开启了 UDP Flood 防护，对 QUIC（基于 UDP）支持不友好；3) 防火墙阻止了 UDP 443 端口；4) 网络中间设备不支持 QUIC。',
-    conclusion: 'QUIC 协议错误大部分由弱网环境或防火墙 UDP 拦截导致。建议先禁用 QUIC 进行对比测试，如果问题解决则说明与 QUIC/UDP 有关。',
+    conclusion: 'QUIC 会话记录到协议错误。弱网、UDP 443 策略、NAT/中间设备和服务端 QUIC 实现都是候选；禁用 QUIC 后恢复只能证明 QUIC/UDP 路径相关，不能单独确定具体原因。',
     actions: [
       '【首选】在 Chrome 地址栏输入 chrome://flags，搜索 QUIC，将 Experimental QUIC protocol 设为 Disabled 后测试',
       '检查防火墙是否阻止了 UDP 端口 443（QUIC 使用 UDP 443）',
@@ -402,9 +413,10 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         const defaultConclusions: Record<string, string> = {
           '应用层': '应用层错误需要结合具体请求场景分析。',
           '连接': '网络链路错误需要排查防火墙、代理、安全软件和网络链路质量。',
-          '证书': '证书错误极大概率是安全设备替换证书导致。',
-          '协议': '协议错误建议先禁用相关协议进行对比测试。',
-          'DNS': 'DNS 问题是网络故障的常见根因。',
+          '客户端': '客户端请求被取消或本地处理失败，需要结合请求生命周期和调用方行为确认。',
+          '证书': '已记录证书类错误，需要查看证书链、系统信任和中间设备证据后判断原因。',
+          '协议': '已记录协议类错误，可通过协议对比验证相关性，但不能仅凭错误码确定责任方。',
+          'DNS': '已记录 DNS 类错误，需要结合解析结果、解析器响应和网络连通性判断原因。',
         };
         group.conclusionParts.add(defaultConclusions[catName] || '未知错误建议按照通用排查流程处理。');
 
@@ -420,6 +432,10 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
             '临时禁用安全软件后测试',
             '使用 ping/tracert 检查网络链路质量',
             '尝试切换网络环境（手机热点）对比测试',
+          ],
+          '客户端': [
+            '检查请求是否被页面卸载、AbortController、超时器或用户操作取消',
+            '在稳定网络下重新复现，并查看同一 URL_REQUEST 的完整 source chain',
           ],
           '证书': [
             '【关键】联系 IT 排查防火墙/审计系统是否进行了 HTTPS 解密',
@@ -460,14 +476,17 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '阻止': 'security',
         '协议': 'protocol',
         '连接': 'connect',
+        '客户端': 'client',
         '应用层': 'server',
         '缓存': 'cache',
         '其他': 'unknown',
       };
 
+      const singleCode = g.codes.length === 1 ? Number(g.codes[0]) : Number.NaN;
+      const singleSolution = Number.isFinite(singleCode) ? ERROR_SOLUTIONS[singleCode] : undefined;
       suggestions.push({
         icon: g.icon,
-        title: `${g.catName}问题 -- 涉及错误码: ${codeList}`,
+        title: singleSolution?.title || `${g.catName}问题 -- 涉及错误码: ${codeList}`,
         detail,
         conclusion,
         actions,
@@ -478,14 +497,16 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
     }
   }
 
-  // ---- Slow requests: replaced with Wireshark capture suggestion ----
+  // ---- Slow requests ----
   if (r.slowRequests.length > 0) {
     suggestions.push({
       icon: '🦈',
-      title: '慢请求排查建议 — 使用 Wireshark 抓包分析',
-      detail: `检测到 ${r.slowRequests.length} 个慢请求（>3s）。NetLog 已记录各阶段耗时，但具体是 DNS、TCP 握手、SSL 还是数据传输阶段慢，需要通过 Wireshark 抓包进一步确认。`,
-      conclusion: 'Wireshark 抓包是定位慢请求根因的最有效手段，可精确到每个 TCP 包的时间戳。',
+      title: '慢请求排查建议 — 先看 NetLog 请求生命周期',
+      detail: `检测到 ${r.slowRequests.length} 个慢请求（>3s）。优先使用 NetLog 的请求生命周期和 source chain 判断慢在哪个阶段；若阶段仍无法解释，再补同次 HAR 或抓包。`,
+      conclusion: '慢请求应先按 DNS、TCP、TLS、请求发送和响应等待阶段缩小范围；Wireshark 是证据不足时的进阶补充，不是所有慢请求的默认第一步。',
       actions: [
+        '【第一步】在请求详情查看生命周期和 source chain，确认主要耗时阶段',
+        '【第二步】补采同次 HAR，对比 Waiting/TTFB 与下载阶段',
         '【安装】下载 Wireshark：https://www.wireshark.org/#download',
         '【安装】Windows 安装教程：https://blog.51cto.com/u_5001660/2116582',
         '【安装】Mac 安装教程：https://www.xstnet.com/article-155.html',
@@ -509,7 +530,7 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
       icon: '🚨',
       title: '检测到 VPN 环境',
       detail: '日志中检测到 VPN 使用迹象。VPN 可能导致网络延迟增加、域名被拦截或 DNS 被接管。根据 oncall 经验，VPN 还可能导致跨境访问问题（如国内用户通过 VPN 出口到海外，再回源国内）。',
-      conclusion: 'VPN 会改变网络出口路径，可能导致访问异常、跨境绕路。建议关闭 VPN 后对比测试。',
+      conclusion: '已观察到 VPN 环境。VPN 会改变出口路径，但不能仅凭配置判断它导致了当前问题；可在符合安全策略的前提下关闭后对比。',
       actions: [
         '【建议】临时关闭 VPN 后重试，对比网络表现',
         '检查 VPN 是否导致跨境访问（国内用户出口到海外 IP）',
@@ -517,14 +538,14 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '如果必须使用 VPN，确认 VPN 服务器出口网络正常',
       ],
       category: 'proxy',
-      severity: 'critical',
+      severity: 'info',
     });
   } else if (pi.hasProxy) {
     suggestions.unshift({
       icon: '⚠️',
       title: '检测到代理服务器配置',
       detail: `当前配置了代理（模式: ${pi.proxyType}，服务器: ${pi.proxyList.join(', ')}）。代理可能导致请求被拦截、延迟增加或对 HTTP/2 支持不佳。根据 oncall 经验，代理类问题一般需要客户 IT 进行优化解决。`,
-      conclusion: '代理服务器故障或配置不当会导致请求异常，建议检查代理状态或尝试直连。',
+      conclusion: '已观察到代理配置。配置存在不等于代理故障；只有代理类 net_error、PAC/CONNECT 失败或开关对比结果才能提高关联置信度。',
       actions: [
         '检查代理服务器是否正常运行',
         'Mac：系统偏好设置 → 网络 → 高级 → 代理，检查代理配置',
@@ -534,25 +555,41 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
         '如果代理对 HTTP/2 支持不佳，可尝试强制走 HTTP/1.1',
       ],
       category: 'proxy',
-      severity: 'warning',
+      severity: 'info',
     });
   }
 
   // ---- Failed domains ----
   if (r.failedDomains.length > 0) {
     const domainList = r.failedDomains.slice(0, 10).map(d => `${d.domain} (${d.count}次)`).join('、');
+    const failedCategories = new Set(r.failedDomains.flatMap(domain =>
+      domain.errorCodes.map(code => classifyNetError(code).catName)
+    ));
+    const singleCategory = failedCategories.size === 1 ? Array.from(failedCategories)[0] : null;
+    const categoryMap: Record<string, Suggestion['category']> = {
+      DNS: 'dns',
+      证书: 'tls',
+      代理: 'proxy',
+      网络变更: 'network-change',
+      阻止: 'security',
+      协议: 'protocol',
+      连接: 'connect',
+      客户端: 'client',
+      应用层: 'server',
+      缓存: 'cache',
+    };
     suggestions.push({
       icon: '❌',
       title: `报错域名汇总 (${r.failedDomains.length}个)`,
       detail: `以下域名出现网络错误：${domainList}`,
-      conclusion: '多个域名报错通常指向 DNS 或防火墙层面的问题，建议统一排查。',
+      conclusion: `多个域名记录到错误，错误类别为 ${Array.from(failedCategories).join('、') || '未知'}；不能仅凭域名数量判断为 DNS 或防火墙问题，应按错误码和 source chain 分组排查。`,
       actions: [
         '检查这些域名是否被防火墙/代理拦截',
         '使用 ping/nslookup 确认网络可达性和 DNS 解析',
         '检查 DNS 解析结果是否正确（是否被劫持到异常 IP）',
         '将相关域名加入防火墙白名单（建议使用泛域名形式）',
       ],
-      category: 'dns',
+      category: singleCategory ? (categoryMap[singleCategory] || 'unknown') : 'unknown',
       severity: 'warning',
     });
   }
@@ -564,17 +601,18 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
   if (hijackedDomains.length > 0) {
     suggestions.push({
       icon: '🚨',
-      title: `检测到 DNS 劫持 (${hijackedDomains.length}个域名)`,
+      title: `DNS 解析到本地地址 (${hijackedDomains.length}个域名)`,
       detail: `以下域名被解析到本地地址：${hijackedDomains.map(d => `${d.domain} → ${d.ips.filter(ip => ip === '127.0.0.1' || ip === '0.0.0.0').join(', ')}`).join('、')}`,
-      conclusion: 'DNS 劫持是严重的网络故障，通常是运营商 LOCAL DNS 故障导致，需要立即更换 DNS。',
+      conclusion: '域名解析到本地地址可能来自 hosts、广告拦截/安全软件、企业策略、本地代理或解析器异常；不能单独确认运营商 DNS 故障，需要先对比 hosts 和不同解析器结果。',
       actions: [
-        '【紧急】国内用户立即将 DNS 更改为 223.5.5.5 或 119.29.29.29；海外用户更改为 8.8.8.8 或 1.1.1.1',
-        '联系公司 IT 修改 DHCP 出口 DNS',
+        '【第一步】检查 hosts 文件、广告拦截扩展和本地安全软件是否配置了该域名',
+        '【对比】使用当前 DNS、企业 DNS 和公共 DNS 分别执行 nslookup，记录结果差异',
+        '若企业 DNS 返回本地地址，联系 IT 确认是否为预期的安全或分流策略',
         '清除 DNS 缓存：Windows 执行 ipconfig /flushdns',
         '在 Chrome 地址栏输入 chrome://net-internals/#dns，点击 "clear host cache"',
       ],
       category: 'dns',
-      severity: 'critical',
+      severity: 'warning',
     });
   }
 
@@ -588,16 +626,15 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
       icon: '🔍',
       title: '跨网/跨境自查建议',
       detail: `以下域名请求失败时有 IP 记录：${crossNetworkDomains.slice(0, 5).map(d => d.domain).join('、')}。本工具无法直接查询 IP 的运营商和地域信息，请按以下步骤自查。`,
-      conclusion: '跨运营商（如联通访问电信 IP）或跨境访问会显著影响网络质量。通过 ip138.com 等工具自查即可确认。',
+      conclusion: '出口与目标 IP 的运营商或地域信息只能作为路由背景，不能单独确认跨网/跨境故障；还需要对比 RTT、丢包、路由和不同网络的实际结果。',
       actions: [
         '【步骤1】访问 https://ip.skk.moe/ 或 https://cip.cc 查看本机出口 IP 和运营商',
         '【步骤2】使用 nslookup <域名> 查看解析到的远端 IP',
         '【步骤3】在 https://www.ip138.com/ 分别查询出口 IP 和远端 IP 的运营商/地域',
-        '【判断】如果两个 IP 运营商不同 → 存在跨网问题',
-        '【判断】如果国内用户解析到海外 IP → 存在跨境问题（DNS 异常）',
-        '【解决】跨网/跨境问题：国内用户修改 DNS 为 223.5.5.5，海外用户修改 DNS 为 8.8.8.8',
+        '【判断】运营商不同只记录为候选背景，继续比较 ping/traceroute 和切换网络后的结果',
+        '【判断】解析到异地域 IP 时，先确认是否为 CDN/业务预期，再判断是否需要排查 DNS 调度',
       ],
-      category: 'dns',
+      category: 'unknown',
       severity: 'info',
     });
   }
@@ -608,7 +645,7 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
       icon: '🔄',
       title: `会话期间检测到 ${r.networkChanges.length} 次网络变更`,
       detail: '网络环境发生变化可能导致连接中断或请求重试。',
-      conclusion: '网络变更会导致连接不稳定，建议检查网络设备和 VPN 状态。',
+      conclusion: '会话中记录到网络变更。只有失败请求与变更发生在同一 source chain 和时间窗口时，才能认为两者可能相关。',
       actions: [
         '检查是否有 Wi-Fi/有线网络切换',
         '检查 VPN 连接是否不稳定',
@@ -626,7 +663,7 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
       icon: '📡',
       title: `检测到 HTTP/2 GOAWAY 帧 (${goawayEvents.length} 个)`,
       detail: '服务器主动发送了 HTTP/2 GOAWAY 帧，关闭了连接。根据 oncall 经验，GOAWAY 帧携带的错误码如果是 0x1（协议错误），可能是服务端或中间节点（如 TLB）的问题。',
-      conclusion: 'HTTP/2 GOAWAY 通常由服务端或中间负载均衡器（TLB）主动关闭连接导致。如果频繁出现，建议排查代理对 HTTP/2 的支持或联系服务端排查。',
+      conclusion: '检测到 HTTP/2 GOAWAY。GOAWAY 可以是正常优雅关闭，也可能携带协议或内部错误；需要先查看错误码、last_stream_id 和请求是否成功重试。',
       actions: [
         '检查 GOAWAY 帧的错误码（0x1 表示协议错误）',
         '排查代理服务器是否支持 HTTP/2',
@@ -670,8 +707,24 @@ export function generateNextStepInfo(r: AnalysisResult): NextStepInfo[] {
   // DNS related
   const hasDnsErrors = r.connectionFailures.some(f => {
     const code = typeof f.error === 'number' ? f.error : Number(f.error);
-    return code === -105 || code === -106 || code === -137;
+    return code === -105 || code === -137;
   });
+  const hasDisconnected = r.connectionFailures.some(f => {
+    const code = typeof f.error === 'number' ? f.error : Number(f.error);
+    return code === -106;
+  });
+  if (hasDisconnected) {
+    steps.push({
+      category: '📶 本机网络连接恢复',
+      description: '检测到浏览器记录网络已断开，先恢复设备联网，再继续判断 DNS、代理或目标服务。',
+      items: [
+        '确认 Wi-Fi / 有线网络已连接，并尝试访问其他常见网站',
+        '重连当前网络；仍无网络时切换手机热点做对比',
+        '如使用 VPN、代理或安全软件，在符合安全策略的前提下临时断开后重试',
+        '若整机仍无法联网，联系 IT 检查网卡、DHCP、网关和终端网络策略',
+      ],
+    });
+  }
   if (hasDnsErrors || r.failedDomains.some(d => d.ips.some(ip => ip === '127.0.0.1' || ip === '0.0.0.0'))) {
     steps.push({
       category: '🌐 DNS 问题进一步排查',

@@ -122,6 +122,15 @@ function hostFromUrl(url: string): string {
   try { return new URL(url).hostname; } catch { return ''; }
 }
 
+function sanitizeLifecycleUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname || '/'}`;
+  } catch {
+    return url.split(/[?#]/, 1)[0];
+  }
+}
+
 export function netlogLifecycleToCards(
   result: AnalysisResult,
   events: ParsedEvent[],
@@ -177,7 +186,7 @@ export function netlogLifecycleToCards(
       const host = hostFromUrl(req.url);
       const category = stageToCategory(dominantStage);
       const evidence: DiagnosticEvidence[] = [
-        { label: 'URL', value: req.url, source: 'netlog' },
+        { label: 'URL', value: sanitizeLifecycleUrl(req.url), source: 'netlog' },
         { label: '总耗时', value: `${(req.duration || 0).toFixed(0)}ms`, source: 'netlog' },
         { label: '主要阶段', value: `${stageLabel(dominantStage)}（约 ${dominantDuration.toFixed(0)}ms）`, source: 'derived' },
         ...buildStageBreakdownEvidence(req),

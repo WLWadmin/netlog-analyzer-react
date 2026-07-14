@@ -125,6 +125,76 @@ function proxyAndProtocolFixture() {
   };
 }
 
+function protocolLocalErrorFixture() {
+  return {
+    constants: {},
+    events: [
+      event({
+        time: '0',
+        type: 111,
+        phase: 0,
+        source: { id: 50, type: 1 },
+        params: { url: 'https://api.example.com/socket', method: 'GET' },
+      }),
+      event({
+        time: '10',
+        type: 210,
+        source: { id: 60, type: 8 },
+        params: {
+          source_dependency: { id: 50, type: 1 },
+          error_code: 'CANCEL',
+          stream_id: 1,
+        },
+      }),
+      event({
+        time: '20',
+        type: 181,
+        source: { id: 50, type: 1 },
+        params: { status_code: 200 },
+      }),
+      event({
+        time: '30',
+        type: 2,
+        phase: 1,
+        source: { id: 50, type: 1 },
+      }),
+    ],
+  };
+}
+
+function recoveredInternalErrorFixture() {
+  return {
+    constants: {},
+    events: [
+      event({
+        time: '0',
+        type: 111,
+        phase: 0,
+        source: { id: 70, type: 1 },
+        params: { url: 'https://api.example.com/cache', method: 'GET' },
+      }),
+      event({
+        time: '10',
+        type: 1,
+        source: { id: 70, type: 1 },
+        params: { net_error: -406 },
+      }),
+      event({
+        time: '20',
+        type: 181,
+        source: { id: 70, type: 1 },
+        params: { status_code: 200 },
+      }),
+      event({
+        time: '30',
+        type: 2,
+        phase: 1,
+        source: { id: 70, type: 1 },
+      }),
+    ],
+  };
+}
+
 describe('NetLog parser fixture characterization', () => {
   it('固定成功请求 fixture 的关键输出', () => {
     const { result } = parseLog(successfulRequestFixture());
@@ -178,6 +248,25 @@ describe('NetLog parser fixture characterization', () => {
       'HTTP/2': 1,
       QUIC: 1,
     }));
+  });
+
+  it('does not treat protocol-local error_code as Chromium request failure', () => {
+    const { result } = parseLog(protocolLocalErrorFixture());
+
+    expect(result.connectionFailures).toEqual([]);
+    expect(result.urlRequests[0]).toEqual(expect.objectContaining({
+      statusCode: 200,
+      status: '200',
+    }));
+    expect(result.urlRequests[0].error).toBeUndefined();
+  });
+
+  it('does not keep recovered internal cache status as final request failure', () => {
+    const { result } = parseLog(recoveredInternalErrorFixture());
+
+    expect(result.connectionFailures).toEqual([]);
+    expect(result.urlRequests[0].error).toBeUndefined();
+    expect(result.urlRequests[0].statusCode).toBe(200);
   });
 });
 

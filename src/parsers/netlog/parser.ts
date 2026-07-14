@@ -137,7 +137,7 @@ export interface AnalysisResult {
   errorSources: Record<string, number>;
   certIssues: SslIssue[];
   sslIssues: SslIssue[];
-  connectionFailures: { url: string; error: number; time: number }[];
+  connectionFailures: { requestId?: number; url: string; error: number; time: number }[];
   stalledRequests: URLRequest[];
   slowRequests: URLRequest[];
   cacheEvents: ParsedEvent[];
@@ -998,6 +998,21 @@ function resolveRequestForEvent(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+const NON_TERMINAL_REQUEST_NET_ERRORS = new Set([
+  -1,   // ERR_IO_PENDING
+  -173, // ERR_WS_UPGRADE
+  -406, // ERR_CACHE_RACE
+]);
+
+function getTerminalRequestNetError(evt: ParsedEvent): number | null {
+  if (evt.source.typeName !== 'URL_REQUEST') return null;
+  const raw = evt.params?.net_error;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const code = Number(raw);
+  if (!Number.isFinite(code) || code === 0 || NON_TERMINAL_REQUEST_NET_ERRORS.has(code)) return null;
+  return code;
+}
+
 function appendRequestEvent(req: URLRequest, evt: ParsedEvent, r: AnalysisResult) {
   const p = evt.params;
   const tn = evt.typeName;
@@ -1035,17 +1050,18 @@ function appendRequestEvent(req: URLRequest, evt: ParsedEvent, r: AnalysisResult
     req.duration = (req.endTime || evt.time) - req.startTime;
   }
 
-  if (p.net_error || p.error_code) {
-    const errCode = Number(p.net_error || p.error_code);
+  const errCode = getTerminalRequestNetError(evt);
+  if (errCode !== null) {
     req.error = errCode;
     req.errorDesc = getNetErrorDescription(errCode);
     req.status = "error";
 
     const alreadyTracked = r.connectionFailures.some(
-      failure => failure.url === req.url && failure.error === errCode && failure.time === evt.time
+      failure => failure.requestId === req.id && failure.error === errCode
     );
     if (!alreadyTracked) {
       r.connectionFailures.push({
+        requestId: req.id,
         url: req.url,
         error: errCode,
         time: evt.time,

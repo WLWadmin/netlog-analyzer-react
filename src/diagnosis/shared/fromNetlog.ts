@@ -6,8 +6,10 @@
 import type { AnalysisResult, FailedDomain, ProxyInfo, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { Suggestion } from '../../parsers/netlog/diagnosis';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
+import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { netlogLifecycleToCards } from './fromNetlogLifecycle';
 import { getCachedEventsBySourceId, getCachedSourceGraph } from '../../parsers/netlog/sourceGraphCache';
+import { collectRelatedSourceIdsFromGraph } from '../../parsers/netlog/requestLifecycle';
 import type {
   DiagnosticCard,
   DiagnosticCategory,
@@ -96,6 +98,7 @@ function mapErrorCategoryToDiagnostic(errorCat: string): DiagnosticCategory {
     '阻止': 'security',
     '协议': 'protocol',
     '连接': 'connect',
+    '客户端': 'client',
     '应用层': 'server',
     '缓存': 'cache',
     '其他': 'unknown',
@@ -166,7 +169,7 @@ function addConfidenceDetails(
   negatives: DiagnosticConfidenceFactor[] = [],
   neutrals: DiagnosticConfidenceFactor[] = []
 ): DiagnosticCard {
-  const score = positives.length * 2 + neutrals.length - negatives.length * 2;
+  const score = positives.length * 2 - negatives.length * 2;
   const confidence: DiagnosticCard['confidence'] = score >= 4 ? 'high' : score >= 1 ? 'medium' : 'low';
   return {
     ...card,
@@ -309,13 +312,13 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
   }
 
   if (card.category === 'dns' && result.dnsEvents.length > 0) {
-    positives.push({ label: 'DNS 事件佐证', impact: 'positive', detail: `采集到 ${result.dnsEvents.length} 条 DNS/HostResolver 事件` });
+    neutrals.push({ label: 'DNS 事件背景', impact: 'neutral', detail: `全局采集到 ${result.dnsEvents.length} 条 DNS/HostResolver 事件，是否属于同一请求需看 source chain` });
   }
   if (card.category === 'tls' && result.sslEvents.length > 0) {
-    positives.push({ label: 'TLS 事件佐证', impact: 'positive', detail: `采集到 ${result.sslEvents.length} 条 SSL/TLS 事件` });
+    neutrals.push({ label: 'TLS 事件背景', impact: 'neutral', detail: `全局采集到 ${result.sslEvents.length} 条 SSL/TLS 事件，是否属于同一请求需看 source chain` });
   }
   if (card.category === 'proxy' && (result.proxyEvents.length > 0 || result.proxyInfo.hasProxy)) {
-    positives.push({ label: '代理链路佐证', impact: 'positive', detail: `代理事件 ${result.proxyEvents.length} 条，代理配置=${result.proxyInfo.hasProxy ? '已识别' : '未识别'}` });
+    neutrals.push({ label: '代理环境背景', impact: 'neutral', detail: `代理事件 ${result.proxyEvents.length} 条，代理配置=${result.proxyInfo.hasProxy ? '已识别' : '未识别'}；配置存在不等于请求失败由代理导致` });
   }
 
   if (card.category === 'tls' && result.sslEvents.length === 0) {
@@ -342,7 +345,7 @@ function enrichCardWithP1Evidence(card: DiagnosticCard, result: AnalysisResult):
     .flatMap(time => findEventsAround(result, time, 3000).map(item => ({ ...item, anchorTime: time })))
     .slice(0, 5);
   if (correlations.length > 0) {
-    positives.push({ label: '时间相关性', impact: 'positive', detail: `相关请求 ±3s 内发现 ${correlations.length} 条网络/代理/TLS/协议事件` });
+    neutrals.push({ label: '时间邻近背景', impact: 'neutral', detail: `相关请求 ±3s 内发现 ${correlations.length} 条网络/代理/TLS/协议事件，未建立 source chain 前不提高置信度` });
     addUniqueEvidence(evidence, {
       label: '时间窗口相关事件',
       value: correlations.map(c => `${formatNetlogTime(c.anchorTime)} 附近 ${c.kind}:${c.event.typeName} (Δ${c.delta.toFixed(0)}ms)`).join('；'),
@@ -375,7 +378,7 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
   // category 优先级：结构化字段 > errorClassifier > title 关键词兜底
   let category: DiagnosticCategory;
   if (suggestion.category) {
-    category = mapErrorCategoryToDiagnostic(suggestion.category);
+    category = suggestion.category;
   } else if (errorCode) {
     category = mapErrorCategoryToDiagnostic(classifyNetError(errorCode).catName);
   } else {
@@ -435,17 +438,33 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
 
   // 确定置信度
   let confidence: DiagnosticCard['confidence'] = 'medium';
-  if (errorCode && result.connectionFailures.some(f => f.error === errorCode)) {
+  if (errorCode !== null && result.connectionFailures.some(f => f.error === errorCode)) {
     confidence = 'high';
   }
 
   // 影响范围
-  const affectedCount = relatedRequestIds.length || result.connectionFailures.length || 1;
-  const domainCount = new Set(relatedRequestIds.map(id => {
-    const req = result.urlRequests.find(r => r.id === id);
-    if (!req || !req.url) return '';
-    try { return new URL(req.url).hostname; } catch { return ''; }
-  }).filter(Boolean)).size;
+  const matchingFailures = errorCode !== null
+    ? result.connectionFailures.filter(failure => failure.error === errorCode)
+    : [];
+  const matchingRequestIds = Array.from(new Set(matchingFailures.flatMap(failure => {
+    if (failure.requestId !== undefined) return [failure.requestId];
+    return result.urlRequests.filter(request => request.url === failure.url).map(request => request.id);
+  })));
+  const affectedCount = matchingRequestIds.length || matchingFailures.length || relatedRequestIds.length;
+  const domainCount = new Set([
+    ...relatedRequestIds.map(id => {
+      const req = result.urlRequests.find(r => r.id === id);
+      if (!req || !req.url) return '';
+      try { return new URL(req.url).hostname; } catch { return ''; }
+    }),
+    ...matchingFailures.map(failure => hostFromUrl(failure.url)),
+  ].filter(Boolean)).size;
+  const scope: DiagnosticScope = affectedCount > 0
+    ? buildScope(affectedCount, domainCount || undefined, domainCount > 1 ? 'multi-domain' : undefined)
+    : { type: 'unknown', summary: '影响范围尚未关联到具体请求' };
+  const conclusion = errorCode !== null
+    ? `NetLog 已记录 ${getNetErrorDescription(errorCode)}（${errorCode}）；可确认错误现象，但具体触发原因仍需结合同一请求的 source chain、失败阶段和对比验证。`
+    : suggestion.conclusion;
 
   const limitations: string[] = [];
   if (!errorCode) {
@@ -462,8 +481,8 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
     severity,
     confidence,
     title: suggestion.title,
-    conclusion: suggestion.conclusion,
-    scope: buildScope(affectedCount, domainCount || undefined, domainCount > 1 ? 'multi-domain' : 'global'),
+    conclusion,
+    scope,
     evidence,
     actions,
     limitations: limitations.length > 0 ? limitations : undefined,
@@ -503,7 +522,9 @@ function findRelatedRequests(suggestion: Suggestion, result: AnalysisResult): nu
     result.connectionFailures
       .filter(f => f.error === errorCode)
       .forEach(f => {
-        const req = result.urlRequests.find(r => r.url === f.url);
+        const req = f.requestId !== undefined
+          ? result.urlRequests.find(r => r.id === f.requestId)
+          : result.urlRequests.find(r => r.url === f.url);
         if (req && !ids.includes(req.id)) ids.push(req.id);
       });
   }
@@ -514,10 +535,6 @@ function findRelatedRequests(suggestion: Suggestion, result: AnalysisResult): nu
       .filter(r => r.error && classifyNetError(r.error).catName === 'DNS')
       .forEach(r => { if (!ids.includes(r.id)) ids.push(r.id); });
   }
-  if (suggestion.title.includes('代理') || suggestion.title.includes('VPN')) {
-    result.urlRequests.forEach(r => { if (!ids.includes(r.id)) ids.push(r.id); });
-  }
-
   return ids.slice(0, 10);
 }
 
@@ -904,7 +921,7 @@ export function netlogToCards(
   const temporalStart = performance.now();
   // ========== P1 增强：时间相关性 + 决策链路 ==========
   // 历史主瓶颈回归指标：用于观察时间相关性构建是否再次膨胀。
-  cards.push(...buildTemporalCorrelationCards(result));
+  cards.push(...buildTemporalCorrelationCards(result, events));
   recordTiming(debugTiming, timingRows, 'buildTemporalCorrelationCards', temporalStart, undefined, { connectionFailures: result.connectionFailures.length, cards: cards.length });
 
   const cacheDecisionStart = performance.now();
@@ -1006,18 +1023,36 @@ export function netlogToCards(
   return enrichedCards;
 }
 
-function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[] {
+function buildTemporalCorrelationCards(result: AnalysisResult, events?: ParsedEvent[]): DiagnosticCard[] {
   const debugTiming = isDiagnosisTimingDebugEnabled();
   const timingRows: TimingRow[] = [];
   const totalStart = performance.now();
 
   const lookupStart = performance.now();
   const requestLookup = getRequestLookup(result);
+  if (!events || events.length === 0) return [];
+  const graph = getCachedSourceGraph(events, result.urlRequests);
+  const relatedSourcesByRequestId = new Map<number, Set<number>>();
+  const getRelatedSources = (requestId: number) => {
+    const cached = relatedSourcesByRequestId.get(requestId);
+    if (cached) return cached;
+    const value = new Set(collectRelatedSourceIdsFromGraph(graph, requestId));
+    relatedSourcesByRequestId.set(requestId, value);
+    return value;
+  };
   recordTiming(debugTiming, timingRows, 'getRequestLookup', lookupStart, undefined, { urlRequests: result.urlRequests.length });
 
   const contextStart = performance.now();
   const failuresWithContext = result.connectionFailures
-    .map(failure => ({ failure, context: findEventsAround(result, failure.time, 3000) }))
+    .map(failure => {
+      const requestIds = failure.requestId !== undefined
+        ? [failure.requestId]
+        : (requestLookup.idsByUrl.get(failure.url) || []);
+      const relatedSourceIds = new Set(requestIds.flatMap(requestId => Array.from(getRelatedSources(requestId))));
+      const context = findEventsAround(result, failure.time, 3000)
+        .filter(item => relatedSourceIds.has(item.event.source.id));
+      return { failure, requestIds, context };
+    })
     .filter(item => item.context.length > 0);
   recordTiming(debugTiming, timingRows, 'findEventsAround all failures', contextStart, undefined, {
     connectionFailures: result.connectionFailures.length,
@@ -1034,9 +1069,8 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
   }
 
   const aggregateStart = performance.now();
-  const relatedRequestIds = failuresWithContext
-    .flatMap(item => requestLookup.idsByUrl.get(item.failure.url) || [])
-    .slice(0, 30);
+  const allRelatedRequestIds = Array.from(new Set(failuresWithContext.flatMap(item => item.requestIds)));
+  const relatedRequestIds = allRelatedRequestIds.slice(0, 30);
   const kindCounts = failuresWithContext.reduce<Record<string, number>>((acc, item) => {
     item.context.forEach(ctx => { acc[ctx.kind] = (acc[ctx.kind] || 0) + 1; });
     return acc;
@@ -1055,8 +1089,10 @@ function buildTemporalCorrelationCards(result: AnalysisResult): DiagnosticCard[]
     severity: failuresWithContext.length >= 5 ? 'warning' : 'info',
     confidence: 'medium',
     title: `异常时间窗口相关性 (${failuresWithContext.length} 个失败点)`,
-    conclusion: `${failuresWithContext.length} 个连接失败在 ±3s 内伴随 ${dominantKind} 等底层事件，问题更可能来自同一时间窗口内的网络状态/代理/TLS/协议变化，而不是孤立 URL 问题`,
-    scope: buildScope(failuresWithContext.length, new Set(failuresWithContext.map(item => hostFromUrl(item.failure.url)).filter(Boolean)).size, 'global'),
+    conclusion: `${failuresWithContext.length} 个连接失败在同一 source chain 且 ±3s 内伴随 ${dominantKind} 等底层事件，可作为跨层候选线索；具体因果仍需查看对应事件顺序。`,
+    scope: allRelatedRequestIds.length > 0
+      ? buildScope(allRelatedRequestIds.length, new Set(failuresWithContext.map(item => hostFromUrl(item.failure.url)).filter(Boolean)).size, 'global')
+      : { type: 'unknown', summary: `${failuresWithContext.length} 个失败点，尚未计算受影响请求数` },
     evidence: failuresWithContext.slice(0, 6).map((item, i) => ({
       label: `相关失败 ${i + 1}`,
       value: `${hostFromUrl(item.failure.url) || sanitizeDiagnosticUrl(item.failure.url)} · 错误 ${item.failure.error} · ${item.context.map(ctx => `${ctx.kind}/${ctx.event.typeName}(Δ${ctx.delta.toFixed(0)}ms)`).join('、')}`,
@@ -1098,16 +1134,17 @@ function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
   const hitCount = cacheText.filter(t => t.includes('hit')).length;
   const missCount = cacheText.filter(t => t.includes('miss') || t.includes('create') || t.includes('doom')).length;
   const errorCount = result.cacheEvents.filter(e => e.params?.net_error !== undefined && e.params.net_error !== 0).length;
+  const finalCacheFailureCount = result.connectionFailures.filter(failure => classifyNetError(failure.error).catName === '缓存').length;
 
   return addConfidenceDetails({
     id: generateId('netlog-cache-decision', 0),
     source: 'netlog',
     category: 'cache',
-    severity: errorCount > 0 || result.slowRequests.length > 0 ? 'warning' : 'info',
+    severity: finalCacheFailureCount > 0 ? 'warning' : 'info',
     confidence: 'medium',
     title: `缓存决策链路 (${result.cacheEvents.length} 条事件)`,
-    conclusion: `NetLog 记录到 ${result.cacheEvents.length} 条缓存相关事件，命中线索 ${hitCount} 条、未命中/重建线索 ${missCount} 条、错误线索 ${errorCount} 条，可用于判断慢请求是否受缓存重建或缓存绕过影响`,
-    scope: buildScope(result.cacheEvents.length, undefined, 'global'),
+    conclusion: `NetLog 记录到 ${result.cacheEvents.length} 条缓存相关事件，命中线索 ${hitCount} 条、未命中/重建线索 ${missCount} 条、携带 net_error 的事件 ${errorCount} 条；这些是缓存状态证据，不能直接等同于失败请求。`,
+    scope: { type: 'global', summary: `记录到 ${result.cacheEvents.length} 条缓存事件，受影响请求数尚未确认` },
     evidence: result.cacheEvents.slice(0, 6).map((e, i) => ({
       label: `缓存事件 ${i + 1}`,
       value: `${formatNetlogTime(e.time)} · ${e.typeName} · source#${e.source.id}`,
@@ -1130,18 +1167,23 @@ function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
     ],
     relatedSourceIds: result.cacheEvents.slice(0, 20).map(e => e.source.id),
     navigationTarget: { tab: 'events', keyword: 'cache' },
-  }, [
-    { label: '缓存事件', impact: 'positive', detail: `采集到 ${result.cacheEvents.length} 条缓存事件` },
-    ...(errorCount > 0 ? [{ label: '缓存错误', impact: 'positive' as const, detail: `${errorCount} 条缓存事件包含 net_error` }] : []),
+    limitations: ['缓存事件数不是受影响请求数；只有同一请求 source chain 上的终态错误才能提高归因置信度。'],
+  }, finalCacheFailureCount > 0 ? [
+    { label: '终态缓存失败', impact: 'positive', detail: `${finalCacheFailureCount} 个请求以缓存类 net_error 结束` },
+  ] : [], [], [
+    { label: '缓存事件背景', impact: 'neutral', detail: `采集到 ${result.cacheEvents.length} 条缓存事件` },
   ]);
 }
 
 function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
   if (result.proxyEvents.length === 0 && !result.proxyInfo.hasProxy) return null;
 
-  const relatedFailures = result.connectionFailures.filter(failure =>
-    result.proxyEvents.some(evt => Math.abs(evt.time - failure.time) <= 3000)
-  );
+  const relatedFailures = result.connectionFailures.filter(failure => classifyNetError(failure.error).catName === '代理');
+  const relatedRequestIds = Array.from(new Set(relatedFailures.flatMap(failure =>
+    failure.requestId !== undefined
+      ? [failure.requestId]
+      : result.urlRequests.filter(request => request.url === failure.url).map(request => request.id)
+  ))).slice(0, 20);
 
   return addConfidenceDetails({
     id: generateId('netlog-proxy-decision', 0),
@@ -1153,7 +1195,9 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
     conclusion: result.proxyInfo.hasProxy
       ? `当前存在代理配置（${result.proxyInfo.proxyType || '未知模式'}），并采集到 ${result.proxyEvents.length} 条代理决策事件；如失败与这些事件时间接近，应优先排查 PAC、代理可达性和 VPN 策略`
       : `采集到 ${result.proxyEvents.length} 条代理相关事件，但未解析出稳定代理配置，建议进一步核验代理自动探测和 PAC 解析结果`,
-    scope: buildScope(Math.max(result.proxyEvents.length, relatedFailures.length || 1), undefined, 'global'),
+    scope: relatedRequestIds.length > 0
+      ? buildScope(relatedRequestIds.length, undefined, 'global')
+      : { type: 'global', summary: `记录到 ${result.proxyEvents.length} 条代理事件，尚未确认受影响请求` },
     evidence: [
       { label: '代理模式', value: result.proxyInfo.proxyType || '未识别', source: 'netlog' as const },
       ...(result.proxyInfo.proxyList.length > 0 ? [{ label: '代理列表', value: result.proxyInfo.proxyList.slice(0, 5).map(sanitizeProxyValue).join(', '), source: 'netlog' as const }] : []),
@@ -1178,14 +1222,15 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
         detail: '在符合安全策略的前提下，对比开启/关闭代理或 VPN 后同一 URL 的访问结果',
       },
     ],
-    relatedRequestIds: relatedFailures.flatMap(f => result.urlRequests.filter(r => r.url === f.url).map(r => r.id)).slice(0, 20),
+    relatedRequestIds,
     relatedSourceIds: result.proxyEvents.slice(0, 20).map(e => e.source.id),
     navigationTarget: { tab: 'events', keyword: 'proxy' },
   }, [
-    ...(result.proxyInfo.hasProxy ? [{ label: '代理配置', impact: 'positive' as const, detail: '已解析到有效代理配置' }] : []),
-    ...(result.proxyEvents.length > 0 ? [{ label: '代理事件', impact: 'positive' as const, detail: `采集到 ${result.proxyEvents.length} 条代理相关事件` }] : []),
-    ...(relatedFailures.length > 0 ? [{ label: '失败时间相关', impact: 'positive' as const, detail: `${relatedFailures.length} 个连接失败靠近代理事件` }] : []),
-  ], result.proxyEvents.length === 0 ? [{ label: '缺少过程事件', impact: 'negative', detail: '仅能依据代理配置判断，缺少代理解析过程' }] : []);
+    ...(relatedFailures.length > 0 ? [{ label: '代理终态错误', impact: 'positive' as const, detail: `${relatedFailures.length} 个请求记录代理类 net_error` }] : []),
+  ], result.proxyEvents.length === 0 ? [{ label: '缺少过程事件', impact: 'negative', detail: '仅能依据代理配置判断，缺少代理解析过程' }] : [], [
+    ...(result.proxyInfo.hasProxy ? [{ label: '代理配置背景', impact: 'neutral' as const, detail: '已解析到代理配置，但配置存在不等于请求由代理导致' }] : []),
+    ...(result.proxyEvents.length > 0 ? [{ label: '代理事件背景', impact: 'neutral' as const, detail: `采集到 ${result.proxyEvents.length} 条代理相关事件` }] : []),
+  ]);
 }
 
 function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | null {
@@ -1208,7 +1253,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
     confidence: 'medium',
     title: '协议选择与降级线索',
     conclusion: `协议分布为 ${protocolSummary}；HTTP/2 事件 ${result.http2Events.length} 条，QUIC 事件 ${result.quicEvents.length} 条，协议错误 ${protocolErrors.length} 条，可用于判断是否存在 H2/QUIC 降级、GOAWAY 或代理阻断`,
-    scope: buildScope(result.urlRequests.length || result.http2Events.length + result.quicEvents.length, undefined, 'global'),
+    scope: { type: 'global', summary: `协议统计覆盖 ${result.urlRequests.length} 个请求，不代表这些请求均受协议问题影响` },
     evidence: [
       { label: '协议分布', value: protocolSummary, source: 'netlog' as const },
       { label: 'HTTP/2 事件', value: `${result.http2Events.length} 条，GOAWAY ${goawayEvents.length} 条`, source: 'netlog' as const },

@@ -145,8 +145,8 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
 
       // Analyze QUIC error patterns
       if (quicErrorCodes.some(c => c.includes('356') || c.includes('QUIC_PROTOCOL_ERROR'))) {
-        suggestions.push('QUIC_PROTOCOL_ERROR (-356)：大多数是网络波动造成，少数是内网 UDP Flood 防护导致');
-        suggestions.push('在 chrome://flags 中禁用 QUIC 后对比测试，如果问题解决则确认与 QUIC/UDP 有关');
+        suggestions.push('QUIC_PROTOCOL_ERROR (-356)：弱网、UDP 443 策略、NAT/中间设备和服务端 QUIC 实现都可能相关');
+        suggestions.push('在 chrome://flags 中禁用 QUIC 后对比测试；恢复只能说明 QUIC/UDP 路径相关，仍需继续核对具体原因');
       }
       if (quicErrorCodes.some(c => c.includes('355') || c.includes('QUIC_HANDSHAKE_FAILED'))) {
         suggestions.push('QUIC_HANDSHAKE_FAILED (-355)：握手失败，可能是防火墙阻止 UDP 443 或网络中间设备不支持 QUIC');

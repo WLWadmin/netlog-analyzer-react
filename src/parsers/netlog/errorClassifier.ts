@@ -1,6 +1,6 @@
 import { getNetErrorDescription } from './constants';
 
-export type NetErrorCategoryName = 'DNS' | '证书' | '代理' | '网络变更' | '阻止' | '协议' | '连接' | '应用层' | '缓存' | '其他';
+export type NetErrorCategoryName = 'DNS' | '证书' | '代理' | '网络变更' | '阻止' | '协议' | '连接' | '客户端' | '应用层' | '缓存' | '其他';
 
 export interface NetErrorCategory {
   catName: NetErrorCategoryName;
@@ -16,6 +16,7 @@ const CATEGORY_META: Record<NetErrorCategoryName, NetErrorCategory> = {
   阻止: { catName: '阻止', icon: '🚫', sortWeight: 5 },
   协议: { catName: '协议', icon: '📡', sortWeight: 6 },
   连接: { catName: '连接', icon: '🔗', sortWeight: 7 },
+  客户端: { catName: '客户端', icon: '💻', sortWeight: 8 },
   应用层: { catName: '应用层', icon: '⚙️', sortWeight: 8 },
   缓存: { catName: '缓存', icon: '📦', sortWeight: 9 },
   其他: { catName: '其他', icon: '❓', sortWeight: 99 },
@@ -77,7 +78,8 @@ export function classifyNetError(code: string | number | null): NetErrorCategory
     if (PROTOCOL_ERRORS.has(num)) return byName('协议');
     if (CONNECTION_ERRORS.has(num) || (num >= -199 && num <= -100)) return byName('连接');
     if (num >= -413 && num <= -400) return byName('缓存');
-    if (num >= -99 && num <= -1) return byName('应用层');
+    if (num === -2) return byName('其他');
+    if (num >= -99 && num <= -1) return byName('客户端');
   }
 
   const desc = getNetErrorDescription(code);

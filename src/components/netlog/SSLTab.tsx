@@ -154,7 +154,7 @@ function assessSSLHealth(result: AnalysisResult): HealthAssessment {
     for (const code of errorCodes) {
       const numCode = typeof code === 'number' ? code : parseInt(String(code), 10);
       if (numCode === -202) {
-        suggestions.push('ERR_CERT_AUTHORITY_INVALID (-202)：极大概率是防火墙/审计系统 MITM 替换证书，需联系 IT 排查');
+        suggestions.push('ERR_CERT_AUTHORITY_INVALID (-202)：候选原因包括私有 CA 未导入、证书链不完整或 HTTPS Inspection，需查看实际证书链确认');
       } else if (numCode === -200) {
         suggestions.push('ERR_CERT_COMMON_NAME_INVALID (-200)：可能是未登录 Wi-Fi 认证页面，或防火墙替换证书');
       } else if (numCode === -201) {

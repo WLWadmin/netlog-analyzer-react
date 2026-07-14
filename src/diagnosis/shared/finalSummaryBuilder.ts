@@ -108,6 +108,13 @@ function isPureProtocolFact(card: DiagnosticCard): boolean {
   return !hasExplicitFailureEvidence(card);
 }
 
+function isAggregateCandidateCard(card: DiagnosticCard): boolean {
+  return card.id.startsWith('netlog-time-correlation')
+    || card.id.startsWith('netlog-cache-decision')
+    || card.id.startsWith('netlog-proxy-decision')
+    || card.id.startsWith('netlog-protocol-decision');
+}
+
 function isTtfbWithoutNetworkFailure(card: DiagnosticCard): boolean {
   const text = cardEvidenceText(card);
   if (!/TTFB|Waiting/i.test(text)) return false;
@@ -147,12 +154,18 @@ function isDnsAnswerOrSocketPeerCandidateOnly(card: DiagnosticCard): boolean {
 function isNetworkStateFactOnly(card: DiagnosticCard): boolean {
   return (
     isOnlyDerivedEvidence(card) ||
+    isAggregateCandidateCard(card) ||
     isTtfbWithoutNetworkFailure(card) ||
     isProxyConfigOnly(card) ||
     isPureProtocolFact(card) ||
     isDnsAnswerSpecialIpOnly(card) ||
     isDnsAnswerOrSocketPeerCandidateOnly(card)
   );
+}
+
+function isGenericFailureSymptom(card: DiagnosticCard): boolean {
+  if (card.category !== 'unknown') return false;
+  return /ERR_FAILED|通用请求失败/i.test(cardEvidenceText(card));
 }
 
 function hasCorrelationAnchor(card: DiagnosticCard): boolean {
@@ -176,6 +189,7 @@ function hasRequestScopedFailureEvidence(card: DiagnosticCard): boolean {
 function canBeConfirmedRootCause(card: DiagnosticCard): boolean {
   if (card.severity === 'info') return false;
   if (isNetworkStateFactOnly(card)) return false;
+  if (isGenericFailureSymptom(card)) return false;
   return hasRequestScopedFailureEvidence(card);
 }
 
@@ -250,6 +264,9 @@ function determineConclusionKind(
   if (card.category === 'quality' && (!summary.quality.isDiagnosable || card.severity === 'critical')) {
     return 'needs-more-data';
   }
+  if (isGenericFailureSymptom(card)) {
+    return 'symptom-only';
+  }
   if (mode === 'har') {
     return 'symptom-only';
   }
@@ -274,8 +291,12 @@ function determineConclusionKind(
 
 function buildImpact(card: DiagnosticCard): string {
   const parts = [card.scope.summary];
-  if (card.scope.affectedDomainCount) parts.push(`涉及 ${card.scope.affectedDomainCount} 个域名`);
-  if (card.scope.affectedRequestCount) parts.push(`影响 ${card.scope.affectedRequestCount} 个请求`);
+  if (card.scope.affectedDomainCount && !card.scope.summary.includes(`${card.scope.affectedDomainCount} 个域名`)) {
+    parts.push(`涉及 ${card.scope.affectedDomainCount} 个域名`);
+  }
+  if (card.scope.affectedRequestCount && !card.scope.summary.includes(`${card.scope.affectedRequestCount} 个请求`)) {
+    parts.push(`影响 ${card.scope.affectedRequestCount} 个请求`);
+  }
   return uniq(parts).join('，') || '影响范围未记录';
 }
 
@@ -670,6 +691,7 @@ function buildUserFacingSummary(
   if (kind === 'highly-likely') return `高度疑似：${card.title}`;
   if (kind === 'needs-more-data') return `需要补充采集：${card.title}`;
   if (mode === 'har') return `仅现象：${card.title}`;
+  if (kind === 'symptom-only') return `仅能确认现象：${card.title}`;
   return card.title;
 }
 
