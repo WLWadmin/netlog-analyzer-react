@@ -280,6 +280,7 @@ function renderMarkdownReport(report) {
     `- Branch: \`${report.branch || 'unknown'}\``,
     `- Tool commit: \`${report.toolCommitSha || 'unknown'}\``,
     `- Candidate: \`${report.candidate?.packageName || 'unknown'}@${report.candidate?.version || 'unknown'}\``,
+    `- Dependency tree warnings: \`${(report.candidate?.dependencyTreeWarnings || []).join(', ') || 'none'}\``,
     `- Validated max JSON bytes: \`${report.capacity?.validatedMaxJsonBytes || 0}\``,
     '',
     '## Capability Results',
@@ -539,31 +540,121 @@ function evaluateSpdxExpression(expression) {
   }
 }
 
-function readInstalledLicenseInventory(cloneRoot, rootPackageName) {
-  const tree = JSON.parse(runCommand('npm', ['ls', '--all', '--json', '--long'], {
+function runInstalledDependencyTreeQuery(cloneRoot) {
+  return spawnSync('npm', ['ls', '--all', '--json', '--long'], {
     cwd: cloneRoot,
-    stage: 'read-installed-dependency-tree',
-  }).stdout);
+    env: process.env,
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+  });
+}
+
+function candidateSubtreeHasProblems(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return true;
+  if (node.invalid || node.missing || node.extraneous) return true;
+  if (Array.isArray(node.problems) && node.problems.length > 0) return true;
+  return Object.values(node.dependencies || {}).some(child =>
+    Object.keys(child || {}).length > 0 && candidateSubtreeHasProblems(child));
+}
+
+function parseInstalledDependencyTreeResult(
+  result,
+  rootPackageName,
+  expectedVersion,
+) {
+  if (result.error || result.signal || !Number.isInteger(result.status)) {
+    throw new Error('dependency tree process failed');
+  }
+  let tree;
+  try {
+    tree = JSON.parse(result.stdout);
+  } catch (_error) {
+    throw new Error('dependency tree JSON is invalid');
+  }
+  const candidate = tree?.dependencies?.[rootPackageName];
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error('candidate package is missing from dependency tree');
+  }
+  if (candidate.version !== expectedVersion) {
+    throw new Error('candidate version mismatch in dependency tree');
+  }
+  if (!candidate.path || candidateSubtreeHasProblems(candidate)) {
+    throw new Error('candidate dependency subtree is invalid');
+  }
+  if (result.status === 0) {
+    return { candidate, warnings: [] };
+  }
+  if (result.status !== 1 || !/\bELSPROBLEMS\b/.test(result.stderr || '')) {
+    throw new Error('dependency tree command failed');
+  }
+  return {
+    candidate,
+    warnings: ['UNRELATED_PROJECT_DEPENDENCY_PROBLEMS'],
+  };
+}
+
+function buildCandidateLicenseInventory(rootPackageName, candidate) {
   const inventory = new Map();
   const visit = (name, node) => {
-    if (!node || typeof node !== 'object') return;
-    if (typeof node.path === 'string' && typeof node.version === 'string') {
-      const packageJsonPath = path.join(node.path, 'package.json');
-      let license = 'UNRESOLVED';
-      if (fs.existsSync(packageJsonPath)) {
-        const metadata = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-        license = normalizeLicense(metadata.license || metadata.licenses);
-      }
-      inventory.set(`${name}@${node.version}`, license);
+    if (!node || typeof node !== 'object'
+      || typeof node.path !== 'string'
+      || typeof node.version !== 'string') {
+      throw new Error('candidate dependency subtree is invalid');
     }
-    for (const [childName, child] of Object.entries(node.dependencies || {})) {
+    const packageJsonPath = path.join(node.path, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      throw new Error('candidate dependency package metadata is missing');
+    }
+    const metadata = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    if (metadata.version !== node.version) {
+      throw new Error('candidate dependency metadata version mismatch');
+    }
+    const dependencies = node.dependencies || {};
+    for (const dependencyName of Object.keys(metadata.dependencies || {})) {
+      const dependency = dependencies[dependencyName];
+      if (!dependency
+        || typeof dependency.path !== 'string'
+        || typeof dependency.version !== 'string') {
+        throw new Error('candidate dependency subtree is incomplete');
+      }
+    }
+    inventory.set(
+      `${name}@${node.version}`,
+      normalizeLicense(metadata.license || metadata.licenses),
+    );
+    for (const [childName, child] of Object.entries(dependencies)) {
+      if (child && typeof child === 'object'
+        && !Array.isArray(child)
+        && Object.keys(child).length === 0) {
+        if (metadata.peerDependencies?.[childName]
+          && !metadata.dependencies?.[childName]) {
+          continue;
+        }
+        throw new Error('candidate dependency subtree is incomplete');
+      }
       visit(childName, child);
     }
   };
-  visit(rootPackageName, tree.dependencies?.[rootPackageName]);
-  return [...inventory.entries()]
+  visit(rootPackageName, candidate);
+  const result = [...inventory.entries()]
     .map(([identity, license]) => ({ identity, license }))
     .sort((left, right) => left.identity.localeCompare(right.identity));
+  if (!result.some(item => item.identity === `${rootPackageName}@${candidate.version}`)) {
+    throw new Error('candidate root is missing from license inventory');
+  }
+  return result;
+}
+
+function readInstalledLicenseInventory(cloneRoot, rootPackageName, expectedVersion) {
+  const parsed = parseInstalledDependencyTreeResult(
+    runInstalledDependencyTreeQuery(cloneRoot),
+    rootPackageName,
+    expectedVersion,
+  );
+  return {
+    inventory: buildCandidateLicenseInventory(rootPackageName, parsed.candidate),
+    warnings: parsed.warnings,
+  };
 }
 
 function unresolvedLicenseEntries(inventory) {
@@ -580,12 +671,15 @@ function readCandidateMetadata(cloneRoot, packageName, licenseInventory) {
   const packagePath = path.join(cloneRoot, 'node_modules', ...packageName.split('/'), 'package.json');
   const metadata = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   const candidateIdentity = `${packageName}@${metadata.version}`;
-  const candidateLicense = licenseInventory.find(item => item.identity === candidateIdentity)?.license
-    || normalizeLicense(metadata.license || metadata.licenses);
+  const candidateInventoryEntry = licenseInventory.find(item =>
+    item.identity === candidateIdentity);
+  if (!candidateInventoryEntry) {
+    throw new Error('candidate root is missing from license inventory');
+  }
   return {
     packageName,
     version: metadata.version,
-    license: candidateLicense,
+    license: candidateInventoryEntry.license,
     transitiveDependencies: licenseInventory
       .filter(item => item.identity !== candidateIdentity)
       .map(item => item.identity),
@@ -994,8 +1088,16 @@ async function runRealSpike(options) {
       cwd: cloneRoot,
       stage: 'install-exact-engine-version',
     });
-    const licenseInventory = readInstalledLicenseInventory(cloneRoot, options.enginePackage);
-    const candidate = readCandidateMetadata(cloneRoot, options.enginePackage, licenseInventory);
+    const dependencyEvidence = readInstalledLicenseInventory(
+      cloneRoot,
+      options.enginePackage,
+      options.engineVersion,
+    );
+    const licenseInventory = dependencyEvidence.inventory;
+    const candidate = {
+      ...readCandidateMetadata(cloneRoot, options.enginePackage, licenseInventory),
+      dependencyTreeWarnings: dependencyEvidence.warnings,
+    };
     injectProbes(cloneRoot, options.enginePackage);
     runCommand('npm', ['test', '--', '--watchAll=false', '--runTestsByPath', 'src/upload/parseUploadedInput.test.ts'], {
       cwd: cloneRoot,
@@ -1227,6 +1329,7 @@ module.exports = {
   assertOutputInsideRepository,
   assessMemoryTrend,
   buildCapabilityResults,
+  buildCandidateLicenseInventory,
   buildStagePlan,
   classifyRunError,
   createDryRunReport,
@@ -1236,6 +1339,7 @@ module.exports = {
   normalizeLicense,
   parseWorktreeRoots,
   parseArgs,
+  parseInstalledDependencyTreeResult,
   projectFactSatisfies,
   readInstalledLicenseInventory,
   renderMarkdownReport,

@@ -23,6 +23,7 @@ const {
   assertOutputInsideRepository,
   assessMemoryTrend,
   buildCapabilityResults,
+  buildCandidateLicenseInventory,
   buildStagePlan,
   classifyRunError,
   createDryRunReport,
@@ -31,6 +32,7 @@ const {
   findMissingSamples,
   parseWorktreeRoots,
   parseArgs,
+  parseInstalledDependencyTreeResult,
   projectFactSatisfies,
   renderMarkdownReport,
   summarizeRunFailures,
@@ -476,14 +478,302 @@ test('blocks unresolved and rejected transitive licenses', () => {
   ]);
 });
 
+test('accepts unrelated ELSPROBLEMS while preserving the complete candidate subtree', () => {
+  const result = parseInstalledDependencyTreeResult({
+    status: 1,
+    signal: null,
+    error: undefined,
+    stderr: 'npm error code ELSPROBLEMS',
+    stdout: JSON.stringify({
+      problems: [
+        'invalid: unrelated-package@1.0.0 /tmp/@paulirish/trace_engine-sandbox/unrelated',
+      ],
+      dependencies: {
+        '@paulirish/trace_engine': {
+          version: '0.0.65',
+          path: '/tmp/candidate',
+          dependencies: {
+            'third-party-web': {
+              version: '0.29.2',
+              path: '/tmp/third-party-web',
+              dependencies: {
+                nested: { version: '1.0.0', path: '/tmp/nested' },
+              },
+            },
+          },
+        },
+        'unrelated-package': {
+          version: '1.0.0',
+          path: '/tmp/unrelated',
+          invalid: true,
+        },
+      },
+    }),
+  }, '@paulirish/trace_engine', '0.0.65');
+
+  assert.deepStrictEqual(result.warnings, ['UNRELATED_PROJECT_DEPENDENCY_PROBLEMS']);
+  assert.strictEqual(
+    result.candidate.dependencies['third-party-web'].dependencies.nested.version,
+    '1.0.0',
+  );
+  assert.strictEqual(result.candidate.dependencies['unrelated-package'], undefined);
+});
+
+test('rejects nonzero dependency trees without the requested candidate', () => {
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: 1,
+    signal: null,
+    error: undefined,
+    stderr: 'npm error code ELSPROBLEMS',
+    stdout: JSON.stringify({ dependencies: {} }),
+  }, '@paulirish/trace_engine', '0.0.65'), /candidate package is missing/);
+});
+
+test('rejects candidate dependency subtrees with npm problem markers', () => {
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: 1,
+    signal: null,
+    error: undefined,
+    stderr: 'npm error code ELSPROBLEMS',
+    stdout: JSON.stringify({
+      dependencies: {
+        '@paulirish/trace_engine': {
+          version: '0.0.65',
+          path: '/tmp/candidate',
+          dependencies: {
+            broken: {
+              version: '1.0.0',
+              path: '/tmp/broken',
+              missing: true,
+            },
+          },
+        },
+      },
+    }),
+  }, '@paulirish/trace_engine', '0.0.65'), /candidate dependency subtree is invalid/);
+});
+
+test('accepts a normal complete dependency tree and inventories the candidate root', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-license-tree.'));
+  const candidatePath = path.join(root, 'candidate');
+  const dependencyPath = path.join(root, 'dependency');
+  fs.mkdirSync(candidatePath);
+  fs.mkdirSync(dependencyPath);
+  fs.writeFileSync(path.join(candidatePath, 'package.json'), JSON.stringify({
+    name: '@paulirish/trace_engine',
+    version: '0.0.65',
+    license: 'BSD-3-Clause',
+    dependencies: { dependency: '1.0.0' },
+  }));
+  fs.writeFileSync(path.join(dependencyPath, 'package.json'), JSON.stringify({
+    name: 'dependency',
+    version: '1.0.0',
+    license: 'MIT',
+  }));
+  try {
+    const parsed = parseInstalledDependencyTreeResult({
+      status: 0,
+      signal: null,
+      error: undefined,
+      stderr: '',
+      stdout: JSON.stringify({
+        dependencies: {
+          '@paulirish/trace_engine': {
+            version: '0.0.65',
+            path: candidatePath,
+            dependencies: {
+              dependency: { version: '1.0.0', path: dependencyPath },
+            },
+          },
+        },
+      }),
+    }, '@paulirish/trace_engine', '0.0.65');
+    const inventory = buildCandidateLicenseInventory(
+      '@paulirish/trace_engine',
+      parsed.candidate,
+    );
+    assert.deepStrictEqual(inventory, [
+      { identity: '@paulirish/trace_engine@0.0.65', license: 'BSD-3-Clause' },
+      { identity: 'dependency@1.0.0', license: 'MIT' },
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+});
+
+test('accepts a leaf candidate and skips empty peer dependency placeholders', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-peer-placeholder.'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: '@paulirish/trace_engine',
+    version: '0.0.65',
+    license: 'BSD-3-Clause',
+    peerDependencies: { optionalPeer: '^1.0.0' },
+  }));
+  try {
+    const parsed = parseInstalledDependencyTreeResult({
+      status: 0,
+      signal: null,
+      error: undefined,
+      stderr: '',
+      stdout: JSON.stringify({
+        dependencies: {
+          '@paulirish/trace_engine': {
+            version: '0.0.65',
+            path: root,
+            dependencies: { optionalPeer: {} },
+          },
+        },
+      }),
+    }, '@paulirish/trace_engine', '0.0.65');
+    assert.deepStrictEqual(
+      buildCandidateLicenseInventory('@paulirish/trace_engine', parsed.candidate),
+      [{ identity: '@paulirish/trace_engine@0.0.65', license: 'BSD-3-Clause' }],
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+});
+
+test('accepts empty peer placeholders but rejects empty required dependencies', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-peer-tree.'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: '@paulirish/trace_engine',
+    version: '0.0.65',
+    license: 'BSD-3-Clause',
+    peerDependencies: { optionalPeer: '1.0.0' },
+  }));
+  try {
+    const candidate = {
+      version: '0.0.65',
+      path: root,
+      dependencies: { optionalPeer: {} },
+    };
+    const parsed = parseInstalledDependencyTreeResult({
+      status: 1,
+      signal: null,
+      error: undefined,
+      stderr: 'npm error code ELSPROBLEMS',
+      stdout: JSON.stringify({
+        problems: ['missing: unrelated-package'],
+        dependencies: { '@paulirish/trace_engine': candidate },
+      }),
+    }, '@paulirish/trace_engine', '0.0.65');
+    assert.deepStrictEqual(buildCandidateLicenseInventory(
+      '@paulirish/trace_engine',
+      parsed.candidate,
+    ), [
+      { identity: '@paulirish/trace_engine@0.0.65', license: 'BSD-3-Clause' },
+    ]);
+
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+      name: '@paulirish/trace_engine',
+      version: '0.0.65',
+      license: 'BSD-3-Clause',
+      dependencies: { requiredDependency: '1.0.0' },
+    }));
+    expectThrow(() => buildCandidateLicenseInventory(
+      '@paulirish/trace_engine',
+      {
+        version: '0.0.65',
+        path: root,
+        dependencies: { requiredDependency: {} },
+      },
+    ), /candidate dependency subtree is incomplete/);
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+});
+
+test('rejects invalid or truncated dependency tree JSON', () => {
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: 1,
+    signal: null,
+    error: undefined,
+    stderr: 'npm error code ELSPROBLEMS',
+    stdout: '{"dependencies":',
+  }, '@paulirish/trace_engine', '0.0.65'), /dependency tree JSON is invalid/);
+});
+
+test('rejects incomplete filtered trees and process-level failures', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-filtered-tree.'));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: '@paulirish/trace_engine',
+    version: '0.0.65',
+    license: 'BSD-3-Clause',
+    dependencies: { omitted: '1.0.0' },
+  }));
+  try {
+    expectThrow(() => buildCandidateLicenseInventory(
+      '@paulirish/trace_engine',
+      { version: '0.0.65', path: root, dependencies: { omitted: {} } },
+    ), /candidate dependency subtree is incomplete/);
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: null,
+    signal: null,
+    error: Object.assign(new Error('spawn failed'), { code: 'ENOENT' }),
+    stderr: '',
+    stdout: '',
+  }, '@paulirish/trace_engine', '0.0.65'), /dependency tree process failed/);
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: null,
+    signal: null,
+    error: Object.assign(new Error('stdout maxBuffer exceeded'), { code: 'ENOBUFS' }),
+    stderr: '',
+    stdout: '{"dependencies":',
+  }, '@paulirish/trace_engine', '0.0.65'), /dependency tree process failed/);
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: null,
+    signal: 'SIGTERM',
+    error: undefined,
+    stderr: '',
+    stdout: '',
+  }, '@paulirish/trace_engine', '0.0.65'), /dependency tree process failed/);
+  expectThrow(() => parseInstalledDependencyTreeResult({
+    status: 0,
+    signal: null,
+    error: undefined,
+    stderr: '',
+    stdout: JSON.stringify({
+      dependencies: {
+        '@paulirish/trace_engine': {
+          version: '0.0.64',
+          path: '/tmp/candidate',
+          dependencies: {},
+        },
+      },
+    }),
+  }, '@paulirish/trace_engine', '0.0.65'), /candidate version mismatch/);
+});
+
 test('projects consistent JSON and Markdown dry-run reports', () => {
   const report = createDryRunReport();
+  const warningReport = projectReport({
+    ...report,
+    candidate: {
+      ...report.candidate,
+      dependencyTreeWarnings: [
+        'UNRELATED_PROJECT_DEPENDENCY_PROBLEMS',
+        'UNAPPROVED_WARNING',
+      ],
+    },
+  });
   const markdown = renderMarkdownReport(report);
+  const warningMarkdown = renderMarkdownReport(warningReport);
   assert.strictEqual(report.decision.result, 'PASS_RECOMMEND_ENGINE');
   assert(markdown.includes('PASS_RECOMMEND_ENGINE'));
   assert(markdown.includes(report.toolCommitSha));
   assert.deepStrictEqual(scanGeneratedOutput(report), []);
   assert.deepStrictEqual(scanGeneratedOutput(markdown), []);
+  assert.deepStrictEqual(
+    warningReport.candidate.dependencyTreeWarnings,
+    ['UNRELATED_PROJECT_DEPENDENCY_PROBLEMS'],
+  );
+  assert(warningMarkdown.includes('UNRELATED_PROJECT_DEPENDENCY_PROBLEMS'));
+  assert(!warningMarkdown.includes('UNAPPROVED_WARNING'));
   const cleaned = projectReport({
     ...report,
     cleanup: { status: 'removed' },

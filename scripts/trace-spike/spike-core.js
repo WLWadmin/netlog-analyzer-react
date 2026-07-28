@@ -52,6 +52,9 @@ const CAPABILITY_STATUSES = [
   'environment-incompatible',
   'unavailable-optional',
 ];
+const DEPENDENCY_TREE_WARNING_CODES = [
+  'UNRELATED_PROJECT_DEPENDENCY_PROBLEMS',
+];
 
 function assertPlainObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -496,6 +499,8 @@ function projectReport(input) {
       transitiveDependencies: stringList(candidate.transitiveDependencies),
       licenseInventory: stringList(candidate.licenseInventory),
       polyfills: stringList(candidate.polyfills),
+      dependencyTreeWarnings: stringList(candidate.dependencyTreeWarnings)
+        .filter(code => DEPENDENCY_TREE_WARNING_CODES.includes(code)),
     }),
     environment: cleanObject({
       nodeVersion: optionalString(environment.nodeVersion),
