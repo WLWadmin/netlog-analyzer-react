@@ -8,13 +8,19 @@ import {
   SafetyOutlined,
 } from '@ant-design/icons';
 import type { HarRepairResult } from '../../utils/harRepair';
+import type { UploadFileTypeHint } from '../../upload/parseUploadedInput';
+import {
+  isSupportedUploadName,
+  isTraceAnalysisEnabled,
+  traceUploadHint,
+  uploadAccept,
+} from '../../upload/traceUploadFeature';
 
 const { Dragger } = Upload;
 
 const MB = 1024 * 1024;
 const LARGE_FILE_MB = 20;
 const VERY_LARGE_FILE_MB = 50;
-const LARGE_NETLOG_STREAM_MB = 100;
 
 function formatFileSize(size: number): string {
   if (size >= MB) return `${(size / MB).toFixed(1)}MB`;
@@ -26,7 +32,7 @@ interface UploadZoneProps {
     data: unknown,
     isTextLog?: boolean,
     repairInfo?: HarRepairResult,
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => void | Promise<void>;
   /** 紧凑模式：只显示一个小按钮，不显示全屏拖拽区域 */
   compact?: boolean;
@@ -35,6 +41,8 @@ interface UploadZoneProps {
 }
 
 const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, multiple = true }) => {
+  const traceEnabled = isTraceAnalysisEnabled();
+  const accept = uploadAccept();
   const [reading, setReading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [readProgress, setReadProgress] = useState(0);
@@ -63,10 +71,6 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
       reader.onerror = () => reject(new Error('文件读取失败'));
       reader.readAsText(file);
     });
-  };
-
-  const isLargeNetlogFile = (file: File) => {
-    return file.name.toLowerCase().endsWith('.json') && file.size >= LARGE_NETLOG_STREAM_MB * MB;
   };
 
   const parseSingleFile = async (
@@ -105,39 +109,29 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
     setReading(true);
     setReadProgress(0);
 
-    intervalRef.current = setInterval(() => {
-      setReadProgress(prev => {
-        if (prev >= 90) {
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = undefined;
-          }
-          return 90;
-        }
-        return prev + Math.random() * 15;
-      });
-    }, 200);
-
     const fileList: File[] = Array.isArray(file) ? file : [file];
+    const hasTraceCandidate = fileList.some(item => traceUploadHint(item.name));
+    if (!hasTraceCandidate) {
+      intervalRef.current = setInterval(() => {
+        setReadProgress(prev => {
+          if (prev >= 90) {
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = undefined;
+            }
+            return 90;
+          }
+          return prev + Math.random() * 15;
+        });
+      }, 200);
+    }
 
     (async () => {
       try {
         for (const f of fileList) {
-          if (isLargeNetlogFile(f)) {
-            console.info('[netlog-large]', {
-              event: 'upload:large-netlog-detected',
-              fileName: f.name,
-              fileSize: f.size,
-              fileType: f.type,
-            });
-            notification.info({
-              title: '已启用大文件解析模式',
-              description: `「${f.name}」大小为 ${formatFileSize(f.size)}，将完整扫描 NetLog events；当前首屏展示诊断摘要和关键证据样本。`,
-              placement: 'top',
-              duration: 8,
-            });
-            setReadProgress(100);
-            await onFileLoaded(f, false, undefined, 'netlog');
+          const traceHint = traceUploadHint(f.name);
+          if (traceHint) {
+            await onFileLoaded(f, false, undefined, traceHint);
             onSuccess?.('ok');
             continue;
           }
@@ -169,11 +163,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
   };
 
   const beforeUpload = (file: File) => {
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.json') && !lower.endsWith('.har') && !lower.endsWith('.log')) {
+    if (!isSupportedUploadName(file.name)) {
       notification.error({
         title: '文件格式不支持',
-        description: `「${file.name}」无法解析。请上传 .json (NetLog)、.har 或 .log 文件。`,
+        description: traceEnabled
+          ? `「${file.name}」无法解析。请上传 Trace、NetLog、HAR 或 .log 文件。`
+          : `「${file.name}」无法解析。请上传 .json (NetLog)、.har 或 .log 文件。`,
         placement: 'top',
         duration: 4,
         style: {
@@ -188,10 +183,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
     const fileSizeMb = file.size / MB;
     if (fileSizeMb >= VERY_LARGE_FILE_MB) {
       notification.warning({
-        title: isLargeNetlogFile(file) ? '大文件将使用流式解析' : '文件较大，解析可能较慢',
-        description: isLargeNetlogFile(file)
-          ? `「${file.name}」大小为 ${formatFileSize(file.size)}，将启用大文件模式，不保留完整原始 JSON。`
-          : `「${file.name}」大小为 ${formatFileSize(file.size)}，解析期间页面可能短暂无响应，请耐心等待。`,
+        title: '文件较大，将在 Worker 中解析',
+        description: `「${file.name}」大小为 ${formatFileSize(file.size)}，解析将在浏览器本地 Worker 中进行。`,
         placement: 'top',
         duration: 6,
       });
@@ -240,7 +233,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
       <Upload
         customRequest={customRequest}
         beforeUpload={beforeUpload}
-        accept=".json,.har,.log"
+        accept={accept}
         showUploadList={false}
         disabled={reading}
         multiple={multiple}
@@ -257,7 +250,11 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
             boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)',
           }}
         >
-          {reading ? '读取中...' : '上传 NetLog / HAR 文件'}
+          {reading
+            ? '读取中...'
+            : traceEnabled
+              ? '上传 Trace / NetLog / HAR 文件'
+              : '上传 NetLog / HAR 文件'}
         </Button>
       </Upload>
     );
@@ -350,7 +347,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
       <Dragger
         customRequest={customRequest}
         beforeUpload={beforeUpload}
-        accept=".json,.har,.log"
+        accept={accept}
         showUploadList={false}
         disabled={reading}
         multiple={multiple}
@@ -407,6 +404,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFileLoaded, compact = false, 
             <br />
             支持浏览器 DevTools → Network → 导出的 .har 文件
             <br />
+            {traceEnabled && (
+              <>
+                支持 DevTools → Performance 导出的 .trace、.json2 和 gzip Trace
+                <br />
+              </>
+            )}
             支持 Go 服务日志 .log 文件（上传后自动识别类型）
           </p>
           <p style={{ color: '#6366f1', fontSize: 13, marginBottom: 24, lineHeight: 1.6, fontWeight: 500 }}>

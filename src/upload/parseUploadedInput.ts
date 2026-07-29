@@ -12,10 +12,23 @@ import {
   unavailableNetlogDatasetState,
   type NetlogDatasetState,
 } from '../workers/netlogDatasetTypes';
+import type { TraceContextResult, TraceTaskProgress } from '../parsers/trace/types';
+import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
+import { isTraceAnalysisEnabled } from './traceUploadFeature';
 
 const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
-export type UploadFileTypeHint = 'netlog' | 'har' | 'log';
+function readKnownNonTraceText(file: File): Promise<string> {
+  if (typeof file.text === 'function') return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsText(file);
+  });
+}
+
+export type UploadFileTypeHint = 'netlog' | 'har' | 'log' | 'trace' | 'json-auto';
 
 function isSingleScanDatasetEnabled(): boolean {
   if (process.env.REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET === '1') return true;
@@ -51,6 +64,10 @@ export type UploadedParseResult =
   | {
       kind: 'log';
       result: LogAnalysisResult;
+    }
+  | {
+      kind: 'trace';
+      result: TraceContextResult;
     };
 
 export async function parseUploadedInput(options: {
@@ -61,7 +78,16 @@ export async function parseUploadedInput(options: {
   useWorker: boolean;
   onProgress?: (phase: string) => void;
 }): Promise<UploadedParseResult> {
-  const { data, isTextLog = false, repairInfo, fileTypeHint, useWorker, onProgress } = options;
+  cancelActiveTraceWorkerTask();
+  const {
+    data,
+    isTextLog = false,
+    repairInfo,
+    fileTypeHint: initialFileTypeHint,
+    useWorker,
+    onProgress,
+  } = options;
+  let fileTypeHint = initialFileTypeHint;
 
   if (fileTypeHint === 'log' || isTextLog) {
     if (typeof data !== 'string') {
@@ -72,6 +98,70 @@ export async function parseUploadedInput(options: {
       return { kind: 'log', result };
     }
     return { kind: 'log', result: parseLogFile(data) };
+  }
+
+  if (fileTypeHint === 'trace' || fileTypeHint === 'json-auto') {
+    if (!isTraceAnalysisEnabled()) {
+      throw new Error('Trace 分析功能尚未启用');
+    }
+    if (typeof File === 'undefined' || !(data instanceof File)) {
+      throw new Error('Trace 上传必须以 File 交给专用 Worker');
+    }
+    if (!useWorker) {
+      throw new Error('当前浏览器不支持 Worker，无法安全解析 Trace');
+    }
+    const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
+    const task = inspectTraceUploadInWorker(data, {
+      hint: fileTypeHint,
+      onProgress: (progress: TraceTaskProgress) => onProgress?.(progress.phase),
+    });
+    const outcome = await task.promise;
+    if (outcome.kind === 'trace') {
+      return { kind: 'trace', result: outcome.result };
+    }
+    if (outcome.kind === 'large-json-fallback') {
+      fileTypeHint = 'netlog';
+    } else {
+      if (outcome.encoding !== 'plain-json') {
+        throw new Error('当前不支持 gzip 压缩的 HAR 或 NetLog');
+      }
+      if (outcome.source === 'har') {
+        const text = await readKnownNonTraceText(data);
+        if (useWorker) {
+          const { result, rawData, rawDataId } = await parseHarInWorker(text, repairInfo, { onProgress });
+          return { kind: 'har', result, rawData, rawDataId };
+        }
+        const parsedData: unknown = JSON.parse(text);
+        const result = parseHar(parsedData);
+        if (repairInfo) result.repairInfo = repairInfo;
+        return { kind: 'har', result, rawData: parsedData };
+      }
+      if (data.size >= LARGE_NETLOG_STREAM_BYTES) {
+        fileTypeHint = 'netlog';
+      } else {
+        const text = await readKnownNonTraceText(data);
+        if (useWorker) {
+          const { events, result, rawData, rawDataId } = await parseNetlogInWorker(text, { onProgress });
+          return {
+            kind: 'netlog',
+            result,
+            events,
+            rawData,
+            rawDataId,
+            dataset: unavailableNetlogDatasetState,
+          };
+        }
+        const parsedData: unknown = JSON.parse(text);
+        const { events, result } = parseLog(parsedData);
+        return {
+          kind: 'netlog',
+          result,
+          events,
+          rawData: parsedData,
+          dataset: unavailableNetlogDatasetState,
+        };
+      }
+    }
   }
 
   const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));

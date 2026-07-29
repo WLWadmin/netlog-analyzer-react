@@ -1,0 +1,8 @@
+{
+  "traceEvents": [
+    { "name": "FrameCommittedInBrowser", "ts": 0, "args": { "data": { "frame": "frame-a", "parent": "frame-b", "processId": 10 } } },
+    { "name": "FrameCommittedInBrowser", "ts": 1, "args": { "data": { "frame": "frame-b", "parent": "frame-a", "processId": 10 } } },
+    { "name": "navigationStart", "ts": 10, "args": { "data": { "frame": "frame-a" } } },
+    { "name": "capture-end", "ts": 100 }
+  ]
+}

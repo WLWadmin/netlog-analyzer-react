@@ -41,10 +41,14 @@ import {
   releaseRawDataInWorker,
 } from './workers/workerClient';
 import { unavailableNetlogDatasetState, type NetlogDatasetState } from './workers/netlogDatasetTypes';
-import { parseUploadedInput } from './upload/parseUploadedInput';
+import {
+  parseUploadedInput,
+  type UploadFileTypeHint,
+} from './upload/parseUploadedInput';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
+import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 import SummaryCards from './components/netlog/SummaryCards';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
 import ConclusionActionTab from './components/netlog/ConclusionActionTab';
@@ -187,7 +191,7 @@ const AppContent: React.FC = () => {
   }, []);
 
   const loadTaskIdRef = useRef(0);
-  const activeLoadCountRef = useRef(0);
+  const mountedRef = useRef(true);
   const useWorker = isWorkerSupported();
 
   useEffect(() => {
@@ -321,7 +325,11 @@ const AppContent: React.FC = () => {
   }, [logUploadFlow, releaseDatasetAnalysisId]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      loadTaskIdRef.current += 1;
+      cancelActiveTraceWorkerTask();
       if (isWorkerSupported()) {
         void releaseRawDataInWorker({ all: true }).catch(() => {
           // 页面卸载时释放失败不阻塞浏览器关闭流程
@@ -333,21 +341,21 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  const finishLoad = () => {
-    activeLoadCountRef.current = Math.max(0, activeLoadCountRef.current - 1);
-    if (activeLoadCountRef.current === 0) {
-      setLoading(false);
-    }
+  const isActiveLoad = (taskId: number) => (
+    mountedRef.current && taskId === loadTaskIdRef.current
+  );
+
+  const finishLoad = (taskId: number) => {
+    if (isActiveLoad(taskId)) setLoading(false);
   };
 
   const handleFileLoaded = async (
     data: unknown,
     isTextLog = false,
     repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => {
     const taskId = ++loadTaskIdRef.current;
-    activeLoadCountRef.current += 1;
     setLoading(true);
     setLoadingText('正在识别文件类型...');
     setIpRoutingConclusions([]);
@@ -367,33 +375,37 @@ const AppContent: React.FC = () => {
         repairInfo,
         fileTypeHint,
         useWorker,
-        onProgress: (phase) => setLoadingText(phase),
+        onProgress: (phase) => {
+          if (isActiveLoad(taskId)) setLoadingText(phase);
+        },
       });
 
-      if (parsed.kind === 'log') {
-        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-          finishLoad();
-          return;
+      if (!isActiveLoad(taskId)) {
+        if ('rawDataId' in parsed && useWorker && parsed.rawDataId) {
+          releaseRawDataId(parsed.rawDataId);
         }
+        return;
+      }
+
+      if (parsed.kind === 'trace') {
+        finishLoad(taskId);
+        message.success('Trace 格式与容量校验通过，诊断能力建设中');
+        return;
+      }
+
+      if (parsed.kind === 'log') {
         setLogResult(parsed.result);
         setFileType('log');
         setActiveTab('overview');
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('log', 'overview');
         setHasData(true);
-        finishLoad();
+        finishLoad(taskId);
         message.success(`成功解析 ${parsed.result.stats.total} 条日志记录`);
         return;
       }
 
       if (parsed.kind === 'har') {
-        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-          if (useWorker && parsed.rawDataId) {
-            releaseRawDataId(parsed.rawDataId);
-          }
-          finishLoad();
-          return;
-        }
         setHarResult(parsed.result);
         harResultRef.current = parsed.result;
         const previousHarRawDataId = rawDataIdByTypeRef.current.har;
@@ -408,7 +420,7 @@ const AppContent: React.FC = () => {
           setActiveSubTab(undefined);
           window.location.hash = buildAppHash('netlog', 'conclusion');
           setHasData(true);
-          finishLoad();
+          finishLoad(taskId);
           message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求，已启用联合诊断`);
           return;
         }
@@ -418,18 +430,11 @@ const AppContent: React.FC = () => {
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('har', 'summary');
         setHasData(true);
-        finishLoad();
+        finishLoad(taskId);
         message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求`);
         return;
       }
 
-      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-        if (useWorker && parsed.rawDataId) {
-          releaseRawDataId(parsed.rawDataId);
-        }
-        finishLoad();
-        return;
-      }
       if (data instanceof File && parsed.dataset?.status === 'fallback') {
         const summaryReadyAt = nowMs();
         uploadFlowRef.current.summaryReadyAt = summaryReadyAt;
@@ -489,7 +494,7 @@ const AppContent: React.FC = () => {
         setActiveSubTab(undefined);
         window.location.hash = buildAppHash('netlog', 'conclusion');
         setHasData(true);
-        finishLoad();
+        finishLoad(taskId);
         message.success(`成功解析 ${parsed.events.length} 个事件，已启用联合诊断`);
         return;
       }
@@ -499,14 +504,20 @@ const AppContent: React.FC = () => {
       setActiveSubTab(undefined);
       window.location.hash = buildAppHash('netlog', 'conclusion');
       setHasData(true);
-      finishLoad();
+      finishLoad(taskId);
       message.success(`成功解析 ${parsed.events.length} 个事件`);
     } catch (err) {
-      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-        finishLoad();
-        return;
-      }
-      finishLoad();
+      if (!isActiveLoad(taskId)) return;
+      finishLoad(taskId);
+      if (
+        err !== null
+        && typeof err === 'object'
+        && 'detail' in err
+        && err.detail !== null
+        && typeof err.detail === 'object'
+        && 'code' in err.detail
+        && err.detail.code === 'TRACE_CANCELLED'
+      ) return;
       message.error('解析失败: ' + (err as Error).message);
     }
   };
@@ -516,9 +527,9 @@ const AppContent: React.FC = () => {
     data: unknown,
     isTextLog = false,
     repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => {
-    activeLoadCountRef.current += 1;
+    const taskId = ++loadTaskIdRef.current;
     setLoading(true);
     setLoadingText('正在解析追加文件...');
     if (data instanceof File && fileTypeHint === 'netlog') {
@@ -533,7 +544,7 @@ const AppContent: React.FC = () => {
     try {
       if ((isTextLog || fileTypeHint === 'log') && typeof data === 'string') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-        finishLoad();
+        finishLoad(taskId);
         return;
       }
 
@@ -543,12 +554,27 @@ const AppContent: React.FC = () => {
         repairInfo,
         fileTypeHint,
         useWorker,
-        onProgress: (phase) => setLoadingText(phase),
+        onProgress: (phase) => {
+          if (isActiveLoad(taskId)) setLoadingText(phase);
+        },
       });
+
+      if (!isActiveLoad(taskId)) {
+        if ('rawDataId' in parsed && useWorker && parsed.rawDataId) {
+          releaseRawDataId(parsed.rawDataId);
+        }
+        return;
+      }
 
       if (parsed.kind === 'log') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-        finishLoad();
+        finishLoad(taskId);
+        return;
+      }
+
+      if (parsed.kind === 'trace') {
+        message.warning('Trace 当前不参与 HAR/NetLog 联合诊断');
+        finishLoad(taskId);
         return;
       }
 
@@ -576,7 +602,7 @@ const AppContent: React.FC = () => {
         }
 
         setHasData(true);
-        finishLoad();
+        finishLoad(taskId);
         return;
       }
 
@@ -648,14 +674,26 @@ const AppContent: React.FC = () => {
       }
 
       setHasData(true);
-      finishLoad();
+      finishLoad(taskId);
     } catch (err) {
-      finishLoad();
+      if (!isActiveLoad(taskId)) return;
+      finishLoad(taskId);
+      if (
+        err !== null
+        && typeof err === 'object'
+        && 'detail' in err
+        && err.detail !== null
+        && typeof err.detail === 'object'
+        && 'code' in err.detail
+        && err.detail.code === 'TRACE_CANCELLED'
+      ) return;
       message.error('追加文件解析失败: ' + (err as Error).message);
     }
   };
 
   const handleReset = () => {
+    loadTaskIdRef.current += 1;
+    cancelActiveTraceWorkerTask();
     setHasData(false);
     setEvents([]);
     setResult(null);
@@ -671,7 +709,7 @@ const AppContent: React.FC = () => {
       void releaseRawDataInWorker({ all: true });
       void releaseNetlogDatasetInWorker({ all: true });
     }
-    activeLoadCountRef.current = 0;
+    setLoading(false);
     resultRef.current = null;
     harResultRef.current = null;
     setFileType('netlog');

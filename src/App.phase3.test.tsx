@@ -5,6 +5,8 @@ import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
 import { importNetlogDatasetInWorker, isWorkerSupported, largeNetlogTimeout, releaseNetlogDatasetInWorker, releaseRawDataInWorker } from './workers/workerClient';
 import { exportReport } from './parsers/netlog';
+import { message } from 'antd';
+import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -54,14 +56,19 @@ jest.mock('./workers/workerClient', () => ({
   releaseRawDataInWorker: jest.fn(),
 }));
 
+jest.mock('./workers/traceWorkerRegistry', () => ({
+  cancelActiveTraceWorkerTask: jest.fn(),
+}));
+
 jest.mock('./components/netlog/UploadZone', () => ({
   __esModule: true,
-  default: ({ onFileLoaded, compact }: { onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void; compact?: boolean }) => (
+  default: ({ onFileLoaded, compact }: { onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log' | 'trace' | 'json-auto') => void; compact?: boolean }) => (
     <div>
       <button onClick={() => onFileLoaded({ events: [] }, false, undefined, 'netlog')}>{compact ? '追加 NetLog' : '上传 NetLog'}</button>
       <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'large-netlog.json', { type: 'application/json' }), false, undefined, 'netlog')}>上传大 NetLog 文件</button>
       <button onClick={() => onFileLoaded({ log: { entries: [] } }, false, undefined, 'har')}>{compact ? '追加 HAR' : '上传 HAR'}</button>
       <button onClick={() => onFileLoaded('[worker] Success GET:https://example.com +10ms', true, undefined, 'log')}>上传 Log</button>
+      <button onClick={() => onFileLoaded(new File(['{}'], 'sample.trace'), false, undefined, 'trace')}>{compact ? '追加 Trace' : '上传 Trace'}</button>
     </div>
   ),
 }));
@@ -113,6 +120,7 @@ const importNetlogDatasetInWorkerMock = importNetlogDatasetInWorker as jest.Mock
 const releaseNetlogDatasetInWorkerMock = releaseNetlogDatasetInWorker as jest.Mock;
 const releaseRawDataInWorkerMock = releaseRawDataInWorker as jest.Mock;
 const exportReportMock = exportReport as jest.Mock;
+const cancelActiveTraceWorkerTaskMock = cancelActiveTraceWorkerTask as jest.Mock;
 
 describe('App Phase 3 upload behavior', () => {
   let consoleInfoSpy: jest.SpyInstance;
@@ -132,6 +140,7 @@ describe('App Phase 3 upload behavior', () => {
     releaseNetlogDatasetInWorkerMock.mockResolvedValue({ released: true });
     exportReportMock.mockClear();
     exportReportMock.mockReturnValue('# mock report');
+    cancelActiveTraceWorkerTaskMock.mockClear();
     URL.createObjectURL = jest.fn(() => 'blob:mock');
     URL.revokeObjectURL = jest.fn();
   });
@@ -188,6 +197,151 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('上传 Log'));
 
     await waitFor(() => expect(window.location.hash).toBe('#log/overview'));
+  });
+
+  it('Trace 首次上传只提示 intake 通过且不进入 NetLog 页面', async () => {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'trace',
+      result: {
+        format: 'chromium-trace-object',
+        encoding: 'plain-json',
+        jsonBytes: 20,
+        eventCount: 1,
+        availableFamilies: [],
+        warnings: [],
+      },
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 Trace'));
+
+    await waitFor(() => expect(message.success).toHaveBeenCalledWith(
+      'Trace 格式与容量校验通过，诊断能力建设中',
+    ));
+    expect(window.location.hash).toBe('');
+    expect(screen.queryByText('ConclusionActionTab')).toBeNull();
+  });
+
+  it('StrictMode effect 预清理后 Trace 结果仍能正常 settle', async () => {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'trace',
+      result: {
+        format: 'chromium-trace-object',
+        encoding: 'plain-json',
+        jsonBytes: 20,
+        eventCount: 1,
+        availableFamilies: [],
+        warnings: [],
+      },
+    });
+
+    render(<React.StrictMode><App /></React.StrictMode>);
+    await userEvent.click(screen.getByText('上传 Trace'));
+
+    await waitFor(() => expect(message.success).toHaveBeenCalledWith(
+      'Trace 格式与容量校验通过，诊断能力建设中',
+    ));
+  });
+
+  it('追加 Trace 明确提示不参与 HAR/NetLog 联合诊断', async () => {
+    parseUploadedInputMock
+      .mockResolvedValueOnce({
+        kind: 'har',
+        result: { totalRequests: 1, entries: [] },
+      })
+      .mockResolvedValueOnce({
+        kind: 'trace',
+        result: {
+          format: 'chromium-trace-object',
+          encoding: 'plain-json',
+          jsonBytes: 20,
+          eventCount: 1,
+          availableFamilies: [],
+          warnings: [],
+        },
+      });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 HAR'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+    await userEvent.click(screen.getByText('追加 Trace'));
+
+    await waitFor(() => expect(message.warning).toHaveBeenCalledWith(
+      'Trace 当前不参与 HAR/NetLog 联合诊断',
+    ));
+    expect(window.location.hash).toBe('#har/summary');
+  });
+
+  it('Trace 取消是正常控制流且不显示解析失败', async () => {
+    parseUploadedInputMock.mockRejectedValue({
+      detail: { code: 'TRACE_CANCELLED' },
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 Trace'));
+
+    await waitFor(() => expect(parseUploadedInputMock).toHaveBeenCalled());
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it('新上传使旧 Trace 的 progress、success 和 error 全部失效', async () => {
+    let resolveTrace!: (value: unknown) => void;
+    let traceProgress!: (phase: string) => void;
+    parseUploadedInputMock
+      .mockImplementationOnce((options: { onProgress?: (phase: string) => void }) => {
+        traceProgress = options.onProgress!;
+        return new Promise(resolve => {
+          resolveTrace = resolve;
+        });
+      })
+      .mockResolvedValueOnce({
+        kind: 'har',
+        result: { totalRequests: 1, entries: [] },
+      });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 Trace'));
+    await userEvent.click(screen.getByText('上传 HAR'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+
+    traceProgress('旧 Trace 进度');
+    resolveTrace({
+      kind: 'trace',
+      result: {
+        format: 'chromium-trace-object',
+        encoding: 'plain-json',
+        jsonBytes: 20,
+        eventCount: 1,
+        availableFamilies: [],
+        warnings: [],
+      },
+    });
+    await Promise.resolve();
+
+    expect(window.location.hash).toBe('#har/summary');
+    expect(message.success).not.toHaveBeenCalledWith(
+      'Trace 格式与容量校验通过，诊断能力建设中',
+    );
+  });
+
+  it('reset 和 unmount 都取消活动 Trace Worker', async () => {
+    parseUploadedInputMock
+      .mockResolvedValueOnce({
+        kind: 'har',
+        result: { totalRequests: 1, entries: [] },
+      })
+      .mockImplementationOnce(() => new Promise(() => undefined));
+
+    const view = render(<App />);
+    await userEvent.click(screen.getByText('上传 HAR'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+    await userEvent.click(screen.getByText('追加 Trace'));
+    await userEvent.click(screen.getByText('重新上传'));
+    expect(cancelActiveTraceWorkerTaskMock).toHaveBeenCalled();
+
+    cancelActiveTraceWorkerTaskMock.mockClear();
+    view.unmount();
+    expect(cancelActiveTraceWorkerTaskMock).toHaveBeenCalledTimes(1);
   });
 
   it('先 NetLog 后追加 HAR，仍停留 NetLog 结论入口', async () => {

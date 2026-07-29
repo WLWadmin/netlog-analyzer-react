@@ -1,0 +1,13 @@
+{
+  "traceEvents": [
+    { "ph": "M", "name": "thread_name", "pid": 10, "tid": 101, "args": { "name": "CrRendererMain" } },
+    { "ph": "M", "name": "thread_name", "pid": 20, "tid": 201, "args": { "name": "CrRendererMain" } },
+    { "name": "TracingStartedInBrowser", "ts": 0, "args": { "data": { "frames": [
+      { "frame": "root", "processId": 10, "isOutermostMainFrame": true },
+      { "frame": "child", "parent": "root", "processId": 20 }
+    ] } } },
+    { "name": "navigationStart", "ts": 10, "args": { "data": { "frame": "root", "navigationId": "nav-root" } } },
+    { "name": "navigationStart", "ts": 20, "args": { "data": { "frame": "child", "navigationId": "nav-child" } } },
+    { "name": "capture-end", "ts": 100 }
+  ]
+}
