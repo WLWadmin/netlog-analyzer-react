@@ -24,6 +24,11 @@ const {
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const APPROVED_TEMP_ROOT = '/private/tmp';
 const TEMP_PREFIX = path.join(APPROVED_TEMP_ROOT, 'netlog-trace-spike.');
+const GLOBAL_ENVIRONMENT_FAILURE_CODES = {
+  'ordinary-jest-isolation-check': 'ORDINARY_JEST_ISOLATION_FAILED',
+  'jest-contract-probe': 'JEST_CONTRACT_PROBE_INCOMPATIBLE',
+  'cra-production-build': 'CRA_PRODUCTION_BUILD_INCOMPATIBLE',
+};
 
 function parseArgs(argv) {
   const result = {
@@ -217,6 +222,7 @@ function runCommand(command, args, options = {}) {
   if (result.status !== 0) {
     const error = new Error(`${options.stage || command} failed`);
     error.code = options.errorCode || 'TRACE_SPIKE_COMMAND_FAILED';
+    error.stage = options.stage || command;
     error.stdout = result.stdout;
     error.stderr = result.stderr;
     throw error;
@@ -1057,6 +1063,73 @@ function writeReports(report, outputDirectory) {
   return projected;
 }
 
+function createGlobalEnvironmentFailureReport({
+  candidate,
+  cloneRoot,
+  failureCode,
+  manifest,
+  options,
+  prdPath,
+}) {
+  const capabilities = {
+    'cra-jest-compatibility': {
+      status: 'environment-incompatible',
+      positiveSamples: [],
+      reasonCode: failureCode,
+    },
+  };
+  return {
+    schemaVersion: 1,
+    prd: {
+      documentId: 'chromium-performance-trace-diagnosis-prd-and-design',
+      date: '2026-07-28',
+      sha256: sha256(fs.readFileSync(prdPath)),
+    },
+    branch: 'feat-trace-file-parsing-R51YeU',
+    baselineCommitSha: runCommand('git', ['rev-parse', `${options.toolCommitSha}^`], {
+      cwd: cloneRoot,
+      stage: 'read-baseline-commit',
+    }).stdout.trim(),
+    toolCommitSha: options.toolCommitSha,
+    candidate,
+    environment: {
+      nodeVersion: process.version,
+      npmVersion: runCommand('npm', ['--version'], { cwd: cloneRoot }).stdout.trim(),
+      osPlatform: process.platform,
+      osReleaseMajor: os.release().split('.')[0],
+    },
+    samples: manifest.samples.map(sample => ({
+      id: sample.id,
+      expectedEventFamilies: sample.expectedEventFamilies,
+      positiveCapabilities: sample.positiveCapabilities,
+      capacityRole: sample.capacityRole,
+      compressedBytes: sample.compressedBytes,
+      status: 'not-run-global-environment-failure',
+      runFailures: [],
+    })),
+    capabilities,
+    stability: [],
+    capacity: {
+      validatedMaxJsonBytes: 0,
+      memoryTrend: 'not-run-global-environment-failure',
+      timeoutCount: 0,
+      crashCount: 0,
+      engineErrorCount: 0,
+      workerErrorCount: 0,
+    },
+    privacy: {
+      allowlistProjectionPassed: true,
+      generatedOutputScanPassed: true,
+      toolStaticCheckPassed: true,
+      failureCodes: [],
+    },
+    decision: decideSpike({
+      capabilities,
+      environmentFailures: [failureCode],
+    }),
+  };
+}
+
 async function runRealSpike(options) {
   const worktreeRoots = validateRealRunArgs(options);
   checkToolSources();
@@ -1071,12 +1144,14 @@ async function runRealSpike(options) {
   const tempDirectory = fs.mkdtempSync(TEMP_PREFIX);
   let cleanupWarning;
   let report;
+  let candidate;
+  let cloneRoot;
   try {
     validateCleanupTarget(tempDirectory, {
       approvedRoot: APPROVED_TEMP_ROOT,
       repositoryRoots: worktreeRoots,
     });
-    const cloneRoot = path.join(tempDirectory, 'project');
+    cloneRoot = path.join(tempDirectory, 'project');
     runCommand('git', ['clone', '--no-checkout', PROJECT_ROOT, cloneRoot], {
       stage: 'clone-tool-commit',
     });
@@ -1094,7 +1169,7 @@ async function runRealSpike(options) {
       options.engineVersion,
     );
     const licenseInventory = dependencyEvidence.inventory;
-    const candidate = {
+    candidate = {
       ...readCandidateMetadata(cloneRoot, options.enginePackage, licenseInventory),
       dependencyTreeWarnings: dependencyEvidence.warnings,
     };
@@ -1104,12 +1179,12 @@ async function runRealSpike(options) {
       env: { ...process.env, CI: 'true' },
       stage: 'ordinary-jest-isolation-check',
     });
+    runCommand('npm', ['run', 'build'], { cwd: cloneRoot, stage: 'cra-production-build' });
     runCommand('npm', ['test', '--', '--watchAll=false', '--runTestsByPath', 'src/trace-spike-probe/trace-engine-jest.probe.test.ts'], {
       cwd: cloneRoot,
       env: { ...process.env, CI: 'true' },
       stage: 'jest-contract-probe',
     });
-    runCommand('npm', ['run', 'build'], { cwd: cloneRoot, stage: 'cra-production-build' });
     const chromium = findChromium();
     const sampleRuns = new Map();
     const runFailures = new Map();
@@ -1290,6 +1365,17 @@ async function runRealSpike(options) {
       },
       decision,
     };
+  } catch (error) {
+    const failureCode = GLOBAL_ENVIRONMENT_FAILURE_CODES[error.stage];
+    if (!failureCode || !candidate || !cloneRoot) throw error;
+    report = createGlobalEnvironmentFailureReport({
+      candidate,
+      cloneRoot,
+      failureCode,
+      manifest,
+      options,
+      prdPath,
+    });
   } finally {
     try {
       removeValidatedTempDirectory(tempDirectory, {

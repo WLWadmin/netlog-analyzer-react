@@ -275,6 +275,21 @@ test('selects PASS, FAIL, and BLOCKED using required capability semantics', () =
   });
   assert.strictEqual(missingEvidenceWins.result, 'BLOCKED_NEEDS_EVIDENCE');
 
+  const environmentFailure = decideSpike({
+    capabilities: {
+      'cra-jest-compatibility': {
+        status: 'environment-incompatible',
+        positiveSamples: [],
+      },
+    },
+    environmentFailures: ['CRA_PRODUCTION_BUILD_INCOMPATIBLE'],
+  });
+  assert.strictEqual(environmentFailure.result, 'FAIL_USE_MINIMAL_AGGREGATOR');
+  assert.deepStrictEqual(
+    environmentFailure.environmentFailures,
+    ['CRA_PRODUCTION_BUILD_INCOMPATIBLE'],
+  );
+
   const passWithoutCapacity = decideSpike({ capabilities: validCapabilities() });
   assert.strictEqual(passWithoutCapacity.result, 'BLOCKED_NEEDS_EVIDENCE');
 

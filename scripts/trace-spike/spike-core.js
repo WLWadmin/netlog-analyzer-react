@@ -378,6 +378,14 @@ function decideSpike(input) {
     return status === 'engine-missing' || status === 'environment-incompatible';
   });
 
+  if (environmentFailures.length > 0) {
+    return {
+      result: 'FAIL_USE_MINIMAL_AGGREGATOR',
+      blockingCapabilityGaps,
+      environmentFailures,
+    };
+  }
+
   if (
     missingSamples.length > 0
     || unresolvedLicenses.length > 0
@@ -393,7 +401,7 @@ function decideSpike(input) {
     };
   }
 
-  if (environmentFailures.length > 0 || blockingCapabilityGaps.length > 0) {
+  if (blockingCapabilityGaps.length > 0) {
     return {
       result: 'FAIL_USE_MINIMAL_AGGREGATOR',
       blockingCapabilityGaps,
