@@ -30,7 +30,7 @@ function getFirstFieldPath(card: DiagnosticCard): string | undefined {
 }
 
 function guessFileTypeForCard(card: DiagnosticCard): 'har' | 'netlog' {
-  // 注意：联合诊断的 relatedRequestIds 当前指向 HAR entry.id，因此默认回 HAR
+  // 联合诊断的 relatedRequestIds 指向 HAR entry.id，因此保持既有 HAR 跳转合同。
   if (card.source === 'har' || card.source === 'combined') return 'har';
   return 'netlog';
 }
@@ -38,7 +38,6 @@ function guessFileTypeForCard(card: DiagnosticCard): 'har' | 'netlog' {
 function guessFileTypeForTab(card: DiagnosticCard, tab: string): 'har' | 'netlog' {
   if (tab === 'events') return 'netlog';
   if (tab === 'raw-evidence') return guessFileTypeForCard(card);
-  // requests/performance/diagnosis/combined/overview 等
   return guessFileTypeForCard(card);
 }
 
@@ -116,9 +115,9 @@ export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNa
   // 4) Raw evidence：优先使用 evidence.fieldPath（只取首个，避免按钮爆炸）
   const fieldPath = getFirstFieldPath(card);
   if (fieldPath) {
-    // 尝试使用 evidence.originalSource（联合诊断时更精确）；否则按 card.source 推断
     const ev = (card.evidence || []).find(e => e.fieldPath && e.fieldPath.trim());
-    const fileType = (ev?.originalSource || (card.source === 'netlog' ? 'netlog' : 'har')) as 'har' | 'netlog';
+    const fileType = (ev?.originalSource
+      || (card.source === 'netlog' ? 'netlog' : 'har')) as 'har' | 'netlog';
     targets.push({
       kind: 'raw-evidence',
       label: fileType === 'har' ? '查看 HAR 原始字段' : '查看 NetLog 原始字段',
@@ -140,10 +139,10 @@ export function buildEvidenceNavigationTargets(card: DiagnosticCard): EvidenceNa
     const f = t.intent.filters || {};
     return [
       t.kind,
-      String((f as any).requestId ?? ''),
-      String((f as any).sourceId ?? ''),
-      String((f as any).keyword ?? ''),
-      String((f as any).paramField ?? ''),
+      String(f.requestId ?? ''),
+      String(f.sourceId ?? ''),
+      String(f.keyword ?? ''),
+      String(f.paramField ?? ''),
     ].join('|');
   });
 }

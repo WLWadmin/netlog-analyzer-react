@@ -54,7 +54,7 @@ import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
 import type { ParserMode } from './components/upload/ParserModeSelect';
 import type { FileParserId } from './upload/fileFormatTypes';
-import type { TraceContextResult } from './parsers/trace/types';
+import type { TraceAnalysisResult } from './diagnosis/trace';
 import {
   createExecutableFileFormatRegistry,
   createFileParseInput,
@@ -69,7 +69,7 @@ import NetlogWorkbenchNav from './components/netlog/NetlogWorkbenchNav';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
-import { buildAppHash, parseAppHash, type FileType } from './utils/hashRouting';
+import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
 
@@ -125,7 +125,7 @@ const VALID_TABS: Record<string, string[]> = {
   netlog: ['conclusion', 'requests', 'evidence', 'expert', 'raw'],
   har: ['requests', 'summary', 'raw-evidence'],
   log: ['overview', 'flows', 'performance', 'raw'],
-  trace: ['overview'],
+  trace: [...TRACE_TABS],
 };
 
 /** 内部组件：可以使用 useNavigation 监听 tab 切换 */
@@ -135,7 +135,7 @@ const AppContent: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
-  const [traceResult, setTraceResult] = useState<TraceContextResult | null>(null);
+  const [traceResult, setTraceResult] = useState<TraceAnalysisResult | null>(null);
   const [rawUploadDataByType, setRawUploadDataByType] = useState<{ har?: unknown; netlog?: unknown; log?: unknown }>({});
   const [rawDataIdByType, setRawDataIdByType] = useState<{ har?: string; netlog?: string }>({});
   const [netlogDataset, setNetlogDataset] = useState<NetlogDatasetState>(unavailableNetlogDatasetState);
@@ -150,7 +150,13 @@ const AppContent: React.FC = () => {
   const [ipRoutingConclusions, setIpRoutingConclusions] = useState<IpRoutingConclusion[]>([]);
   const [parserMode, setParserMode] = useState<ParserMode>('recommend');
   const { mode, toggleTheme } = useTheme();
-  const { intent, navigateTo } = useNavigation();
+  const { intent, navigateTo, consumeIntent } = useNavigation();
+
+  const invalidateTraceSession = useCallback(() => {
+    cancelActiveTraceWorkerTask();
+    setTraceResult(null);
+    consumeIntent();
+  }, [consumeIntent]);
 
   // Ref 用于避免连续多文件上传时的 state 异步判断问题
   const resultRef = useRef<AnalysisResult | null>(null);
@@ -184,17 +190,17 @@ const AppContent: React.FC = () => {
     if (!intent) return;
     const nextFileType =
       intent.fileType && intent.fileType in VALID_TABS
-        ? (intent.fileType as FileType)
+        ? intent.fileType
         : fileType;
     if (nextFileType !== fileType) {
       setFileType(nextFileType);
     }
-    const parsed = parseAppHash(buildAppHash(nextFileType as FileType, intent.tab));
+    const parsed = parseAppHash(buildAppHash(nextFileType, intent.tab));
     const nextTab = parsed.tab || intent.tab;
     const nextSubTab = parsed.subTab || (nextTab === 'expert' ? 'events' : undefined);
     setActiveTab(nextTab);
     setActiveSubTab(nextSubTab);
-    window.location.hash = buildAppHash(nextFileType as FileType, nextTab, nextSubTab);
+    window.location.hash = buildAppHash(nextFileType, nextTab, nextSubTab);
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
   }, [intent, fileType]);
 
@@ -377,6 +383,7 @@ const AppContent: React.FC = () => {
     repairInfo?: HarAnalysisResult['repairInfo'],
     fileTypeHint?: UploadFileTypeHint
   ) => {
+    invalidateTraceSession();
     const taskId = ++loadTaskIdRef.current;
     setLoading(true);
     setLoadingText('正在解析追加文件...');
@@ -561,10 +568,10 @@ const AppContent: React.FC = () => {
     if (parsed.kind === 'trace') {
       setTraceResult(parsed.result);
       setFileType('trace');
-      setActiveTab('overview');
+      setActiveTab('conclusion');
       setActiveSubTab(undefined);
       setHasData(true);
-      window.location.hash = buildAppHash('trace', 'overview');
+      window.location.hash = buildAppHash('trace', 'conclusion');
       return;
     }
 
@@ -695,6 +702,7 @@ const AppContent: React.FC = () => {
   const handleIntakeFiles = useCallback(async (files: File[]) => {
     const file = files[0];
     if (!file) return;
+    invalidateTraceSession();
     const taskId = `intake-${++intakeTaskIdRef.current}`;
     intakeProbeAbortRef.current?.abort();
     const probeAbortController = new AbortController();
@@ -722,13 +730,13 @@ const AppContent: React.FC = () => {
         intakeProbeAbortRef.current = undefined;
       }
     }
-  }, [intake, parserMode]);
+  }, [intake, invalidateTraceSession, parserMode]);
 
   const handleReset = () => {
     loadTaskIdRef.current += 1;
     intakeProbeAbortRef.current?.abort();
     intakeProbeAbortRef.current = undefined;
-    cancelActiveTraceWorkerTask();
+    invalidateTraceSession();
     intake.cancel();
     setHasData(false);
     setEvents([]);
@@ -1143,10 +1151,13 @@ const AppContent: React.FC = () => {
               }}
               onFilesSelected={handleIntakeFiles}
               onConfirm={intake.confirm}
-              onReset={intake.cancel}
+              onReset={() => {
+                invalidateTraceSession();
+                intake.cancel();
+              }}
               onCancel={() => {
                 intakeProbeAbortRef.current?.abort();
-                cancelActiveTraceWorkerTask();
+                invalidateTraceSession();
                 intake.cancel();
               }}
               onContinue={intake.continueToResult}
@@ -1320,7 +1331,15 @@ const AppContent: React.FC = () => {
         ) : fileType === 'trace' && traceResult ? (
           <div style={{ padding: '24px 28px' }}>
             <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>
-              <TraceResultPage result={traceResult} />
+              <TraceResultPage
+                result={traceResult}
+                activeTab={resolveTraceTab(activeTab)}
+                onTabChange={(tab) => {
+                  setActiveTab(tab);
+                  setActiveSubTab(undefined);
+                  window.location.hash = buildAppHash('trace', tab);
+                }}
+              />
             </Suspense>
           </div>
         ) : fileType === 'har' && harResult ? (

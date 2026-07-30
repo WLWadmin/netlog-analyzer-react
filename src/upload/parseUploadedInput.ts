@@ -12,7 +12,8 @@ import {
   unavailableNetlogDatasetState,
   type NetlogDatasetState,
 } from '../workers/netlogDatasetTypes';
-import type { TraceContextResult, TraceTaskProgress } from '../parsers/trace/types';
+import type { TraceAnalysisResult } from '../diagnosis/trace';
+import type { TraceTaskProgress } from '../parsers/trace/types';
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
 import { isTraceAnalysisEnabled } from './traceUploadFeature';
@@ -81,7 +82,7 @@ export type UploadedParseResult =
     }
   | {
       kind: 'trace';
-      result: TraceContextResult;
+      result: TraceAnalysisResult;
     };
 
 export async function parseUploadedInput(options: {

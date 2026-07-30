@@ -1,5 +1,5 @@
+import type { TraceAnalysisResult } from '../diagnosis/trace';
 import type {
-  TraceContextResult,
   TracePublicError,
   TraceTaskProgress,
 } from '../parsers/trace/types';
@@ -112,12 +112,12 @@ export function createTraceWorkerTask(
         return;
       }
       options.onProgress?.(response.progress as TraceTaskProgress);
-    } else if (response.type === 'trace-context-result') {
+    } else if (response.type === 'trace-analysis-result') {
       if (!('result' in response) || response.result === null || typeof response.result !== 'object') {
         settleError(workerFailure('Trace Worker 返回了无效消息'));
         return;
       }
-      settleSuccess({ kind: 'trace', result: response.result as TraceContextResult });
+      settleSuccess({ kind: 'trace', result: response.result as TraceAnalysisResult });
     } else if (response.type === 'detected-source') {
       if (
         !('source' in response)

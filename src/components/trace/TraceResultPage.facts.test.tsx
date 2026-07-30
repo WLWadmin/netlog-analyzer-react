@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
-import type { TraceContextResult } from '../../parsers/trace/types';
+import type { TraceAnalysisResult } from '../../diagnosis/trace';
 import TraceResultPage from './TraceResultPage';
 
 const zero = { total: 0, returned: 0, truncated: false };
-const result: TraceContextResult = {
+const result: TraceAnalysisResult = {
   intake: {
     format: 'chromium-trace-object', encoding: 'plain-json', jsonBytes: 10,
     eventCount: 20, captureStartUs: 0, captureEndUs: 100_000,
@@ -38,28 +38,30 @@ const result: TraceContextResult = {
     quality: { level: 'partial', captureWindow: 'partial', navigationContext: 'available', processThreadMetadata: 'partial', frameHierarchy: 'partial', rendererMainThread: 'available', skippedEventCount: 0, warnings: [], disabledCapabilities: [] },
     warnings: ['TRACE_FACTS_TRUNCATED'],
   },
+  diagnosis: { diagnoses: [], evaluations: [] },
 };
 
 describe('TraceResultPage facts', () => {
-  it('shows bounded facts and limitations without root-cause wording', () => {
-    render(<TraceResultPage result={result} />);
+  it('keeps overview concise and leaves detailed facts in their dedicated tabs', () => {
+    const view = render(<TraceResultPage result={result} activeTab="overview" />);
 
-    expect(screen.getByRole('heading', { name: '请求结果' })).not.toBeNull();
-    expect(screen.getByText('HTTP 错误 1')).not.toBeNull();
-    expect(screen.getByText('成功 1')).not.toBeNull();
-    expect(screen.getByText('60.0 ms / 自耗时 35.0 ms')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '事实覆盖' })).not.toBeNull();
     expect(screen.getByText('LCP 候选 49.0 ms')).not.toBeNull();
-    expect(screen.getByText('20.0 ms / 预算 16.7 ms')).not.toBeNull();
-    expect(screen.getByText('超预算 2 / 3，最长 30.0 ms')).not.toBeNull();
-    expect(screen.getByText('丢帧线索 1')).not.toBeNull();
-    expect(screen.getByText('16.7 ms 为 60 Hz 参考预算，实际刷新率未知')).not.toBeNull();
-    expect(screen.getByText('明确 forced reflow 线索 1')).not.toBeNull();
-    expect(screen.getByText('输入 10.0 / 处理 20.0 / 呈现 30.0 ms')).not.toBeNull();
-    expect(screen.getByText('Trace 内最慢交互 90.0 ms')).not.toBeNull();
     expect(screen.getByText('采集窗口限制：部分可用，窗口外事件不在本次事实范围内')).not.toBeNull();
-    expect(screen.getByText('work · 5 samples')).not.toBeNull();
     expect(screen.getByText('请求仅展示 2 / 3 条')).not.toBeNull();
     expect(screen.getByText('dispatch-time-domain-unavailable')).not.toBeNull();
-    expect(screen.queryByText(/根因/)).toBeNull();
+    expect(screen.queryByText('60.0 ms / 自耗时 35.0 ms')).toBeNull();
+    expect(screen.queryByText('work · 5 samples')).toBeNull();
+
+    view.rerender(<TraceResultPage result={result} activeTab="main-thread" />);
+    expect(screen.getByText('任务 · t1')).not.toBeNull();
+    expect(screen.getByText('work · 5 samples')).not.toBeNull();
+
+    view.rerender(<TraceResultPage result={result} activeTab="rendering" />);
+    expect(screen.getByText(/60 Hz 参考预算/)).not.toBeNull();
+
+    view.rerender(<TraceResultPage result={result} activeTab="interactions" />);
+    expect(screen.getByText(/Trace 内的最慢交互仅为 INP 候选/)).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: /根因/ })).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { createTraceWorkerTask, TraceWorkerError } from './traceWorkerTask';
 import type { TraceWorkerResponse } from './traceWorkerProtocols';
-import type { TraceContextResult } from '../parsers/trace/types';
+import type { TraceAnalysisResult } from '../diagnosis/trace';
 import {
   cancelActiveTraceWorkerTask,
   replaceActiveTraceWorkerTask,
@@ -36,7 +36,7 @@ function taskId(worker: FakeWorker): string {
   return worker.postMessage.mock.calls[0][0].taskId;
 }
 
-function contextResult(jsonBytes = 0): TraceContextResult {
+function analysisResult(jsonBytes = 0): TraceAnalysisResult {
   return {
     intake: {
       format: 'chromium-trace-object',
@@ -70,6 +70,7 @@ function contextResult(jsonBytes = 0): TraceContextResult {
       },
       warnings: [],
     },
+    diagnosis: { diagnoses: [], evaluations: [] },
   };
 }
 
@@ -101,9 +102,9 @@ describe('traceWorkerClient', () => {
     );
 
     worker.emit('message', messageEvent({
-        type: 'trace-context-result',
+        type: 'trace-analysis-result',
         taskId: 'stale-task',
-        result: contextResult(),
+        result: analysisResult(),
     }));
     expect(worker.terminate).not.toHaveBeenCalled();
 
@@ -113,15 +114,16 @@ describe('traceWorkerClient', () => {
         progress: { phase: 'reading-file', processedBytes: 1 },
     }));
     worker.emit('message', messageEvent({
-        type: 'trace-context-result',
+        type: 'trace-analysis-result',
         taskId: taskId(worker),
-        result: contextResult(2),
+        result: analysisResult(2),
     }));
 
     await expect(task.promise).resolves.toEqual({
       kind: 'trace',
       result: expect.objectContaining({
         intake: expect.objectContaining({ eventCount: 0 }),
+        diagnosis: { diagnoses: [], evaluations: [] },
       }),
     });
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'reading-file' }));
@@ -169,9 +171,9 @@ describe('traceWorkerClient', () => {
       progress: { phase: 'reading-file', processedBytes: 1 },
     }));
     worker.emit('message', messageEvent({
-      type: 'trace-context-result',
+      type: 'trace-analysis-result',
       taskId: currentTaskId,
-      result: contextResult(2),
+      result: analysisResult(2),
     }));
     worker.emit('message', messageEvent({
       type: 'trace-error',

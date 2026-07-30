@@ -47,6 +47,8 @@ export interface NavigationFilters {
   requestId?: number;
   /** 请求 ID 列表 */
   requestIds?: number[];
+  /** Trace 导航上下文 key */
+  navigationKey?: string;
 }
 
 export interface NavigationHighlight {
@@ -54,10 +56,14 @@ export interface NavigationHighlight {
   sourceIds?: number[];
   hosts?: string[];
   urls?: string[];
+  /** Trace 事实 ID */
+  factIds?: string[];
+  /** Trace 原始证据 ID */
+  evidenceIds?: string[];
 }
 
 export interface NavigationScrollTo {
-  type: 'request' | 'event' | 'log' | 'group' | 'host';
+  type: 'request' | 'event' | 'log' | 'group' | 'host' | 'fact' | 'evidence' | 'navigation';
   id: string | number;
 }
 
@@ -65,9 +71,9 @@ export interface NavigationIntent {
   /** 目标 tab key */
   tab: string;
   /** 目标文件类型（用于 HAR / NetLog 间避免跳错） */
-  fileType?: 'har' | 'netlog' | 'log';
+  fileType?: 'har' | 'netlog' | 'log' | 'trace';
   /** 证据来源（联合诊断时用于区分证据来自 HAR 还是 NetLog） */
-  evidenceSource?: 'har' | 'netlog';
+  evidenceSource?: 'har' | 'netlog' | 'trace';
   /** 跳转来源描述 */
   source?: string;
   /** 跳转原因描述 */

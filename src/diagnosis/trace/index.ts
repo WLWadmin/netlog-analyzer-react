@@ -7,6 +7,7 @@ export {
 export type { TraceRuleThreshold } from './traceRuleThresholds';
 export type {
   RuleEvaluation,
+  TraceAnalysisResult,
   TraceDiagnosis,
   TraceDiagnosisCategory,
   TraceDiagnosisConfidence,

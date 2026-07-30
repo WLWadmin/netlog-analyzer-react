@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert } from 'antd';
+import Alert from 'antd/lib/alert';
 import { WarningOutlined } from '@ant-design/icons';
 import { CHART_COLORS } from '../../constants/chartColors';
 
@@ -27,7 +27,7 @@ export const AnalysisDisclaimer: React.FC<AnalysisDisclaimerProps> = ({
 
   return (
     <Alert
-      message={
+      title={
         <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
           <WarningOutlined style={{ marginRight: 6, color: CHART_COLORS.semantic.warning }} />
           {title}

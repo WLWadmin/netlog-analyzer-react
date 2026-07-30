@@ -1,4 +1,4 @@
-import type { TraceContextFacts } from '../../parsers/trace/types';
+import type { TraceContextFacts, TraceIntakeSummary } from '../../parsers/trace/types';
 
 export type TraceDiagnosisSeverity = 'critical' | 'warning' | 'info';
 export type TraceEvidenceStrength = 'direct' | 'derived' | 'clue';
@@ -91,4 +91,10 @@ export interface TraceDiagnosisRule {
 export interface TraceDiagnosisResult {
   diagnoses: TraceDiagnosis[];
   evaluations: RuleEvaluation[];
+}
+
+export interface TraceAnalysisResult {
+  intake: TraceIntakeSummary;
+  context: TraceContextFacts;
+  diagnosis: TraceDiagnosisResult;
 }

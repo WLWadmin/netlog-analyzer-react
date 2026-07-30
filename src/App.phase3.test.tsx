@@ -192,10 +192,12 @@ jest.mock('./components/netlog/UploadZone', () => ({
 
 jest.mock('./components/upload/UploadEntry', () => ({
   __esModule: true,
-  default: ({
+  default: function MockUploadEntry({
     state,
     onFilesSelected,
     onConfirm,
+    onReset,
+    onCancel,
   }: {
     state: {
       status: string;
@@ -207,8 +209,12 @@ jest.mock('./components/upload/UploadEntry', () => ({
     };
     onFilesSelected: (files: File[]) => void;
     onConfirm: (parserId: string) => void;
-  }) => {
+    onReset: () => void;
+    onCancel: () => void;
+  }) {
     const React = require('react');
+    const { useNavigation } = require('./contexts/NavigationContext');
+    const { intent, navigateTo } = useNavigation();
     React.useEffect(() => {
       if (state.status !== 'awaiting-confirmation' || !state.resolution) return;
       const parserId = state.resolution.kind === 'recommended'
@@ -228,6 +234,10 @@ jest.mock('./components/upload/UploadEntry', () => ({
         <button onClick={() => onFilesSelected([new File(['{}'], 'sample.har')])}>上传 HAR</button>
         <button onClick={() => onFilesSelected([new File(['log'], 'sample.log')])}>上传 Log</button>
         <button onClick={() => onFilesSelected([new File(['{}'], 'sample.trace')])}>上传 Trace</button>
+        <button onClick={() => navigateTo({ fileType: 'trace', tab: 'evidence' })}>设置旧 Trace intent</button>
+        <button onClick={onReset}>重置选择</button>
+        <button onClick={onCancel}>取消分析</button>
+        <span>{intent ? '存在旧 intent' : '旧 intent 已清'}</span>
       </section>
     );
   },
@@ -237,18 +247,23 @@ jest.mock('./components/netlog/SummaryCards', () => ({ __esModule: true, default
 jest.mock('./components/netlog/NetLogRequestList', () => ({ __esModule: true, default: () => <div>NetLogRequestList</div> }));
 jest.mock('./components/netlog/ConclusionActionTab', () => ({
   __esModule: true,
-  default: ({ onUploadMissingFile, onNavigate }: { onUploadMissingFile?: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void; onNavigate?: (tab: string, subTab?: string) => void }) => (
-    <div>
-      <span>ConclusionActionTab</span>
-      <button onClick={() => onUploadMissingFile?.({ log: { entries: [] } }, false, undefined, 'har')}>从结论追加 HAR</button>
-      <button onClick={() => onUploadMissingFile?.({ events: [] }, false, undefined, 'netlog')}>从结论追加 NetLog</button>
-      <button onClick={() => onNavigate?.('evidence')}>切到证据链</button>
-    </div>
-  ),
+  default: function MockConclusionActionTab({ onUploadMissingFile, onNavigate }: { onUploadMissingFile?: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log') => void; onNavigate?: (tab: string, subTab?: string) => void }) {
+    const { useNavigation } = require('./contexts/NavigationContext');
+    const { navigateTo } = useNavigation();
+    return (
+      <div>
+        <span>ConclusionActionTab</span>
+        <button onClick={() => onUploadMissingFile?.({ log: { entries: [] } }, false, undefined, 'har')}>从结论追加 HAR</button>
+        <button onClick={() => onUploadMissingFile?.({ events: [] }, false, undefined, 'netlog')}>从结论追加 NetLog</button>
+        <button onClick={() => onNavigate?.('evidence')}>切到证据链</button>
+        <button onClick={() => navigateTo({ fileType: 'trace', tab: 'conclusion' })}>设置追加旧 Trace intent</button>
+      </div>
+    );
+  },
 }));
 jest.mock('./components/netlog/EvidenceChainTab', () => ({
   __esModule: true,
-  default: ({ onLookupConclusionsChange }: { onLookupConclusionsChange?: (conclusions: unknown[]) => void }) => {
+  default: function MockEvidenceChainTab({ onLookupConclusionsChange }: { onLookupConclusionsChange?: (conclusions: unknown[]) => void }) {
     const React = require('react');
     React.useEffect(() => {
       onLookupConclusionsChange?.([
@@ -388,8 +403,8 @@ describe('App Phase 3 upload behavior', () => {
     render(<App />);
     await userEvent.click(screen.getByText('上传 Trace'));
 
-    await waitFor(() => expect(window.location.hash).toBe('#trace/overview'));
-    await waitFor(() => expect(screen.getByText('TraceResultPage')).not.toBeNull());
+    await waitFor(() => expect(window.location.hash).toBe('#trace/conclusion'));
+    expect(await screen.findByText('TraceResultPage')).not.toBeNull();
     expect(screen.queryByText('ConclusionActionTab')).toBeNull();
   });
 
@@ -435,7 +450,7 @@ describe('App Phase 3 upload behavior', () => {
     render(<React.StrictMode><App /></React.StrictMode>);
     await userEvent.click(screen.getByText('上传 Trace'));
 
-    await waitFor(() => expect(window.location.hash).toBe('#trace/overview'));
+    await waitFor(() => expect(window.location.hash).toBe('#trace/conclusion'));
   });
 
   it('追加 Trace 明确提示不参与 HAR/NetLog 联合诊断', async () => {
@@ -496,7 +511,9 @@ describe('App Phase 3 upload behavior', () => {
 
     render(<App />);
     await userEvent.click(screen.getByText('上传 Trace'));
+    cancelActiveTraceWorkerTaskMock.mockClear();
     await userEvent.click(screen.getByText('上传 HAR'));
+    expect(cancelActiveTraceWorkerTaskMock).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
 
     traceProgress('旧 Trace 进度');
@@ -515,6 +532,67 @@ describe('App Phase 3 upload behavior', () => {
 
     expect(window.location.hash).toBe('#har/summary');
     expect(screen.queryByText('TraceResultPage')).toBeNull();
+  });
+
+  it('新文件选择清除旧 Trace intent，旧导航不覆盖新结果', async () => {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'har',
+      result: { totalRequests: 1, entries: [] },
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('设置旧 Trace intent'));
+    await waitFor(() => expect(window.location.hash).toBe('#trace/evidence'));
+    cancelActiveTraceWorkerTaskMock.mockClear();
+    await userEvent.click(screen.getByText('上传 HAR'));
+
+    expect(cancelActiveTraceWorkerTaskMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+  });
+
+  it('追加选择立即取消旧 Trace 并清除旧 intent', async () => {
+    parseUploadedInputMock
+      .mockResolvedValueOnce({
+        kind: 'netlog',
+        events: [{ id: 1 }],
+        result: {
+          totalEvents: 1,
+          uniqueSources: 1,
+          peakConcurrency: 1,
+          urlRequests: [],
+          errors: [],
+          warnings: [],
+          info: [],
+          slowRequests: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: 'har',
+        result: { totalRequests: 1, entries: [] },
+      });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 NetLog'));
+    await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+    await userEvent.click(screen.getByText('设置追加旧 Trace intent'));
+    await waitFor(() => expect(window.location.hash).toBe('#trace/conclusion'));
+    cancelActiveTraceWorkerTaskMock.mockClear();
+    await userEvent.click(screen.getByText('从结论追加 HAR'));
+
+    expect(cancelActiveTraceWorkerTaskMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+  });
+
+  it.each([
+    ['重置选择'],
+    ['取消分析'],
+  ])('%s 清除旧 Trace intent', async (actionLabel) => {
+    render(<App />);
+    await userEvent.click(screen.getByText('设置旧 Trace intent'));
+    await waitFor(() => expect(window.location.hash).toBe('#trace/evidence'));
+    await userEvent.click(screen.getByText(actionLabel));
+
+    expect(await screen.findByText('旧 intent 已清')).not.toBeNull();
   });
 
   it('reset 和 unmount 都取消活动 Trace Worker', async () => {

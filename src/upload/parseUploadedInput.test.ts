@@ -9,7 +9,7 @@ import {
   parseNetlogInWorker,
 } from '../workers/workerClient';
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
-import type { TraceContextResult } from '../parsers/trace/types';
+import type { TraceAnalysisResult } from '../diagnosis/trace';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
 
 jest.mock('../parsers/netlog', () => ({
@@ -230,7 +230,7 @@ describe('parseUploadedInput', () => {
   });
 
   it('Trace File 通过动态 Worker 客户端返回有限上下文', async () => {
-    const contextResult: TraceContextResult = {
+    const analysisResult: TraceAnalysisResult = {
       intake: {
         format: 'chromium-trace-object',
         encoding: 'plain-json',
@@ -260,9 +260,10 @@ describe('parseUploadedInput', () => {
         },
         warnings: [],
       },
+      diagnosis: { diagnoses: [], evaluations: [] },
     };
     inspectTraceUploadInWorkerMock.mockReturnValue({
-      promise: Promise.resolve({ kind: 'trace', result: contextResult }),
+      promise: Promise.resolve({ kind: 'trace', result: analysisResult }),
       cancel: jest.fn(),
     });
     const file = new File(['{"traceEvents":[{}]}'], 'sample.trace');
@@ -271,7 +272,7 @@ describe('parseUploadedInput', () => {
       data: file,
       fileTypeHint: 'trace',
       useWorker: true,
-    })).resolves.toEqual({ kind: 'trace', result: contextResult });
+    })).resolves.toEqual({ kind: 'trace', result: analysisResult });
     expect(inspectTraceUploadInWorkerMock).toHaveBeenCalledWith(
       file,
       expect.objectContaining({ hint: 'trace' }),
@@ -284,7 +285,7 @@ describe('parseUploadedInput', () => {
     inspectTraceUploadInWorkerMock.mockReturnValue({
       promise: Promise.resolve({
         kind: 'trace',
-        result: {} as TraceContextResult,
+        result: {} as TraceAnalysisResult,
       }),
       cancel: jest.fn(),
     });
@@ -380,7 +381,7 @@ describe('parseUploadedInput', () => {
     inspectTraceUploadInWorkerMock.mockReturnValue({
       promise: Promise.resolve({
         kind: 'trace',
-        result: {} as TraceContextResult,
+        result: {} as TraceAnalysisResult,
       }),
       cancel: jest.fn(),
     });

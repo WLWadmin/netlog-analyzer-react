@@ -10,6 +10,7 @@ import {
   TraceAggregationCancelled,
 } from '../parsers/trace/minimalTraceAggregator';
 import type { TracePublicError } from '../parsers/trace/types';
+import { buildTraceAnalysisResult } from './buildTraceAnalysisResult';
 import type { TraceWorkerRequest, TraceWorkerResponse } from './traceWorkerProtocols';
 
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
@@ -56,9 +57,9 @@ workerScope.addEventListener('message', async (event: MessageEvent<TraceWorkerRe
       });
       outcome = undefined;
       post({
-        type: 'trace-context-result',
+        type: 'trace-analysis-result',
         taskId: request.taskId,
-        result: aggregated.facts,
+        result: buildTraceAnalysisResult(aggregated.facts),
       });
     } else if (outcome.kind === 'detected-source') {
       post({

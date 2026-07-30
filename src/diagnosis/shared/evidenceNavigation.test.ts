@@ -33,4 +33,33 @@ describe('evidenceNavigation', () => {
 
     expect(withOnlyEventIds.some(target => target.kind === 'events')).toBe(false);
   });
+
+  it('保持 combined 请求证据默认回到 HAR 的既有合同', () => {
+    const targets = buildEvidenceNavigationTargets(makeCard({
+      source: 'combined',
+      relatedRequestIds: [7],
+    }));
+
+    expect(targets.find(target => target.kind === 'requests')?.intent.fileType).toBe('har');
+  });
+
+  it('combined 原始字段默认回 HAR，originalSource 明确时服从证据来源', () => {
+    const ambiguous = buildEvidenceNavigationTargets(makeCard({
+      source: 'combined',
+      evidence: [{ label: '字段', value: '值', source: 'derived', fieldPath: 'traceEvents.7' }],
+    }));
+    const explicit = buildEvidenceNavigationTargets(makeCard({
+      source: 'combined',
+      evidence: [{
+        label: '字段',
+        value: '值',
+        source: 'netlog',
+        originalSource: 'netlog',
+        fieldPath: 'events.7',
+      }],
+    }));
+
+    expect(ambiguous.find(target => target.kind === 'raw-evidence')?.intent.fileType).toBe('har');
+    expect(explicit.find(target => target.kind === 'raw-evidence')?.intent.fileType).toBe('netlog');
+  });
 });

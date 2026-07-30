@@ -1,5 +1,5 @@
+import type { TraceAnalysisResult } from '../diagnosis/trace';
 import type {
-  TraceContextResult,
   TracePublicError,
   TraceTaskProgress,
 } from '../parsers/trace/types';
@@ -20,9 +20,9 @@ export type TraceWorkerResponse =
       progress: TraceTaskProgress;
     }
   | {
-      type: 'trace-context-result';
+      type: 'trace-analysis-result';
       taskId: string;
-      result: TraceContextResult;
+      result: TraceAnalysisResult;
     }
   | {
       type: 'detected-source';
@@ -41,6 +41,6 @@ export type TraceWorkerResponse =
     };
 
 export type TraceWorkerOutcome =
-  | { kind: 'trace'; result: TraceContextResult }
+  | { kind: 'trace'; result: TraceAnalysisResult }
   | { kind: 'detected-source'; source: 'har' | 'netlog'; encoding: 'plain-json' | 'gzip-json' }
   | { kind: 'source-unresolved' };

@@ -31,6 +31,23 @@ describe('hashRouting', () => {
     expect(parseAppHash('#trace/overview')).toEqual({ fileType: 'trace', tab: 'overview' });
   });
 
+  it.each([
+    'conclusion',
+    'overview',
+    'network',
+    'main-thread',
+    'rendering',
+    'interactions',
+    'evidence',
+  ])('解析 Trace 路由 %s', tab => {
+    expect(parseAppHash(`#trace/${tab}`)).toEqual({ fileType: 'trace', tab });
+  });
+
+  it('Trace 缺失或非法路由降级到 conclusion', () => {
+    expect(parseAppHash('#trace')).toEqual({ fileType: 'trace', tab: 'conclusion' });
+    expect(parseAppHash('#trace/not-a-tab')).toEqual({ fileType: 'trace', tab: 'conclusion' });
+  });
+
   it('构造新版 hash', () => {
     expect(buildAppHash('netlog', 'expert', 'report')).toBe('#netlog/expert/report');
     expect(buildAppHash('har', 'summary')).toBe('#har/summary');
@@ -40,6 +57,6 @@ describe('hashRouting', () => {
     expect(buildAppHash('netlog', 'conclusion')).toBe('#netlog/conclusion');
     expect(buildAppHash('har', 'requests')).toBe('#har/requests');
     expect(buildAppHash('log', 'overview')).toBe('#log/overview');
-    expect(buildAppHash('trace', 'overview')).toBe('#trace/overview');
+    expect(buildAppHash('trace', 'conclusion')).toBe('#trace/conclusion');
   });
 });
