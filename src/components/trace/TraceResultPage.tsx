@@ -48,6 +48,7 @@ const FACT_COUNT_COPY: Array<[keyof TraceFactCounts, string]> = [
   ['cpuHotspots', 'CPU 热点'],
   ['forcedReflowClues', 'Forced reflow 线索'],
 ];
+const FACT_PREVIEW_LIMIT = 20;
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
@@ -169,7 +170,8 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result }) => {
         <article className="trace-result-panel">
           <div className="trace-result-panel-heading"><div><span>MAIN THREAD</span><h2>长任务与自耗时</h2></div></div>
           <ul className="trace-fact-items">
-            {tasks.map(task => <li key={task.id}>{formatMs(task.durationMs)} / 自耗时 {formatMs(task.selfTimeMs)}</li>)}
+            {tasks.slice(0, FACT_PREVIEW_LIMIT).map(task => <li key={task.id}>{formatMs(task.durationMs)} / 自耗时 {formatMs(task.selfTimeMs)}</li>)}
+            {tasks.length > FACT_PREVIEW_LIMIT && <li>仅展示前 {FACT_PREVIEW_LIMIT} 条长任务</li>}
             {tasks.length === 0 && <li>未取得长任务事实</li>}
           </ul>
         </article>
@@ -177,7 +179,8 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result }) => {
         <article className="trace-result-panel">
           <div className="trace-result-panel-heading"><div><span>LOADING</span><h2>里程碑</h2></div></div>
           <ul className="trace-fact-items">
-            {milestones.map(item => <li key={item.id}>{item.name}{item.candidate ? ' 候选' : ''} {formatMs(item.relativeUs / 1000)}</li>)}
+            {milestones.slice(0, FACT_PREVIEW_LIMIT).map(item => <li key={item.id}>{item.name}{item.candidate ? ' 候选' : ''} {formatMs(item.relativeUs / 1000)}</li>)}
+            {milestones.length > FACT_PREVIEW_LIMIT && <li>仅展示前 {FACT_PREVIEW_LIMIT} 条里程碑</li>}
             {milestones.length === 0 && <li>未取得页面里程碑</li>}
           </ul>
         </article>
@@ -185,8 +188,10 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result }) => {
         <article className="trace-result-panel">
           <div className="trace-result-panel-heading"><div><span>RENDERING</span><h2>帧与布局线索</h2></div></div>
           <ul className="trace-fact-items">
-            {frames.map(frame => <li key={frame.id}>{formatMs(frame.durationMs)} / 预算 {formatMs(frame.budgetMs)}</li>)}
+            {frames.slice(0, FACT_PREVIEW_LIMIT).map(frame => <li key={frame.id}>{formatMs(frame.durationMs)} / 预算 {formatMs(frame.budgetMs)}</li>)}
+            {frames.length > FACT_PREVIEW_LIMIT && <li>仅展示前 {FACT_PREVIEW_LIMIT} 条帧事实</li>}
             {frameSummary && <li>超预算 {frameSummary.overBudgetCount} / {frameSummary.totalCount}，最长 {formatMs(frameSummary.maxDurationMs)}</li>}
+            {frameSummary && <li>丢帧线索 {frameSummary.droppedCount}</li>}
             {frameSummary && <li>16.7 ms 为 60 Hz 参考预算，实际刷新率未知</li>}
             <li>明确 forced reflow 线索 {forcedClues.filter(item => item.confidence === 'explicit').length}</li>
           </ul>
@@ -196,7 +201,8 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result }) => {
           <div className="trace-result-panel-heading"><div><span>INTERACTIONS</span><h2>交互三阶段</h2></div></div>
           <ul className="trace-fact-items">
             {interactionSummary?.maxTotalLatencyMs !== undefined && <li>Trace 内最慢交互 {formatMs(interactionSummary.maxTotalLatencyMs)}</li>}
-            {interactions.map(item => <li key={item.id}>输入 {item.inputDelayMs.toFixed(1)} / 处理 {item.processingDurationMs.toFixed(1)} / 呈现 {item.presentationDelayMs.toFixed(1)} ms</li>)}
+            {interactions.slice(0, FACT_PREVIEW_LIMIT).map(item => <li key={item.id}>输入 {item.inputDelayMs.toFixed(1)} / 处理 {item.processingDurationMs.toFixed(1)} / 呈现 {item.presentationDelayMs.toFixed(1)} ms</li>)}
+            {interactions.length > FACT_PREVIEW_LIMIT && <li>仅展示前 {FACT_PREVIEW_LIMIT} 条交互</li>}
             {interactions.length === 0 && <li>未取得已配对交互</li>}
           </ul>
         </article>
@@ -204,7 +210,8 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result }) => {
         <article className="trace-result-panel">
           <div className="trace-result-panel-heading"><div><span>CPU PROFILE</span><h2>采样热点</h2></div></div>
           <ul className="trace-fact-items">
-            {hotspots.map(item => <li key={item.id}>{item.functionName} · {item.sampleCount} samples</li>)}
+            {hotspots.slice(0, FACT_PREVIEW_LIMIT).map(item => <li key={item.id}>{item.functionName} · {item.sampleCount} samples</li>)}
+            {hotspots.length > FACT_PREVIEW_LIMIT && <li>仅展示前 {FACT_PREVIEW_LIMIT} 条 CPU 热点</li>}
             {hotspots.length === 0 && <li>未取得 CPU 热点</li>}
           </ul>
         </article>

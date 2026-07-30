@@ -128,7 +128,10 @@ describe('MinimalTraceAggregator collector contract fixes', () => {
     const serialized = JSON.stringify(result.facts.context);
     expect(clue).toEqual(expect.objectContaining({ confidence: 'observation', taskId: expect.stringMatching(/^trace:task:1:10:1000:event:\d+$/) }));
     expect(hotspot.functionName.length).toBeLessThanOrEqual(120);
-    expect(hotspot.functionName).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(Array.from(hotspot.functionName).some(character => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f;
+    })).toBe(false);
     expect(serialized).not.toMatch(/token=secret|Authorization|headers|callFrame|args/);
   });
 
@@ -188,6 +191,7 @@ describe('MinimalTraceAggregator collector contract fixes', () => {
       completeness: 'complete',
       limitations: [],
       totalCount: 3,
+      droppedCount: 0,
       overBudgetCount: 2,
       maxDurationMs: 30,
       budgetMs: 16.7,

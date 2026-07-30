@@ -69,6 +69,14 @@ interface CompleteEvent extends IndexedEvent {
   endUs: number;
 }
 
+interface FrameCandidate extends IndexedEvent {
+  name: 'DrawFrame' | 'DroppedFrame';
+  processId: number;
+  threadId: number;
+  startUs: number;
+  durationUs?: number;
+}
+
 interface TaskTreeNode {
   key: string;
   name: string;
@@ -82,6 +90,8 @@ interface MutableRequest {
   redirectIndex: number;
   send: IndexedEvent;
   startUs: number;
+  processId?: number;
+  frameId?: string;
   navigationId?: string;
   url?: TraceSanitizedUrl;
   method?: string;
@@ -103,6 +113,7 @@ interface MutableRequest {
   networkTimeDomain?: string;
   rendererTimeDomain?: string;
   traceTimeDomain?: string;
+  resourceTimingDurationMs?: number;
 }
 
 interface MutableProfileNode {
@@ -158,6 +169,7 @@ function sanitizeUrl(value: unknown): TraceSanitizedUrl | undefined {
   if (!raw) return undefined;
   try {
     const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
     return { origin: parsed.origin, pathname: parsed.pathname };
   } catch {
     return undefined;
@@ -169,10 +181,17 @@ function navigationFor(
   timestampUs: number,
   processId?: number,
   navigationId?: string,
+  frameId?: string,
 ): TraceNavigationFacts | undefined {
   if (navigationId) {
     const exact = navigations.find(item => item.navigationId === navigationId);
     if (exact) return exact;
+  }
+  if (frameId) {
+    const exactFrame = navigations.find(item => item.frameId === frameId
+      && timestampUs >= item.startUs
+      && timestampUs <= item.endUs);
+    if (exactFrame) return exactFrame;
   }
   return navigations.find(item => timestampUs >= item.startUs
     && timestampUs <= item.endUs
@@ -181,6 +200,13 @@ function navigationFor(
       && timestampUs >= span.startUs
       && timestampUs <= span.endUs
     ))));
+}
+
+function profileKey(
+  processId: number,
+  profileId: string,
+): string {
+  return `${processId}:profile:${profileId}`;
 }
 
 
@@ -239,11 +265,14 @@ export class Batch3FactCollector {
   private readonly requests: MutableRequest[] = [];
   private readonly requestsById = new Map<string, MutableRequest>();
   private readonly completeEvents: CompleteEvent[] = [];
+  private completeEventsDropped = false;
+  private readonly longTasks: CompleteEvent[] = [];
   private readonly profiles = new Map<string, MutableProfile>();
   private readonly profileEntries: MutableProfile[] = [];
   private readonly milestones: IndexedEvent[] = [];
-  private readonly frames: CompleteEvent[] = [];
+  private readonly frames: FrameCandidate[] = [];
   private readonly renderingEvents: CompleteEvent[] = [];
+  private readonly forcedReflowEvents: CompleteEvent[] = [];
   private readonly interactions: IndexedEvent[] = [];
   private readonly phaseEvents: IndexedEvent[] = [];
 
@@ -264,6 +293,18 @@ export class Batch3FactCollector {
     this.warnings.add('TRACE_FACT_CANDIDATES_TRUNCATED');
     this.candidateDroppedKinds.add(kind);
     return false;
+  }
+
+  getFinalizeWorkTotal(): number {
+    return this.requests.length
+      + this.longTasks.length
+      + this.profileEntries.length
+      + this.milestones.length
+      + this.frames.length
+      + this.renderingEvents.length
+      + this.forcedReflowEvents.length
+      + this.retainedProfileSamples
+      + this.interactions.length;
   }
 
   collect(event: ChromiumTraceEvent, eventIndex: number): boolean {
@@ -293,12 +334,24 @@ export class Batch3FactCollector {
         && readFiniteNumber(data.processingStart) !== undefined
         && readFiniteNumber(data.processingEnd) !== undefined
         && readFiniteNumber(data.interactionEnd) !== undefined;
-      const pairPart = event.ph === 'b' || event.ph === 'e';
-      if (!data || readFiniteNumber(data.interactionId) === undefined
-        || (!completeTiming && !pairPart)) {
+      const pairBegin = event.ph === 'b'
+        && data !== undefined
+        && readFiniteNumber(data.interactionId) !== undefined
+        && readFiniteNumber(data.processingStart) !== undefined
+        && (eventId(event.id) !== undefined
+          ? readFiniteNumber(data.timeStamp) !== undefined
+            && readFiniteNumber(data.processingEnd) !== undefined
+          : readFiniteNumber(data.eventStart) !== undefined);
+      const pairEnd = event.ph === 'e'
+        && (eventId(event.id) !== undefined
+          || (data !== undefined
+            && readFiniteNumber(data.interactionId) !== undefined
+            && readFiniteNumber(data.processingEnd) !== undefined
+            && readFiniteNumber(data.interactionEnd) !== undefined));
+      if (!completeTiming && !pairBegin && !pairEnd) {
         this.warnings.add(SHAPE_WARNING);
       } else {
-        const startsFact = completeTiming || event.ph === 'b';
+        const startsFact = Boolean(completeTiming || pairBegin);
         if ((!startsFact || this.retain('interactions'))
           && this.interactions.length < this.maxCandidatesPerKind * 2) {
           this.interactions.push({ event, eventIndex });
@@ -306,6 +359,27 @@ export class Batch3FactCollector {
           this.warnings.add('TRACE_FACT_CANDIDATES_TRUNCATED');
           this.candidateDroppedKinds.add('interactions');
         }
+      }
+    }
+    if (FRAME_NAMES.has(name)) {
+      recognized = true;
+      const processId = readFiniteNumber(event.pid);
+      const threadId = readFiniteNumber(event.tid);
+      const startUs = readFiniteNumber(event.ts);
+      const durationUs = event.ph === 'X' ? readFiniteNumber(event.dur) : undefined;
+      if (processId === undefined || threadId === undefined || startUs === undefined
+        || (event.ph === 'X' && (durationUs === undefined || durationUs < 0))) {
+        this.warnings.add(SHAPE_WARNING);
+      } else if (this.retain('animationFrames')) {
+        this.frames.push({
+          event,
+          eventIndex,
+          name: name as FrameCandidate['name'],
+          processId,
+          threadId,
+          startUs,
+          ...(durationUs === undefined ? {} : { durationUs }),
+        });
       }
     }
     if ((event.ph === 'B' || event.ph === 'E')
@@ -327,23 +401,22 @@ export class Batch3FactCollector {
         this.completeEvents.push(complete);
       } else {
         this.warnings.add('TRACE_FACT_CANDIDATES_TRUNCATED');
-      }
-      if (FRAME_NAMES.has(name)) {
-        recognized = true;
-        if (this.retain('animationFrames')) this.frames.push(complete);
+        this.completeEventsDropped = true;
       }
       if (RENDERING_NAMES.has(name)) {
         recognized = true;
         if (this.retain('rendering')) this.renderingEvents.push(complete);
         if (name === 'ForcedReflow' || (name === 'Layout' && this.hasStrongLayoutEvidence(event))) {
-          this.retain('forcedReflowClues');
+          if (this.retain('forcedReflowClues')) this.forcedReflowEvents.push(complete);
         }
       }
       if (name === 'RunTask') {
         recognized = true;
-        if (complete.endUs - complete.startUs >= 50_000) this.retain('tasks');
+        if (complete.endUs - complete.startUs >= 50_000 && this.retain('tasks')) {
+          this.longTasks.push(complete);
+        }
       }
-    } else if (name === 'RunTask' || FRAME_NAMES.has(name) || RENDERING_NAMES.has(name)) {
+    } else if (name === 'RunTask' || RENDERING_NAMES.has(name)) {
       recognized = true;
       this.warnings.add(SHAPE_WARNING);
     }
@@ -354,24 +427,51 @@ export class Batch3FactCollector {
     navigations: readonly TraceNavigationFacts[],
     captureEndUs: number | undefined,
     maxFactsPerKind: number,
+    onProgress: (processed: number, total: number) => void = () => undefined,
   ): Batch3CollectorOutput {
+    const totalWork = this.getFinalizeWorkTotal();
+    let processedWork = 0;
+    const reportCompleted = (work: number): void => {
+      if (work <= 0) return;
+      processedWork += work;
+      onProgress(processedWork, totalWork);
+    };
     const requests = this.finalizeRequests(navigations, captureEndUs);
+    reportCompleted(this.requests.length);
     const tasks = this.finalizeTasks(navigations);
+    reportCompleted(this.longTasks.length);
     const profiles = this.finalizeProfiles();
+    reportCompleted(this.profileEntries.length);
     const milestones = this.finalizeMilestones(navigations);
+    reportCompleted(this.milestones.length);
     const animationFrames = this.finalizeFrames(navigations);
+    reportCompleted(this.frames.length);
     const rendering = this.finalizeRendering(navigations);
+    reportCompleted(this.renderingEvents.length);
     const forcedReflowClues = this.finalizeForcedReflowClues(navigations, tasks);
+    reportCompleted(this.forcedReflowEvents.length);
     const cpuHotspots = this.finalizeCpuHotspots(navigations, tasks);
+    reportCompleted(this.retainedProfileSamples);
     const interactions = this.finalizeInteractions(
       navigations, tasks, rendering, animationFrames,
     );
-    const animationFrameSummary: TraceAnimationFrameSummary = {
-      completeness: this.candidateDroppedKinds.has('animationFrames') ? 'partial' : 'complete',
-      limitations: this.candidateDroppedKinds.has('animationFrames')
+    reportCompleted(this.interactions.length);
+    const frameSummaryLimitations = [
+      ...(this.candidateDroppedKinds.has('animationFrames')
         ? ['internal-candidate-limit']
-        : [],
+        : []),
+      ...(this.frames.some(frame => frame.durationUs === undefined && frame.name === 'DrawFrame')
+        ? ['frame-duration-derived-from-draw-interval']
+        : []),
+      ...(this.frames.some(frame => frame.durationUs === undefined && frame.name === 'DroppedFrame')
+        ? ['dropped-frame-duration-unavailable']
+        : []),
+    ];
+    const animationFrameSummary: TraceAnimationFrameSummary = {
+      completeness: frameSummaryLimitations.length > 0 ? 'partial' : 'complete',
+      limitations: frameSummaryLimitations,
       totalCount: animationFrames.length,
+      droppedCount: animationFrames.filter(frame => frame.dropped).length,
       overBudgetCount: animationFrames.filter(frame => frame.overBudget).length,
       maxDurationMs: animationFrames.reduce((maximum, frame) => Math.max(maximum, frame.durationMs), 0),
       budgetMs: 16.7,
@@ -487,10 +587,13 @@ export class Batch3FactCollector {
 
   private hasStrongLayoutEvidence(event: ChromiumTraceEvent): boolean {
     const data = readEventData(event);
+    const beginData = readRecord(readRecord(event.args)?.beginData);
     return Array.isArray(data?.stack)
       || Array.isArray(data?.invalidationTracking)
+      || Array.isArray(beginData?.stackTrace)
       || readRecord(data?.stack) !== undefined
-      || readRecord(data?.invalidationTracking) !== undefined;
+      || readRecord(data?.invalidationTracking) !== undefined
+      || readRecord(beginData?.stackTrace) !== undefined;
   }
 
   private readCompleteEvent(event: ChromiumTraceEvent, eventIndex: number): CompleteEvent | undefined {
@@ -524,6 +627,8 @@ export class Batch3FactCollector {
         redirectIndex: previous ? previous.redirectIndex + 1 : 0,
         send: { event, eventIndex },
         startUs: timestampUs,
+        processId: readFiniteNumber(event.pid),
+        frameId: readLocalId(data.frame),
         navigationId: readLocalId(data.navigationId),
         url: sanitizeUrl(data.url),
         method: readString(data.requestMethod),
@@ -561,6 +666,13 @@ export class Batch3FactCollector {
       request.statusCode = readFiniteNumber(data.statusCode);
       request.protocol = readString(data.protocol);
       request.fromCache = readBoolean(data.fromCache);
+      const timing = readRecord(data.timing);
+      const sendStart = readFiniteNumber(timing?.sendStart);
+      const receiveHeadersEnd = readFiniteNumber(timing?.receiveHeadersEnd);
+      if (sendStart !== undefined && receiveHeadersEnd !== undefined
+        && receiveHeadersEnd >= sendStart) {
+        request.resourceTimingDurationMs = receiveHeadersEnd - sendStart;
+      }
     } else if (name === 'ResourceFinish' || name === 'ResourceFail') {
       request.endUs = timestampUs;
       request.failed = name === 'ResourceFail' ? true : readBoolean(data.didFail);
@@ -580,7 +692,10 @@ export class Batch3FactCollector {
       this.warnings.add(SHAPE_WARNING);
       return;
     }
-    const key = `${processId}:${threadId}:${profileId}`;
+    // Chromium emits Profile on the sampled thread but most ProfileChunk
+    // events on a profiler transport thread. The profile id is process-local;
+    // the original Profile event still supplies the sampled thread identity.
+    const key = profileKey(processId, profileId);
     if (name === 'Profile') {
       if (!this.retain('profiles')) {
         this.profiles.delete(key);
@@ -666,7 +781,13 @@ export class Batch3FactCollector {
     captureEndUs: number | undefined,
   ): TraceRequestFacts[] {
     const resolved = this.requests.map(request => {
-      const navigation = navigationFor(navigations, request.startUs, undefined, request.navigationId);
+      const navigation = navigationFor(
+        navigations,
+        request.startUs,
+        request.processId,
+        request.navigationId,
+        request.frameId,
+      );
       const publicRequestId = `request:${request.send.eventIndex}`;
       return {
         request,
@@ -705,6 +826,7 @@ export class Batch3FactCollector {
         || request.calibratedNetworkResponseMs !== undefined
         || request.rendererResponseEventMs !== undefined
         || request.mainThreadProcessingStartMs !== undefined;
+      const hasNetworkTiming = hasTimingInput || request.resourceTimingDurationMs !== undefined;
       this.checkpoint();
       if (hasTimingInput && !request.traceTimeDomain) {
         limitations.push('request-trace-time-domain-unavailable');
@@ -783,8 +905,13 @@ export class Batch3FactCollector {
               durationMs: (request.endUs - request.startUs) / 1000,
             }),
           },
-          ...(!hasTimingInput ? {} : {
-            ...(request.calibratedNetworkSendMs === undefined
+          ...(!hasNetworkTiming ? {} : {
+            ...(request.resourceTimingDurationMs !== undefined ? {
+              network: {
+                durationMs: request.resourceTimingDurationMs,
+                domain: 'resource-timing-relative-ms',
+              },
+            } : request.calibratedNetworkSendMs === undefined
               && request.calibratedNetworkResponseMs === undefined ? {} : {
               network: {
                 ...(request.calibratedNetworkSendMs === undefined ? {} : {
@@ -846,8 +973,7 @@ export class Batch3FactCollector {
   }
 
   private finalizeTasks(navigations: readonly TraceNavigationFacts[]): TraceTaskFacts[] {
-    const tasks = this.completeEvents.filter(item => item.name === 'RunTask'
-      && item.endUs - item.startUs >= 50_000);
+    const tasks = this.longTasks;
     return tasks.flatMap<TraceTaskFacts>(task => {
       const navigation = navigationFor(navigations, task.startUs, task.processId);
       const span = navigation?.processSpans.find(item => task.startUs >= item.startUs
@@ -874,7 +1000,8 @@ export class Batch3FactCollector {
       ));
       const phaseStack: IndexedEvent[] = [];
       const phaseNodes: TaskTreeNode[] = [];
-      let approximate = false;
+      let approximate = this.completeEventsDropped;
+      let phasePairingIncomplete = false;
       for (const part of phaseParts) {
         if (part.event.ph === 'B') {
           phaseStack.push(part);
@@ -883,6 +1010,7 @@ export class Batch3FactCollector {
         const begin = phaseStack[phaseStack.length - 1];
         if (!begin || readString(begin.event.name) !== readString(part.event.name)) {
           approximate = true;
+          phasePairingIncomplete = true;
           continue;
         }
         phaseStack.pop();
@@ -890,6 +1018,7 @@ export class Batch3FactCollector {
         const endUs = readFiniteNumber(part.event.ts)!;
         if (endUs <= startUs) {
           approximate = true;
+          phasePairingIncomplete = true;
           continue;
         }
         phaseNodes.push({
@@ -900,7 +1029,10 @@ export class Batch3FactCollector {
           evidenceIndexes: [begin.eventIndex, part.eventIndex],
         });
       }
-      if (phaseStack.length > 0) approximate = true;
+      if (phaseStack.length > 0) {
+        approximate = true;
+        phasePairingIncomplete = true;
+      }
 
       const nodes = [...completeNodes, ...phaseNodes];
       const root: TaskTreeNode = {
@@ -965,7 +1097,10 @@ export class Batch3FactCollector {
         selfTimeMs: selfTimeUs / 1000,
         categorySelfTimeMs,
         selfTimeConfidence: approximate ? 'approximate' : 'exact',
-        limitations: approximate ? ['incomplete-phase-pairing'] : [],
+        limitations: [
+          ...(this.completeEventsDropped ? ['complete-event-candidate-limit'] : []),
+          ...(phasePairingIncomplete ? ['incomplete-phase-pairing'] : []),
+        ],
         evidenceIds: boundedEvidenceIds([
           task.eventIndex,
           ...nodes.flatMap(item => item.evidenceIndexes),
@@ -1050,12 +1185,17 @@ export class Batch3FactCollector {
   }
 
   private finalizeMilestones(navigations: readonly TraceNavigationFacts[]): TraceMilestoneFacts[] {
-    return this.milestones.flatMap(({ event, eventIndex }) => {
+    const facts = this.milestones.flatMap<TraceMilestoneFacts>(({ event, eventIndex }) => {
       this.checkpoint();
       const timestampUs = readFiniteNumber(event.ts)!;
       const data = readEventData(event);
+      if (readBoolean(data?.isOutermostMainFrame) === false) return [];
       const navigation = navigationFor(
-        navigations, timestampUs, readFiniteNumber(event.pid), readLocalId(data?.navigationId),
+        navigations,
+        timestampUs,
+        readFiniteNumber(event.pid),
+        readLocalId(data?.navigationId),
+        readLocalId(data?.frame),
       );
       if (!navigation) return [];
       const name = MILESTONE_NAMES[readString(event.name)!];
@@ -1068,14 +1208,44 @@ export class Batch3FactCollector {
         candidate: name === 'LCP',
         evidenceIds: [evidenceId(eventIndex)],
       }];
-    }).sort((left, right) => left.timestampUs - right.timestampUs || left.id.localeCompare(right.id));
+    });
+    const selected = new Map<string, TraceMilestoneFacts>();
+    for (const fact of facts) {
+      const key = `${fact.navigationKey}:${fact.name}`;
+      const previous = selected.get(key);
+      if (!previous
+        || (fact.name === 'LCP' && fact.timestampUs > previous.timestampUs)
+        || (fact.name !== 'LCP' && fact.timestampUs < previous.timestampUs)) {
+        selected.set(key, fact);
+      }
+    }
+    return [...selected.values()].sort((left, right) => (
+      left.timestampUs - right.timestampUs || left.id.localeCompare(right.id)
+    ));
   }
 
   private finalizeFrames(navigations: readonly TraceNavigationFacts[]): TraceAnimationFrameFacts[] {
-    return this.frames.map(frame => {
+    const frames = [...this.frames].sort((left, right) => (
+      left.startUs - right.startUs || left.eventIndex - right.eventIndex
+    ));
+    const derivedDrawDurations = new Map<number, number>();
+    const nextDrawByThread = new Map<string, number>();
+    for (let index = frames.length - 1; index >= 0; index -= 1) {
+      const frame = frames[index];
+      if (frame.name !== 'DrawFrame' || frame.durationUs !== undefined) continue;
+      const key = `${frame.processId}:${frame.threadId}`;
+      const nextStartUs = nextDrawByThread.get(key);
+      if (nextStartUs !== undefined && nextStartUs > frame.startUs) {
+        derivedDrawDurations.set(frame.eventIndex, nextStartUs - frame.startUs);
+      }
+      nextDrawByThread.set(key, frame.startUs);
+    }
+    return frames.map(frame => {
       this.checkpoint();
       const navigation = navigationFor(navigations, frame.startUs, frame.processId);
-      const durationMs = (frame.endUs - frame.startUs) / 1000;
+      const durationMs = (frame.durationUs
+        ?? derivedDrawDurations.get(frame.eventIndex)
+        ?? 0) / 1000;
       return {
         id: `trace:frame:${frame.processId}:${frame.threadId}:${frame.startUs}:event:${frame.eventIndex}`,
         ...(navigation ? { navigationKey: navigation.key } : {}),
@@ -1112,10 +1282,7 @@ export class Batch3FactCollector {
     navigations: readonly TraceNavigationFacts[],
     tasks: readonly TraceTaskFacts[],
   ): TraceForcedReflowClue[] {
-    return this.completeEvents.filter(item => (
-      item.name === 'ForcedReflow'
-      || (item.name === 'Layout' && this.hasStrongLayoutEvidence(item.event))
-    )).map<TraceForcedReflowClue>(item => {
+    return this.forcedReflowEvents.map<TraceForcedReflowClue>(item => {
       this.checkpoint();
       const navigation = navigationFor(navigations, item.startUs, item.processId);
       const task = tasks.find(candidate => candidate.processId === item.processId
@@ -1144,10 +1311,12 @@ export class Batch3FactCollector {
     frames: readonly TraceAnimationFrameFacts[],
   ): TraceInteractionFacts[] {
     interface CompleteInteraction {
-      eventStart: number;
-      processingStart: number;
-      processingEnd: number;
-      interactionEnd: number;
+      startUs: number;
+      endUs: number;
+      inputDelayMs: number;
+      processingDurationMs: number;
+      presentationDelayMs: number;
+      totalLatencyMs: number;
       interactionId: number;
       processId: number;
       navigationKey: string;
@@ -1157,38 +1326,59 @@ export class Batch3FactCollector {
     const byScope = new Map<string, IndexedEvent[]>();
     for (const indexed of this.interactions) {
       this.checkpoint();
-      const data = readEventData(indexed.event)!;
-      const interactionId = readFiniteNumber(data.interactionId)!;
+      const data = readEventData(indexed.event);
       const processId = readFiniteNumber(indexed.event.pid);
+      const threadId = readFiniteNumber(indexed.event.tid);
+      const traceTimestampUs = readFiniteNumber(indexed.event.ts);
+      const asyncId = eventId(indexed.event.id) ?? eventId(indexed.event.id2);
+      const legacyInteractionId = readFiniteNumber(data?.interactionId);
+      if ((indexed.event.ph === 'b' || indexed.event.ph === 'e')
+        && processId !== undefined
+        && threadId !== undefined
+        && traceTimestampUs !== undefined
+        && (asyncId || legacyInteractionId !== undefined)) {
+        const key = `${processId}:${threadId}:${readString(indexed.event.scope) ?? ''}:${
+          asyncId ? `async:${asyncId}` : `interaction:${legacyInteractionId}`
+        }`;
+        const values = byScope.get(key) ?? [];
+        values.push(indexed);
+        byScope.set(key, values);
+        continue;
+      }
+      if (!data || processId === undefined) continue;
+      const interactionId = readFiniteNumber(data.interactionId);
       const eventStart = readFiniteNumber(data.eventStart);
       const processingStart = readFiniteNumber(data.processingStart);
       const processingEnd = readFiniteNumber(data.processingEnd);
       const interactionEnd = readFiniteNumber(data.interactionEnd);
-      const scopeTimestamp = eventStart ?? interactionEnd ?? readFiniteNumber(indexed.event.ts);
-      if (interactionId <= 0 || processId === undefined || scopeTimestamp === undefined) continue;
-      const navigation = navigationFor(navigations, scopeTimestamp, processId);
-      if (!navigation) continue;
-      if (eventStart !== undefined && processingStart !== undefined
-        && processingEnd !== undefined && interactionEnd !== undefined) {
-        complete.push({
-          eventStart,
-          processingStart,
-          processingEnd,
-          interactionEnd,
-          interactionId,
-          processId,
-          navigationKey: navigation.key,
-          evidenceIndexes: [indexed.eventIndex],
-        });
-      } else {
-        const key = `${interactionId}:${processId}:${navigation.key}`;
-        const values = byScope.get(key) ?? [];
-        values.push(indexed);
-        byScope.set(key, values);
-      }
+      if (interactionId === undefined || interactionId <= 0 || eventStart === undefined
+        || processingStart === undefined || processingEnd === undefined
+        || interactionEnd === undefined) continue;
+      const timing = calculateEventTiming({
+        eventStart,
+        processingStart,
+        processingEnd,
+        interactionEnd,
+      });
+      const startUs = traceTimestampUs ?? eventStart;
+      const navigation = navigationFor(navigations, startUs, processId);
+      if (!timing || !navigation) continue;
+      complete.push({
+        startUs,
+        endUs: startUs + timing.totalLatency,
+        inputDelayMs: timing.inputDelay / 1000,
+        processingDurationMs: timing.processingDuration / 1000,
+        presentationDelayMs: timing.presentationDelay / 1000,
+        totalLatencyMs: timing.totalLatency / 1000,
+        interactionId,
+        processId,
+        navigationKey: navigation.key,
+        evidenceIndexes: [indexed.eventIndex],
+      });
     }
     for (const values of byScope.values()) {
       this.checkpoint();
+      values.sort((left, right) => left.eventIndex - right.eventIndex);
       const begin = values.find(item => item.event.ph === 'b');
       const end = values.find(item => item.event.ph === 'e'
         && (!begin || item.eventIndex > begin.eventIndex));
@@ -1196,29 +1386,59 @@ export class Batch3FactCollector {
       const endData = end && readEventData(end.event);
       const interactionId = readFiniteNumber(beginData?.interactionId);
       const processId = begin && readFiniteNumber(begin.event.pid);
-      const eventStart = readFiniteNumber(beginData?.eventStart);
+      const beginTimestampUs = begin && readFiniteNumber(begin.event.ts);
+      const endTimestampUs = end && readFiniteNumber(end.event.ts);
+      const eventStart = readFiniteNumber(beginData?.timeStamp);
       const processingStart = readFiniteNumber(beginData?.processingStart);
-      const processingEnd = readFiniteNumber(endData?.processingEnd);
-      const interactionEnd = readFiniteNumber(endData?.interactionEnd);
-      const beginNavigation = eventStart === undefined || processId === undefined
+      const processingEnd = readFiniteNumber(beginData?.processingEnd);
+      const beginNavigation = beginTimestampUs === undefined || processId === undefined
         ? undefined
-        : navigationFor(navigations, eventStart, processId);
-      const endNavigation = interactionEnd === undefined || processId === undefined
+        : navigationFor(navigations, beginTimestampUs, processId);
+      const endNavigation = endTimestampUs === undefined || processId === undefined
         ? undefined
-        : navigationFor(navigations, interactionEnd, processId);
+        : navigationFor(navigations, endTimestampUs, processId);
       if (!begin || !end || interactionId === undefined || processId === undefined
-        || eventStart === undefined || processingStart === undefined
-        || processingEnd === undefined || interactionEnd === undefined
+        || interactionId <= 0
+        || beginTimestampUs === undefined || endTimestampUs === undefined
         || !beginNavigation || beginNavigation.key !== endNavigation?.key
         || readFiniteNumber(end.event.pid) !== processId) {
         this.warnings.add(SHAPE_WARNING);
         continue;
       }
+      const legacyTiming = calculateEventTiming({
+        eventStart: readFiniteNumber(beginData?.eventStart) ?? Number.NaN,
+        processingStart: processingStart ?? Number.NaN,
+        processingEnd: readFiniteNumber(endData?.processingEnd) ?? Number.NaN,
+        interactionEnd: readFiniteNumber(endData?.interactionEnd) ?? Number.NaN,
+      });
+      const inputDelayMs = legacyTiming
+        ? legacyTiming.inputDelay / 1000
+        : (processingStart ?? Number.NaN) - (eventStart ?? Number.NaN);
+      const processingDurationMs = legacyTiming
+        ? legacyTiming.processingDuration / 1000
+        : (processingEnd ?? Number.NaN) - (processingStart ?? Number.NaN);
+      const totalLatencyMs = legacyTiming
+        ? legacyTiming.totalLatency / 1000
+        : (endTimestampUs - beginTimestampUs) / 1000;
+      const presentationDelayMs = legacyTiming
+        ? legacyTiming.presentationDelay / 1000
+        : totalLatencyMs - inputDelayMs - processingDurationMs;
+      if (![inputDelayMs, processingDurationMs, totalLatencyMs, presentationDelayMs]
+        .every(Number.isFinite)
+        || inputDelayMs < 0
+        || processingDurationMs < 0
+        || totalLatencyMs < 0
+        || presentationDelayMs < -0.001) {
+        this.warnings.add(SHAPE_WARNING);
+        continue;
+      }
       complete.push({
-        eventStart,
-        processingStart,
-        processingEnd,
-        interactionEnd,
+        startUs: beginTimestampUs,
+        endUs: endTimestampUs,
+        inputDelayMs,
+        processingDurationMs,
+        presentationDelayMs: Math.max(presentationDelayMs, 0),
+        totalLatencyMs,
         interactionId,
         processId,
         navigationKey: beginNavigation.key,
@@ -1227,23 +1447,18 @@ export class Batch3FactCollector {
     }
     return complete.flatMap(item => {
       this.checkpoint();
-      const timing = calculateEventTiming(item);
-      if (!timing) {
-        this.warnings.add(SHAPE_WARNING);
-        return [];
-      }
       const overlap = (startUs: number, endUs: number) => (
-        endUs >= item.eventStart && startUs <= item.interactionEnd
+        endUs > item.startUs && startUs < item.endUs
       );
       return [{
-        id: `trace:interaction:${item.interactionId}:${item.processId}:${item.eventStart}:event:${item.evidenceIndexes[0]}`,
+        id: `trace:interaction:${item.interactionId}:${item.processId}:${item.startUs}:event:${item.evidenceIndexes[0]}`,
         interactionId: item.interactionId,
         navigationKey: item.navigationKey,
-        startUs: item.eventStart,
-        inputDelayMs: timing.inputDelay / 1000,
-        processingDurationMs: timing.processingDuration / 1000,
-        presentationDelayMs: timing.presentationDelay / 1000,
-        totalLatencyMs: timing.totalLatency / 1000,
+        startUs: item.startUs,
+        inputDelayMs: item.inputDelayMs,
+        processingDurationMs: item.processingDurationMs,
+        presentationDelayMs: item.presentationDelayMs,
+        totalLatencyMs: item.totalLatencyMs,
         taskIds: tasks.filter(task => task.navigationKey === item.navigationKey
           && task.processId === item.processId
           && overlap(task.startUs, task.startUs + task.durationMs * 1000)).map(task => task.id),

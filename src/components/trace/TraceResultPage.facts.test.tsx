@@ -20,7 +20,7 @@ const result: TraceContextResult = {
     profiles: [],
     milestones: [{ id: 'm1', navigationKey: 'n1', name: 'LCP', timestampUs: 50_000, relativeUs: 49_000, candidate: true, evidenceIds: [] }],
     animationFrames: [{ id: 'f1', processId: 1, threadId: 1, startUs: 1, durationMs: 20, dropped: false, budgetMs: 16.7, overBudget: true, evidenceIds: [] }],
-    animationFrameSummary: { completeness: 'complete', limitations: [], totalCount: 3, overBudgetCount: 2, maxDurationMs: 30, budgetMs: 16.7, budgetBasis: '60hz-reference', refreshRate: 'unknown' },
+    animationFrameSummary: { completeness: 'complete', limitations: [], totalCount: 3, droppedCount: 1, overBudgetCount: 2, maxDurationMs: 30, budgetMs: 16.7, budgetBasis: '60hz-reference', refreshRate: 'unknown' },
     rendering: [],
     interactions: [{ id: 'i1', interactionId: 1, startUs: 1, inputDelayMs: 10, processingDurationMs: 20, presentationDelayMs: 30, totalLatencyMs: 60, taskIds: ['t1'], renderingEventIds: [], frameIds: ['f1'], evidenceIds: [] }],
     interactionSummary: { completeness: 'complete', limitations: [], totalCount: 2, slowestInteractionId: 'i2', maxTotalLatencyMs: 90 },
@@ -51,6 +51,7 @@ describe('TraceResultPage facts', () => {
     expect(screen.getByText('LCP 候选 49.0 ms')).not.toBeNull();
     expect(screen.getByText('20.0 ms / 预算 16.7 ms')).not.toBeNull();
     expect(screen.getByText('超预算 2 / 3，最长 30.0 ms')).not.toBeNull();
+    expect(screen.getByText('丢帧线索 1')).not.toBeNull();
     expect(screen.getByText('16.7 ms 为 60 Hz 参考预算，实际刷新率未知')).not.toBeNull();
     expect(screen.getByText('明确 forced reflow 线索 1')).not.toBeNull();
     expect(screen.getByText('输入 10.0 / 处理 20.0 / 呈现 30.0 ms')).not.toBeNull();

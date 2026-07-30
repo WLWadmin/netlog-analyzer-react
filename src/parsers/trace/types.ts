@@ -298,6 +298,7 @@ export interface TraceAnimationFrameSummary {
   completeness: 'complete' | 'partial';
   limitations: string[];
   totalCount: number;
+  droppedCount: number;
   overBudgetCount: number;
   maxDurationMs: number;
   budgetMs: 16.7;

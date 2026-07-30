@@ -177,6 +177,25 @@ function getThread(
 
 const MAX_INTERNAL_EVIDENCE = 10_000;
 
+function createEvidenceRef(
+  event: ChromiumTraceEvent,
+  eventIndex: number,
+): TraceEventRef {
+  const name = readString(event.name);
+  const processId = readFiniteNumber(event.pid);
+  const threadId = readFiniteNumber(event.tid);
+  const timestampUs = readFiniteNumber(event.ts);
+  return {
+    evidenceId: evidenceId(eventIndex),
+    eventIndex,
+    origin: 'raw',
+    ...(name === undefined ? {} : { name }),
+    ...(processId === undefined ? {} : { processId }),
+    ...(threadId === undefined ? {} : { threadId }),
+    ...(timestampUs === undefined ? {} : { timestampUs }),
+  };
+}
+
 function addEvidence(
   state: ScanState,
   event: ChromiumTraceEvent,
@@ -187,19 +206,7 @@ function addEvidence(
     state.warnings.add('TRACE_FACT_CANDIDATES_TRUNCATED');
     return;
   }
-  const name = readString(event.name);
-  const processId = readFiniteNumber(event.pid);
-  const threadId = readFiniteNumber(event.tid);
-  const timestampUs = readFiniteNumber(event.ts);
-  state.evidence.set(eventIndex, {
-    evidenceId: evidenceId(eventIndex),
-    eventIndex,
-    origin: 'raw',
-    ...(name === undefined ? {} : { name }),
-    ...(processId === undefined ? {} : { processId }),
-    ...(threadId === undefined ? {} : { threadId }),
-    ...(timestampUs === undefined ? {} : { timestampUs }),
-  });
+  state.evidence.set(eventIndex, createEvidenceRef(event, eventIndex));
 }
 
 function readMetadataArgs(event: ChromiumTraceEvent): Record<string, unknown> | undefined {
@@ -831,28 +838,23 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       hierarchy.outermost,
       frameSpans,
     );
+    const buildFactTotal = batch3Collector.getFinalizeWorkTotal();
+    options.onProgress({ phase: 'build-facts', processed: 0, total: buildFactTotal });
     const batch3Facts = batch3Collector.finalize(
       navigations,
       state.captureEndUs,
       this.maxFactsPerKind,
+      (processed, totalWork) => {
+        if (options.isCancelled()) throw new TraceAggregationCancelled();
+        options.onProgress({
+          phase: 'build-facts',
+          processed,
+          total: totalWork,
+        });
+      },
     );
     for (const warning of batch3Facts.warnings) state.warnings.add(warning);
 
-    const buildFactCounts = Object.values(batch3Facts.factCounts)
-      .map(value => value.total)
-      .filter(value => value > 0);
-    const buildFactTotal = buildFactCounts.reduce((sum, value) => sum + value, 0);
-    let builtFacts = 0;
-    options.onProgress({ phase: 'build-facts', processed: 0, total: buildFactTotal });
-    for (const count of buildFactCounts) {
-      if (options.isCancelled()) throw new TraceAggregationCancelled();
-      builtFacts += count;
-      options.onProgress({
-        phase: 'build-facts',
-        processed: builtFacts,
-        total: buildFactTotal,
-      });
-    }
     if (options.isCancelled()) throw new TraceAggregationCancelled();
     const referencedEvidenceIndexes = new Set<number>();
     for (const process of metadata.processes) {
@@ -878,7 +880,12 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
     }
     const evidence = evidenceIndexes
       .slice(0, this.maxEvidence)
-      .flatMap(index => state.evidence.get(index) ?? []);
+      .flatMap(index => {
+        const cached = state.evidence.get(index);
+        if (cached) return [cached];
+        const event = trace.traceEvents[index];
+        return event ? [createEvidenceRef(event, index)] : [];
+      });
     const returnedEvidenceIds = new Set(evidence.map(item => item.evidenceId));
     const filterEvidenceIds = (ids: readonly string[]): string[] => (
       [...new Set(ids)].filter(id => returnedEvidenceIds.has(id)).slice(0, 32)
