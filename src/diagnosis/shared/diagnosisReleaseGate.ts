@@ -1,6 +1,7 @@
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
 import type { DiagnosisCoverage } from './diagnosisCoverage';
 import { buildDiagnosisEvidenceGuardReport, scanConfirmedTextForForbiddenEvidence } from './diagnosisEvidenceGuardReport';
+import { findSensitiveDataLeaks } from './maskedExport';
 
 export interface DiagnosisPerformanceMetrics {
   harObservationClusterCoverageMs?: number;
@@ -60,17 +61,6 @@ export interface DiagnosisReleaseGateReport {
   };
 }
 
-const SENSITIVE_PATTERNS = [
-  /authorization\s*[:=]/i,
-  /cookie\s*[:=]/i,
-  /set-cookie\s*[:=]/i,
-  /bearer\s+[a-z0-9._~+/=-]{8,}/i,
-  /token=([^&\s]{4,})/i,
-  /password=([^&\s]{4,})/i,
-  /request body/i,
-  /response body/i,
-];
-
 function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 1 : numerator / denominator;
 }
@@ -90,7 +80,7 @@ function textOfSummary(summary: FinalDiagnosisSummary): string {
 }
 
 function countSensitiveLeaks(texts: string[]): number {
-  return texts.reduce((count, text) => count + SENSITIVE_PATTERNS.filter(pattern => pattern.test(text)).length, 0);
+  return texts.reduce((count, text) => count + findSensitiveDataLeaks(text).length, 0);
 }
 
 export function evaluateGoldenCorpusCase(input: GoldenCorpusCaseEvaluationInput): GoldenCorpusCaseResult {

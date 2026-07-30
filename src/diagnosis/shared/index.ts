@@ -76,6 +76,8 @@ export {
   maskUrl,
   maskHeader,
   maskEvidenceValue,
+  sanitizeDiagnosisText,
+  findSensitiveDataLeaks,
   generateMaskedReport,
 } from './maskedExport';
 
