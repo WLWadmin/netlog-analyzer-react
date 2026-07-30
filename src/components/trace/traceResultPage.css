@@ -188,3 +188,16 @@
     border-top: 1px solid var(--border-color);
   }
 }
+
+.trace-fact-items {
+  color: var(--text-secondary);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-fact-items li {
+  border-top: 1px solid var(--border-color);
+  line-height: 1.5;
+  padding: 11px 0;
+}

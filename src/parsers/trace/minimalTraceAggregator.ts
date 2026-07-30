@@ -11,6 +11,7 @@ import {
   readString,
   readThreadId,
 } from './eventAccessors';
+import { Batch3FactCollector } from './traceFactCollectors';
 import type {
   TraceAggregationOptions,
   TraceAggregatorOutput,
@@ -34,6 +35,7 @@ import type {
 
 const DEFAULT_MAX_EVIDENCE = 5_000;
 const DEFAULT_CANCELLATION_INTERVAL = 1_024;
+const DEFAULT_MAX_FACTS_PER_KIND = 1_000;
 const NAVIGATION_EVENT_NAMES = new Set(['navigationStart', 'NavigationStart']);
 const FRAME_ASSIGNMENT_EVENT_NAMES = new Set([
   'FrameCommittedInBrowser',
@@ -55,6 +57,8 @@ interface TraceIntakeSeed {
 
 interface MinimalTraceAggregatorOptions {
   maxEvidence?: number;
+  maxFactsPerKind?: number;
+  maxCandidatesPerKind?: number;
   cancellationInterval?: number;
 }
 
@@ -132,7 +136,7 @@ function evidenceId(eventIndex: number): string {
 }
 
 function sortedEvidenceIds(indexes: Iterable<number>): string[] {
-  return [...indexes].sort((a, b) => a - b).map(evidenceId);
+  return [...new Set(indexes)].sort((a, b) => a - b).slice(0, 32).map(evidenceId);
 }
 
 function threadKey(processId: number, threadId: number): string {
@@ -171,12 +175,18 @@ function getThread(
   return thread;
 }
 
+const MAX_INTERNAL_EVIDENCE = 10_000;
+
 function addEvidence(
   state: ScanState,
   event: ChromiumTraceEvent,
   eventIndex: number,
 ): void {
   if (state.evidence.has(eventIndex)) return;
+  if (state.evidence.size >= MAX_INTERNAL_EVIDENCE) {
+    state.warnings.add('TRACE_FACT_CANDIDATES_TRUNCATED');
+    return;
+  }
   const name = readString(event.name);
   const processId = readFiniteNumber(event.pid);
   const threadId = readFiniteNumber(event.tid);
@@ -626,16 +636,16 @@ function finalizeNavigations(
     a.timestampUs - b.timestampUs || a.eventIndex - b.eventIndex
   ));
   for (const signal of signals) {
-    const key = signal.navigationId
-      ? `trace:navigation:${signal.navigationId}`
-      : `trace:navigation:${signal.frameId}:${signal.timestampUs}`;
-    const existing = deduplicated.get(key);
+    const deduplicationKey = signal.navigationId
+      ? `id:${signal.navigationId}`
+      : `frame:${signal.frameId}:${signal.timestampUs}`;
+    const existing = deduplicated.get(deduplicationKey);
     if (existing) {
       existing.evidenceIndexes.add(signal.eventIndex);
       continue;
     }
-    deduplicated.set(key, {
-      key,
+    deduplicated.set(deduplicationKey, {
+      key: `trace:navigation:event:${signal.eventIndex}`,
       ...(signal.navigationId === undefined ? {} : { navigationId: signal.navigationId }),
       frameId: signal.frameId,
       startUs: signal.timestampUs,
@@ -726,7 +736,8 @@ function buildQuality(
   const allCriticalMissing = navigationContext === 'missing'
     && processThreadMetadata === 'missing'
     && frameHierarchy === 'missing';
-  const allCoreAvailable = captureWindow === 'available'
+  const allCoreAvailable = !warnings.includes('TRACE_FACT_CANDIDATES_TRUNCATED')
+    && captureWindow === 'available'
     && navigationContext === 'available'
     && processThreadMetadata === 'available'
     && frameHierarchy === 'available'
@@ -746,13 +757,17 @@ function buildQuality(
 
 export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextResult> {
   private readonly maxEvidence: number;
+  private readonly maxFactsPerKind: number;
   private readonly cancellationInterval: number;
+  private readonly maxCandidatesPerKind: number;
 
   constructor(
     private readonly intakeSeed: TraceIntakeSeed,
     options: MinimalTraceAggregatorOptions = {},
   ) {
     this.maxEvidence = options.maxEvidence ?? DEFAULT_MAX_EVIDENCE;
+    this.maxFactsPerKind = options.maxFactsPerKind ?? DEFAULT_MAX_FACTS_PER_KIND;
+    this.maxCandidatesPerKind = options.maxCandidatesPerKind ?? 10_000;
     this.cancellationInterval = options.cancellationInterval
       ?? DEFAULT_CANCELLATION_INTERVAL;
   }
@@ -770,6 +785,12 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       warnings: new Set(this.intakeSeed.warnings),
       families: new Set(),
     };
+    const batch3Collector = new Batch3FactCollector({
+      maxCandidatesPerKind: this.maxCandidatesPerKind,
+      checkCancelled: () => {
+        if (options.isCancelled()) throw new TraceAggregationCancelled();
+      },
+    });
     const total = trace.traceEvents.length;
     options.onProgress({ phase: 'scan-events', processed: 0, total });
 
@@ -781,6 +802,7 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       collectCaptureAndFamilies(state, event);
       collectMetadata(state, event, eventIndex);
       collectFrameNavigationSignals(state, event, eventIndex);
+      if (batch3Collector.collect(event, eventIndex)) addEvidence(state, event, eventIndex);
       if (
         (eventIndex + 1) % this.cancellationInterval === 0
         || eventIndex + 1 === total
@@ -809,8 +831,28 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       hierarchy.outermost,
       frameSpans,
     );
+    const batch3Facts = batch3Collector.finalize(
+      navigations,
+      state.captureEndUs,
+      this.maxFactsPerKind,
+    );
+    for (const warning of batch3Facts.warnings) state.warnings.add(warning);
 
-    options.onProgress({ phase: 'build-facts' });
+    const buildFactCounts = Object.values(batch3Facts.factCounts)
+      .map(value => value.total)
+      .filter(value => value > 0);
+    const buildFactTotal = buildFactCounts.reduce((sum, value) => sum + value, 0);
+    let builtFacts = 0;
+    options.onProgress({ phase: 'build-facts', processed: 0, total: buildFactTotal });
+    for (const count of buildFactCounts) {
+      if (options.isCancelled()) throw new TraceAggregationCancelled();
+      builtFacts += count;
+      options.onProgress({
+        phase: 'build-facts',
+        processed: builtFacts,
+        total: buildFactTotal,
+      });
+    }
     if (options.isCancelled()) throw new TraceAggregationCancelled();
     const referencedEvidenceIndexes = new Set<number>();
     for (const process of metadata.processes) {
@@ -828,6 +870,7 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
         for (const id of span.evidenceIds) referencedEvidenceIndexes.add(Number(id.slice(12)));
       }
     }
+    for (const index of batch3Facts.evidenceIndexes) referencedEvidenceIndexes.add(index);
     const evidenceIndexes = [...referencedEvidenceIndexes].sort((a, b) => a - b);
     const evidenceTotalCount = evidenceIndexes.length;
     if (evidenceTotalCount > this.maxEvidence) {
@@ -836,24 +879,87 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
     const evidence = evidenceIndexes
       .slice(0, this.maxEvidence)
       .flatMap(index => state.evidence.get(index) ?? []);
+    const returnedEvidenceIds = new Set(evidence.map(item => item.evidenceId));
+    const filterEvidenceIds = (ids: readonly string[]): string[] => (
+      [...new Set(ids)].filter(id => returnedEvidenceIds.has(id)).slice(0, 32)
+    );
     const warnings = [...state.warnings].sort();
+    const frameIdentityInputs = [...hierarchy.frames.values()].map(frame => ({
+      frame,
+      primaryEventIndex: Math.min(...frame.evidenceIndexes),
+    })).sort((left, right) => (
+      left.primaryEventIndex - right.primaryEventIndex
+      || left.frame.frameId.localeCompare(right.frame.frameId)
+    ));
+    const ordinalByEvent = new Map<number, number>();
+    const frameRefs = new Map<string, string>();
+    for (const { frame, primaryEventIndex } of frameIdentityInputs) {
+      const ordinal = ordinalByEvent.get(primaryEventIndex) ?? 0;
+      ordinalByEvent.set(primaryEventIndex, ordinal + 1);
+      frameRefs.set(frame.frameId, `trace:frame:event:${primaryEventIndex}:${ordinal}`);
+    }
     const frames = [...hierarchy.frames.values()]
       .sort((a, b) => a.frameId.localeCompare(b.frameId))
-      .map<TraceFrameFacts>(frame => ({
-        frameId: frame.frameId,
-        ...(frame.parentFrameId === undefined
-          ? {}
-          : { parentFrameId: frame.parentFrameId }),
-        outermostFrameId: hierarchy.outermost.get(frame.frameId) ?? frame.frameId,
-        isOutermost: (hierarchy.outermost.get(frame.frameId) ?? frame.frameId) === frame.frameId,
-        processSpans: frameSpans.get(frame.frameId) ?? [],
-        evidenceIds: sortedEvidenceIds(frame.evidenceIndexes),
-      }));
+      .map<TraceFrameFacts>(frame => {
+        const outermostFrameId = hierarchy.outermost.get(frame.frameId) ?? frame.frameId;
+        return {
+          frameId: frameRefs.get(frame.frameId)!,
+          ...(frame.parentFrameId === undefined || !frameRefs.has(frame.parentFrameId)
+            ? {}
+            : { parentFrameId: frameRefs.get(frame.parentFrameId)! }),
+          outermostFrameId: frameRefs.get(outermostFrameId)!,
+          isOutermost: outermostFrameId === frame.frameId,
+          processSpans: (frameSpans.get(frame.frameId) ?? []).map(span => ({
+            ...span,
+            evidenceIds: filterEvidenceIds(span.evidenceIds),
+          })),
+          evidenceIds: filterEvidenceIds(sortedEvidenceIds(frame.evidenceIndexes)),
+        };
+      });
+    const processes = metadata.processes.map(process => ({
+      ...process,
+      evidenceIds: filterEvidenceIds(process.evidenceIds),
+    }));
+    const threads = metadata.threads.map(thread => ({
+      ...thread,
+      evidenceIds: filterEvidenceIds(thread.evidenceIds),
+    }));
+    const filteredNavigations = navigations.map(navigation => ({
+      ...navigation,
+      navigationId: navigation.key,
+      frameId: frameRefs.get(navigation.frameId)!,
+      outermostFrameId: frameRefs.get(navigation.outermostFrameId)!,
+      evidenceIds: filterEvidenceIds(navigation.evidenceIds),
+      processSpans: navigation.processSpans.map(span => ({
+        ...span,
+        evidenceIds: filterEvidenceIds(span.evidenceIds),
+      })),
+    }));
+    const requests = batch3Facts.requests.map(request => ({
+      ...request,
+      evidenceIds: filterEvidenceIds(request.evidenceIds),
+      initiatorEvidenceIds: filterEvidenceIds(request.initiatorEvidenceIds),
+    }));
+    const filterFactEvidence = <T extends { evidenceIds: string[] }>(facts: T[]): T[] => (
+      facts.map(fact => ({ ...fact, evidenceIds: filterEvidenceIds(fact.evidenceIds) }))
+    );
     const contextWithoutQuality = {
-      processes: metadata.processes,
-      threads: metadata.threads,
+      processes,
+      threads,
       frames,
-      navigations,
+      navigations: filteredNavigations,
+      requests,
+      tasks: filterFactEvidence(batch3Facts.tasks),
+      profiles: filterFactEvidence(batch3Facts.profiles),
+      milestones: filterFactEvidence(batch3Facts.milestones),
+      animationFrames: filterFactEvidence(batch3Facts.animationFrames),
+      animationFrameSummary: batch3Facts.animationFrameSummary,
+      rendering: filterFactEvidence(batch3Facts.rendering),
+      interactions: filterFactEvidence(batch3Facts.interactions),
+      interactionSummary: batch3Facts.interactionSummary,
+      cpuHotspots: filterFactEvidence(batch3Facts.cpuHotspots),
+      forcedReflowClues: filterFactEvidence(batch3Facts.forcedReflowClues),
+      factCounts: batch3Facts.factCounts,
       evidence,
       evidenceTotalCount,
       evidenceReturnedCount: evidence.length,

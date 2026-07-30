@@ -44,7 +44,12 @@ export type TraceParserWarning =
   | 'TRACE_FRAME_PROCESS_MISSING'
   | 'TRACE_RENDERER_MAIN_MISSING'
   | 'TRACE_RENDERER_MAIN_AMBIGUOUS'
-  | 'TRACE_EVIDENCE_TRUNCATED';
+  | 'TRACE_EVIDENCE_TRUNCATED'
+  | 'TRACE_PROFILE_CHUNK_TAIL_INCOMPLETE'
+  | 'TRACE_BATCH3_EVENT_SHAPE_UNSUPPORTED'
+  | 'TRACE_FACTS_TRUNCATED'
+  | 'TRACE_FACT_CANDIDATES_TRUNCATED'
+  | 'TRACE_PROFILE_NEGATIVE_TIME_DELTA';
 
 export interface TraceIntakeSummary {
   format: 'chromium-trace-object';
@@ -180,11 +185,221 @@ export interface TraceCollectionQuality {
   disabledCapabilities: string[];
 }
 
+export interface TraceSanitizedUrl {
+  origin: string;
+  pathname: string;
+}
+
+export interface TraceRequestTiming {
+  trace: {
+    startUs: number;
+    endUs?: number;
+    durationMs?: number;
+  };
+  network?: {
+    sendMs?: number;
+    responseMs?: number;
+    durationMs?: number;
+    domain?: string;
+  };
+  renderer?: {
+    responseEventMs?: number;
+    mainThreadProcessingStartMs?: number;
+    domain?: string;
+  };
+  networkToRendererMs?: number;
+  rendererQueueMs?: number;
+}
+
+export interface TraceRequestFacts {
+  id: string;
+  requestId: string;
+  navigationKey?: string;
+  redirectIndex: number;
+  url?: TraceSanitizedUrl;
+  method?: string;
+  resourceType?: string;
+  statusCode?: number;
+  protocol?: string;
+  fromCache?: boolean;
+  failed?: boolean;
+  result: 'success' | 'http-error' | 'transport-failed' | 'cancelled'
+    | 'incomplete-at-trace-end' | 'unknown-failure';
+  resultConfidence: 'high' | 'medium' | 'observation';
+  timing: TraceRequestTiming;
+  initiatorEvidenceIds: string[];
+  evidenceIds: string[];
+  limitations: string[];
+  redirectPreviousRequestId?: string;
+  redirectNextRequestId?: string;
+  initiatorRequestId?: string;
+  dataEventCount: number;
+  encodedDataLength?: number;
+  dispatch?: {
+    dispatchWaitMs: number;
+    mainThreadOverlapMs: number;
+  };
+}
+
+export type TraceWorkCategory = 'script' | 'rendering' | 'gc' | 'other';
+
+export interface TraceTaskFacts {
+  id: string;
+  navigationKey?: string;
+  processId: number;
+  threadId: number;
+  startUs: number;
+  durationMs: number;
+  blockingContributionMs: number;
+  selfTimeMs: number;
+  categorySelfTimeMs: Partial<Record<TraceWorkCategory, number>>;
+  selfTimeConfidence: 'exact' | 'approximate';
+  limitations: string[];
+  evidenceIds: string[];
+}
+
+export interface TraceCpuProfileFacts {
+  id: string;
+  processId: number;
+  threadId: number;
+  profileId: string;
+  startUs: number;
+  endUs: number;
+  nodeCount: number;
+  sampleCount: number;
+  evidenceIds: string[];
+  limitations: string[];
+}
+
+export interface TraceMilestoneFacts {
+  id: string;
+  navigationKey: string;
+  name: 'DCL' | 'Load' | 'FCP' | 'LCP';
+  timestampUs: number;
+  relativeUs: number;
+  candidate: boolean;
+  evidenceIds: string[];
+}
+
+export interface TraceAnimationFrameFacts {
+  id: string;
+  navigationKey?: string;
+  processId: number;
+  threadId: number;
+  startUs: number;
+  durationMs: number;
+  dropped: boolean;
+  budgetMs: number;
+  overBudget: boolean;
+  evidenceIds: string[];
+}
+
+export interface TraceAnimationFrameSummary {
+  completeness: 'complete' | 'partial';
+  limitations: string[];
+  totalCount: number;
+  overBudgetCount: number;
+  maxDurationMs: number;
+  budgetMs: 16.7;
+  budgetBasis: '60hz-reference';
+  refreshRate: 'unknown';
+}
+
+export interface TraceRenderingEventFacts {
+  id: string;
+  navigationKey?: string;
+  name: string;
+  processId: number;
+  threadId: number;
+  startUs: number;
+  durationMs: number;
+  evidenceIds: string[];
+}
+
+export interface TraceInteractionFacts {
+  id: string;
+  interactionId: number;
+  navigationKey?: string;
+  startUs: number;
+  inputDelayMs: number;
+  processingDurationMs: number;
+  presentationDelayMs: number;
+  totalLatencyMs: number;
+  taskIds: string[];
+  renderingEventIds: string[];
+  frameIds: string[];
+  evidenceIds: string[];
+}
+
+export interface TraceInteractionSummary {
+  completeness: 'complete' | 'partial';
+  limitations: string[];
+  totalCount: number;
+  slowestInteractionId?: string;
+  maxTotalLatencyMs?: number;
+}
+
+export interface TraceCpuHotspot {
+  id: string;
+  processId: number;
+  threadId: number;
+  profileId: string;
+  nodeId: number;
+  functionName: string;
+  script?: TraceSanitizedUrl;
+  lineNumber?: number;
+  columnNumber?: number;
+  sampleCount: number;
+  sampleTimeMs: number;
+  navigationKey?: string;
+  taskIds: string[];
+  evidenceIds: string[];
+}
+
+export interface TraceForcedReflowClue {
+  id: string;
+  navigationKey?: string;
+  startUs: number;
+  confidence: 'explicit' | 'observation';
+  taskId?: string;
+  evidenceIds: string[];
+}
+
+export interface TraceFactCount {
+  total: number;
+  returned: number;
+  truncated: boolean;
+}
+
+export interface TraceFactCounts {
+  requests: TraceFactCount;
+  tasks: TraceFactCount;
+  profiles: TraceFactCount;
+  milestones: TraceFactCount;
+  animationFrames: TraceFactCount;
+  rendering: TraceFactCount;
+  interactions: TraceFactCount;
+  cpuHotspots: TraceFactCount;
+  forcedReflowClues: TraceFactCount;
+}
+
 export interface TraceContextFacts {
   processes: TraceProcessFacts[];
   threads: TraceThreadFacts[];
   frames: TraceFrameFacts[];
   navigations: TraceNavigationFacts[];
+  requests?: TraceRequestFacts[];
+  tasks?: TraceTaskFacts[];
+  profiles?: TraceCpuProfileFacts[];
+  milestones?: TraceMilestoneFacts[];
+  animationFrames?: TraceAnimationFrameFacts[];
+  animationFrameSummary?: TraceAnimationFrameSummary;
+  rendering?: TraceRenderingEventFacts[];
+  interactions?: TraceInteractionFacts[];
+  interactionSummary?: TraceInteractionSummary;
+  cpuHotspots?: TraceCpuHotspot[];
+  forcedReflowClues?: TraceForcedReflowClue[];
+  factCounts?: TraceFactCounts;
   evidence: TraceEventRef[];
   evidenceTotalCount: number;
   evidenceReturnedCount: number;

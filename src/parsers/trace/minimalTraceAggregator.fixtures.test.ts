@@ -60,12 +60,14 @@ describe('MinimalTraceAggregator synthetic fixtures', () => {
 
   it('keeps OOPIF process spans on the child frame', async () => {
     const result = await aggregate('iframe-oopif.json');
-    const child = result.facts.context.frames.find(frame => frame.frameId === 'child');
-    const root = result.facts.context.frames.find(frame => frame.frameId === 'root');
+    const child = result.facts.context.frames.find(frame => (
+      frame.processSpans.some(span => span.processId === 20)
+    ));
+    const root = result.facts.context.frames.find(frame => frame.isOutermost);
 
     expect(child).toEqual(expect.objectContaining({
-      parentFrameId: 'root',
-      outermostFrameId: 'root',
+      parentFrameId: root?.frameId,
+      outermostFrameId: root?.frameId,
     }));
     expect(child?.processSpans.map(span => span.processId)).toEqual([20]);
     expect(root?.processSpans.map(span => span.processId)).toEqual([10]);

@@ -44,6 +44,7 @@ describe('TraceResultPage', () => {
     expect(screen.getByText('12')).not.toBeNull();
     expect(screen.getByText('2.00 秒')).not.toBeNull();
     expect(screen.getByText('页面加载诊断暂不可用')).not.toBeNull();
-    expect(screen.getByText(/不把尚未实现的性能诊断表述为根因/)).not.toBeNull();
+    expect(screen.getByText(/不输出未经证据模型验证的性能结论/)).not.toBeNull();
+    expect(screen.queryByText(/根因/)).toBeNull();
   });
 });

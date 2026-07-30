@@ -106,19 +106,13 @@ describe('MinimalTraceAggregator', () => {
     ]), { isCancelled: () => false, onProgress: jest.fn() });
 
     const context = result.facts.context;
-    expect(context.frames).toEqual([
-      expect.objectContaining({
-        frameId: 'child',
-        parentFrameId: 'root',
-        outermostFrameId: 'root',
-        isOutermost: false,
-      }),
-      expect.objectContaining({
-        frameId: 'root',
-        outermostFrameId: 'root',
-        isOutermost: true,
-      }),
-    ]);
+    const childFrame = context.frames.find(frame => !frame.isOutermost)!;
+    const rootFrame = context.frames.find(frame => frame.isOutermost)!;
+    expect(childFrame).toEqual(expect.objectContaining({
+      parentFrameId: rootFrame.frameId,
+      outermostFrameId: rootFrame.frameId,
+    }));
+    expect(rootFrame.outermostFrameId).toBe(rootFrame.frameId);
     expect(context.navigations.map(navigation => ({
       key: navigation.key,
       frameId: navigation.frameId,
@@ -133,25 +127,25 @@ describe('MinimalTraceAggregator', () => {
       ]),
     }))).toEqual([
       {
-        key: 'trace:navigation:child:20',
-        frameId: 'child',
-        outermostFrameId: 'root',
+        key: 'trace:navigation:event:6',
+        frameId: childFrame.frameId,
+        outermostFrameId: rootFrame.frameId,
         startUs: 20,
         endUs: 100,
         spans: [[20, 20, 100, 201]],
       },
       {
-        key: 'trace:navigation:nav-1',
-        frameId: 'root',
-        outermostFrameId: 'root',
+        key: 'trace:navigation:event:3',
+        frameId: rootFrame.frameId,
+        outermostFrameId: rootFrame.frameId,
         startUs: 10,
         endUs: 80,
         spans: [[10, 10, 50, 101], [20, 50, 80, 201]],
       },
       {
-        key: 'trace:navigation:nav-2',
-        frameId: 'root',
-        outermostFrameId: 'root',
+        key: 'trace:navigation:event:5',
+        frameId: rootFrame.frameId,
+        outermostFrameId: rootFrame.frameId,
         startUs: 80,
         endUs: 100,
         spans: [[20, 80, 100, 201]],
@@ -179,9 +173,11 @@ describe('MinimalTraceAggregator', () => {
       'TRACE_FRAME_PARENT_MISSING',
       'TRACE_RENDERER_MAIN_AMBIGUOUS',
     ]));
-    expect(result.facts.context.frames.find(frame => frame.frameId === 'orphan'))
-      .toEqual(expect.objectContaining({ outermostFrameId: 'orphan' }));
-    expect(result.facts.context.navigations[0].key).toBe('trace:navigation:orphan:4');
+    const orphanFrame = result.facts.context.frames.find(frame => (
+      frame.frameId === result.facts.context.navigations[0].frameId
+    ));
+    expect(orphanFrame?.outermostFrameId).toBe(orphanFrame?.frameId);
+    expect(result.facts.context.navigations[0].key).toBe('trace:navigation:event:5');
     expect(result.facts.context.navigations[0].processSpans[0]).toEqual(
       expect.objectContaining({ confidence: 'uncertain' }),
     );
@@ -206,15 +202,17 @@ describe('MinimalTraceAggregator', () => {
       { name: 'end', ts: 20 },
     ]), { isCancelled: () => false, onProgress: jest.fn() });
 
-    expect(result.facts.context.frames.find(frame => frame.frameId === 'grandchild'))
-      .toEqual(expect.objectContaining({ outermostFrameId: 'root' }));
+    const navigationFrame = result.facts.context.frames.find(frame => (
+      frame.frameId === result.facts.context.navigations[0].frameId
+    ));
+    expect(navigationFrame?.outermostFrameId).not.toBe(navigationFrame?.frameId);
     expect(result.facts.context.navigations.map(navigation => [
       navigation.key,
       navigation.startUs,
       navigation.endUs,
     ])).toEqual([
-      ['trace:navigation:nav-a', 10, 10],
-      ['trace:navigation:nav-b', 10, 20],
+      ['trace:navigation:event:1', 10, 10],
+      ['trace:navigation:event:2', 10, 20],
     ]);
     expect(result.facts.context.navigations[0].processSpans).toEqual([]);
   });
