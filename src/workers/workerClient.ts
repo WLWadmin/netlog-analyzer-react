@@ -20,6 +20,7 @@ import type { LogAnalysisResult } from '../logParser';
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
 import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2StateView, SocketsStateView, CacheStateView, AltSvcStateView, StreamPoolStateView, ReportingStateView, TimelineStateView, ModulesStateView, PrerenderStateView, NetlogSourceChainDetailView, NetlogSourceChainView, NetlogRawEvidenceMetadataValueView, NetlogRawEvidenceStructureView } from './netlogDatasetViews';
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
+import type { AnalysisProgress } from '../upload/analysisProgress';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
   RAW_EVIDENCE_SEARCH_MAX_RESULTS,
@@ -29,6 +30,7 @@ import {
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
+  onStructuredProgress?: (progress: AnalysisProgress) => void;
   timeout?: number; // ms, default 60s
 }
 
@@ -36,6 +38,7 @@ interface PendingTask {
   resolve: (value: WorkerSuccessResponse) => void;
   reject: (reason: Error) => void;
   onProgress?: (phase: string, percent?: number) => void;
+  onStructuredProgress?: (progress: AnalysisProgress) => void;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -64,6 +67,7 @@ function handleWorkerMessage(event: MessageEvent<WorkerResponse>) {
   switch (msg.type) {
     case 'progress':
       task.onProgress?.(msg.phase, msg.percent);
+      if (msg.progress) task.onStructuredProgress?.(msg.progress);
       break;
     case 'success':
       if (task.timer) clearTimeout(task.timer);
@@ -104,6 +108,7 @@ function sendToWorker(request: WorkerRequest, options: WorkerClientOptions = {})
       resolve,
       reject,
       onProgress: options.onProgress,
+      onStructuredProgress: options.onStructuredProgress,
       timer,
     });
 
@@ -728,7 +733,7 @@ export async function parseHarInWorker(
  * 在 Worker 中解析 Log 文本
  */
 export async function parseLogInWorker(
-  text: string,
+  text: string | File,
   options?: WorkerClientOptions
 ): Promise<LogParseResult> {
   const id = nextId();

@@ -28,6 +28,7 @@ describe('hashRouting', () => {
     expect(parseAppHash('#har/requests')).toEqual({ fileType: 'har', tab: 'requests' });
     expect(parseAppHash('#har/diagnosis')).toEqual({ fileType: 'har', tab: 'summary' });
     expect(parseAppHash('#log/overview')).toEqual({ fileType: 'log', tab: 'overview' });
+    expect(parseAppHash('#trace/overview')).toEqual({ fileType: 'trace', tab: 'overview' });
   });
 
   it('构造新版 hash', () => {
@@ -39,5 +40,6 @@ describe('hashRouting', () => {
     expect(buildAppHash('netlog', 'conclusion')).toBe('#netlog/conclusion');
     expect(buildAppHash('har', 'requests')).toBe('#har/requests');
     expect(buildAppHash('log', 'overview')).toBe('#log/overview');
+    expect(buildAppHash('trace', 'overview')).toBe('#trace/overview');
   });
 });

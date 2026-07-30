@@ -3,6 +3,7 @@ import { classifySslIssueCategory } from './errorClassifier';
 import { truncateUrl } from '../../utils/format';
 import { formatNetlogWallTime } from '../../utils/netlogTime';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
+import { assertNoCompetingRootFormat } from '../shared/rootFormatGuard';
 
 export interface ParsedEvent {
   time: number;
@@ -163,7 +164,11 @@ export interface AnalysisResult {
 
 
 
-export function parseLog(logData: any): { events: ParsedEvent[]; result: AnalysisResult } {
+export function parseLog(
+  logData: any,
+  onEventProgress?: (completed: number, total: number) => void,
+): { events: ParsedEvent[]; result: AnalysisResult } {
+  assertNoCompetingRootFormat(logData, 'netlog');
   const result: AnalysisResult = {
     totalEvents: 0,
     uniqueSources: 0,
@@ -285,6 +290,8 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
   // O(1) URL request lookup map
   const requestIndex = new Map<number, URLRequest>();
 
+  let processedEventCount = 0;
+  let lastProgressAt = 0;
   for (const evt of events) {
     const sourceType = evt.source?.type || evt.source_type || 0;
     const sourceId = evt.source?.id || evt.source_id || 0;
@@ -310,6 +317,21 @@ export function parseLog(logData: any): { events: ParsedEvent[]; result: Analysi
     if (parsed.time > result.timeRange.end) result.timeRange.end = parsed.time;
 
     ensureUrlRequest(parsed, result, requestIndex);
+    processedEventCount += 1;
+    const now = Date.now();
+    if (
+      onEventProgress
+      && (
+        processedEventCount === events.length
+        || (
+          processedEventCount % 250 === 0
+          && now - lastProgressAt >= 100
+        )
+      )
+    ) {
+      lastProgressAt = now;
+      onEventProgress(processedEventCount, events.length);
+    }
   }
 
   const sourceOwners = buildSourceOwnerMap(parsedEvents, requestIndex);

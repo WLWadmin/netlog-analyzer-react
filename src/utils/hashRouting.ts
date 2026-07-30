@@ -1,4 +1,4 @@
-export type FileType = 'netlog' | 'har' | 'log';
+export type FileType = 'netlog' | 'har' | 'log' | 'trace';
 
 export interface ParsedAppHash {
   fileType?: FileType;
@@ -44,6 +44,10 @@ export function parseAppHash(hash: string): ParsedAppHash {
 
   if (first === 'log') {
     return { fileType: 'log', tab: second };
+  }
+
+  if (first === 'trace') {
+    return { fileType: 'trace', tab: second };
   }
 
   if (LEGACY_NETLOG_TAB_MAP[first]) {

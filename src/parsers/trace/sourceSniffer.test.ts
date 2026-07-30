@@ -54,6 +54,13 @@ describe('TraceSourceSniffer', () => {
     });
   });
 
+  it('reports every detected source for safe ambiguity handling', () => {
+    const sniffer = new TraceSourceSniffer();
+    sniffer.feed('{"traceEvents":[],"events":[]}');
+
+    expect(sniffer.getDetectedSources()).toEqual(['netlog', 'trace']);
+  });
+
   it('does not retain ordinary string values', () => {
     const sniffer = new TraceSourceSniffer();
     sniffer.feed(`{"note":"${'x'.repeat(1_000_000)}","traceEvents":[]}`);

@@ -28,6 +28,11 @@ import { buildNetlogRawEvidenceStructureView, getNetlogRawEvidenceMetadataValue,
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
 import { LIGHTWEIGHT_COUNT_EVENT_NAMES } from './netlogLightweightEvents';
+import {
+  buildAnalysisProgress,
+  type AnalysisProgress,
+} from '../upload/analysisProgress';
+import type { FileParserId } from '../upload/fileFormatTypes';
 
 /* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
@@ -42,6 +47,47 @@ function sendResponse(response: WorkerResponse) {
 
 function sendProgress(id: string, phase: string, percent?: number) {
   sendResponse({ type: 'progress', id, phase, percent });
+}
+
+function sendStructuredProgress(
+  id: string,
+  startedAt: number,
+  progress: Omit<AnalysisProgress, 'taskId' | 'startedAt' | 'updatedAt'>,
+) {
+  const structured = buildAnalysisProgress({
+    ...progress,
+    taskId: id,
+    startedAt,
+    updatedAt: performance.now(),
+  });
+  sendResponse({
+    type: 'progress',
+    id,
+    phase: structured.label,
+    progress: structured,
+  });
+}
+
+function recordProgress(
+  id: string,
+  startedAt: number,
+  parserId: FileParserId,
+  label: string,
+  completed: number,
+  total: number,
+  unit: 'events' | 'requests' | 'lines',
+) {
+  sendStructuredProgress(id, startedAt, {
+    parserId,
+    phase: 'scanning-records',
+    label,
+    mode: 'determinate',
+    completed,
+    total,
+    unit,
+    phaseIndex: 2,
+    phaseCount: 5,
+  });
 }
 
 function logLargeNetlogDebug(id: string, event: string, details?: Record<string, unknown>) {
@@ -114,6 +160,10 @@ function getStoredRawData(id: string): unknown {
   return rawDataStore.get(id);
 }
 
+async function readWorkerFileText(payload: unknown): Promise<unknown> {
+  return payload instanceof File ? payload.text() : payload;
+}
+
 function readHarResponseBody(rawData: unknown, entryId: number) {
   if (!Number.isInteger(entryId) || entryId < 0) {
     throw new Error('HAR response body entryId 无效');
@@ -175,7 +225,17 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     singleScanDataset,
   });
   if (singleScanDataset) {
-    sendProgress(id, '正在单次扫描 NetLog 并构建 Dataset...', 1);
+    sendStructuredProgress(id, start, {
+      parserId: 'chromium-netlog@1',
+      phase: 'scanning-records',
+      label: '正在单次扫描 NetLog',
+      mode: 'determinate',
+      completed: 0,
+      total: file.size,
+      unit: 'bytes',
+      phaseIndex: 2,
+      phaseCount: 5,
+    });
     const analyzer = createNetlogStreamingAnalyzer();
     const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
@@ -189,8 +249,28 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       onLightweightEvent: (typeId, sourceTypeId) => {
         analyzer.recordLightweightEvent(typeId, sourceTypeId);
       },
+      onProgress: (bytesRead, eventCount) => {
+        sendStructuredProgress(id, start, {
+          parserId: 'chromium-netlog@1',
+          phase: 'scanning-records',
+          label: `正在扫描 NetLog，已识别 ${eventCount.toLocaleString()} 个事件`,
+          mode: 'determinate',
+          completed: bytesRead,
+          total: file.size,
+          unit: 'bytes',
+          phaseIndex: 2,
+          phaseCount: 5,
+        });
+      },
     });
-    sendProgress(id, '正在生成单次扫描诊断结果...', 96);
+    sendStructuredProgress(id, start, {
+      parserId: 'chromium-netlog@1',
+      phase: 'building-facts',
+      label: '正在生成 NetLog 诊断事实',
+      mode: 'indeterminate',
+      phaseIndex: 3,
+      phaseCount: 5,
+    });
     const { result, eventsPreview, meta } = analyzer.finish();
     result.largeFileMode = {
       enabled: true,
@@ -226,7 +306,17 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     });
     return;
   }
-  sendProgress(id, '正在启动大文件流式解析...', 1);
+  sendStructuredProgress(id, start, {
+    parserId: 'chromium-netlog@1',
+    phase: 'scanning-records',
+    label: '正在启动 NetLog 流式扫描',
+    mode: 'determinate',
+    completed: 0,
+    total: file.size,
+    unit: 'bytes',
+    phaseIndex: 2,
+    phaseCount: 5,
+  });
   const analyzer = createNetlogStreamingAnalyzer();
   const topLevelMetaStats = {
     constantsEventTypes: 0,
@@ -280,8 +370,17 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       const now = performance.now();
       if (now - lastProgressAt < 250) return;
       lastProgressAt = now;
-      const percent = Math.max(1, Math.min(92, Math.round((bytesRead / file.size) * 92)));
-      sendProgress(id, `正在扫描 NetLog events：${scanMeta.parsedEvents.toLocaleString()} 条`, percent);
+      sendStructuredProgress(id, start, {
+        parserId: 'chromium-netlog@1',
+        phase: 'scanning-records',
+        label: `正在扫描 NetLog，已识别 ${scanMeta.parsedEvents.toLocaleString()} 个事件`,
+        mode: 'determinate',
+        completed: Math.min(bytesRead, file.size),
+        total: file.size,
+        unit: 'bytes',
+        phaseIndex: 2,
+        phaseCount: 5,
+      });
     },
   })) {
     try {
@@ -297,7 +396,14 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     }
   }
 
-  sendProgress(id, '正在生成大文件诊断结果...', 96);
+  sendStructuredProgress(id, start, {
+    parserId: 'chromium-netlog@1',
+    phase: 'building-facts',
+    label: '正在生成 NetLog 诊断事实',
+    mode: 'indeterminate',
+    phaseIndex: 3,
+    phaseCount: 5,
+  });
   const { result, eventsPreview, meta } = analyzer.finish();
   logLargeNetlogDebug(id, 'worker:finish-scan', {
     bytesRead: scanMeta.bytesRead,
@@ -387,12 +493,37 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   try {
     switch (msg.type) {
       case 'parse-netlog': {
-        sendProgress(msg.id, '正在解析 NetLog JSON...', 10);
-        const rawData = typeof msg.payload === 'string'
-          ? JSON.parse(msg.payload)
-          : msg.payload;
-        sendProgress(msg.id, '正在分析 NetLog 事件...', 40);
-        const { events, result } = parseLog(rawData);
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'chromium-netlog@1',
+          phase: 'parsing-structure',
+          label: '正在解析 NetLog JSON 结构',
+          mode: 'indeterminate',
+          phaseIndex: 1,
+          phaseCount: 5,
+        });
+        const netlogPayload = await readWorkerFileText(msg.payload);
+        const rawData = typeof netlogPayload === 'string'
+          ? JSON.parse(netlogPayload)
+          : netlogPayload;
+        const { events, result } = parseLog(rawData, (completed, total) => {
+          recordProgress(
+            msg.id,
+            start,
+            'chromium-netlog@1',
+            '正在扫描 NetLog 事件',
+            completed,
+            total,
+            'events',
+          );
+        });
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'chromium-netlog@1',
+          phase: 'preparing-result',
+          label: '正在准备 NetLog 结果',
+          mode: 'indeterminate',
+          phaseIndex: 4,
+          phaseCount: 5,
+        });
         const rawDataId = rawDataStore.keep('netlog', rawData);
         const duration = performance.now() - start;
         sendResponse({
@@ -422,16 +553,41 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'parse-har': {
-        sendProgress(msg.id, '正在解析 HAR JSON...', 10);
-        let rawData: unknown = msg.payload;
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'har@1',
+          phase: 'parsing-structure',
+          label: '正在解析 HAR JSON 结构',
+          mode: 'indeterminate',
+          phaseIndex: 1,
+          phaseCount: 5,
+        });
+        const harPayload = await readWorkerFileText(msg.payload);
+        let rawData: unknown = harPayload;
         let repairInfo = msg.repairInfo;
-        if (typeof msg.payload === 'string') {
-          const repaired = parseHarWithRepair(msg.payload);
+        if (typeof harPayload === 'string') {
+          const repaired = parseHarWithRepair(harPayload);
           rawData = repaired.data;
           repairInfo = repaired.repaired ? repaired : undefined;
         }
-        sendProgress(msg.id, '正在分析 HAR 请求...', 40);
-        const harResult = parseHar(rawData);
+        const harResult = parseHar(rawData, (completed, total) => {
+          recordProgress(
+            msg.id,
+            start,
+            'har@1',
+            '正在扫描 HAR 请求',
+            completed,
+            total,
+            'requests',
+          );
+        });
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'har@1',
+          phase: 'preparing-result',
+          label: '正在准备 HAR 结果',
+          mode: 'indeterminate',
+          phaseIndex: 4,
+          phaseCount: 5,
+        });
         if (repairInfo) {
           harResult.repairInfo = repairInfo as any;
         }
@@ -449,8 +605,37 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'parse-log': {
-        sendProgress(msg.id, '正在解析日志文件...', 10);
-        const logResult = parseLogFile(msg.payload);
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'go-service-log@1',
+          phase: 'parsing-structure',
+          label: '正在解析日志结构',
+          mode: 'indeterminate',
+          phaseIndex: 1,
+          phaseCount: 5,
+        });
+        const logPayload = await readWorkerFileText(msg.payload);
+        if (typeof logPayload !== 'string') {
+          throw new Error('Log 文件内容必须是文本');
+        }
+        const logResult = parseLogFile(logPayload, (completed, total) => {
+          recordProgress(
+            msg.id,
+            start,
+            'go-service-log@1',
+            '正在扫描日志行',
+            completed,
+            total,
+            'lines',
+          );
+        });
+        sendStructuredProgress(msg.id, start, {
+          parserId: 'go-service-log@1',
+          phase: 'preparing-result',
+          label: '正在准备日志结果',
+          mode: 'indeterminate',
+          phaseIndex: 4,
+          phaseCount: 5,
+        });
         const duration = performance.now() - start;
         sendResponse({
           type: 'success',

@@ -78,6 +78,7 @@ export interface NetlogCompactEventIndexOptions {
   onTopLevelField?: (key: string, value: unknown) => void;
   onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number }) => void;
   onLightweightEvent?: (typeId: number, sourceTypeId: number | undefined, trace: { eventId: number; byteStart: number; byteEnd: number; typeName: string }) => void;
+  onProgress?: (bytesRead: number, eventCount: number) => void;
 }
 
 const QUOTE = 34;
@@ -455,6 +456,7 @@ export async function buildNetlogCompactEventIndex(
   let objectEscape = false;
   let objectStart = -1;
   let objectBytes: number[] = [];
+  let lastProgressAt = 0;
 
   const resetSkip = () => {
     skipStarted = false;
@@ -803,6 +805,17 @@ export async function buildNetlogCompactEventIndex(
       }
     }
     absoluteByteOffset += chunk.length;
+    const now = Date.now();
+    if (
+      options.onProgress
+      && (
+        absoluteByteOffset >= file.size
+        || now - lastProgressAt >= 100
+      )
+    ) {
+      lastProgressAt = now;
+      options.onProgress(Math.min(absoluteByteOffset, file.size), index.count);
+    }
   }
 
   return {

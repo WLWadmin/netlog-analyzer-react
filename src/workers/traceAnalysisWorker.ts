@@ -69,9 +69,8 @@ workerScope.addEventListener('message', async (event: MessageEvent<TraceWorkerRe
       });
     } else {
       post({
-        type: 'large-json-fallback',
+        type: 'source-unresolved',
         taskId: request.taskId,
-        candidate: outcome.candidate,
       });
     }
   } catch (error) {

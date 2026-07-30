@@ -1,5 +1,5 @@
 import { parseLog, type AnalysisResult, type ParsedEvent } from '../parsers/netlog';
-import { isHarFile, parseHar, type HarAnalysisResult } from '../harParser';
+import { parseHar, type HarAnalysisResult } from '../harParser';
 import { parseLogFile, type LogAnalysisResult } from '../logParser';
 import {
   parseHarInWorker,
@@ -14,9 +14,23 @@ import {
 } from '../workers/netlogDatasetTypes';
 import type { TraceContextResult, TraceTaskProgress } from '../parsers/trace/types';
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
+import { TraceWorkerError } from '../workers/traceWorkerTask';
 import { isTraceAnalysisEnabled } from './traceUploadFeature';
+import type { AnalysisProgress } from './analysisProgress';
 
 const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
+
+const TRACE_PROGRESS_LABELS: Record<TraceTaskProgress['phase'], string> = {
+  'sniffing-source': '正在识别文件格式',
+  'reading-file': '正在读取 Trace 文件',
+  decompressing: '正在解压 gzip Trace',
+  'parsing-json': '正在解析 Trace JSON 结构',
+  'validating-trace': '正在校验 Trace 结构',
+  'summarizing-intake': '正在汇总 Trace 接入信息',
+  'scan-events': '正在扫描 Trace 事件',
+  'finalize-contexts': '正在整理 Trace 上下文',
+  'build-facts': '正在构建 Trace 事实',
+};
 
 function readKnownNonTraceText(file: File): Promise<string> {
   if (typeof file.text === 'function') return file.text();
@@ -76,7 +90,9 @@ export async function parseUploadedInput(options: {
   repairInfo?: HarAnalysisResult['repairInfo'];
   fileTypeHint?: UploadFileTypeHint;
   useWorker: boolean;
+  taskId?: string;
   onProgress?: (phase: string) => void;
+  onStructuredProgress?: (progress: AnalysisProgress) => void;
 }): Promise<UploadedParseResult> {
   cancelActiveTraceWorkerTask();
   const {
@@ -85,25 +101,37 @@ export async function parseUploadedInput(options: {
     repairInfo,
     fileTypeHint: initialFileTypeHint,
     useWorker,
+    taskId = 'upload-task',
     onProgress,
+    onStructuredProgress,
   } = options;
   let fileTypeHint = initialFileTypeHint;
 
+  if (typeof File !== 'undefined' && data instanceof File && data.name.toLowerCase().endsWith('.zip')) {
+    throw new TraceWorkerError({
+      code: 'TRACE_ZIP_UNSUPPORTED',
+      stage: 'reading-file',
+      message: '当前支持 gzip 压缩的 Trace，不支持 ZIP 压缩包。请先解压 ZIP，再上传其中的 JSON / Trace 文件。',
+      recoverable: false,
+    });
+  }
+
   if (fileTypeHint === 'log' || isTextLog) {
-    if (typeof data !== 'string') {
+    const isFile = typeof File !== 'undefined' && data instanceof File;
+    if (typeof data !== 'string' && !isFile) {
       throw new Error('Log 文件内容必须是文本');
     }
     if (useWorker) {
-      const { result } = await parseLogInWorker(data, { onProgress });
+      const { result } = await parseLogInWorker(data, { onProgress, onStructuredProgress });
       return { kind: 'log', result };
     }
-    return { kind: 'log', result: parseLogFile(data) };
+    const text = typeof data === 'string'
+      ? data
+      : await readKnownNonTraceText(data as File);
+    return { kind: 'log', result: parseLogFile(text) };
   }
 
   if (fileTypeHint === 'trace' || fileTypeHint === 'json-auto') {
-    if (!isTraceAnalysisEnabled()) {
-      throw new Error('Trace 分析功能尚未启用');
-    }
     if (typeof File === 'undefined' || !(data instanceof File)) {
       throw new Error('Trace 上传必须以 File 交给专用 Worker');
     }
@@ -111,16 +139,74 @@ export async function parseUploadedInput(options: {
       throw new Error('当前浏览器不支持 Worker，无法安全解析 Trace');
     }
     const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
+    const traceStartedAt = Date.now();
+    const tracePhaseIndex: Record<TraceTaskProgress['phase'], number> = {
+      'sniffing-source': 0,
+      'reading-file': 0,
+      decompressing: 0,
+      'parsing-json': 1,
+      'validating-trace': 1,
+      'summarizing-intake': 2,
+      'scan-events': 2,
+      'finalize-contexts': 3,
+      'build-facts': 3,
+    };
     const task = inspectTraceUploadInWorker(data, {
       hint: fileTypeHint,
-      onProgress: (progress: TraceTaskProgress) => onProgress?.(progress.phase),
+      onProgress: (progress: TraceTaskProgress) => {
+        onProgress?.(progress.phase);
+        const completed = progress.processedEvents ?? progress.processedBytes;
+        const total = progress.totalEvents ?? progress.totalBytes;
+        const unit = progress.processedEvents !== undefined ? 'events' : 'bytes';
+        onStructuredProgress?.({
+          taskId,
+          parserId: 'chromium-performance-trace@1',
+          phase: progress.phase === 'sniffing-source'
+            ? 'probing-format'
+            : progress.phase === 'reading-file'
+              ? 'reading'
+              : progress.phase === 'decompressing'
+                ? 'decompressing'
+                : progress.phase === 'parsing-json'
+                  ? 'parsing-structure'
+                  : progress.phase === 'validating-trace'
+                    ? 'validating'
+                    : progress.phase === 'scan-events'
+                      ? 'scanning-records'
+                      : 'building-facts',
+          label: TRACE_PROGRESS_LABELS[progress.phase],
+          mode: completed !== undefined && total !== undefined
+            ? 'determinate'
+            : 'indeterminate',
+          ...(completed === undefined ? {} : { completed }),
+          ...(total === undefined ? {} : { total }),
+          ...(completed === undefined || total === undefined ? {} : { unit }),
+          phaseIndex: tracePhaseIndex[progress.phase],
+          phaseCount: 5,
+          startedAt: traceStartedAt,
+          updatedAt: Date.now(),
+        });
+      },
     });
     const outcome = await task.promise;
     if (outcome.kind === 'trace') {
+      if (!isTraceAnalysisEnabled()) {
+        throw new TraceWorkerError({
+          code: 'TRACE_FEATURE_DISABLED',
+          stage: 'validating-trace',
+          message: '检测到 Chromium Performance Trace，当前版本尚未开放性能分析。',
+          recoverable: false,
+        });
+      }
       return { kind: 'trace', result: outcome.result };
     }
-    if (outcome.kind === 'large-json-fallback') {
-      fileTypeHint = 'netlog';
+    if (outcome.kind === 'source-unresolved') {
+      throw new TraceWorkerError({
+        code: 'TRACE_SOURCE_UNKNOWN',
+        stage: 'sniffing-source',
+        message: '无法确认 JSON 文件类型，请确认文件来自受支持的诊断工具。',
+        recoverable: false,
+      });
     } else {
       if (outcome.encoding !== 'plain-json') {
         throw new Error('当前不支持 gzip 压缩的 HAR 或 NetLog');
@@ -128,7 +214,11 @@ export async function parseUploadedInput(options: {
       if (outcome.source === 'har') {
         const text = await readKnownNonTraceText(data);
         if (useWorker) {
-          const { result, rawData, rawDataId } = await parseHarInWorker(text, repairInfo, { onProgress });
+          const { result, rawData, rawDataId } = await parseHarInWorker(
+            text,
+            repairInfo,
+            { onProgress, onStructuredProgress },
+          );
           return { kind: 'har', result, rawData, rawDataId };
         }
         const parsedData: unknown = JSON.parse(text);
@@ -141,7 +231,10 @@ export async function parseUploadedInput(options: {
       } else {
         const text = await readKnownNonTraceText(data);
         if (useWorker) {
-          const { events, result, rawData, rawDataId } = await parseNetlogInWorker(text, { onProgress });
+          const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
+            text,
+            { onProgress, onStructuredProgress },
+          );
           return {
             kind: 'netlog',
             result,
@@ -164,14 +257,25 @@ export async function parseUploadedInput(options: {
     }
   }
 
-  const shouldParseHar = fileTypeHint === 'har' || (typeof data !== 'string' && isHarFile(data));
+  if (!fileTypeHint) {
+    throw new Error('未绑定文件解析器，请先完成格式确认');
+  }
+
+  const shouldParseHar = fileTypeHint === 'har';
   if (shouldParseHar) {
     if (useWorker) {
-      const { result, rawData, rawDataId } = await parseHarInWorker(data, repairInfo, { onProgress });
+      const { result, rawData, rawDataId } = await parseHarInWorker(
+        data,
+        repairInfo,
+        { onProgress, onStructuredProgress },
+      );
       return { kind: 'har', result, rawData, rawDataId };
     }
 
-    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    const harData = typeof File !== 'undefined' && data instanceof File
+      ? await readKnownNonTraceText(data)
+      : data;
+    const parsedData = typeof harData === 'string' ? JSON.parse(harData) : harData;
     const result = parseHar(parsedData);
     if (repairInfo) result.repairInfo = repairInfo;
     return { kind: 'har', result, rawData: parsedData };
@@ -184,7 +288,6 @@ export async function parseUploadedInput(options: {
     const singleScanDataset = isSingleScanDatasetEnabled();
     console.info('[netlog-large]', {
       event: 'parseUploadedInput:large-netlog',
-      fileName: data.name,
       fileSize: data.size,
       useWorker,
       singleScanDataset,
@@ -193,19 +296,20 @@ export async function parseUploadedInput(options: {
     try {
       largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
         onProgress,
+        onStructuredProgress,
         singleScanDataset,
       });
     } catch (error) {
       if (!singleScanDataset) throw error;
       console.warn('[netlog-large]', {
         event: 'parseUploadedInput:single-scan-fallback',
-        fileName: data.name,
         fileSize: data.size,
-        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.name : 'unknown',
       });
       onProgress?.('Single scan Dataset 构建失败，正在回退到大文件摘要解析...');
       largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
         onProgress,
+        onStructuredProgress,
         singleScanDataset: false,
       });
     }
@@ -230,12 +334,24 @@ export async function parseUploadedInput(options: {
     };
   }
 
+  if (fileTypeHint !== 'netlog') {
+    throw new Error('文件解析器绑定无效');
+  }
+
   if (useWorker) {
-    const { events, result, rawData, rawDataId } = await parseNetlogInWorker(data, { onProgress });
+    const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
+      data,
+      { onProgress, onStructuredProgress },
+    );
     return { kind: 'netlog', result, events, rawData, rawDataId, dataset: unavailableNetlogDatasetState };
   }
 
-  const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+  const netlogData = typeof File !== 'undefined' && data instanceof File
+    ? await readKnownNonTraceText(data)
+    : data;
+  const parsedData = typeof netlogData === 'string'
+    ? JSON.parse(netlogData)
+    : netlogData;
   const { events, result } = parseLog(parsedData);
   return { kind: 'netlog', result, events, rawData: parsedData, dataset: unavailableNetlogDatasetState };
 }

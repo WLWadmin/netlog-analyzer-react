@@ -133,8 +133,8 @@ export function createTraceWorkerTask(
         source: response.source,
         encoding: response.encoding,
       });
-    } else if (response.type === 'large-json-fallback') {
-      settleSuccess({ kind: 'large-json-fallback', candidate: 'netlog' });
+    } else if (response.type === 'source-unresolved') {
+      settleSuccess({ kind: 'source-unresolved' });
     } else if (response.type === 'trace-error') {
       if (!('error' in response) || response.error === null || typeof response.error !== 'object') {
         settleError(workerFailure('Trace Worker 返回了无效消息'));

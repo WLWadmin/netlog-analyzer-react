@@ -31,9 +31,8 @@ export type TraceWorkerResponse =
       encoding: 'plain-json' | 'gzip-json';
     }
   | {
-      type: 'large-json-fallback';
+      type: 'source-unresolved';
       taskId: string;
-      candidate: 'netlog';
     }
   | {
       type: 'trace-error';
@@ -44,4 +43,4 @@ export type TraceWorkerResponse =
 export type TraceWorkerOutcome =
   | { kind: 'trace'; result: TraceContextResult }
   | { kind: 'detected-source'; source: 'har' | 'netlog'; encoding: 'plain-json' | 'gzip-json' }
-  | { kind: 'large-json-fallback'; candidate: 'netlog' };
+  | { kind: 'source-unresolved' };

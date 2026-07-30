@@ -77,6 +77,8 @@ export interface TraceTaskProgress {
 }
 
 export type TraceErrorCode =
+  | 'TRACE_FEATURE_DISABLED'
+  | 'TRACE_ZIP_UNSUPPORTED'
   | 'TRACE_COMPRESSED_FILE_TOO_LARGE'
   | 'TRACE_JSON_TOO_LARGE'
   | 'TRACE_EVENT_LIMIT_EXCEEDED'

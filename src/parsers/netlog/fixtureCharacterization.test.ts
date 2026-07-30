@@ -196,6 +196,14 @@ function recoveredInternalErrorFixture() {
 }
 
 describe('NetLog parser fixture characterization', () => {
+  test('rejects a root that also contains another strong format structure', () => {
+    expect(() => parseLog({
+      constants: {},
+      events: [{ type: 1, time: '1', source: { id: 1, type: 1 } }],
+      traceEvents: [],
+    })).toThrow('文件同时包含其他诊断格式结构');
+  });
+
   it('固定成功请求 fixture 的关键输出', () => {
     const { result } = parseLog(successfulRequestFixture());
 

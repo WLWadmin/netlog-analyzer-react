@@ -41,6 +41,7 @@ export class TraceSourceSniffer {
   private rootStarted = false;
   private rootArray = false;
   private sources = new Set<TraceDetectedSource>();
+  private evidenceCodes = new Set<string>();
 
   feed(chunk: string): SourceSniffResult {
     for (const character of chunk) {
@@ -68,6 +69,14 @@ export class TraceSourceSniffer {
       fullyScannedCharacters: this.fullyScannedCharacters,
       maxBufferedKeyCharacters: this.maxBufferedKeyCharacters,
     };
+  }
+
+  getDetectedSources(): TraceDetectedSource[] {
+    return [...this.sources].sort();
+  }
+
+  getEvidenceCodes(): string[] {
+    return [...this.evidenceCodes].sort();
   }
 
   private result(): SourceSniffResult {
@@ -241,12 +250,21 @@ export class TraceSourceSniffer {
     if (token.type !== 'punctuation') return;
     if (path.length === 0 && key === 'traceEvents' && token.value === '[') {
       this.sources.add('trace');
+      this.evidenceCodes.add('TRACE_EVENTS_ARRAY');
     }
     if (path.length === 0 && key === 'events' && token.value === '[') {
       this.sources.add('netlog');
+      this.evidenceCodes.add('NETLOG_EVENTS_ARRAY');
+    }
+    if (path.length === 0 && key === 'constants' && token.value === '{') {
+      this.evidenceCodes.add('NETLOG_CONSTANTS_OBJECT');
+    }
+    if (path.length === 0 && key === 'log' && token.value === '{') {
+      this.evidenceCodes.add('HAR_LOG_OBJECT');
     }
     if (path.length === 1 && path[0] === 'log' && key === 'entries' && token.value === '[') {
       this.sources.add('har');
+      this.evidenceCodes.add('HAR_ENTRIES_ARRAY');
     }
   }
 

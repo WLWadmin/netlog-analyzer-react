@@ -17,7 +17,7 @@ import type {
 export type TraceReadOutcome =
   | { kind: 'trace'; summary: TraceIntakeSummary }
   | { kind: 'detected-source'; source: Exclude<TraceDetectedSource, 'trace'>; encoding: TraceEncoding }
-  | { kind: 'large-json-fallback'; candidate: 'netlog' };
+  | { kind: 'source-unresolved' };
 
 export type TraceParsedInput =
   | {
@@ -31,7 +31,7 @@ export type TraceParsedInput =
       source: Exclude<TraceDetectedSource, 'trace'>;
       encoding: TraceEncoding;
     }
-  | { kind: 'large-json-fallback'; candidate: 'netlog' };
+  | { kind: 'source-unresolved' };
 
 export class TraceIntakeError extends Error {
   readonly publicError: TracePublicError;
@@ -230,7 +230,7 @@ export async function readTraceFileForWorker(
               return { kind: 'detected-source', source: sniffed.source, encoding };
             }
             if (!gzip) {
-              return { kind: 'large-json-fallback', candidate: 'netlog' };
+              return { kind: 'source-unresolved' };
             }
           }
         }

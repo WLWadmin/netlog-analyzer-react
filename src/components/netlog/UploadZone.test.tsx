@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import UploadZone from './UploadZone';
 
 jest.mock('antd', () => {
@@ -8,10 +8,24 @@ jest.mock('antd', () => {
     children: React.ReactNode;
     accept?: string;
   }) => <div data-testid="upload" data-accept={accept}>{children}</div>;
-  Upload.Dragger = ({ children, accept }: {
+  Upload.Dragger = ({ children, accept, customRequest }: {
     children: React.ReactNode;
     accept?: string;
-  }) => <div data-testid="dragger" data-accept={accept}>{children}</div>;
+    customRequest?: (options: unknown) => void;
+  }) => (
+    <div data-testid="dragger" data-accept={accept}>
+      {children}
+      <button
+        type="button"
+        onClick={() => customRequest?.({
+          file: new File(['{"events":[]}'], 'sample.json'),
+          onSuccess: jest.fn(),
+        })}
+      >
+        choose test file
+      </button>
+    </div>
+  );
   return {
     Upload,
     Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
@@ -37,7 +51,7 @@ describe('UploadZone Trace feature flag', () => {
     expect(screen.getByTestId('dragger').getAttribute('data-accept')).toBe(
       '.json,.har,.log',
     );
-    expect(screen.queryByText(/Performance 导出的/)).toBeNull();
+    expect(screen.queryByText(/Trace \/ gzip/)).toBeNull();
   });
 
   it('advertises and accepts Trace when the flag is enabled', () => {
@@ -47,6 +61,23 @@ describe('UploadZone Trace feature flag', () => {
     expect(screen.getByTestId('dragger').getAttribute('data-accept')).toContain(
       '.trace',
     );
-    expect(screen.getByText(/Performance 导出的/)).not.toBeNull();
+    expect(screen.getByText(/Trace \/ gzip/)).not.toBeNull();
+  });
+
+  it('passes the original File to the intake gateway without reading or choosing a parser', async () => {
+    const onFilesSelected = jest.fn();
+    const onFileLoaded = jest.fn();
+    render(
+      <UploadZone
+        onFilesSelected={onFilesSelected}
+        onFileLoaded={onFileLoaded}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('choose test file'));
+
+    await waitFor(() => expect(onFilesSelected).toHaveBeenCalledTimes(1));
+    expect(onFilesSelected.mock.calls[0][0][0]).toBeInstanceOf(File);
+    expect(onFileLoaded).not.toHaveBeenCalled();
   });
 });

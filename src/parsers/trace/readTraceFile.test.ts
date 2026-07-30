@@ -168,10 +168,7 @@ describe('readTraceFile', () => {
       hint: 'json-auto',
       sourceSniffBytes: 8,
       maxJsonBytes: 128,
-    })).resolves.toEqual({
-      kind: 'large-json-fallback',
-      candidate: 'netlog',
-    });
+    })).resolves.toEqual({ kind: 'source-unresolved' });
   });
 
   it('returns confirmed NetLog when a large json-auto prefix contains top-level events', async () => {
