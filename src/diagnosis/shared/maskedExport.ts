@@ -48,10 +48,74 @@ const SENSITIVE_QUERY_PARAMS = [
 ];
 
 const SENSITIVE_KEY_PATTERN = /(token|access[_-]?token|refresh[_-]?token|session[_-]?id|sessionid|sid|secret|password|passwd|auth|credential|jwt|ticket|signature|proxy-authorization|authorization|cookie|set-cookie)=([^&\s,;]+)/gi;
+const SENSITIVE_COLON_KEY_PATTERN = /(["']?)(token|access[_-]?token|refresh[_-]?token|session[_-]?id|sessionid|sid|secret|password|passwd|auth|credential|jwt|ticket|signature|proxy-authorization|authorization|cookie|set-cookie|x-api-key|x-auth-token|x-csrf-token|x-xsrf-token|x-access-token|x-session-id|x-tt-token|x-tt-session|x-app-token|x-bd-token|x-jwt-token)\1\s*:\s*(["']?)[^"'\r\n,;}]+(?:\3)?/gi;
 const BEARER_PATTERN = /\b(Bearer\s+)[A-Za-z0-9._~+\-/]+=*/gi;
 const BASIC_PATTERN = /\b(Basic\s+)[A-Za-z0-9+/]+=*/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_PATTERN = /(?<!\d)(?:\+?\d[\d\s-]{7,}\d)(?!\d)/g;
+
+
+export type SensitiveDataLeak =
+  | 'sensitive-key-value'
+  | 'authorization-token'
+  | 'email'
+  | 'phone'
+  | 'raw-source-or-args'
+  | 'raw-body'
+  | 'url-query'
+  | 'local-path';
+
+const RAW_BODY_PATTERN = /\b(?:request|response) body\b/i;
+const RAW_SOURCE_PATTERN = /\b(?:sourceText|args)\s*[:=]\s*(?!\*{3})(?:["'{[]|[^\s])/i;
+const URL_PATTERN = /https?:\/\/[^\s"'，。；]+/gi;
+const URL_QUERY_PATTERN = /(?:https?:\/\/|file:\/\/|\/)[^\s"'，。；?]*\?[^\s"'，。；]+/i;
+const UNIX_LOCAL_PATH_PATTERN = /(?:file:\/\/)?\/(?:Users|home|private|tmp|var\/folders)\/[^\s"'，。；]+/gi;
+const WINDOWS_LOCAL_PATH_PATTERN = /[A-Za-z]:\\(?:[^\\\s"'，。；]+\\)+[^\\\s"'，。；]*/g;
+
+function hasPhoneMatch(value: string): boolean {
+  PHONE_PATTERN.lastIndex = 0;
+  let match = PHONE_PATTERN.exec(value);
+  while (match) {
+    const separators = match[0].match(/[\s-]/g)?.length ?? 0;
+    if (match[0].startsWith('+') || separators >= 2) return true;
+    match = PHONE_PATTERN.exec(value);
+  }
+  return false;
+}
+
+function hasUnmaskedMatch(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  let match = pattern.exec(value);
+  while (match) {
+    if (!match[0].includes('***') && !match[0].includes('[phone masked]')) return true;
+    if (!pattern.global) return false;
+    match = pattern.exec(value);
+  }
+  return false;
+}
+
+export function findSensitiveDataLeaks(value: string): SensitiveDataLeak[] {
+  const leaks: SensitiveDataLeak[] = [];
+  if (hasUnmaskedMatch(SENSITIVE_KEY_PATTERN, value)
+    || hasUnmaskedMatch(SENSITIVE_COLON_KEY_PATTERN, value)) {
+    leaks.push('sensitive-key-value');
+  }
+  if (hasUnmaskedMatch(BEARER_PATTERN, value) || hasUnmaskedMatch(BASIC_PATTERN, value)) {
+    leaks.push('authorization-token');
+  }
+  if (hasUnmaskedMatch(EMAIL_PATTERN, value)) leaks.push('email');
+  if (hasPhoneMatch(value)) leaks.push('phone');
+  if (RAW_SOURCE_PATTERN.test(value)) leaks.push('raw-source-or-args');
+  if (RAW_BODY_PATTERN.test(value)) leaks.push('raw-body');
+  const unmaskedQueryText = value.replace(/\?\[query masked\]/g, '');
+  if (URL_QUERY_PATTERN.test(unmaskedQueryText)) leaks.push('url-query');
+  UNIX_LOCAL_PATH_PATTERN.lastIndex = 0;
+  WINDOWS_LOCAL_PATH_PATTERN.lastIndex = 0;
+  if (UNIX_LOCAL_PATH_PATTERN.test(value) || WINDOWS_LOCAL_PATH_PATTERN.test(value)) {
+    leaks.push('local-path');
+  }
+  return leaks;
+}
 
 /**
  * 脱敏字符串：保留前 4 个字符，其余用 *** 替代
@@ -101,6 +165,13 @@ export function maskEvidenceValue(value: string): string {
 
   // 脱敏 key=value 形式的敏感片段，兼容 URL、Header、日志片段
   masked = masked.replace(SENSITIVE_KEY_PATTERN, (match, key) => `${key}=***`);
+  // Header 与 JSON 常使用 key: value；保留 key 和原有引号，避免破坏结构。
+  masked = masked.replace(
+    SENSITIVE_COLON_KEY_PATTERN,
+    (_match, keyQuote, key, valueQuote) => (
+      `${keyQuote}${key}${keyQuote}: ${valueQuote}***${valueQuote}`
+    ),
+  );
 
   // 脱敏 Authorization 常见格式
   masked = masked.replace(BEARER_PATTERN, '$1***');
@@ -114,6 +185,27 @@ export function maskEvidenceValue(value: string): string {
   });
 
   return masked;
+}
+
+
+/**
+ * 严格脱敏诊断文本：在既有证据脱敏基础上移除全部 URL query 和本地绝对路径。
+ */
+export function sanitizeDiagnosisText(value: string): string {
+  let sanitized = maskEvidenceValue(value);
+  sanitized = sanitized.replace(URL_PATTERN, url => {
+    try {
+      const parsed = new URL(url);
+      if (!parsed.search) return url;
+      parsed.search = '';
+      return `${parsed.toString()}?[query masked]`;
+    } catch {
+      return url;
+    }
+  });
+  sanitized = sanitized.replace(UNIX_LOCAL_PATH_PATTERN, '[local path masked]');
+  sanitized = sanitized.replace(WINDOWS_LOCAL_PATH_PATTERN, '[local path masked]');
+  return sanitized;
 }
 
 /**

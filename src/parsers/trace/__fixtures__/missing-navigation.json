@@ -1,0 +1,7 @@
+{
+  "traceEvents": [
+    { "ph": "M", "name": "thread_name", "pid": 10, "tid": 101, "args": { "name": "CrRendererMain" } },
+    { "name": "FrameCommittedInBrowser", "ts": 0, "args": { "data": { "frame": "root", "processId": 10, "isOutermostMainFrame": true } } },
+    { "name": "capture-end", "ts": 100 }
+  ]
+}

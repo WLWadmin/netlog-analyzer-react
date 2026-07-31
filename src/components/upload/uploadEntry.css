@@ -1,0 +1,527 @@
+.upload-page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 30px auto 48px;
+  max-width: 1040px;
+  padding: 0 20px;
+}
+
+.upload-guide-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.upload-entry {
+  --intake-blue: #2864dc;
+  --intake-cyan: #0e8fa3;
+  --intake-green: #188a5a;
+  --intake-amber: #b56a09;
+  --intake-red: #c33a3a;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.upload-entry-heading {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.upload-entry-heading h1 {
+  color: var(--text-primary);
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  margin: 0 0 7px;
+}
+
+.upload-entry-heading p {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.upload-trust-state {
+  border-left: 3px solid var(--intake-green);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 0 6px 14px;
+}
+
+.upload-trust-state strong {
+  color: var(--intake-green);
+}
+
+.upload-trust-state span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.upload-console {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgb(20 43 75 / 8%);
+  display: block;
+  overflow: hidden;
+}
+
+.upload-console-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  padding: 24px;
+}
+
+.upload-console-toolbar,
+.analysis-progress-meta {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.upload-console-toolbar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-console-toolbar span,
+.analysis-progress-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.parser-mode-select {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-base) 90%, var(--intake-blue)), var(--bg-base));
+  border: 1px solid color-mix(in srgb, var(--border-color) 74%, var(--intake-blue));
+  border-radius: 12px;
+  display: grid;
+  gap: 14px 18px;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  padding: 16px;
+}
+
+.parser-mode-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.parser-mode-copy strong {
+  color: var(--text-primary);
+}
+
+.parser-mode-copy span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.parser-mode-actions,
+.parser-format-options {
+  display: flex;
+  gap: 8px;
+}
+
+.parser-mode-select button {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0 15px;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.parser-mode-select button:hover {
+  border-color: color-mix(in srgb, var(--intake-blue) 65%, var(--border-color));
+  color: var(--intake-blue);
+}
+
+.parser-mode-select button.is-active {
+  background: var(--intake-blue);
+  border-color: var(--intake-blue);
+  box-shadow: 0 5px 14px rgb(40 100 220 / 20%);
+  color: #fff;
+}
+
+.parser-mode-select button.is-active-secondary {
+  background: color-mix(in srgb, var(--bg-surface) 82%, var(--intake-blue));
+  border-color: color-mix(in srgb, var(--border-color) 55%, var(--intake-blue));
+  color: var(--intake-blue);
+}
+
+.parser-format-options {
+  border-top: 1px solid var(--border-color);
+  grid-column: 1 / -1;
+  padding-top: 14px;
+}
+
+.diagnostic-upload-zone {
+  border-radius: 12px;
+}
+
+.diagnostic-upload-zone .ant-upload-wrapper .ant-upload-drag {
+  background: var(--bg-base);
+  border: 1px dashed color-mix(in srgb, var(--border-color) 72%, var(--intake-blue));
+  border-radius: 12px;
+  min-height: 240px;
+  padding: 32px 24px;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.diagnostic-upload-zone.is-dragging .ant-upload-wrapper .ant-upload-drag {
+  background: color-mix(in srgb, var(--bg-base) 92%, var(--intake-blue));
+  border-color: var(--intake-blue);
+}
+
+.diagnostic-upload-content {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+}
+
+.diagnostic-upload-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--intake-blue));
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--intake-blue);
+  display: flex;
+  font-size: 26px;
+  height: 52px;
+  justify-content: center;
+  margin-bottom: 16px;
+  width: 52px;
+}
+
+.diagnostic-upload-title {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.diagnostic-upload-mobile-copy {
+  display: none;
+}
+
+.diagnostic-upload-description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.diagnostic-upload-formats {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 8px 0 18px;
+}
+
+.diagnostic-upload-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.diagnostic-upload-badges div {
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 11px;
+}
+
+.diagnostic-upload-badges div:last-child svg {
+  color: var(--intake-green);
+}
+
+.format-state,
+.analysis-progress-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.format-state-kicker,
+.analysis-progress-current > span {
+  color: var(--intake-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.format-candidate + .format-candidate {
+  border-top: 1px solid var(--border-color);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.format-candidate h2,
+.analysis-progress-current h2 {
+  color: var(--text-primary);
+  margin: 6px 0;
+}
+
+.format-candidate p,
+.format-error p {
+  color: var(--text-muted);
+}
+
+.format-evidence {
+  background: var(--bg-base);
+  border-radius: 8px;
+  margin: 14px 0;
+  padding: 12px 14px;
+}
+
+.format-evidence ul {
+  color: var(--text-secondary);
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.format-state button,
+.analysis-progress-actions button {
+  background: var(--intake-blue);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.analysis-progress-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-self: end;
+}
+
+.analysis-progress-actions > span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.format-state .secondary-action,
+.analysis-progress-actions button {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.analysis-progress-actions button.primary-action {
+  background: var(--intake-blue);
+  border-color: var(--intake-blue);
+  color: #fff;
+}
+
+.format-error {
+  border-color: color-mix(in srgb, var(--intake-red) 55%, var(--border-color));
+}
+
+.analysis-progress-heading {
+  align-items: center;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+}
+
+.analysis-progress-percent {
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 20px;
+}
+
+.analysis-progress-percent strong {
+  color: var(--intake-blue);
+  font-family: var(--font-mono);
+  font-size: 32px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.analysis-progress-percent span,
+.analysis-progress-current p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.analysis-progress-current p {
+  margin: 0;
+}
+
+.analysis-progress-track {
+  background: var(--border-color);
+  border-radius: 999px;
+  height: 10px;
+  margin-top: 22px;
+  overflow: hidden;
+}
+
+.analysis-progress-track > div {
+  background: linear-gradient(90deg, var(--intake-cyan), var(--intake-blue));
+  height: 100%;
+  transition: width 80ms linear;
+}
+
+.analysis-result-countdown {
+  color: var(--intake-blue);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 0;
+  text-align: right;
+}
+
+.analysis-activity {
+  display: grid;
+  gap: 0;
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+}
+
+.analysis-activity li {
+  align-items: center;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 12px;
+  gap: 10px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  min-height: 36px;
+}
+
+.analysis-activity li > span {
+  color: var(--intake-green);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.analysis-activity li.is-current > span,
+.analysis-activity li.is-current strong {
+  color: var(--intake-blue);
+}
+
+.analysis-activity time {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.analysis-progress-meta {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  margin-top: 10px;
+}
+
+@media (max-width: 899px) {
+  .upload-guide-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 599px) {
+  .upload-page-shell {
+    margin-top: 32px;
+    padding: 0 12px;
+  }
+
+  .upload-entry-heading,
+  .upload-console-toolbar,
+  .analysis-progress-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .analysis-progress-actions {
+    justify-content: space-between;
+  }
+
+  .analysis-progress-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-progress-actions {
+    align-items: stretch;
+    justify-self: stretch;
+  }
+
+  .upload-console-main {
+    padding: 18px 16px;
+  }
+
+  .parser-mode-select {
+    grid-template-columns: 1fr;
+  }
+
+  .parser-mode-actions,
+  .parser-format-options {
+    flex-wrap: wrap;
+  }
+
+  .diagnostic-upload-zone .ant-upload-wrapper .ant-upload-drag {
+    min-height: 220px;
+    padding: 28px 16px;
+  }
+
+  .diagnostic-upload-description {
+    font-size: 16px;
+  }
+
+  .diagnostic-upload-desktop-copy {
+    display: none;
+  }
+
+  .diagnostic-upload-mobile-copy {
+    display: inline;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-page-shell a {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .analysis-progress-track > div {
+    animation: none;
+    transition: none;
+  }
+
+  .diagnostic-upload-zone .ant-upload-wrapper .ant-upload-drag {
+    transition: none;
+  }
+
+  .parser-mode-select button {
+    transition: none;
+  }
+
+}

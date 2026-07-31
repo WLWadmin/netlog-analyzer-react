@@ -1,4 +1,31 @@
-export type FileType = 'netlog' | 'har' | 'log';
+export type FileType = 'netlog' | 'har' | 'log' | 'trace';
+
+export const TRACE_TABS = [
+  'conclusion',
+  'overview',
+  'network',
+  'main-thread',
+  'rendering',
+  'interactions',
+  'evidence',
+] as const;
+
+export type TraceTab = typeof TRACE_TABS[number];
+
+export function resolveTraceTab(tab?: string): TraceTab {
+  switch (tab) {
+    case 'conclusion':
+    case 'overview':
+    case 'network':
+    case 'main-thread':
+    case 'rendering':
+    case 'interactions':
+    case 'evidence':
+      return tab;
+    default:
+      return 'conclusion';
+  }
+}
 
 export interface ParsedAppHash {
   fileType?: FileType;
@@ -44,6 +71,10 @@ export function parseAppHash(hash: string): ParsedAppHash {
 
   if (first === 'log') {
     return { fileType: 'log', tab: second };
+  }
+
+  if (first === 'trace') {
+    return { fileType: 'trace', tab: resolveTraceTab(second) };
   }
 
   if (LEGACY_NETLOG_TAB_MAP[first]) {

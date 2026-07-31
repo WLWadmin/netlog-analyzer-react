@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, useCallback, useMemo } from 'react';
 import { Layout, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
@@ -41,10 +41,25 @@ import {
   releaseRawDataInWorker,
 } from './workers/workerClient';
 import { unavailableNetlogDatasetState, type NetlogDatasetState } from './workers/netlogDatasetTypes';
-import { parseUploadedInput } from './upload/parseUploadedInput';
+import {
+  parseUploadedInput,
+  type UploadFileTypeHint,
+  type UploadedParseResult,
+} from './upload/parseUploadedInput';
 import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
+import UploadEntry from './components/upload/UploadEntry';
+import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
+import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
+import type { ParserMode } from './components/upload/ParserModeSelect';
+import type { FileParserId } from './upload/fileFormatTypes';
+import type { TraceAnalysisResult } from './diagnosis/trace';
+import {
+  createExecutableFileFormatRegistry,
+  createFileParseInput,
+} from './upload/createFileFormatIntake';
+import { useAnalysisIntake } from './upload/useAnalysisIntake';
 import SummaryCards from './components/netlog/SummaryCards';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
 import ConclusionActionTab from './components/netlog/ConclusionActionTab';
@@ -54,7 +69,7 @@ import NetlogWorkbenchNav from './components/netlog/NetlogWorkbenchNav';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
-import { buildAppHash, parseAppHash, type FileType } from './utils/hashRouting';
+import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
 
@@ -63,6 +78,7 @@ const { Header, Content } = Layout;
 // 页面级懒加载：减少首包体积（重型模块拆分）
 const HarResultPage = lazy(() => import('./components/har/HarResultPage'));
 const LogResultPage = lazy(() => import('./components/log/LogResultPage'));
+const TraceResultPage = lazy(() => import('./components/trace/TraceResultPage'));
 const RawEvidenceExplorer = lazy(() => import('./components/raw/RawEvidenceExplorer'));
 const DatasetRawEvidenceExplorer = lazy(() => import('./components/raw/DatasetRawEvidenceExplorer'));
 
@@ -85,8 +101,6 @@ interface UploadFlowState {
   uploadStartedAt?: number;
   summaryReadyAt?: number;
   datasetStartedAt?: number;
-  fileName?: string;
-  fileSize?: number;
   eventsPreview?: number;
 }
 
@@ -95,7 +109,14 @@ function nowMs(): number {
 }
 
 function safeErrorMessage(error: unknown): string {
-  const messageText = error instanceof Error ? error.message : String(error);
+  const messageText = error instanceof Error
+    ? error.message
+    : error !== null
+      && typeof error === 'object'
+      && 'message' in error
+      && typeof error.message === 'string'
+      ? error.message
+      : String(error);
   return messageText.replace(/https?:\/\/\S+/g, '<URL>').slice(0, 240);
 }
 
@@ -104,6 +125,7 @@ const VALID_TABS: Record<string, string[]> = {
   netlog: ['conclusion', 'requests', 'evidence', 'expert', 'raw'],
   har: ['requests', 'summary', 'raw-evidence'],
   log: ['overview', 'flows', 'performance', 'raw'],
+  trace: [...TRACE_TABS],
 };
 
 /** 内部组件：可以使用 useNavigation 监听 tab 切换 */
@@ -113,11 +135,12 @@ const AppContent: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
+  const [traceResult, setTraceResult] = useState<TraceAnalysisResult | null>(null);
   const [rawUploadDataByType, setRawUploadDataByType] = useState<{ har?: unknown; netlog?: unknown; log?: unknown }>({});
   const [rawDataIdByType, setRawDataIdByType] = useState<{ har?: string; netlog?: string }>({});
   const [netlogDataset, setNetlogDataset] = useState<NetlogDatasetState>(unavailableNetlogDatasetState);
   const [currentNetlogFile, setCurrentNetlogFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<'netlog' | 'har' | 'log'>('netlog');
+  const [fileType, setFileType] = useState<FileType>('netlog');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('正在分析日志数据...');
   const [exportingExpertEvidence, setExportingExpertEvidence] = useState(false);
@@ -125,8 +148,15 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('conclusion');
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>();
   const [ipRoutingConclusions, setIpRoutingConclusions] = useState<IpRoutingConclusion[]>([]);
+  const [parserMode, setParserMode] = useState<ParserMode>('recommend');
   const { mode, toggleTheme } = useTheme();
-  const { intent, navigateTo } = useNavigation();
+  const { intent, navigateTo, consumeIntent } = useNavigation();
+
+  const invalidateTraceSession = useCallback(() => {
+    cancelActiveTraceWorkerTask();
+    setTraceResult(null);
+    consumeIntent();
+  }, [consumeIntent]);
 
   // Ref 用于避免连续多文件上传时的 state 异步判断问题
   const resultRef = useRef<AnalysisResult | null>(null);
@@ -135,6 +165,9 @@ const AppContent: React.FC = () => {
   const datasetIndexTaskIdRef = useRef(0);
   const datasetAnalysisIdRef = useRef<string | undefined>(undefined);
   const uploadFlowRef = useRef<UploadFlowState>({});
+  const intakeTaskIdRef = useRef(0);
+  const intakeFileRef = useRef<File | undefined>(undefined);
+  const intakeProbeAbortRef = useRef<AbortController | undefined>(undefined);
 
   // 从 URL hash 恢复 fileType + tab 状态
   useEffect(() => {
@@ -157,17 +190,17 @@ const AppContent: React.FC = () => {
     if (!intent) return;
     const nextFileType =
       intent.fileType && intent.fileType in VALID_TABS
-        ? (intent.fileType as 'netlog' | 'har' | 'log')
+        ? intent.fileType
         : fileType;
     if (nextFileType !== fileType) {
       setFileType(nextFileType);
     }
-    const parsed = parseAppHash(buildAppHash(nextFileType as FileType, intent.tab));
+    const parsed = parseAppHash(buildAppHash(nextFileType, intent.tab));
     const nextTab = parsed.tab || intent.tab;
     const nextSubTab = parsed.subTab || (nextTab === 'expert' ? 'events' : undefined);
     setActiveTab(nextTab);
     setActiveSubTab(nextSubTab);
-    window.location.hash = buildAppHash(nextFileType as FileType, nextTab, nextSubTab);
+    window.location.hash = buildAppHash(nextFileType, nextTab, nextSubTab);
     // 注意：不在这里 consumeIntent，交给目标 tab 组件消费
   }, [intent, fileType]);
 
@@ -187,7 +220,7 @@ const AppContent: React.FC = () => {
   }, []);
 
   const loadTaskIdRef = useRef(0);
-  const activeLoadCountRef = useRef(0);
+  const mountedRef = useRef(true);
   const useWorker = isWorkerSupported();
 
   useEffect(() => {
@@ -209,11 +242,8 @@ const AppContent: React.FC = () => {
   }, []);
 
   const logUploadFlow = useCallback((event: UploadFlowEvent, details: Record<string, unknown> = {}) => {
-    const flow = uploadFlowRef.current;
     console.info('[netlog-upload-flow]', {
       event,
-      fileName: flow.fileName,
-      fileSize: flow.fileSize,
       ...details,
     });
   }, []);
@@ -321,7 +351,12 @@ const AppContent: React.FC = () => {
   }, [logUploadFlow, releaseDatasetAnalysisId]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      loadTaskIdRef.current += 1;
+      intakeProbeAbortRef.current?.abort();
+      cancelActiveTraceWorkerTask();
       if (isWorkerSupported()) {
         void releaseRawDataInWorker({ all: true }).catch(() => {
           // 页面卸载时释放失败不阻塞浏览器关闭流程
@@ -333,182 +368,12 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  const finishLoad = () => {
-    activeLoadCountRef.current = Math.max(0, activeLoadCountRef.current - 1);
-    if (activeLoadCountRef.current === 0) {
-      setLoading(false);
-    }
-  };
+  const isActiveLoad = (taskId: number) => (
+    mountedRef.current && taskId === loadTaskIdRef.current
+  );
 
-  const handleFileLoaded = async (
-    data: unknown,
-    isTextLog = false,
-    repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
-  ) => {
-    const taskId = ++loadTaskIdRef.current;
-    activeLoadCountRef.current += 1;
-    setLoading(true);
-    setLoadingText('正在识别文件类型...');
-    setIpRoutingConclusions([]);
-    if (data instanceof File && fileTypeHint === 'netlog') {
-      uploadFlowRef.current = {
-        uploadStartedAt: nowMs(),
-        fileName: data.name,
-        fileSize: data.size,
-      };
-      logUploadFlow('upload-flow:upload-start', { datasetStatus: 'fallback' });
-    }
-
-    try {
-      const parsed = await parseUploadedInput({
-        data,
-        isTextLog,
-        repairInfo,
-        fileTypeHint,
-        useWorker,
-        onProgress: (phase) => setLoadingText(phase),
-      });
-
-      if (parsed.kind === 'log') {
-        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-          finishLoad();
-          return;
-        }
-        setLogResult(parsed.result);
-        setFileType('log');
-        setActiveTab('overview');
-        setActiveSubTab(undefined);
-        window.location.hash = buildAppHash('log', 'overview');
-        setHasData(true);
-        finishLoad();
-        message.success(`成功解析 ${parsed.result.stats.total} 条日志记录`);
-        return;
-      }
-
-      if (parsed.kind === 'har') {
-        if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-          if (useWorker && parsed.rawDataId) {
-            releaseRawDataId(parsed.rawDataId);
-          }
-          finishLoad();
-          return;
-        }
-        setHarResult(parsed.result);
-        harResultRef.current = parsed.result;
-        const previousHarRawDataId = rawDataIdByTypeRef.current.har;
-        if (useWorker && parsed.rawDataId && previousHarRawDataId && previousHarRawDataId !== parsed.rawDataId) {
-          releaseRawDataId(previousHarRawDataId);
-        }
-        rememberRawData('har', parsed.rawData, parsed.rawDataId);
-
-        if (resultRef.current) {
-          setFileType('netlog');
-          setActiveTab('conclusion');
-          setActiveSubTab(undefined);
-          window.location.hash = buildAppHash('netlog', 'conclusion');
-          setHasData(true);
-          finishLoad();
-          message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求，已启用联合诊断`);
-          return;
-        }
-
-        setFileType('har');
-        setActiveTab('summary');
-        setActiveSubTab(undefined);
-        window.location.hash = buildAppHash('har', 'summary');
-        setHasData(true);
-        finishLoad();
-        message.success(`成功解析 ${parsed.result.totalRequests} 个 HAR 请求`);
-        return;
-      }
-
-      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-        if (useWorker && parsed.rawDataId) {
-          releaseRawDataId(parsed.rawDataId);
-        }
-        finishLoad();
-        return;
-      }
-      if (data instanceof File && parsed.dataset?.status === 'fallback') {
-        const summaryReadyAt = nowMs();
-        uploadFlowRef.current.summaryReadyAt = summaryReadyAt;
-        uploadFlowRef.current.eventsPreview = parsed.events.length;
-        logUploadFlow('upload-flow:summary-ready', {
-          datasetStatus: 'fallback',
-          summaryScanMs: uploadFlowRef.current.uploadStartedAt
-            ? Math.round(summaryReadyAt - uploadFlowRef.current.uploadStartedAt)
-            : undefined,
-          eventsPreview: parsed.events.length,
-          datasetEventCount: parsed.result.largeFileMode?.parsedEvents,
-        });
-      }
-      setEvents(parsed.events);
-      setResult(parsed.result);
-      const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
-      if (previousDatasetAnalysisId) {
-        releaseDatasetAnalysisId(previousDatasetAnalysisId);
-        datasetAnalysisIdRef.current = undefined;
-      }
-      const datasetToken = ++datasetIndexTaskIdRef.current;
-      setNetlogDataset(parsed.dataset || unavailableNetlogDatasetState);
-      if (parsed.dataset?.status === 'ready' && parsed.dataset.analysisId) {
-        datasetAnalysisIdRef.current = parsed.dataset.analysisId;
-        logUploadFlow('upload-flow:dataset-ready', {
-          analysisId: parsed.dataset.analysisId,
-          datasetStatus: 'ready',
-          datasetEventCount: parsed.dataset.eventCount,
-          datasetImportMs: 0,
-          datasetReadyMs: uploadFlowRef.current.uploadStartedAt
-            ? Math.round(nowMs() - uploadFlowRef.current.uploadStartedAt)
-            : undefined,
-          singleScanDataset: true,
-        });
-        logUploadFlow('upload-flow:dataset-takeover', {
-          analysisId: parsed.dataset.analysisId,
-          datasetStatus: 'ready',
-          datasetEventCount: parsed.dataset.eventCount,
-          activeExpertViews: ['events', 'data-loaded', 'timeline', 'dns', 'proxy', 'quic', 'http2', 'sockets', 'cache', 'alt-svc', 'stream-pool', 'reporting', 'modules', 'prerender', 'endpoint-evidence'],
-          singleScanDataset: true,
-        });
-      }
-      setCurrentNetlogFile(data instanceof File ? data : null);
-      resultRef.current = parsed.result;
-      const previousNetlogRawDataId = rawDataIdByTypeRef.current.netlog;
-      if (useWorker && parsed.rawDataId && previousNetlogRawDataId && previousNetlogRawDataId !== parsed.rawDataId) {
-        releaseRawDataId(previousNetlogRawDataId);
-      }
-      rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
-      if (data instanceof File && useWorker && parsed.dataset?.status === 'fallback') {
-        void startDatasetIndexingForFile(data, { background: true, token: datasetToken });
-      }
-
-      if (harResultRef.current) {
-        setFileType('netlog');
-        setActiveTab('conclusion');
-        setActiveSubTab(undefined);
-        window.location.hash = buildAppHash('netlog', 'conclusion');
-        setHasData(true);
-        finishLoad();
-        message.success(`成功解析 ${parsed.events.length} 个事件，已启用联合诊断`);
-        return;
-      }
-
-      setFileType('netlog');
-      setActiveTab('conclusion');
-      setActiveSubTab(undefined);
-      window.location.hash = buildAppHash('netlog', 'conclusion');
-      setHasData(true);
-      finishLoad();
-      message.success(`成功解析 ${parsed.events.length} 个事件`);
-    } catch (err) {
-      if (taskId < loadTaskIdRef.current && activeLoadCountRef.current > 1) {
-        finishLoad();
-        return;
-      }
-      finishLoad();
-      message.error('解析失败: ' + (err as Error).message);
-    }
+  const finishLoad = (taskId: number) => {
+    if (isActiveLoad(taskId)) setLoading(false);
   };
 
   // 追加上传：支持在已有数据基础上追加另一类型文件
@@ -516,16 +381,15 @@ const AppContent: React.FC = () => {
     data: unknown,
     isTextLog = false,
     repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => {
-    activeLoadCountRef.current += 1;
+    invalidateTraceSession();
+    const taskId = ++loadTaskIdRef.current;
     setLoading(true);
     setLoadingText('正在解析追加文件...');
     if (data instanceof File && fileTypeHint === 'netlog') {
       uploadFlowRef.current = {
         uploadStartedAt: nowMs(),
-        fileName: data.name,
-        fileSize: data.size,
       };
       logUploadFlow('upload-flow:upload-start', { datasetStatus: 'fallback' });
     }
@@ -533,7 +397,7 @@ const AppContent: React.FC = () => {
     try {
       if ((isTextLog || fileTypeHint === 'log') && typeof data === 'string') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-        finishLoad();
+        finishLoad(taskId);
         return;
       }
 
@@ -543,12 +407,27 @@ const AppContent: React.FC = () => {
         repairInfo,
         fileTypeHint,
         useWorker,
-        onProgress: (phase) => setLoadingText(phase),
+        onProgress: (phase) => {
+          if (isActiveLoad(taskId)) setLoadingText(phase);
+        },
       });
+
+      if (!isActiveLoad(taskId)) {
+        if ('rawDataId' in parsed && useWorker && parsed.rawDataId) {
+          releaseRawDataId(parsed.rawDataId);
+        }
+        return;
+      }
 
       if (parsed.kind === 'log') {
         message.warning('追加 .log 文件不支持联合诊断，请上传 HAR 或 NetLog');
-        finishLoad();
+        finishLoad(taskId);
+        return;
+      }
+
+      if (parsed.kind === 'trace') {
+        message.warning('Trace 当前不参与 HAR/NetLog 联合诊断');
+        finishLoad(taskId);
         return;
       }
 
@@ -576,7 +455,7 @@ const AppContent: React.FC = () => {
         }
 
         setHasData(true);
-        finishLoad();
+        finishLoad(taskId);
         return;
       }
 
@@ -648,19 +527,223 @@ const AppContent: React.FC = () => {
       }
 
       setHasData(true);
-      finishLoad();
+      finishLoad(taskId);
     } catch (err) {
-      finishLoad();
+      if (!isActiveLoad(taskId)) return;
+      finishLoad(taskId);
+      if (
+        err !== null
+        && typeof err === 'object'
+        && 'detail' in err
+        && err.detail !== null
+        && typeof err.detail === 'object'
+        && 'code' in err.detail
+        && err.detail.code === 'TRACE_CANCELLED'
+      ) return;
       message.error('追加文件解析失败: ' + (err as Error).message);
     }
   };
 
+  const intakeRegistry = useMemo(
+    () => createExecutableFileFormatRegistry({ useWorker }),
+    [useWorker],
+  );
+
+  const commitIntakeResult = useCallback(async (
+    value: unknown,
+    parserId: FileParserId,
+  ) => {
+    const parsed = value as UploadedParseResult;
+    const expectedKind: Record<FileParserId, UploadedParseResult['kind']> = {
+      'har@1': 'har',
+      'chromium-netlog@1': 'netlog',
+      'chromium-performance-trace@1': 'trace',
+      'go-service-log@1': 'log',
+    };
+    if (parsed.kind !== expectedKind[parserId]) {
+      throw new Error('解析器返回的数据类型与绑定结果不一致');
+    }
+
+    setIpRoutingConclusions([]);
+    if (parsed.kind === 'trace') {
+      setTraceResult(parsed.result);
+      setFileType('trace');
+      setActiveTab('conclusion');
+      setActiveSubTab(undefined);
+      setHasData(true);
+      window.location.hash = buildAppHash('trace', 'conclusion');
+      return;
+    }
+
+    if (parsed.kind === 'log') {
+      setLogResult(parsed.result);
+      setFileType('log');
+      setActiveTab('overview');
+      setActiveSubTab(undefined);
+      setHasData(true);
+      window.location.hash = buildAppHash('log', 'overview');
+      message.success(`成功解析 ${parsed.result.stats.total} 条日志记录`);
+      return;
+    }
+
+    if (parsed.kind === 'har') {
+      setHarResult(parsed.result);
+      harResultRef.current = parsed.result;
+      const previousRawDataId = rawDataIdByTypeRef.current.har;
+      if (
+        useWorker
+        && parsed.rawDataId
+        && previousRawDataId
+        && previousRawDataId !== parsed.rawDataId
+      ) {
+        releaseRawDataId(previousRawDataId);
+      }
+      rememberRawData('har', parsed.rawData, parsed.rawDataId);
+      const joint = resultRef.current !== null;
+      setFileType(joint ? 'netlog' : 'har');
+      setActiveTab(joint ? 'conclusion' : 'summary');
+      setActiveSubTab(undefined);
+      setHasData(true);
+      window.location.hash = buildAppHash(
+        joint ? 'netlog' : 'har',
+        joint ? 'conclusion' : 'summary',
+      );
+      message.success(
+        joint
+          ? `成功解析 ${parsed.result.totalRequests} 个 HAR 请求，已启用联合诊断`
+          : `成功解析 ${parsed.result.totalRequests} 个 HAR 请求`,
+      );
+      return;
+    }
+
+    const sourceFile = intakeFileRef.current;
+    uploadFlowRef.current = { uploadStartedAt: nowMs() };
+    logUploadFlow('upload-flow:upload-start', {
+      datasetStatus: parsed.dataset?.status ?? 'unavailable',
+    });
+    if (parsed.dataset?.status === 'fallback') {
+      uploadFlowRef.current.summaryReadyAt = nowMs();
+      uploadFlowRef.current.eventsPreview = parsed.events.length;
+      logUploadFlow('upload-flow:summary-ready', {
+        datasetStatus: 'fallback',
+        eventsPreview: parsed.events.length,
+        datasetEventCount: parsed.result.largeFileMode?.parsedEvents,
+      });
+    }
+    setEvents(parsed.events);
+    setResult(parsed.result);
+    resultRef.current = parsed.result;
+    setCurrentNetlogFile(sourceFile ?? null);
+    const previousDatasetAnalysisId = datasetAnalysisIdRef.current;
+    if (previousDatasetAnalysisId) {
+      releaseDatasetAnalysisId(previousDatasetAnalysisId);
+      datasetAnalysisIdRef.current = undefined;
+    }
+    const datasetToken = ++datasetIndexTaskIdRef.current;
+    setNetlogDataset(parsed.dataset ?? unavailableNetlogDatasetState);
+    if (parsed.dataset?.status === 'ready' && parsed.dataset.analysisId) {
+      datasetAnalysisIdRef.current = parsed.dataset.analysisId;
+      logUploadFlow('upload-flow:dataset-ready', {
+        analysisId: parsed.dataset.analysisId,
+        datasetStatus: 'ready',
+        datasetEventCount: parsed.dataset.eventCount,
+        singleScanDataset: true,
+      });
+      logUploadFlow('upload-flow:dataset-takeover', {
+        analysisId: parsed.dataset.analysisId,
+        datasetStatus: 'ready',
+        datasetEventCount: parsed.dataset.eventCount,
+        singleScanDataset: true,
+      });
+    }
+    const previousRawDataId = rawDataIdByTypeRef.current.netlog;
+    if (
+      useWorker
+      && parsed.rawDataId
+      && previousRawDataId
+      && previousRawDataId !== parsed.rawDataId
+    ) {
+      releaseRawDataId(previousRawDataId);
+    }
+    rememberRawData('netlog', parsed.rawData, parsed.rawDataId);
+    if (
+      sourceFile
+      && useWorker
+      && parsed.dataset?.status === 'fallback'
+    ) {
+      void startDatasetIndexingForFile(sourceFile, {
+        background: true,
+        token: datasetToken,
+      });
+    }
+    setFileType('netlog');
+    setActiveTab('conclusion');
+    setActiveSubTab(undefined);
+    setHasData(true);
+    window.location.hash = buildAppHash('netlog', 'conclusion');
+    message.success(
+      harResultRef.current
+        ? `成功解析 ${parsed.events.length} 个事件，已启用联合诊断`
+        : `成功解析 ${parsed.events.length} 个事件`,
+    );
+  }, [
+    logUploadFlow,
+    releaseDatasetAnalysisId,
+    releaseRawDataId,
+    startDatasetIndexingForFile,
+    useWorker,
+  ]);
+
+  const intake = useAnalysisIntake({
+    registry: intakeRegistry,
+    onResult: commitIntakeResult,
+  });
+
+  const handleIntakeFiles = useCallback(async (files: File[]) => {
+    const file = files[0];
+    if (!file) return;
+    invalidateTraceSession();
+    const taskId = `intake-${++intakeTaskIdRef.current}`;
+    intakeProbeAbortRef.current?.abort();
+    const probeAbortController = new AbortController();
+    intakeProbeAbortRef.current = probeAbortController;
+    intakeFileRef.current = file;
+    intake.begin(taskId);
+    try {
+      const input = await createFileParseInput(file, taskId, {
+        signal: probeAbortController.signal,
+        onProgress: progress => intake.reportProgress(taskId, progress),
+      });
+      if (probeAbortController.signal.aborted) return;
+      await intake.prepare(
+        input,
+        parserMode === 'recommend' ? undefined : parserMode,
+      );
+    } catch (error) {
+      if (
+        probeAbortController.signal.aborted
+        || (error instanceof DOMException && error.name === 'AbortError')
+      ) return;
+      intake.fail(taskId, safeErrorMessage(error));
+    } finally {
+      if (intakeProbeAbortRef.current === probeAbortController) {
+        intakeProbeAbortRef.current = undefined;
+      }
+    }
+  }, [intake, invalidateTraceSession, parserMode]);
+
   const handleReset = () => {
+    loadTaskIdRef.current += 1;
+    intakeProbeAbortRef.current?.abort();
+    intakeProbeAbortRef.current = undefined;
+    invalidateTraceSession();
+    intake.cancel();
     setHasData(false);
     setEvents([]);
     setResult(null);
     setHarResult(null);
     setLogResult(null);
+    setTraceResult(null);
     setRawUploadDataByType({});
     setRawDataIdByType({});
     datasetIndexTaskIdRef.current += 1;
@@ -671,13 +754,14 @@ const AppContent: React.FC = () => {
       void releaseRawDataInWorker({ all: true });
       void releaseNetlogDatasetInWorker({ all: true });
     }
-    activeLoadCountRef.current = 0;
+    setLoading(false);
     resultRef.current = null;
     harResultRef.current = null;
     setFileType('netlog');
     setActiveTab('conclusion');
     setActiveSubTab(undefined);
     setIpRoutingConclusions([]);
+    setParserMode('recommend');
     window.location.hash = '';
   };
 
@@ -971,10 +1055,12 @@ const AppContent: React.FC = () => {
                 lineHeight: 1.3,
               }}
             >
-              浏览器文件分析工具
+              浏览器诊断工作台
             </h1>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-              Chrome / Edge NetLog 与 HAR 文件可视化分析
+              {isTraceAnalysisEnabled()
+                ? '本地分析网络请求、页面性能与服务端日志'
+                : '本地分析网络请求与服务端日志'}
             </div>
           </div>
         </div>
@@ -1054,8 +1140,28 @@ const AppContent: React.FC = () => {
       {/* ====== Main Content ====== */}
       <Content style={{ width: '100%', boxSizing: 'border-box' }}>
         {!hasData ? (
-          <div style={{ maxWidth: 900, margin: '48px auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
-            <UploadZone onFileLoaded={handleFileLoaded} multiple />
+          <div className="upload-page-shell">
+            <UploadEntry
+              traceEnabled={isTraceAnalysisEnabled()}
+              state={intake.state}
+              parserMode={parserMode}
+              onParserModeChange={(nextMode) => {
+                intake.cancel();
+                setParserMode(nextMode);
+              }}
+              onFilesSelected={handleIntakeFiles}
+              onConfirm={intake.confirm}
+              onReset={() => {
+                invalidateTraceSession();
+                intake.cancel();
+              }}
+              onCancel={() => {
+                intakeProbeAbortRef.current?.abort();
+                invalidateTraceSession();
+                intake.cancel();
+              }}
+              onContinue={intake.continueToResult}
+            />
 
             {/* 使用说明 */}
             <div>
@@ -1063,7 +1169,7 @@ const AppContent: React.FC = () => {
                 <QuestionCircleOutlined style={{ fontSize: 16, color: 'var(--accent-blue)' }} />
                 <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>不知道如何获取文件？</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+              <div className="upload-guide-grid">
                 {/* HAR 文件 */}
                 <a
                   href="https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb"
@@ -1221,6 +1327,20 @@ const AppContent: React.FC = () => {
                 </a>
               </div>
             </div>
+          </div>
+        ) : fileType === 'trace' && traceResult ? (
+          <div style={{ padding: '24px 28px' }}>
+            <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>
+              <TraceResultPage
+                result={traceResult}
+                activeTab={resolveTraceTab(activeTab)}
+                onTabChange={(tab) => {
+                  setActiveTab(tab);
+                  setActiveSubTab(undefined);
+                  window.location.hash = buildAppHash('trace', tab);
+                }}
+              />
+            </Suspense>
           </div>
         ) : fileType === 'har' && harResult ? (
           <div style={{ padding: '24px 28px' }}>

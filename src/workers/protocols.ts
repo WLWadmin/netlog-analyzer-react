@@ -4,6 +4,7 @@
  */
 
 import type { NetlogDatasetParseSkipStats, NetlogDatasetSocketLazyParamsStats } from './netlogDatasetTypes';
+import type { AnalysisProgress } from '../upload/analysisProgress';
 
 // ============ Request Messages (Main → Worker) ============
 
@@ -33,7 +34,7 @@ export interface ParseHarRequest {
 export interface ParseLogRequest {
   type: 'parse-log';
   id: string;
-  payload: string; // raw text content
+  payload: string | File; // raw text content or locally selected file
 }
 
 export interface SearchRawJsonRequest {
@@ -386,6 +387,7 @@ export interface WorkerProgressResponse {
   id: string;
   phase: string;
   percent?: number;
+  progress?: AnalysisProgress;
 }
 
 export type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse | WorkerProgressResponse;

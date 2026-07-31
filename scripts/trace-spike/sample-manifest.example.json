@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "samples": [
+    {
+      "id": "TRACE-SAMPLE-01",
+      "inputRef": "EXTERNAL_SAMPLE_REFERENCE_01",
+      "expectedEventFamilies": [
+        "navigation",
+        "network",
+        "renderer-main-thread",
+        "page-milestones"
+      ],
+      "positiveCapabilities": [
+        "navigation-context",
+        "page-milestones",
+        "network-lifecycle",
+        "network-initiators",
+        "renderer-tasks"
+      ],
+      "capacityRole": "functional"
+    },
+    {
+      "id": "TRACE-SAMPLE-02",
+      "inputRef": "EXTERNAL_SAMPLE_REFERENCE_02",
+      "expectedEventFamilies": [
+        "redirect",
+        "network-response"
+      ],
+      "positiveCapabilities": [
+        "network-lifecycle"
+      ],
+      "capacityRole": "functional"
+    },
+    {
+      "id": "TRACE-SAMPLE-03",
+      "inputRef": "EXTERNAL_SAMPLE_REFERENCE_03",
+      "expectedEventFamilies": [
+        "multiple-navigation",
+        "renderer-process-swap"
+      ],
+      "positiveCapabilities": [
+        "navigation-context",
+        "multi-process-attribution"
+      ],
+      "capacityRole": "near-limit"
+    },
+    {
+      "id": "TRACE-SAMPLE-04",
+      "inputRef": "EXTERNAL_SAMPLE_REFERENCE_04",
+      "expectedEventFamilies": [
+        "iframe",
+        "oopif"
+      ],
+      "positiveCapabilities": [
+        "multi-process-attribution"
+      ],
+      "capacityRole": "functional"
+    },
+    {
+      "id": "TRACE-SAMPLE-05",
+      "inputRef": "EXTERNAL_SAMPLE_REFERENCE_05",
+      "expectedEventFamilies": [
+        "event-timing",
+        "animation-frame",
+        "layout",
+        "paint"
+      ],
+      "positiveCapabilities": [
+        "interactions",
+        "rendering-frames"
+      ],
+      "capacityRole": "functional"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "traceEvents": [
+    { "name": "process_name", "cat": "__metadata", "ph": "M", "ts": 100, "pid": 1, "tid": 1 },
+    { "name": "RunTask", "cat": "devtools.timeline", "ph": "X", "ts": 200, "dur": 60000, "pid": 1, "tid": 1 }
+  ],
+  "metadata": { "source": "synthetic-test" }
+}

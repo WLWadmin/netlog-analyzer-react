@@ -4,6 +4,8 @@
 // 可视化所需的结构化数据。
 // ============================================================
 
+import { assertNoCompetingRootFormat } from './parsers/shared/rootFormatGuard';
+
 export interface HarTiming {
   blocked: number;
   dns: number;
@@ -788,7 +790,14 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   };
 }
 
-export function parseHar(data: any): HarAnalysisResult {
+export function parseHar(
+  data: any,
+  onRequestProgress?: (completed: number, total: number) => void,
+): HarAnalysisResult {
+  if (!isHarFile(data)) {
+    throw new Error('未找到有效的 HAR 请求数据');
+  }
+  assertNoCompetingRootFormat(data, 'har');
   const log = data.log || {};
   const rawEntries: any[] = Array.isArray(log.entries) ? log.entries : [];
   const totalResponseBodyChars = rawEntries.reduce((sum, entry) => {
@@ -797,7 +806,23 @@ export function parseHar(data: any): HarAnalysisResult {
   }, 0);
   const optimizeResponseBodies = totalResponseBodyChars > HAR_BODY_TOTAL_OPTIMIZE_THRESHOLD;
 
-  const entries = rawEntries.map((e, i) => parseEntry(e, i, { optimizeResponseBodies }));
+  const entries: HarRequestEntry[] = [];
+  let lastProgressAt = 0;
+  rawEntries.forEach((entry, index) => {
+    entries.push(parseEntry(entry, index, { optimizeResponseBodies }));
+    const completed = index + 1;
+    const now = Date.now();
+    if (
+      onRequestProgress
+      && (
+        completed === rawEntries.length
+        || (completed % 100 === 0 && now - lastProgressAt >= 100)
+      )
+    ) {
+      lastProgressAt = now;
+      onRequestProgress(completed, rawEntries.length);
+    }
+  });
 
   const typeCounts: Record<HarCategory, number> = {
     xhr: 0, doc: 0, css: 0, js: 0, font: 0, img: 0, media: 0, other: 0,

@@ -1,6 +1,17 @@
 import { parseHar } from './harParser';
 
 describe('harParser', () => {
+  test('rejects input without a complete HAR root structure', () => {
+    expect(() => parseHar({ events: [] })).toThrow('未找到有效的 HAR 请求数据');
+  });
+
+  test('rejects a HAR root that also contains another strong format structure', () => {
+    expect(() => parseHar({
+      log: { entries: [] },
+      traceEvents: [],
+    })).toThrow('文件同时包含其他诊断格式结构');
+  });
+
   test('parseHar should parse basic entry and server-timing', () => {
     const data = {
       log: {

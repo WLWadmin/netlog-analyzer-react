@@ -10,6 +10,7 @@ import UploadZone from './UploadZone';
 import NetlogMetricExplainPanel from './NetlogMetricExplainPanel';
 import { buildNetlogObservations, calculateNetlogDiagnosisCoverage } from '../../diagnosis/shared';
 import { useNavigation } from '../../contexts/NavigationContext';
+import type { UploadFileTypeHint } from '../../upload/parseUploadedInput';
 
 interface ConclusionActionTabProps {
   result: AnalysisResult;
@@ -19,7 +20,7 @@ interface ConclusionActionTabProps {
     data: unknown,
     isTextLog?: boolean,
     repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => void;
   onNavigate: (tab: string, subTab?: string) => void;
 }

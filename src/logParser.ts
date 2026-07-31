@@ -67,7 +67,10 @@ export interface LogAnalysisResult {
 // 日志解析策略接口
 export interface LogParserStrategy {
   canParse(content: string): boolean;
-  parse(content: string): LogAnalysisResult;
+  parse(
+    content: string,
+    onLineProgress?: (completed: number, total: number) => void,
+  ): LogAnalysisResult;
 }
 
 // ============ 配置化解析器 ============
@@ -277,15 +280,32 @@ class GoServiceLogParser implements LogParserStrategy {
     return firstLine.startsWith("[") && /^\[[^\]]+\]\s+(Info|Error|Warn|Debug)\b/.test(firstLine);
   }
 
-  parse(content: string): LogAnalysisResult {
+  parse(
+    content: string,
+    onLineProgress?: (completed: number, total: number) => void,
+  ): LogAnalysisResult {
     this.entryIdCounter = 0;
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = normalized.split('\n').filter(line => line.trim());
     const entries: LogEntry[] = [];
 
+    let processedLines = 0;
+    let lastProgressAt = 0;
     for (const line of lines) {
       const entry = this.parseLine(line);
       if (entry) entries.push(entry);
+      processedLines += 1;
+      const now = Date.now();
+      if (
+        onLineProgress
+        && (
+          processedLines === lines.length
+          || (processedLines % 250 === 0 && now - lastProgressAt >= 100)
+        )
+      ) {
+        lastProgressAt = now;
+        onLineProgress(processedLines, lines.length);
+      }
     }
 
     entries.sort((a, b) => a.timestampMs - b.timestampMs);
@@ -756,12 +776,15 @@ export function isLogFile(content: string): boolean {
 /**
  * 解析日志内容
  */
-export function parseLogFile(content: string): LogAnalysisResult {
+export function parseLogFile(
+  content: string,
+  onLineProgress?: (completed: number, total: number) => void,
+): LogAnalysisResult {
   const parser = logParsers.find(p => p.canParse(content));
   if (!parser) {
     throw new Error('无法识别的日志格式，请确保上传的是 Go 服务日志文件');
   }
-  return parser.parse(content);
+  return parser.parse(content, onLineProgress);
 }
 
 // GoServiceLogParser 导出，方便未来扩展

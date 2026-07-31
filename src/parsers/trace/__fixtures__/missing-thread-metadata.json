@@ -1,0 +1,7 @@
+{
+  "traceEvents": [
+    { "name": "FrameCommittedInBrowser", "ts": 0, "args": { "data": { "frame": "root", "processId": 10, "isOutermostMainFrame": true } } },
+    { "name": "navigationStart", "ts": 10, "args": { "data": { "frame": "root", "navigationId": "nav-1" } } },
+    { "name": "capture-end", "ts": 100 }
+  ]
+}

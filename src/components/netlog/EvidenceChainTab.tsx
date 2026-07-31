@@ -22,6 +22,7 @@ import FinalDiagnosisPanel from '../shared/FinalDiagnosisPanel';
 import NetlogProxyEvidencePanel from './NetlogProxyEvidencePanel';
 import UploadZone from './UploadZone';
 import { useNavigation } from '../../contexts/NavigationContext';
+import type { UploadFileTypeHint } from '../../upload/parseUploadedInput';
 
 interface EvidenceChainTabProps {
   result: AnalysisResult;
@@ -31,7 +32,7 @@ interface EvidenceChainTabProps {
     data: unknown,
     isTextLog?: boolean,
     repairInfo?: HarAnalysisResult['repairInfo'],
-    fileTypeHint?: 'netlog' | 'har' | 'log'
+    fileTypeHint?: UploadFileTypeHint
   ) => void;
   onLookupConclusionsChange?: (conclusions: IpRoutingConclusion[]) => void;
   dataset?: NetlogDatasetState;
