@@ -1,4 +1,9 @@
 export { buildTraceDiagnosis } from './buildTraceDiagnosis';
+export {
+  rankTraceDiagnoses,
+  selectTraceDiagnoses,
+} from './selectTraceDiagnoses';
+export type { SelectedTraceDiagnoses } from './selectTraceDiagnoses';
 export { scoreTraceDiagnosis } from './traceScoring';
 export {
   TRACE_RULE_THRESHOLDS,

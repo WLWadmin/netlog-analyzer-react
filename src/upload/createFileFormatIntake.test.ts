@@ -1,4 +1,7 @@
-import { createFileParseInput } from './createFileFormatIntake';
+import {
+  createExecutableFileFormatRegistry,
+  createFileParseInput,
+} from './createFileFormatIntake';
 
 describe('createFileParseInput', () => {
   it('keeps the raw file out of main-thread probe values', async () => {
@@ -38,5 +41,32 @@ describe('createFileParseInput', () => {
       mode: 'determinate',
       unit: 'bytes',
     }));
+  });
+});
+
+describe('createExecutableFileFormatRegistry', () => {
+  it('灰度关闭时不注册 Trace 解析器', () => {
+    const registry = createExecutableFileFormatRegistry({
+      useWorker: false,
+      traceEnabled: false,
+    });
+
+    expect(registry.list().map(adapter => adapter.parserId)).not.toContain(
+      'chromium-performance-trace@1',
+    );
+  });
+
+  it('灰度开启时注册 Trace 解析器并保留其他格式', () => {
+    const registry = createExecutableFileFormatRegistry({
+      useWorker: false,
+      traceEnabled: true,
+    });
+
+    expect(registry.list().map(adapter => adapter.parserId)).toEqual([
+      'har@1',
+      'chromium-netlog@1',
+      'chromium-performance-trace@1',
+      'go-service-log@1',
+    ]);
   });
 });

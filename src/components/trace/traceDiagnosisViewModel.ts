@@ -1,4 +1,10 @@
-import type { TraceAnalysisResult, TraceDiagnosis, TraceDiagnosisCategory, TraceDiagnosisConfidence } from '../../diagnosis/trace';
+import {
+  selectTraceDiagnoses,
+  type TraceAnalysisResult,
+  type TraceDiagnosis,
+  type TraceDiagnosisCategory,
+  type TraceDiagnosisConfidence,
+} from '../../diagnosis/trace';
 import type { TraceTab } from '../../utils/hashRouting';
 
 export interface TraceFactTarget {
@@ -95,13 +101,9 @@ function toCard(
 
 export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): TraceDiagnosisViewModel {
   const availableEvidence = new Set(result.context.evidence.map(item => item.evidenceId));
-  const sorted = [...result.diagnosis.diagnoses].sort((a, b) => b.score - a.score);
-  const primaryDiagnosis = sorted.find(item => (
-    item.confidence !== 'observation' && item.ruleId !== 'N1' && item.category !== 'security'
-  ));
-  const selected = primaryDiagnosis
-    ? [primaryDiagnosis, ...sorted.filter(item => item !== primaryDiagnosis).slice(0, 2)]
-    : sorted.slice(0, 3);
+  const { primary: primaryDiagnosis, selected } = selectTraceDiagnoses(
+    result.diagnosis.diagnoses,
+  );
   let remainingEvidence = 3;
   let remainingAdvice = 3;
   const usedEvidence = new Set<string>();

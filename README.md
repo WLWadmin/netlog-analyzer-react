@@ -1,6 +1,6 @@
-# NetLog / HAR / Go 服务日志网络诊断分析工具
+# 浏览器 NetLog / HAR / Performance Trace 与 Go 日志诊断工具
 
-一个面向 Chrome / Edge `NetLog`、浏览器 `HAR` 和 Go 服务 `.log` 的本地可视化分析工具。文件在浏览器本地解析，不上传服务器；上传后自动识别类型，并进入对应的诊断页面。
+一个面向 Chrome / Edge `NetLog`、浏览器 `HAR`、Chromium Performance Trace 和 Go 服务 `.log` 的本地可视化分析工具。文件在浏览器本地解析，不上传服务器；系统先探测文件结构，再绑定唯一解析器，不会在解析失败后静默切换到其他解析器。
 
 在线体验地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
 
@@ -10,6 +10,8 @@
 
 自动化测试已经覆盖核心诊断模型、真实样本基线、性能预算和发布前风险检查。正式发布前仍建议补齐脱敏故障样本、浏览器桌面与窄屏截图，以及非网络专业用户的可理解性验证。
 
+Chromium Performance Trace 当前属于内部灰度能力，默认关闭。开发或验收环境可在构建前设置 `REACT_APP_ENABLE_TRACE_ANALYSIS=1` 开启；关闭时入口不会注册、提示或接受 Trace 专用格式，既有 NetLog、HAR 和 Go 日志流程保持不变。
+
 
 ## 项目用途
 
@@ -17,6 +19,7 @@
 
 除 NetLog 外，工具还支持：
 
+- **Chromium Performance Trace（内部灰度）**：解析 DevTools Performance 导出的 `.trace`、`.json2`、Trace JSON 及对应 gzip 文件，聚合页面里程碑、请求生命周期、主线程长任务、渲染帧、交互延迟和有限 CPU 热点。Trace 只能证明录制窗口内的浏览器性能现象，不能替代 NetLog 对 DNS、TCP、TLS、代理等网络栈根因的验证。
 - **HAR 文件**：浏览器 DevTools → Network 面板导出的 `.har` 文件，进入独立的「请求详情 + HAR 现象摘要 + 原始证据」结果页面，便于按请求维度查看 Headers、响应体、耗时瀑布与 `x-tt-logid`、`Server-Timing` 等关键字段。HAR 单独使用时只描述请求现象，不把 DNS / TCP / TLS / 代理写成确定根因。
 - **Go 服务日志解析**：Go 后端服务输出的 `.log` 文件（如 `[worker] Level Time Got Result Method:URL | header -> ... +duration` 格式），支持解析 Success / Error / Retrying / Network Error 等多种日志格式，展示核心发现、统计图表、操作流程分组和原始日志列表。
 - **HAR + NetLog 联合诊断**：支持同时上传同次复现的 HAR 和 NetLog，系统按请求、域名、时间和网络栈 source 关联证据，输出支持证据、反证、冲突说明和置信度因子。
@@ -35,7 +38,8 @@
 ### 解析能力
 
 - **纯前端本地解析**：通过 `FileReader` 在浏览器内读取文件，不上传服务器。
-- **三种格式自动识别**：上传后根据文件结构自动判断 NetLog JSON、HAR 或 Go 服务日志，并进入对应的解析结果页面。
+- **可靠的格式路由**：默认支持 NetLog JSON、HAR 和 Go 服务日志；开启内部灰度后增加 Performance Trace。系统通过有限探测推荐格式、确认唯一解析器并执行专属校验，不在解析失败时跨解析器兜底。
+- **Trace 独立 Worker 解析**：Trace 的读取、解压、JSON 校验、事件扫描和事实聚合在浏览器 dedicated Worker 中完成，并基于真实字节数、事件数和聚合工作量回传进度。
 - **NetLog 事件归类**：按 URL 请求、DNS、连接、SSL/TLS、HTTP/2、QUIC、缓存、代理、网络变更等维度聚合事件。
 - **NetLog 结论与行动**：基于 `net_error`、协议事件、证书错误、慢请求、代理信息等生成面向普通用户的结论、行动建议和缺失信息。
 - **专家分析保留完整能力**：事件列表、源链路、安全与协议、性能分析、A-B 对比和完整诊断报告收敛到 NetLog「专家分析」二级入口。
@@ -109,6 +113,8 @@
 
 > 如果排查的是页面 / 接口层面的请求，也可以使用 HAR 文件：打开浏览器 DevTools（F12）→ **Network** 面板 → 复现问题后右键请求列表选择「Save all as HAR」（或点击导出按钮），得到 `.har` 文件。
 
+> 如果排查页面加载、主线程、渲染或交互性能，可在 DevTools → **Performance** 面板开始录制，复现问题后停止并导出 Trace。建议只录制必要窗口，并关闭 Screenshots、Memory 等非必要采集项，以降低文件体积和隐私暴露面。
+
 ### 2. 上传并解析
 
 打开在线地址：<https://wlwadmin.github.io/netlog-analyzer-react/>
@@ -144,6 +150,8 @@
 
 **诊断卡片脱敏导出**：在 NetLog「专家分析 → 完整诊断报告」中点击「生成协作摘要」，可导出已脱敏的诊断报告（自动脱敏 Cookie、Authorization、Token、URL 敏感参数等），便于安全地分享给他人协作排查。
 
+Trace 模式可从结果页导出白名单化的 JSON 或 Markdown 报告。报告只包含有限诊断、聚合事实、证据引用和能力限制，不导出原始事件、URL 查询参数、Cookie、Authorization、请求/响应体、截图、源码或 source map。
+
 HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复制。
 
 ## 当前限制
@@ -151,6 +159,8 @@ HAR 模式暂不提供报告导出，关键诊断字段可在页面中一键复�
 - HAR 单独使用时不能确认 DNS / TCP / TLS / 代理等浏览器网络栈根因；这类结论需要同次 NetLog 或外部链路测试支撑。
 - A-B 对比回答“异常环境新增了什么”或“哪里退化了”，差异本身不是根因。无共同请求、无共同域名或采集不完整时，对比结果会降级。
 - `single scan` 和 Dataset 大文件路径已可用，但仍保留 fallback 路径；大文件场景继续以证据完整性优先。
+- Trace 压缩文件上限为 64 MiB，解压后 JSON 上限为 128 MiB，事件数上限为 1,000,000。当前 Trace JSON 仍需在 Worker 中完成整体 JSON 解析，接近上限时会出现额外内存峰值；超过限制、内存不足、文件损坏或取消任务时会给出可恢复错误，不输出不完整结论。
+- Trace 只分析录制窗口内可见的浏览器事件。采集缺少导航、renderer main thread、交互或 CPU profile 事件时，对应能力会降级，并明确展示证据缺口。
 - 发布前风险检查已具备自动化测试入口，但真实脱敏故障样本、浏览器截图和用户可理解性验证仍需要按发布要求补齐。
 
 ## 页面模块说明

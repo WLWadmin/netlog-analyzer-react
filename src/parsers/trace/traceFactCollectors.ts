@@ -104,6 +104,7 @@ interface MutableRequest {
   endUs?: number;
   evidenceIndexes: number[];
   initiatorRequestId?: string;
+  hasInitiatorMetadata: boolean;
   dataEventCount: number;
   encodedDataLength?: number;
   calibratedNetworkSendMs?: number;
@@ -528,9 +529,10 @@ export class Batch3FactCollector {
           ? { initiatorRequestId: request.initiatorRequestId }
           : { initiatorRequestId: undefined }),
         initiatorEvidenceIds: request.initiatorRequestId
-          && requestIds.has(request.initiatorRequestId)
-          ? request.initiatorEvidenceIds
-          : [],
+          ? requestIds.has(request.initiatorRequestId)
+            ? request.initiatorEvidenceIds
+            : []
+          : request.initiatorEvidenceIds,
       })),
       tasks: boundedTasks,
       profiles: boundedProfiles,
@@ -636,6 +638,8 @@ export class Batch3FactCollector {
         explicitCancelled: false,
         evidenceIndexes: [eventIndex],
         initiatorRequestId: readLocalId(data.initiatorRequestId),
+        hasInitiatorMetadata: readRecord(data.initiator) !== undefined
+          || Array.isArray(data.stackTrace),
         dataEventCount: 0,
         encodedDataLength: undefined,
         calibratedNetworkSendMs: readFiniteNumber(data.calibratedNetworkSendMs),
@@ -965,7 +969,9 @@ export class Batch3FactCollector {
         dataEventCount: request.dataEventCount,
         ...(request.encodedDataLength === undefined ? {} : { encodedDataLength: request.encodedDataLength }),
         ...(dispatch ? { dispatch } : {}),
-        initiatorEvidenceIds: initiator ? boundedEvidenceIds(initiator.request.evidenceIndexes) : [],
+        initiatorEvidenceIds: initiator
+          ? boundedEvidenceIds(initiator.request.evidenceIndexes)
+          : request.hasInitiatorMetadata ? [evidenceId(request.send.eventIndex)] : [],
         evidenceIds: boundedEvidenceIds(request.evidenceIndexes),
         limitations,
       };
@@ -1379,71 +1385,86 @@ export class Batch3FactCollector {
     for (const values of byScope.values()) {
       this.checkpoint();
       values.sort((left, right) => left.eventIndex - right.eventIndex);
-      const begin = values.find(item => item.event.ph === 'b');
-      const end = values.find(item => item.event.ph === 'e'
-        && (!begin || item.eventIndex > begin.eventIndex));
-      const beginData = begin && readEventData(begin.event);
-      const endData = end && readEventData(end.event);
-      const interactionId = readFiniteNumber(beginData?.interactionId);
-      const processId = begin && readFiniteNumber(begin.event.pid);
-      const beginTimestampUs = begin && readFiniteNumber(begin.event.ts);
-      const endTimestampUs = end && readFiniteNumber(end.event.ts);
-      const eventStart = readFiniteNumber(beginData?.timeStamp);
-      const processingStart = readFiniteNumber(beginData?.processingStart);
-      const processingEnd = readFiniteNumber(beginData?.processingEnd);
-      const beginNavigation = beginTimestampUs === undefined || processId === undefined
-        ? undefined
-        : navigationFor(navigations, beginTimestampUs, processId);
-      const endNavigation = endTimestampUs === undefined || processId === undefined
-        ? undefined
-        : navigationFor(navigations, endTimestampUs, processId);
-      if (!begin || !end || interactionId === undefined || processId === undefined
-        || interactionId <= 0
-        || beginTimestampUs === undefined || endTimestampUs === undefined
-        || !beginNavigation || beginNavigation.key !== endNavigation?.key
-        || readFiniteNumber(end.event.pid) !== processId) {
-        this.warnings.add(SHAPE_WARNING);
-        continue;
+      const pairs: Array<{ begin: IndexedEvent; end: IndexedEvent }> = [];
+      let pendingBegin: IndexedEvent | undefined;
+      for (const indexed of values) {
+        if (indexed.event.ph === 'b') {
+          pendingBegin = indexed;
+        } else if (indexed.event.ph === 'e' && pendingBegin) {
+          pairs.push({ begin: pendingBegin, end: indexed });
+          pendingBegin = undefined;
+        }
       }
-      const legacyTiming = calculateEventTiming({
-        eventStart: readFiniteNumber(beginData?.eventStart) ?? Number.NaN,
-        processingStart: processingStart ?? Number.NaN,
-        processingEnd: readFiniteNumber(endData?.processingEnd) ?? Number.NaN,
-        interactionEnd: readFiniteNumber(endData?.interactionEnd) ?? Number.NaN,
-      });
-      const inputDelayMs = legacyTiming
-        ? legacyTiming.inputDelay / 1000
-        : (processingStart ?? Number.NaN) - (eventStart ?? Number.NaN);
-      const processingDurationMs = legacyTiming
-        ? legacyTiming.processingDuration / 1000
-        : (processingEnd ?? Number.NaN) - (processingStart ?? Number.NaN);
-      const totalLatencyMs = legacyTiming
-        ? legacyTiming.totalLatency / 1000
-        : (endTimestampUs - beginTimestampUs) / 1000;
-      const presentationDelayMs = legacyTiming
-        ? legacyTiming.presentationDelay / 1000
-        : totalLatencyMs - inputDelayMs - processingDurationMs;
-      if (![inputDelayMs, processingDurationMs, totalLatencyMs, presentationDelayMs]
-        .every(Number.isFinite)
-        || inputDelayMs < 0
-        || processingDurationMs < 0
-        || totalLatencyMs < 0
-        || presentationDelayMs < -0.001) {
-        this.warnings.add(SHAPE_WARNING);
-        continue;
+      if (pendingBegin || pairs.length === 0) this.warnings.add(SHAPE_WARNING);
+
+      for (const { begin, end } of pairs) {
+        const beginData = readEventData(begin.event);
+        const endData = readEventData(end.event);
+        const interactionId = readFiniteNumber(beginData?.interactionId);
+        const processId = readFiniteNumber(begin.event.pid);
+        const beginTimestampUs = readFiniteNumber(begin.event.ts);
+        const endTimestampUs = readFiniteNumber(end.event.ts);
+        const eventStart = readFiniteNumber(beginData?.timeStamp);
+        const processingStart = readFiniteNumber(beginData?.processingStart);
+        const processingEnd = readFiniteNumber(beginData?.processingEnd);
+        const frameId = readLocalId(beginData?.frame);
+        const beginNavigation = beginTimestampUs === undefined || processId === undefined
+          ? undefined
+          : navigationFor(navigations, beginTimestampUs, processId, undefined, frameId);
+        const endNavigation = endTimestampUs === undefined || processId === undefined
+          ? undefined
+          : navigationFor(navigations, endTimestampUs, processId, undefined, frameId);
+        if (interactionId === undefined || processId === undefined
+          || interactionId <= 0
+          || beginTimestampUs === undefined || endTimestampUs === undefined
+          || !beginNavigation || beginNavigation.key !== endNavigation?.key
+          || readFiniteNumber(end.event.pid) !== processId) {
+          this.warnings.add(SHAPE_WARNING);
+          continue;
+        }
+        const legacyTiming = calculateEventTiming({
+          eventStart: readFiniteNumber(beginData?.eventStart) ?? Number.NaN,
+          processingStart: processingStart ?? Number.NaN,
+          processingEnd: readFiniteNumber(endData?.processingEnd) ?? Number.NaN,
+          interactionEnd: readFiniteNumber(endData?.interactionEnd) ?? Number.NaN,
+        });
+        const inputDelayMs = legacyTiming
+          ? legacyTiming.inputDelay / 1000
+          : (processingStart ?? Number.NaN) - (eventStart ?? Number.NaN);
+        const processingDurationMs = legacyTiming
+          ? legacyTiming.processingDuration / 1000
+          : (processingEnd ?? Number.NaN) - (processingStart ?? Number.NaN);
+        const totalLatencyMs = legacyTiming
+          ? legacyTiming.totalLatency / 1000
+          : (endTimestampUs - beginTimestampUs) / 1000;
+        const presentationDelayMs = legacyTiming
+          ? legacyTiming.presentationDelay / 1000
+          : totalLatencyMs - inputDelayMs - processingDurationMs;
+        if (![inputDelayMs, processingDurationMs, totalLatencyMs, presentationDelayMs]
+          .every(Number.isFinite)
+          || inputDelayMs < 0
+          || processingDurationMs < 0
+          || totalLatencyMs < 0
+          || presentationDelayMs < -0.001) {
+          this.warnings.add(SHAPE_WARNING);
+          continue;
+        }
+        complete.push({
+          startUs: beginTimestampUs,
+          endUs: endTimestampUs,
+          inputDelayMs,
+          processingDurationMs,
+          presentationDelayMs: Math.max(presentationDelayMs, 0),
+          totalLatencyMs,
+          interactionId,
+          processId,
+          navigationKey: beginNavigation.key,
+          evidenceIndexes: [begin.eventIndex, end.eventIndex],
+        });
       }
-      complete.push({
-        startUs: beginTimestampUs,
-        endUs: endTimestampUs,
-        inputDelayMs,
-        processingDurationMs,
-        presentationDelayMs: Math.max(presentationDelayMs, 0),
-        totalLatencyMs,
-        interactionId,
-        processId,
-        navigationKey: beginNavigation.key,
-        evidenceIndexes: [begin.eventIndex, end.eventIndex],
-      });
+      if (pairs.length * 2 !== values.length) {
+        this.warnings.add(SHAPE_WARNING);
+      }
     }
     return complete.flatMap(item => {
       this.checkpoint();

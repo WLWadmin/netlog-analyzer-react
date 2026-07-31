@@ -106,9 +106,15 @@ function isStrictMatch(verdict: ProbeVerdict): boolean {
 
 export function createExecutableFileFormatRegistry(options: {
   useWorker: boolean;
+  traceEnabled?: boolean;
 }): FileFormatRegistry {
   const adapters: FileFormatAdapter<UploadedParseResult>[] =
-    BUILT_IN_FORMAT_PROBES.map(probeAdapter => ({
+    BUILT_IN_FORMAT_PROBES
+      .filter(probeAdapter => (
+        options.traceEnabled !== false
+        || probeAdapter.parserId !== 'chromium-performance-trace@1'
+      ))
+      .map(probeAdapter => ({
       ...probeAdapter,
       validate: async input => {
         const verdict = await probeRegisteredFormat(probeAdapter, input);
@@ -135,6 +141,6 @@ export function createExecutableFileFormatRegistry(options: {
           onStructuredProgress: context.onProgress,
         });
       },
-    }));
+      }));
   return new FileFormatRegistry(adapters);
 }

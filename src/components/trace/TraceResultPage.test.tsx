@@ -3,8 +3,23 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import type { TraceAnalysisResult } from '../../diagnosis/trace';
 import { NavigationProvider, useNavigation } from '../../contexts/NavigationContext';
+import { buildTraceJsonExport, buildTraceMarkdownReport } from '../../parsers/trace/exportTraceReport';
+import { downloadTextFile } from '../../utils/downloadTextFile';
 import type { TraceTab } from '../../utils/hashRouting';
 import TraceResultPage from './TraceResultPage';
+
+jest.mock('../../parsers/trace/exportTraceReport', () => ({
+  buildTraceMarkdownReport: jest.fn(),
+  buildTraceJsonExport: jest.fn(),
+}));
+
+jest.mock('../../utils/downloadTextFile', () => ({
+  downloadTextFile: jest.fn(),
+}));
+
+const mockBuildTraceMarkdownReport = buildTraceMarkdownReport as jest.Mock;
+const mockBuildTraceJsonExport = buildTraceJsonExport as jest.Mock;
+const mockDownloadTextFile = downloadTextFile as jest.Mock;
 
 const result: TraceAnalysisResult = {
   intake: {
@@ -78,6 +93,47 @@ const result: TraceAnalysisResult = {
 };
 
 describe('TraceResultPage', () => {
+  beforeEach(() => {
+    mockBuildTraceMarkdownReport.mockReset();
+    mockBuildTraceJsonExport.mockReset();
+    mockDownloadTextFile.mockReset();
+  });
+
+  it('exports Markdown and JSON from the current result', async () => {
+    const jsonExport = { schemaVersion: 1, quality: { level: 'partial' } };
+    mockBuildTraceMarkdownReport.mockReturnValue('# Trace report');
+    mockBuildTraceJsonExport.mockReturnValue(jsonExport);
+    render(<TraceResultPage result={result} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '导出 Markdown' }));
+    expect(mockBuildTraceMarkdownReport).toHaveBeenCalledWith(result);
+    expect(mockDownloadTextFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.md$/),
+      '# Trace report',
+      'text/markdown;charset=utf-8',
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '导出 JSON' }));
+    expect(mockBuildTraceJsonExport).toHaveBeenCalledWith(result);
+    expect(mockDownloadTextFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.json$/),
+      JSON.stringify(jsonExport, null, 2),
+      'application/json;charset=utf-8',
+    );
+  });
+
+  it('shows an accessible error without downloading when export fails', async () => {
+    mockBuildTraceMarkdownReport.mockImplementation(() => {
+      throw new Error('sensitive export detail');
+    });
+    render(<TraceResultPage result={result} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '导出 Markdown' }));
+
+    expect(screen.getAllByRole('alert').some(alert => alert.textContent === 'Markdown 导出失败，请重试。')).toBe(true);
+    expect(screen.queryByText(/sensitive export detail/)).toBeNull();
+    expect(mockDownloadTextFile).not.toHaveBeenCalled();
+  });
   it('shows bounded Trace facts and an explicit diagnosis boundary', () => {
     render(<TraceResultPage result={result} activeTab="overview" />);
 

@@ -38,6 +38,123 @@ const context = [
 ];
 
 describe('MinimalTraceAggregator real Chromium event shapes', () => {
+  it('keeps finite initiator evidence when Chromium provides metadata without a request id', async () => {
+    const result = await aggregate([
+      ...context,
+      {
+        name: 'ResourceSendRequest',
+        ph: 'I',
+        pid: 1,
+        tid: 10,
+        ts: 10,
+        args: {
+          data: {
+            requestId: 'private-request',
+            frame: 'root',
+            url: 'https://example.test/resource',
+            initiator: { type: 'parser' },
+            stackTrace: [],
+          },
+        },
+      },
+      { name: 'capture-end', ts: 100 },
+    ]);
+
+    expect(result.facts.context.requests?.[0]).toEqual(expect.objectContaining({
+      initiatorRequestId: undefined,
+      initiatorEvidenceIds: [expect.stringMatching(/^trace:event:\d+$/)],
+    }));
+  });
+
+  it('uses the EventTiming frame when process attribution is unavailable', async () => {
+    const result = await aggregate([
+      {
+        name: 'TracingStartedInBrowser',
+        ts: 0,
+        args: { data: { frames: [{ frame: 'root', isOutermostMainFrame: true }] } },
+      },
+      {
+        name: 'navigationStart',
+        ts: 1,
+        args: { data: { frame: 'root', navigationId: 'navigation-private' } },
+      },
+      {
+        name: 'EventTiming',
+        ph: 'b',
+        id: '0x1',
+        pid: 9,
+        tid: 90,
+        ts: 10_000,
+        args: { data: {
+          frame: 'root',
+          interactionId: 7,
+          timeStamp: 5,
+          processingStart: 8,
+          processingEnd: 12,
+        } },
+      },
+      {
+        name: 'EventTiming',
+        ph: 'e',
+        id: '0x1',
+        pid: 9,
+        tid: 90,
+        ts: 30_000,
+        args: {},
+      },
+      { name: 'capture-end', ts: 40_000 },
+    ]);
+
+    expect(result.facts.context.interactions).toEqual([
+      expect.objectContaining({
+        interactionId: 7,
+        navigationKey: expect.stringMatching(/^trace:navigation:event:/),
+      }),
+    ]);
+  });
+
+  it('keeps later positive interactions when Chromium reuses an async EventTiming id', async () => {
+    const eventPair = (
+      interactionId: number,
+      startUs: number,
+    ) => [
+      {
+        name: 'EventTiming',
+        ph: 'b',
+        id: 'reused-id',
+        pid: 1,
+        tid: 10,
+        ts: startUs,
+        args: { data: {
+          frame: 'root',
+          interactionId,
+          timeStamp: startUs / 1000,
+          processingStart: startUs / 1000 + 1,
+          processingEnd: startUs / 1000 + 2,
+        } },
+      },
+      {
+        name: 'EventTiming',
+        ph: 'e',
+        id: 'reused-id',
+        pid: 1,
+        tid: 10,
+        ts: startUs + 5_000,
+        args: {},
+      },
+    ];
+    const result = await aggregate([
+      ...context,
+      ...eventPair(0, 10_000),
+      ...eventPair(7, 20_000),
+      { name: 'capture-end', ts: 40_000 },
+    ]);
+
+    expect(result.facts.context.interactions).toEqual([
+      expect.objectContaining({ interactionId: 7 }),
+    ]);
+  });
+
   it('pairs EventTiming async events whose end event has no args.data', async () => {
     const result = await aggregate([
       ...context,

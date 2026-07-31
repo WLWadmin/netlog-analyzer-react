@@ -70,6 +70,7 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
+import { downloadTextFile } from './utils/downloadTextFile';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
 
@@ -130,6 +131,7 @@ const VALID_TABS: Record<string, string[]> = {
 
 /** 内部组件：可以使用 useNavigation 监听 tab 切换 */
 const AppContent: React.FC = () => {
+  const traceEnabled = isTraceAnalysisEnabled();
   const [hasData, setHasData] = useState(false);
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -545,8 +547,8 @@ const AppContent: React.FC = () => {
   };
 
   const intakeRegistry = useMemo(
-    () => createExecutableFileFormatRegistry({ useWorker }),
-    [useWorker],
+    () => createExecutableFileFormatRegistry({ useWorker, traceEnabled }),
+    [traceEnabled, useWorker],
   );
 
   const commitIntakeResult = useCallback(async (
@@ -785,13 +787,11 @@ const AppContent: React.FC = () => {
   const handleExport = () => {
     if (!result) return;
     const report = exportReport(result, { ipRoutingConclusions });
-    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `netlog-analysis-report-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `netlog-analysis-report-${Date.now()}.md`,
+      report,
+      'text/markdown;charset=utf-8',
+    );
     message.success('报告已导出');
   };
 
@@ -820,13 +820,11 @@ const AppContent: React.FC = () => {
       })),
       errors: result.errors.map(e => ({ severity: e.severity, category: e.category, message: e.message, detail: e.detail, time: e.time })),
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `netlog-analysis-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `netlog-analysis-${Date.now()}.json`,
+      JSON.stringify(data, null, 2),
+      'application/json;charset=utf-8',
+    );
     message.success('JSON 数据已导出');
   };
 
@@ -841,13 +839,11 @@ const AppContent: React.FC = () => {
       r.timeline.wait?.duration || '', r.timeline.download?.duration || '',
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `netlog-requests-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `netlog-requests-${Date.now()}.csv`,
+      '\uFEFF' + csv,
+      'text/csv;charset=utf-8',
+    );
     message.success('CSV 请求列表已导出');
   };
 
@@ -893,13 +889,11 @@ const AppContent: React.FC = () => {
         prerenderState: states?.[11],
       });
 
-      const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `netlog-expert-evidence-${Date.now()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadTextFile(
+        `netlog-expert-evidence-${Date.now()}.md`,
+        report,
+        'text/markdown;charset=utf-8',
+      );
 
       if (datasetReady) {
         message.success('专家证据包已导出');
@@ -1058,7 +1052,7 @@ const AppContent: React.FC = () => {
               浏览器诊断工作台
             </h1>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-              {isTraceAnalysisEnabled()
+              {traceEnabled
                 ? '本地分析网络请求、页面性能与服务端日志'
                 : '本地分析网络请求与服务端日志'}
             </div>
@@ -1142,7 +1136,7 @@ const AppContent: React.FC = () => {
         {!hasData ? (
           <div className="upload-page-shell">
             <UploadEntry
-              traceEnabled={isTraceAnalysisEnabled()}
+              traceEnabled={traceEnabled}
               state={intake.state}
               parserMode={parserMode}
               onParserModeChange={(nextMode) => {

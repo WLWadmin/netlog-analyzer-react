@@ -33,6 +33,7 @@ import { useNavigation } from '../../contexts/NavigationContext';
 import { getCommandsForCategory } from '../../diagnosis/shared/commandLibrary';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
 import { buildEvidenceNavigationTargets } from '../../diagnosis/shared/evidenceNavigation';
+import { downloadTextFile } from '../../utils/downloadTextFile';
 
 interface DiagnosticCardProps {
   card: DiagnosticCardType;
@@ -139,15 +140,11 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
   // 导出当前卡片脱敏摘要
   const handleExportCard = () => {
     const report = generateMaskedReport([card]);
-    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `诊断-${card.category}-${Date.now()}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `诊断-${card.category}-${Date.now()}.md`,
+      report,
+      'text/markdown;charset=utf-8',
+    );
   };
 
   /**

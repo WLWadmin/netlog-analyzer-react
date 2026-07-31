@@ -3,6 +3,7 @@ import { Button, Modal, message, Typography } from 'antd';
 import { ExportOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
+import { downloadTextFile } from '../../utils/downloadTextFile';
 
 const { Paragraph } = Typography;
 
@@ -30,15 +31,11 @@ const ExportSummaryButton: React.FC<ExportSummaryButtonProps> = ({ summary }) =>
   };
 
   const handleDownload = () => {
-    const blob = new Blob([reportText], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `network-diagnosis-report-${new Date().toISOString().slice(0, 10)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `network-diagnosis-report-${new Date().toISOString().slice(0, 10)}.md`,
+      reportText,
+      'text/markdown;charset=utf-8',
+    );
     message.success('报告已下载');
   };
 
