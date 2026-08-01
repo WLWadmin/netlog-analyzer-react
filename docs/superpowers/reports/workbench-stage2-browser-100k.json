@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 2,
+  "status": "browser-benchmark-verified",
+  "codeRef": "7399b1eec05bd6f846a74f854b117147e6ef8fa7+stage2-working-tree",
+  "workingTreeDiffHash": "a595db38b20bbb3524f22b488db8e20d65e30b8d2997e08feb1e7e55e529b3cc",
+  "runner": {
+    "kind": "repository-cdp-product-components",
+    "command": "node scripts/run-workbench-stage2-browser.js",
+    "playwright": false,
+    "componentMounts": {
+      "TraceTimelineWorkbench": true,
+      "TimelineCanvas": true,
+      "ScreenshotFilmstrip": true,
+      "TimelineInteractionStore": true
+    }
+  },
+  "environment": {
+    "browserUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+    "operatingSystem": "darwin",
+    "cpuLogicalCores": 10,
+    "deviceMemoryGiB": 16,
+    "dpr": 1
+  },
+  "corpus": {
+    "sourceBytes": 8573206,
+    "jsonBytes": 8573206,
+    "eventCount": 100000,
+    "eventFamilyDistribution": {
+      "screenshot": 100,
+      "network": 20000,
+      "rendering": 20000,
+      "interaction": 20000,
+      "frames": 20000,
+      "cpu-profile": 19900
+    },
+    "screenshotEncodedBytes": 4800,
+    "screenshotDecodedBytes": 1638400,
+    "fileReadMs": 3,
+    "jsonParseMs": 15.100000023841858,
+    "indexBuildMs": 416.89999997615814,
+    "sampleHash": "abbed2efaac8b058f5503d4a197ee80f19453bd62a0c0b9af2f90a7d6b6d903b"
+  },
+  "runs": {
+    "warmupCount": 5,
+    "validRunCount": 10
+  },
+  "timings": {
+    "viewportQuery": {
+      "samplesMs": [
+        3.3,
+        4.2,
+        3.3,
+        2.8,
+        2.9,
+        3.1,
+        2.5,
+        2.8,
+        2.8,
+        2.5
+      ],
+      "p50Ms": 2.8,
+      "p95Ms": 4.2
+    },
+    "selectionQuery": {
+      "samplesMs": [
+        31.2,
+        32.7,
+        31.3,
+        31.2,
+        28.1,
+        29.8,
+        31.7,
+        31.6,
+        30.6,
+        34.6
+      ],
+      "p50Ms": 31.2,
+      "p95Ms": 34.6
+    },
+    "canvasDraw": {
+      "samplesMs": [
+        63.7,
+        66.2,
+        64.6,
+        65.3,
+        63.2,
+        64.8,
+        66.3,
+        66.1,
+        62.8,
+        67.3
+      ],
+      "p50Ms": 64.8,
+      "p95Ms": 67.3
+    },
+    "zoom": {
+      "samplesMs": [
+        32.4,
+        32.5,
+        32.4,
+        31.2,
+        32.4,
+        32.4,
+        32.7,
+        32.5,
+        31.6,
+        31.8
+      ],
+      "p50Ms": 32.4,
+      "p95Ms": 32.7
+    },
+    "pan": {
+      "samplesMs": [
+        32.5,
+        32.7,
+        32.6,
+        33.9,
+        32.6,
+        32.4,
+        32.3,
+        30.4,
+        31.5,
+        31.5
+      ],
+      "p50Ms": 32.4,
+      "p95Ms": 33.9
+    },
+    "hover": {
+      "samplesMs": [
+        63.001,
+        61.256,
+        65.655,
+        62.553,
+        60.547,
+        62.59,
+        62.536,
+        62.372,
+        60.049,
+        63.243
+      ],
+      "p50Ms": 62.536,
+      "p95Ms": 65.655
+    },
+    "cancellationResponse": {
+      "samplesMs": [
+        22.1,
+        7.3
+      ],
+      "p50Ms": 7.3,
+      "p95Ms": 22.1
+    }
+  },
+  "interactions": {
+    "hoverVerified": true,
+    "brushSelectionVerified": true,
+    "detailOpenedByCanvas": true,
+    "returnButtonVisible": true,
+    "filmstripOpened": true,
+    "filmstripDialogClosed": true
+  },
+  "responsive": {
+    "900": {
+      "canvas": false,
+      "insight": false,
+      "narrow": true,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1100": {
+      "canvas": true,
+      "insight": false,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1280": {
+      "canvas": true,
+      "insight": true,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    }
+  },
+  "themes": {
+    "lightApplied": true,
+    "darkApplied": true,
+    "distinct": true,
+    "zoom200": true,
+    "reducedMotion": true
+  },
+  "accessibility": {
+    "equivalentEventText": true,
+    "dialogEscape": true,
+    "returnNavigation": true
+  },
+  "transfer": {
+    "workerUiBytes": 7328734
+  },
+  "memory": {
+    "workerPeakBytes": null,
+    "limitation": "The browser does not expose per-Worker peak memory to page JavaScript"
+  },
+  "queue": {
+    "viewport": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 1,
+      "droppedPendingRequestCount": 18
+    },
+    "selection": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 1,
+      "droppedPendingRequestCount": 18
+    }
+  },
+  "resources": {
+    "blobUrlsCreated": 1,
+    "blobUrlsRevoked": 1,
+    "sessionClosed": true,
+    "canvasRemoved": true
+  },
+  "safety": {
+    "maxJsonBytes": 134217728,
+    "limitRaised": false,
+    "rawTraceEventsReturnedToUi": false
+  },
+  "consoleErrors": []
+}

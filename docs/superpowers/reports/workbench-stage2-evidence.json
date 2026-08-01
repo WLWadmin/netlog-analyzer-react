@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-08-01",
+  "baseRef": "7399b1eec05bd6f846a74f854b117147e6ef8fa7",
+  "designSource": {
+    "integratedInBaseRef": false,
+    "source": "commit-current-work-K7nx7q V5 working tree",
+    "reason": "The authoritative V5 revision is not committed in the implementation branch"
+  },
+  "allowedStates": [
+    "implemented",
+    "automated-verified",
+    "implemented-unverified",
+    "browser-benchmark-verified",
+    "real-sample-blocked",
+    "release-accepted"
+  ],
+  "releaseAccepted": false,
+  "realSampleGate": {
+    "state": "real-sample-blocked",
+    "artifact": "docs/superpowers/reports/trace-real-sample-gate-status.json",
+    "reason": "TRACE_SAMPLE_MANIFEST_PATH is not configured"
+  },
+  "workerMemoryGate": {
+    "measured": false,
+    "reason": "Page JavaScript does not expose a separate per-Worker peak"
+  },
+  "playwrightGate": {
+    "installed": false,
+    "fallback": "Production build verified with local Chrome and CDP",
+    "reason": "The repository has no Playwright dependency and new dependencies are not authorized"
+  },
+  "batches": [
+    {
+      "batchId": "BATCH-13",
+      "title": "阶段 0/1 基线与门禁收口",
+      "states": ["implemented", "automated-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/featureFlag.ts",
+        "docs/superpowers/reports/workbench-stage0-capabilities.json",
+        "docs/superpowers/reports/workbench-stage2-evidence.json"
+      ],
+      "testEvidence": [
+        "src/workbench/featureFlag.test.ts",
+        "scripts/build-workbench-stage0-evidence.js",
+        "scripts/build-workbench-stage2-evidence.js"
+      ],
+      "browserEvidence": [],
+      "limitations": [
+        "The V5 design source is not integrated into the current committed code ref",
+        "Real samples and direct Worker peak memory remain blocked"
+      ]
+    },
+    {
+      "batchId": "BATCH-14",
+      "title": "Timeline 页面骨架与唯一状态所有权",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/timelineInteractionStore.ts",
+        "src/components/trace/workbench/TraceTimelineWorkbench.tsx"
+      ],
+      "testEvidence": [
+        "src/workbench/timelineInteractionStore.test.ts",
+        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "The workbench remains behind two internal compile-time flags"
+      ]
+    },
+    {
+      "batchId": "BATCH-15",
+      "title": "Canvas Viewport 与交互合同",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/timelineGeometry.ts",
+        "src/components/trace/workbench/TimelineCanvas.tsx"
+      ],
+      "testEvidence": [
+        "src/workbench/timelineGeometry.test.ts",
+        "src/components/trace/workbench/TimelineCanvas.test.tsx",
+        "src/workbench/client.test.ts"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-browser-100k.json",
+        "docs/superpowers/reports/workbench-stage2-browser-500k.json",
+        "docs/superpowers/reports/workbench-stage2-browser-1000k.json",
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "The repository CDP runner mounts production components; Playwright remains unavailable",
+        "Synthetic browser corpora do not prove real Trace semantic coverage"
+      ]
+    },
+    {
+      "batchId": "BATCH-16",
+      "title": "Overview、Milestones 与 Network",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/timelineTracks.ts",
+        "src/workbench/traceEngineAdapter.ts",
+        "src/components/trace/workbench/TimelineCanvas.tsx"
+      ],
+      "testEvidence": [
+        "src/workbench/timelineTracks.test.ts",
+        "src/workbench/traceEngineAdapter.test.ts"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "Stage 3 search and filtering are not implemented",
+        "Trace-only network evidence does not assert DNS, TCP, TLS, proxy, server root cause, or TTFB"
+      ]
+    },
+    {
+      "batchId": "BATCH-17",
+      "title": "Main、Rendering、Interactions 与 Frames",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/traceEngineAdapter.ts",
+        "src/components/trace/workbench/TimelineCanvas.tsx"
+      ],
+      "testEvidence": [
+        "src/workbench/traceEngineAdapter.test.ts",
+        "src/components/trace/workbench/TimelineCanvas.test.tsx"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "Frame budget uses a 60Hz reference and does not infer the actual display refresh rate",
+        "Flame Chart, Call Tree, Bottom-up, Event Log, and automatic competition attribution are out of scope"
+      ]
+    },
+    {
+      "batchId": "BATCH-18",
+      "title": "Screenshot Filmstrip",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/workbench/rawEvidenceStore.ts",
+        "src/components/trace/workbench/ScreenshotFilmstrip.tsx"
+      ],
+      "testEvidence": [
+        "src/workbench/rawEvidenceStore.test.ts",
+        "src/workbench/sessionKernel.test.ts",
+        "src/components/trace/workbench/ScreenshotFilmstrip.test.tsx"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-browser-100k.json",
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "Real external screenshot Trace files are not available in this environment"
+      ]
+    },
+    {
+      "batchId": "BATCH-19",
+      "title": "双向导航、响应式、可访问性与阶段 2 验收",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": [
+        "src/components/trace/workbench/TraceTimelineWorkbench.tsx",
+        "src/components/trace/traceResultPage.css",
+        "src/benchmark/stage2ProductBenchmark.tsx",
+        "scripts/run-workbench-stage2-browser.js",
+        "scripts/build-workbench-stage2-evidence.js"
+      ],
+      "testEvidence": [
+        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx",
+        "src/components/trace/TraceWorkbenchInternalPanel.test.tsx",
+        "src/components/trace/TraceResultPage.test.tsx"
+      ],
+      "browserEvidence": [
+        "docs/superpowers/reports/workbench-stage2-ui-validation.json"
+      ],
+      "limitations": [
+        "Playwright is not installed; local Chrome/CDP is used for this stage",
+        "Visual screenshots are local validation artifacts and are not committed because they may contain rendered screenshot frames"
+      ]
+    }
+  ]
+}

@@ -20,7 +20,7 @@ const WARMUP_RUNS = 3;
 const VALID_RUNS = 10;
 const BENCHMARK_QUERY = 'workbench-benchmark';
 
-interface WorkerMeasurement<T> {
+export interface WorkerMeasurement<T> {
   value: T;
   roundTripMs: number;
   workerElapsedMs: number;
@@ -40,7 +40,7 @@ declare global {
   }
 }
 
-class WorkbenchBenchmarkBridge {
+export class WorkbenchBenchmarkBridge {
   private readonly pending = new Map<string, {
     startedAt: number;
     requestBytes: number;
@@ -64,6 +64,26 @@ class WorkbenchBenchmarkBridge {
     return this.send(message, message.requestId).then(measurement => {
       if (measurement.value.type !== 'workbench-benchmark-prepared') {
         throw new Error('Unexpected benchmark preparation response');
+      }
+      return {
+        ...measurement,
+        value: measurement.value,
+      };
+    });
+  }
+
+  prepareProduct(eventCount: WorkbenchBenchmarkEventCount): Promise<WorkerMeasurement<
+    Extract<WorkbenchBenchmarkWorkerResponse, { type: 'workbench-product-benchmark-prepared' }>
+  >> {
+    const requestId = `prepare-product-${eventCount}`;
+    const message: WorkbenchBenchmarkWorkerRequest = {
+      type: 'prepare-workbench-product-benchmark',
+      requestId,
+      eventCount,
+    };
+    return this.send(message, requestId).then(measurement => {
+      if (measurement.value.type !== 'workbench-product-benchmark-prepared') {
+        throw new Error('Unexpected product benchmark preparation response');
       }
       return {
         ...measurement,

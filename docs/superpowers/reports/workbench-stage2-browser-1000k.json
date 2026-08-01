@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 2,
+  "status": "browser-benchmark-verified",
+  "codeRef": "7399b1eec05bd6f846a74f854b117147e6ef8fa7+stage2-working-tree",
+  "workingTreeDiffHash": "a595db38b20bbb3524f22b488db8e20d65e30b8d2997e08feb1e7e55e529b3cc",
+  "runner": {
+    "kind": "repository-cdp-product-components",
+    "command": "node scripts/run-workbench-stage2-browser.js",
+    "playwright": false,
+    "componentMounts": {
+      "TraceTimelineWorkbench": true,
+      "TimelineCanvas": true,
+      "ScreenshotFilmstrip": true,
+      "TimelineInteractionStore": true
+    }
+  },
+  "environment": {
+    "browserUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+    "operatingSystem": "darwin",
+    "cpuLogicalCores": 10,
+    "deviceMemoryGiB": 16,
+    "dpr": 1
+  },
+  "corpus": {
+    "sourceBytes": 86731906,
+    "jsonBytes": 86731906,
+    "eventCount": 1000000,
+    "eventFamilyDistribution": {
+      "screenshot": 1000,
+      "network": 200000,
+      "rendering": 200000,
+      "interaction": 200000,
+      "frames": 200000,
+      "cpu-profile": 199000
+    },
+    "screenshotEncodedBytes": 48000,
+    "screenshotDecodedBytes": 16384000,
+    "fileReadMs": 29.600000023841858,
+    "jsonParseMs": 177.79999995231628,
+    "indexBuildMs": 4759.299999952316,
+    "sampleHash": "c886e61f973a465585b83d7b08bd59240b717f6ca8fc2d0fe9ef6cc2eb0560a5"
+  },
+  "runs": {
+    "warmupCount": 5,
+    "validRunCount": 10
+  },
+  "timings": {
+    "viewportQuery": {
+      "samplesMs": [
+        35.8,
+        22.7,
+        6.7,
+        6.1,
+        4.6,
+        4.7,
+        4.3,
+        4.8,
+        4.5,
+        4.6
+      ],
+      "p50Ms": 4.7,
+      "p95Ms": 35.8
+    },
+    "selectionQuery": {
+      "samplesMs": [
+        31.7,
+        31.1,
+        31.3,
+        33.4,
+        31.2,
+        29.2,
+        31.8,
+        33.7,
+        31.6,
+        30.1
+      ],
+      "p50Ms": 31.3,
+      "p95Ms": 33.7
+    },
+    "canvasDraw": {
+      "samplesMs": [
+        64.3,
+        64,
+        62.2,
+        66.5,
+        64.9,
+        64,
+        63.9,
+        62.7,
+        64.6,
+        65
+      ],
+      "p50Ms": 64,
+      "p95Ms": 66.5
+    },
+    "zoom": {
+      "samplesMs": [
+        29.7,
+        33.3,
+        32.6,
+        29.5,
+        31.5,
+        30.8,
+        34.1,
+        32.5,
+        32.5,
+        32.6
+      ],
+      "p50Ms": 32.5,
+      "p95Ms": 34.1
+    },
+    "pan": {
+      "samplesMs": [
+        31.3,
+        30.3,
+        31.3,
+        34,
+        31.4,
+        29.7,
+        32.6,
+        32.7,
+        32.6,
+        32.5
+      ],
+      "p50Ms": 31.4,
+      "p95Ms": 34
+    },
+    "hover": {
+      "samplesMs": [
+        60.458,
+        61.769,
+        60.583,
+        58.343,
+        61.778,
+        62.165,
+        60.245,
+        59.767,
+        60.236,
+        64.673
+      ],
+      "p50Ms": 60.458,
+      "p95Ms": 64.673
+    },
+    "cancellationResponse": {
+      "samplesMs": [
+        15.7,
+        2.2,
+        2.1,
+        2.1,
+        2.1,
+        2.1,
+        2,
+        2.7,
+        2.2,
+        2.5
+      ],
+      "p50Ms": 2.1,
+      "p95Ms": 15.7
+    }
+  },
+  "interactions": {
+    "hoverVerified": true,
+    "brushSelectionVerified": true,
+    "detailOpenedByCanvas": true,
+    "returnButtonVisible": true,
+    "filmstripOpened": true,
+    "filmstripDialogClosed": true
+  },
+  "responsive": {
+    "900": {
+      "canvas": false,
+      "insight": false,
+      "narrow": true,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1100": {
+      "canvas": true,
+      "insight": false,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1280": {
+      "canvas": true,
+      "insight": true,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    }
+  },
+  "themes": {
+    "lightApplied": true,
+    "darkApplied": true,
+    "distinct": true,
+    "zoom200": true,
+    "reducedMotion": true
+  },
+  "accessibility": {
+    "equivalentEventText": true,
+    "dialogEscape": true,
+    "returnNavigation": true
+  },
+  "transfer": {
+    "workerUiBytes": 3115667
+  },
+  "memory": {
+    "workerPeakBytes": null,
+    "limitation": "The browser does not expose per-Worker peak memory to page JavaScript"
+  },
+  "queue": {
+    "viewport": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 32,
+      "droppedPendingRequestCount": 10
+    },
+    "selection": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 1,
+      "droppedPendingRequestCount": 18
+    }
+  },
+  "resources": {
+    "blobUrlsCreated": 1,
+    "blobUrlsRevoked": 1,
+    "sessionClosed": true,
+    "canvasRemoved": true
+  },
+  "safety": {
+    "maxJsonBytes": 134217728,
+    "limitRaised": false,
+    "rawTraceEventsReturnedToUi": false
+  },
+  "consoleErrors": []
+}

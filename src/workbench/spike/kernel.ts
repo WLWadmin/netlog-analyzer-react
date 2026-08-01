@@ -164,6 +164,13 @@ export class WorkbenchSpikeKernel {
         return this.createSession(request, onProgress);
       case 'query-viewport':
         return this.queryViewport(request, onProgress);
+      case 'query-selection':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'timeline-events',
+          'Selection aggregation is unavailable in the stage 0 kernel',
+        );
       case 'query-event-detail':
         return this.queryEventDetail(request);
       case 'query-capabilities':
@@ -175,6 +182,7 @@ export class WorkbenchSpikeKernel {
           'raw-evidence',
           'Raw evidence is unavailable in the stage 0 kernel',
         );
+      case 'query-screenshot-index':
       case 'query-screenshot':
         return capabilityMissing(
           request.requestId,
@@ -299,6 +307,10 @@ export class WorkbenchSpikeKernel {
       missingCapabilities,
       range: { startUs, endUs },
       eventCount: indexed.length,
+      trackEventCounts: indexed.reduce<Record<string, number>>((counts, event) => {
+        counts[event.dto.trackId] = (counts[event.dto.trackId] ?? 0) + 1;
+        return counts;
+      }, {}),
       screenshotCount: 0,
     };
     this.sessions.set(sessionId, {

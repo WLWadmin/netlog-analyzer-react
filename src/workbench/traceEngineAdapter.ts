@@ -24,6 +24,7 @@ import {
   TimelineColumnarStore,
   type TimelineStoreEventInput,
 } from './timelineColumnarStore';
+import { classifyTimelineTrack } from './timelineTracks';
 
 export interface TraceEngineMetadata {
   engine: 'minimal-trace-aggregator';
@@ -121,22 +122,200 @@ function projectTimelineEvent(
   const threadId = readFiniteNumber(event.tid);
   const frameId = readFrameId(event);
   const navigationId = readNavigationId(event);
+  const name = readString(event.name) ?? 'Unnamed';
+  const category = eventCategory(event);
+  const semanticTrack = classifyTimelineTrack(name, category);
+  if (!semanticTrack) return undefined;
+  const durationUs = Math.max(0, readFiniteNumber(event.dur) ?? 0);
   return {
     sourceIndex,
-    trackId: processId === undefined
-      ? 'global'
-      : `${processId}:${threadId ?? 0}`,
+    trackId: semanticTrack,
     startUs,
-    durationUs: Math.max(0, readFiniteNumber(event.dur) ?? 0),
+    durationUs,
     depth: 0,
-    category: eventCategory(event),
-    name: readString(event.name) ?? 'Unnamed',
+    category,
+    name,
+    ...(semanticTrack === 'main' && durationUs >= 50_000
+      ? { status: 'warning' as const }
+      : {}),
     ...(processId === undefined ? {} : { processId }),
     ...(threadId === undefined ? {} : { threadId }),
     ...(frameId === undefined ? {} : { frameId }),
     ...(navigationId === undefined ? {} : { navigationId }),
     evidenceIds: [`trace:event:${sourceIndex}`],
   };
+}
+
+interface ProjectedAnalysisFacts {
+  events: TimelineStoreEventInput[];
+  coveredSourceIndexes: Set<number>;
+}
+
+function sourceIndexesFromEvidence(
+  evidenceIds: string[],
+  sourceLimit: number,
+): number[] {
+  const indexes: number[] = [];
+  for (const evidenceId of evidenceIds) {
+    const match = /^trace:event:(0|[1-9]\d*)$/.exec(evidenceId);
+    const sourceIndex = match ? Number(match[1]) : Number.NaN;
+    if (Number.isSafeInteger(sourceIndex) && sourceIndex < sourceLimit) {
+      indexes.push(sourceIndex);
+    }
+  }
+  return indexes;
+}
+
+function projectAnalysisFacts(
+  analysis: TraceContextResult,
+  firstSourceIndex: number,
+): ProjectedAnalysisFacts {
+  const events: TimelineStoreEventInput[] = [];
+  const coveredSourceIndexes = new Set<number>();
+  let sourceIndex = firstSourceIndex;
+  const assignedSourceIndexes = new Set<number>();
+  const allocateSourceIndex = (evidenceIds: string[]): number => {
+    for (const evidenceId of evidenceIds) {
+      const match = /^trace:event:(0|[1-9]\d*)$/.exec(evidenceId);
+      const candidate = match ? Number(match[1]) : Number.NaN;
+      if (
+        Number.isSafeInteger(candidate)
+        && candidate < firstSourceIndex
+        && !assignedSourceIndexes.has(candidate)
+      ) {
+        assignedSourceIndexes.add(candidate);
+        return candidate;
+      }
+    }
+    const assigned = sourceIndex;
+    sourceIndex += 1;
+    assignedSourceIndexes.add(assigned);
+    return assigned;
+  };
+  const append = (
+    event: Omit<TimelineStoreEventInput, 'sourceIndex' | 'depth'>,
+  ): number => {
+    sourceIndexesFromEvidence(event.evidenceIds, firstSourceIndex)
+      .forEach(index => coveredSourceIndexes.add(index));
+    const assignedSourceIndex = allocateSourceIndex(event.evidenceIds);
+    events.push({ ...event, sourceIndex: assignedSourceIndex, depth: 0 });
+    return assignedSourceIndex;
+  };
+  const requestIndexes = new Map<string, number>();
+  const requests = analysis.context.requests ?? [];
+  for (const request of requests) {
+    sourceIndexesFromEvidence(request.evidenceIds, firstSourceIndex)
+      .forEach(index => coveredSourceIndexes.add(index));
+    requestIndexes.set(request.requestId, allocateSourceIndex(request.evidenceIds));
+  }
+  for (const request of requests) {
+    const assignedSourceIndex = requestIndexes.get(request.requestId)!;
+    const endUs = request.timing.trace.endUs ?? request.timing.trace.startUs;
+    const status = request.result === 'success'
+      ? 'normal'
+      : request.result === 'cancelled' || request.result === 'incomplete-at-trace-end'
+        ? 'incomplete'
+        : 'error';
+    events.push({
+      sourceIndex: assignedSourceIndex,
+      trackId: 'network',
+      startUs: request.timing.trace.startUs,
+      durationUs: Math.max(0, endUs - request.timing.trace.startUs),
+      depth: 0,
+      category: 'network',
+      name: request.statusCode
+        ? `HTTP ${request.statusCode} request`
+        : `Network request · ${request.result}`,
+      status,
+      ...(request.initiatorRequestId && requestIndexes.has(request.initiatorRequestId)
+        ? { initiatorSourceIndex: requestIndexes.get(request.initiatorRequestId) }
+        : {}),
+      evidenceIds: request.evidenceIds,
+    });
+  }
+  for (const milestone of analysis.context.milestones ?? []) {
+    append({
+      trackId: 'milestones',
+      startUs: milestone.timestampUs,
+      durationUs: 0,
+      category: 'milestone',
+      name: milestone.name,
+      status: milestone.candidate ? 'candidate' : 'normal',
+      navigationId: milestone.navigationKey,
+      evidenceIds: milestone.evidenceIds,
+    });
+  }
+  for (const task of analysis.context.tasks ?? []) {
+    append({
+      trackId: 'main',
+      startUs: task.startUs,
+      durationUs: task.durationMs * 1_000,
+      category: 'main-thread',
+      name: task.durationMs >= 50 ? 'Long task' : 'Main-thread task',
+      status: task.durationMs >= 50 ? 'warning' : 'normal',
+      processId: task.processId,
+      threadId: task.threadId,
+      navigationId: task.navigationKey,
+      evidenceIds: task.evidenceIds,
+    });
+  }
+  for (const rendering of analysis.context.rendering ?? []) {
+    append({
+      trackId: 'rendering',
+      startUs: rendering.startUs,
+      durationUs: rendering.durationMs * 1_000,
+      category: 'rendering',
+      name: rendering.name,
+      status: rendering.durationMs >= 50 ? 'warning' : 'normal',
+      processId: rendering.processId,
+      threadId: rendering.threadId,
+      navigationId: rendering.navigationKey,
+      evidenceIds: rendering.evidenceIds,
+    });
+  }
+  for (const clue of analysis.context.forcedReflowClues ?? []) {
+    append({
+      trackId: 'rendering',
+      startUs: clue.startUs,
+      durationUs: 0,
+      category: 'rendering',
+      name: 'Forced Reflow evidence',
+      status: 'warning',
+      navigationId: clue.navigationKey,
+      evidenceIds: clue.evidenceIds,
+    });
+  }
+  for (const interaction of analysis.context.interactions ?? []) {
+    append({
+      trackId: 'interactions',
+      startUs: interaction.startUs,
+      durationUs: interaction.totalLatencyMs * 1_000,
+      category: 'interaction',
+      name: 'Interaction',
+      status: interaction.totalLatencyMs >= 200 ? 'warning' : 'normal',
+      navigationId: interaction.navigationKey,
+      evidenceIds: interaction.evidenceIds,
+    });
+  }
+  for (const frame of analysis.context.animationFrames ?? []) {
+    append({
+      trackId: 'frames',
+      startUs: frame.startUs,
+      durationUs: frame.durationMs * 1_000,
+      category: 'frame',
+      name: frame.dropped
+        ? 'Dropped frame'
+        : frame.overBudget
+          ? 'Over-budget frame'
+          : 'Frame',
+      status: frame.dropped ? 'error' : frame.overBudget ? 'warning' : 'normal',
+      processId: frame.processId,
+      threadId: frame.threadId,
+      navigationId: frame.navigationKey,
+      evidenceIds: frame.evidenceIds,
+    });
+  }
+  return { events, coveredSourceIndexes };
 }
 
 export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
@@ -206,7 +385,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     if (this.released) throw new Error('Trace engine adapter has been released');
     if (!this.analysis) throw new Error('Trace analysis must complete before indexing');
     if (this.sessionData) return this.sessionData;
-    const timelineEvents: TimelineStoreEventInput[] = [];
+    const timelineEvents = new Map<number, TimelineStoreEventInput>();
     const total = this.trace.traceEvents.length;
     const yieldInterval = this.adapterOptions.indexYieldInterval ?? 2_048;
     options.onProgress({
@@ -218,7 +397,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     for (let sourceIndex = 0; sourceIndex < total; sourceIndex += 1) {
       if (options.isCancelled()) throw new TraceAggregationCancelled();
       const projected = projectTimelineEvent(this.trace.traceEvents[sourceIndex], sourceIndex);
-      if (projected) timelineEvents.push(projected);
+      if (projected) timelineEvents.set(sourceIndex, projected);
       if ((sourceIndex + 1) % yieldInterval === 0) {
         options.onProgress({
           phase: 'indexing-events',
@@ -229,9 +408,16 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
         await (options.yieldControl?.() ?? Promise.resolve());
       }
     }
+    const projectedFacts = projectAnalysisFacts(this.analysis, total);
+    for (const sourceIndex of projectedFacts.coveredSourceIndexes) {
+      timelineEvents.delete(sourceIndex);
+    }
+    for (const semanticEvent of projectedFacts.events) {
+      timelineEvents.set(semanticEvent.sourceIndex, semanticEvent);
+    }
     if (options.isCancelled()) throw new TraceAggregationCancelled();
     this.sessionData = {
-      timeline: TimelineColumnarStore.build(timelineEvents),
+      timeline: TimelineColumnarStore.build([...timelineEvents.values()]),
       evidence: new RawEvidenceStore(this.trace.traceEvents),
     };
     options.onProgress({

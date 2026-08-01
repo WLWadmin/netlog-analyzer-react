@@ -1,5 +1,6 @@
 export {
   LatestViewportDispatcher,
+  LatestSelectionDispatcher,
   WorkbenchSpikeClientState as WorkbenchClientState,
 } from './spike/clientState';
 

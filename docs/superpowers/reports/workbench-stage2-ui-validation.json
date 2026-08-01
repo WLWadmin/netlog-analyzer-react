@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 2,
+  "status": "browser-benchmark-verified",
+  "codeRef": "7399b1eec05bd6f846a74f854b117147e6ef8fa7+stage2-working-tree",
+  "workingTreeDiffHash": "a595db38b20bbb3524f22b488db8e20d65e30b8d2997e08feb1e7e55e529b3cc",
+  "runner": {
+    "kind": "repository-cdp-product-components",
+    "command": "node scripts/run-workbench-stage2-browser.js",
+    "playwright": false,
+    "componentMounts": {
+      "TraceTimelineWorkbench": true,
+      "TimelineCanvas": true,
+      "ScreenshotFilmstrip": true,
+      "TimelineInteractionStore": true
+    }
+  },
+  "browserUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+  "sampleHash": "abbed2efaac8b058f5503d4a197ee80f19453bd62a0c0b9af2f90a7d6b6d903b",
+  "viewports": {
+    "900": {
+      "canvas": false,
+      "insight": false,
+      "narrow": true,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1100": {
+      "canvas": true,
+      "insight": false,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1280": {
+      "canvas": true,
+      "insight": true,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    }
+  },
+  "interactions": {
+    "hoverVerified": true,
+    "brushSelectionVerified": true,
+    "detailOpenedByCanvas": true,
+    "returnButtonVisible": true,
+    "filmstripOpened": true,
+    "filmstripDialogClosed": true
+  },
+  "accessibility": {
+    "equivalentEventText": true,
+    "dialogEscape": true,
+    "returnNavigation": true
+  },
+  "themes": {
+    "lightApplied": true,
+    "darkApplied": true,
+    "distinct": true,
+    "zoom200": true,
+    "reducedMotion": true
+  },
+  "resources": {
+    "blobUrlsCreated": 1,
+    "blobUrlsRevoked": 1,
+    "sessionClosed": true,
+    "canvasRemoved": true
+  },
+  "consoleErrors": []
+}

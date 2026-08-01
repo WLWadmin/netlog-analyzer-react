@@ -52,12 +52,28 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Synthet
     return {
       ts: index * 10,
       dur: index % 100 === 0 ? 500 : 5 + (index % 20),
-      cat: screenshot ? 'screenshot' : family,
-      name: screenshot ? 'Screenshot' : `${family}-event`,
+      cat: screenshot
+        ? 'screenshot'
+        : family === 'main-thread'
+          ? 'cpu-profile'
+          : family,
+      name: screenshot
+        ? 'Screenshot'
+        : family === 'network'
+          ? 'ResourceEvent'
+          : family === 'rendering'
+            ? 'Layout'
+            : family === 'interaction'
+              ? 'EventTiming'
+              : family === 'frames'
+                ? 'DrawFrame'
+                : 'RunTask',
       ph: 'X',
       pid: 1 + (index % 4),
       tid: 10 + (index % 8),
-      ...(screenshot ? { args: { snapshot: 'A'.repeat(1_024) } } : {}),
+      ...(screenshot
+        ? { args: { snapshot: 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' } }
+        : {}),
     };
   });
 }
@@ -87,6 +103,7 @@ function corpusMetrics(events: SyntheticTraceEvent[]): {
 async function prepareBenchmark(
   requestId: string,
   eventCount: WorkbenchBenchmarkEventCount,
+  createSession: boolean,
 ): Promise<void> {
   const startedAt = performance.now();
   const rawEvents = buildSyntheticEvents(eventCount);
@@ -122,6 +139,30 @@ async function prepareBenchmark(
     fingerprint: `synthetic:${eventCount}`,
   };
   kernel = new WorkbenchSessionKernel(adapter, source);
+  if (!createSession) {
+    const response: WorkbenchBenchmarkWorkerResponse = {
+      type: 'workbench-product-benchmark-prepared',
+      requestId,
+      metrics: {
+        sourceBytes: sourceBuffer.byteLength,
+        jsonBytes: sourceBuffer.byteLength,
+        eventCount,
+        eventFamilyDistribution: metrics.eventFamilyDistribution,
+        screenshotEncodedBytes: metrics.screenshotEncodedBytes,
+        screenshotDecodedBytes: metrics.screenshotDecodedBytes,
+        fileReadMs,
+        jsonParseMs,
+        indexBuildMs: 0,
+        sampleHash: await sampleHash(sourceBuffer),
+      },
+      source,
+      workerElapsedMs: performance.now() - startedAt,
+      uiTransferBytes: 0,
+    };
+    response.uiTransferBytes = transferBytes(response);
+    post(response);
+    return;
+  }
   const indexStartedAt = performance.now();
   const session = await kernel.dispatch({
     type: 'create-session',
@@ -181,7 +222,11 @@ workerScope.addEventListener('message', async (
   }
   try {
     if (message.type === 'prepare-workbench-benchmark') {
-      await prepareBenchmark(message.requestId, message.eventCount);
+      await prepareBenchmark(message.requestId, message.eventCount, true);
+      return;
+    }
+    if (message.type === 'prepare-workbench-product-benchmark') {
+      await prepareBenchmark(message.requestId, message.eventCount, false);
       return;
     }
     if (!kernel) throw new Error('Workbench benchmark is not prepared');
@@ -199,6 +244,7 @@ workerScope.addEventListener('message', async (
     post({
       type: 'workbench-benchmark-failed',
       requestId: message.type === 'prepare-workbench-benchmark'
+        || message.type === 'prepare-workbench-product-benchmark'
         ? message.requestId
         : message.request.requestId,
       error: {

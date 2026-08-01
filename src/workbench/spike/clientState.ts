@@ -1,5 +1,6 @@
 import type {
   EventDetailResultResponse,
+  QuerySelectionRequest,
   QueryViewportRequest,
   StructuredErrorResponse,
   ViewportResultResponse,
@@ -100,8 +101,10 @@ export class WorkbenchSpikeClientState {
   }
 }
 
-interface PendingViewport {
-  request: QueryViewportRequest;
+type LatestQueryRequest = QueryViewportRequest | QuerySelectionRequest;
+
+interface PendingQuery<TRequest extends LatestQueryRequest> {
+  request: TRequest;
   resolve: (response: WorkbenchResponse | undefined) => void;
   reject: (error: unknown) => void;
 }
@@ -112,9 +115,9 @@ export interface LatestViewportDispatcherStats {
   droppedPendingRequestCount: number;
 }
 
-export class LatestViewportDispatcher {
-  private active?: PendingViewport;
-  private pending?: PendingViewport;
+export class LatestQueryDispatcher<TRequest extends LatestQueryRequest> {
+  private active?: PendingQuery<TRequest>;
+  private pending?: PendingQuery<TRequest>;
   private activeCancelRequested = false;
   private stats: LatestViewportDispatcherStats = {
     maxQueueDepth: 0,
@@ -123,11 +126,11 @@ export class LatestViewportDispatcher {
   };
 
   constructor(
-    private readonly execute: (request: QueryViewportRequest) => Promise<WorkbenchResponse>,
-    private readonly cancel: (request: QueryViewportRequest) => void,
+    private readonly execute: (request: TRequest) => Promise<WorkbenchResponse>,
+    private readonly cancel: (request: TRequest) => void,
   ) {}
 
-  submit(request: QueryViewportRequest): Promise<WorkbenchResponse | undefined> {
+  submit(request: TRequest): Promise<WorkbenchResponse | undefined> {
     return new Promise((resolve, reject) => {
       const next = { request, resolve, reject };
       if (!this.active) {
@@ -153,7 +156,7 @@ export class LatestViewportDispatcher {
     return { ...this.stats };
   }
 
-  private start(entry: PendingViewport): void {
+  private start(entry: PendingQuery<TRequest>): void {
     this.active = entry;
     this.activeCancelRequested = false;
     this.stats.maxQueueDepth = Math.max(this.stats.maxQueueDepth, 1);
@@ -169,3 +172,9 @@ export class LatestViewportDispatcher {
     });
   }
 }
+
+export class LatestViewportDispatcher
+  extends LatestQueryDispatcher<QueryViewportRequest> {}
+
+export class LatestSelectionDispatcher
+  extends LatestQueryDispatcher<QuerySelectionRequest> {}

@@ -91,6 +91,46 @@ describe('TimelineColumnarStore', () => {
     }).events.map(event => event.name)).toEqual(['event-10']);
   });
 
+  it('keeps every populated track visible when the first viewport page is truncated', async () => {
+    const dense = Array.from({ length: 10 }, (_, index) => ({
+      ...events[0],
+      sourceIndex: index,
+      trackId: 'main',
+      startUs: index,
+      durationUs: 0,
+      name: `main-${index}`,
+    }));
+    const store = TimelineColumnarStore.build([
+      ...dense,
+      { ...events[1], sourceIndex: 20, trackId: 'network', startUs: 20 },
+      { ...events[2], sourceIndex: 21, trackId: 'rendering', startUs: 21 },
+    ]);
+    const query = {
+      startUs: 0,
+      endUs: 30,
+      limit: 4,
+      balanceByTrack: true,
+    };
+
+    expect(store.query(query).events.map(event => event.trackId)).toEqual([
+      'main',
+      'main',
+      'network',
+      'rendering',
+    ]);
+    expect((await store.queryAsync(query, {
+      isCancelled: () => false,
+      timeoutMs: 1_000,
+      now: () => 0,
+      yieldControl: () => Promise.resolve(),
+    })).events.map(event => event.trackId)).toEqual([
+      'main',
+      'main',
+      'network',
+      'rendering',
+    ]);
+  });
+
   it('does not resolve malformed event IDs to source index zero', () => {
     const store = TimelineColumnarStore.build([
       { ...events[0], sourceIndex: 0 },
@@ -111,6 +151,7 @@ describe('TimelineColumnarStore', () => {
     expect(store.getStats()).toEqual({
       eventCount: 0,
       stringCount: 0,
+      trackEventCounts: {},
       released: true,
     });
   });

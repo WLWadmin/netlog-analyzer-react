@@ -164,7 +164,10 @@ export function createTraceWorkerTask(
     }
     if (raw.type === 'workbench-response') {
       const response = raw.response;
-      if (response.type === 'progress') return;
+      if (response.type === 'progress') {
+        workbenchClient?.handleProgress(response);
+        return;
+      }
       const pending = pendingWorkbench.get(response.requestId);
       if (!pending) return;
       pendingWorkbench.delete(response.requestId);

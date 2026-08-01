@@ -3,6 +3,7 @@ import {
   type CapabilityMissingResponse,
   type CreateSessionRequest,
   type QueryEventDetailRequest,
+  type QuerySelectionRequest,
   type QueryViewportRequest,
   type StructuredErrorResponse,
   type WorkbenchCapability,
@@ -103,12 +104,16 @@ export class WorkbenchSessionKernel {
         return this.createSession(request, onProgress);
       case 'query-viewport':
         return this.queryViewport(request, onProgress);
+      case 'query-selection':
+        return this.querySelection(request);
       case 'query-event-detail':
         return this.queryEventDetail(request);
       case 'query-capabilities':
         return this.queryCapabilities(request);
       case 'query-evidence':
         return this.queryEvidence(request);
+      case 'query-screenshot-index':
+        return this.queryScreenshotIndex(request);
       case 'query-screenshot':
         return this.queryScreenshot(request);
       case 'cancel-query':
@@ -235,6 +240,7 @@ export class WorkbenchSessionKernel {
       }));
     this.state = missingCapabilities.length > 0 ? 'degraded' : 'ready';
     const evidenceStats = this.sessionData.evidence.getStats();
+    const timelineStats = this.sessionData.timeline.getStats();
     this.descriptor = {
       ...sessionRef,
       state: this.state,
@@ -242,7 +248,8 @@ export class WorkbenchSessionKernel {
       capabilities,
       missingCapabilities,
       range: this.sessionData.timeline.getRange(),
-      eventCount: this.sessionData.timeline.getStats().eventCount,
+      eventCount: timelineStats.eventCount,
+      trackEventCounts: timelineStats.trackEventCounts,
       screenshotCount: evidenceStats.screenshotCount,
     };
     if (finalIndexProgress) {
@@ -302,6 +309,7 @@ export class WorkbenchSessionKernel {
         startUs: request.range.startUs,
         endUs: request.range.endUs,
         limit: request.limit,
+        balanceByTrack: request.balanceByTrack,
         continuation: request.continuation,
       }, {
         isCancelled: () => token.cancelled,
@@ -371,6 +379,76 @@ export class WorkbenchSessionKernel {
     }
   }
 
+  private async querySelection(
+    request: QuerySelectionRequest,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (
+      !Number.isFinite(request.range.startUs)
+      || !Number.isFinite(request.range.endUs)
+      || request.range.startUs > request.range.endUs
+    ) {
+      return structuredError(
+        request.requestId,
+        'invalid-range',
+        'Selection range is invalid',
+        true,
+        request,
+      );
+    }
+    const token: QueryToken = { cancelled: false };
+    this.activeQueries.set(request.requestId, token);
+    try {
+      const result = await this.sessionData!.timeline.summarizeSelection(
+        request.range,
+        {
+          isCancelled: () => token.cancelled,
+          timeoutMs: this.queryTimeoutMs,
+          now: this.now,
+          yieldControl: this.yieldControl,
+          yieldInterval: this.queryYieldInterval,
+        },
+      );
+      return {
+        type: 'selection-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        ...result,
+      };
+    } catch (error) {
+      if (error instanceof TimelineQueryCancelled) {
+        return structuredError(
+          request.requestId,
+          'query-cancelled',
+          'Selection query was cancelled',
+          true,
+          request,
+        );
+      }
+      if (error instanceof TimelineQueryTimeout) {
+        return structuredError(
+          request.requestId,
+          'query-timeout',
+          'Selection query timed out',
+          true,
+          request,
+        );
+      }
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Selection query failed',
+        true,
+        request,
+      );
+    } finally {
+      this.activeQueries.delete(request.requestId);
+    }
+  }
+
   private queryEventDetail(request: QueryEventDetailRequest): WorkbenchResponse {
     const session = this.resolveSession(request);
     if ('type' in session) return session;
@@ -406,6 +484,7 @@ export class WorkbenchSessionKernel {
         depth: event.depth,
         category: event.category,
         name: event.name,
+        ...(event.status ? { status: event.status } : {}),
         ...(event.parentSourceIndex === undefined
           ? {}
           : { parentId: `trace:timeline:${event.parentSourceIndex}` }),
@@ -495,6 +574,31 @@ export class WorkbenchSessionKernel {
           true,
           request,
         );
+  }
+
+  private queryScreenshotIndex(
+    request: Extract<WorkbenchRequest, { type: 'query-screenshot-index' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!session.capabilities.includes('screenshots')) {
+      return capabilityMissing(
+        request.requestId,
+        request,
+        'screenshots',
+        'Screenshots are unavailable',
+      );
+    }
+    const stats = this.sessionData!.evidence.getStats();
+    return {
+      type: 'screenshot-index-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      screenshots: this.sessionData!.evidence.getScreenshotSummaries(),
+      rejectedCount: stats.rejectedScreenshotCount,
+    };
   }
 
   private cancelQuery(

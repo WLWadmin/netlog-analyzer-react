@@ -112,7 +112,10 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
       />
 
       {isTraceWorkbenchEnabled() && (
-        <TraceWorkbenchInternalPanel client={workbenchClient} />
+        <TraceWorkbenchInternalPanel
+          client={workbenchClient}
+          diagnoses={result.diagnosis.diagnoses}
+        />
       )}
 
       <nav className="trace-route-nav" aria-label="Trace 分析导航">

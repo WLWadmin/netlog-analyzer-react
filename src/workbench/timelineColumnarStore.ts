@@ -11,6 +11,7 @@ export interface TimelineStoreEventInput {
   depth: number;
   category: string;
   name: string;
+  status?: WorkbenchTimelineEventDto['status'];
   processId?: number;
   threadId?: number;
   frameId?: string;
@@ -24,15 +25,57 @@ export interface TimelineQuery {
   startUs: number;
   endUs: number;
   limit: number;
+  balanceByTrack?: boolean;
   continuation?: {
     afterStartUs: number;
     afterEventId: string;
   };
 }
 
+function selectBalancedPage(
+  matches: number[],
+  limit: number,
+  trackIndexes: Uint32Array,
+): number[] {
+  if (matches.length <= limit) return matches;
+  const positionsByTrack = new Map<number, number[]>();
+  for (const position of matches) {
+    const trackIndex = trackIndexes[position];
+    const positions = positionsByTrack.get(trackIndex) ?? [];
+    positions.push(position);
+    positionsByTrack.set(trackIndex, positions);
+  }
+  const buckets = [...positionsByTrack.values()];
+  const selected: number[] = [];
+  for (let offset = 0; selected.length < limit; offset += 1) {
+    let added = false;
+    for (const bucket of buckets) {
+      const position = bucket[offset];
+      if (position === undefined) continue;
+      selected.push(position);
+      added = true;
+      if (selected.length === limit) break;
+    }
+    if (!added) break;
+  }
+  return selected.sort((left, right) => left - right);
+}
+
 export interface TimelineQueryResult {
   events: WorkbenchTimelineEventDto[];
   truncation: WorkbenchTruncation;
+}
+
+export interface TimelineSelectionSummary {
+  range: { startUs: number; endUs: number };
+  matchedCount: number;
+  trackCounts: Record<string, number>;
+  statusCounts: Record<string, number>;
+  truncation: {
+    truncated: false;
+    countedCount: number;
+    totalMatched: number;
+  };
 }
 
 export class TimelineQueryCancelled extends Error {
@@ -215,7 +258,9 @@ export class TimelineColumnarStore {
         ))
       : query.continuation ? -1 : 0;
     const resolvedStart = pageStart < 0 ? matches.length : pageStart;
-    const page = matches.slice(resolvedStart, resolvedStart + query.limit);
+    const page = query.balanceByTrack && !query.continuation
+      ? selectBalancedPage(matches, query.limit, this.trackIndexes)
+      : matches.slice(resolvedStart, resolvedStart + query.limit);
     const events = page.map(position => this.dtoAt(position));
     const truncated = resolvedStart + page.length < matches.length;
     const last = events[events.length - 1];
@@ -225,7 +270,7 @@ export class TimelineColumnarStore {
         truncated,
         returnedCount: events.length,
         totalMatched: matches.length,
-        ...(truncated && last
+        ...(truncated && last && (!query.balanceByTrack || query.continuation)
           ? {
               continuation: {
                 afterStartUs: last.startUs,
@@ -292,7 +337,9 @@ export class TimelineColumnarStore {
         ))
       : query.continuation ? -1 : 0;
     const resolvedStart = pageStart < 0 ? matches.length : pageStart;
-    const page = matches.slice(resolvedStart, resolvedStart + query.limit);
+    const page = query.balanceByTrack && !query.continuation
+      ? selectBalancedPage(matches, query.limit, this.trackIndexes)
+      : matches.slice(resolvedStart, resolvedStart + query.limit);
     const events = page.map(position => this.dtoAt(position));
     const truncated = resolvedStart + page.length < matches.length;
     const last = events[events.length - 1];
@@ -302,7 +349,7 @@ export class TimelineColumnarStore {
         truncated,
         returnedCount: events.length,
         totalMatched: matches.length,
-        ...(truncated && last
+        ...(truncated && last && (!query.balanceByTrack || query.continuation)
           ? {
               continuation: {
                 afterStartUs: last.startUs,
@@ -310,6 +357,65 @@ export class TimelineColumnarStore {
               },
             }
           : {}),
+      },
+    };
+  }
+
+  async summarizeSelection(
+    range: { startUs: number; endUs: number },
+    options: {
+      isCancelled(): boolean;
+      timeoutMs: number;
+      now(): number;
+      yieldControl(): Promise<void>;
+      yieldInterval?: number;
+    },
+  ): Promise<TimelineSelectionSummary> {
+    const trackCounts: Record<string, number> = {};
+    const statusCounts: Record<string, number> = {};
+    if (
+      this.released
+      || !Number.isFinite(range.startUs)
+      || !Number.isFinite(range.endUs)
+      || range.startUs > range.endUs
+    ) {
+      return {
+        range,
+        matchedCount: 0,
+        trackCounts,
+        statusCounts,
+        truncation: { truncated: false, countedCount: 0, totalMatched: 0 },
+      };
+    }
+    const firstCandidate = lowerBound(this.prefixMaxEndUs, range.startUs);
+    const lastCandidate = upperBound(this.startUs, range.endUs);
+    const startedAt = options.now();
+    const yieldInterval = options.yieldInterval ?? 2_048;
+    let matchedCount = 0;
+    for (let position = firstCandidate; position < lastCandidate; position += 1) {
+      if (options.isCancelled()) throw new TimelineQueryCancelled();
+      if (options.now() - startedAt > options.timeoutMs) throw new TimelineQueryTimeout();
+      if (this.startUs[position] + this.durationUs[position] >= range.startUs) {
+        matchedCount += 1;
+        const sourceIndex = this.sourceIndexes[position];
+        const trackId = this.strings.values[this.trackIndexes[position]];
+        const status = this.inputsBySourceIndex.get(sourceIndex)?.status ?? 'unmarked';
+        trackCounts[trackId] = (trackCounts[trackId] ?? 0) + 1;
+        statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+      }
+      if ((position - firstCandidate + 1) % yieldInterval === 0) {
+        await options.yieldControl();
+      }
+    }
+    return {
+      range,
+      matchedCount,
+      trackCounts,
+      statusCounts,
+      truncation: {
+        truncated: false,
+        countedCount: matchedCount,
+        totalMatched: matchedCount,
       },
     };
   }
@@ -343,10 +449,21 @@ export class TimelineColumnarStore {
     };
   }
 
-  getStats(): { eventCount: number; stringCount: number; released: boolean } {
+  getStats(): {
+    eventCount: number;
+    stringCount: number;
+    trackEventCounts: Record<string, number>;
+    released: boolean;
+  } {
+    const trackEventCounts: Record<string, number> = {};
+    for (const trackIndex of this.trackIndexes) {
+      const trackId = this.strings.values[trackIndex];
+      trackEventCounts[trackId] = (trackEventCounts[trackId] ?? 0) + 1;
+    }
     return {
       eventCount: this.startUs.length,
       stringCount: this.strings.values.length,
+      trackEventCounts,
       released: this.released,
     };
   }
@@ -375,14 +492,17 @@ export class TimelineColumnarStore {
   }
 
   private dtoAt(position: number): WorkbenchTimelineEventDto {
+    const sourceIndex = this.sourceIndexes[position];
+    const status = this.inputsBySourceIndex.get(sourceIndex)?.status;
     return {
-      id: eventId(this.sourceIndexes[position]),
+      id: eventId(sourceIndex),
       trackId: this.strings.values[this.trackIndexes[position]],
       startUs: this.startUs[position],
       durationUs: this.durationUs[position],
       depth: this.depths[position],
       category: this.strings.values[this.categoryIndexes[position]],
       name: this.strings.values[this.nameIndexes[position]],
+      ...(status ? { status } : {}),
     };
   }
 }

@@ -1,11 +1,15 @@
 import { useState, useSyncExternalStore } from 'react';
+import type { TraceDiagnosis } from '../../diagnosis/trace';
 import type {
   TraceWorkbenchClient,
   TraceWorkbenchClientSnapshot,
 } from '../../workbench/client';
+import { isTraceTimelineEnabled } from '../../workbench/featureFlag';
+import TraceTimelineWorkbench from './workbench/TraceTimelineWorkbench';
 
 interface TraceWorkbenchInternalPanelProps {
   client?: TraceWorkbenchClient;
+  diagnoses?: TraceDiagnosis[];
 }
 
 const STATUS_LABELS = {
@@ -19,10 +23,12 @@ const STATUS_LABELS = {
 
 const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = ({
   client,
+  diagnoses = [],
 }) => {
   const [localError, setLocalError] = useState('');
   const fallback: TraceWorkbenchClientSnapshot = {
     status: 'released' as const,
+    queryErrors: {},
     discardedResponseCount: 0,
   };
   const snapshot = useSyncExternalStore(
@@ -36,10 +42,12 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
     setLocalError('');
     try {
       const session = await client.createSession();
-      await client.queryViewport({
-        startUs: session.range.startUs,
-        endUs: Math.min(session.range.endUs, session.range.startUs + 500_000),
-      }, 100);
+      if (!isTraceTimelineEnabled()) {
+        await client.queryViewport({
+          startUs: session.range.startUs,
+          endUs: Math.min(session.range.endUs, session.range.startUs + 500_000),
+        }, 100);
+      }
     } catch {
       setLocalError('工作台会话创建失败，现有 Trace 报告仍可继续使用。');
     }
@@ -66,6 +74,10 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
     }
   };
 
+  if (client && snapshot.session && isTraceTimelineEnabled()) {
+    return <TraceTimelineWorkbench client={client} diagnoses={diagnoses} />;
+  }
+
   return (
     <section className="trace-workbench-internal" aria-labelledby="trace-workbench-title">
       <div className="trace-result-panel-heading">
@@ -76,7 +88,9 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
         <strong>{STATUS_LABELS[snapshot.status]}</strong>
       </div>
       <p className="trace-result-note">
-        阶段 1 仅验证同 Worker 会话、索引和按需查询，不提供完整 Timeline 或 Flame Chart。
+        {isTraceTimelineEnabled()
+          ? '阶段 2 Timeline MVP 使用同一 Worker 会话；不会重复读取或解析文件。'
+          : '阶段 1 仅验证同 Worker 会话、索引和按需查询，不提供完整 Timeline 或 Flame Chart。'}
       </p>
 
       {!client && (
@@ -85,7 +99,14 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
       {client && snapshot.status === 'available' && (
         <button type="button" onClick={createSession}>创建分析工作台会话</button>
       )}
-      {snapshot.status === 'creating' && <p role="status">正在构建最小时间轴索引…</p>}
+      {snapshot.status === 'creating' && (
+        <p role="status">
+          正在构建最小时间轴索引
+          {snapshot.progress
+            ? `：${snapshot.progress.completed} / ${snapshot.progress.total} ${snapshot.progress.unit}`
+            : '…'}
+        </p>
+      )}
 
       {client && snapshot.status !== 'released' && snapshot.status !== 'failed' && (
         <button type="button" onClick={closeSession}>

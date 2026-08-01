@@ -32,6 +32,8 @@
     "benchmark:evidence": "node scripts/build-netlog-benchmark-evidence.js",
     "workbench:stage0-evidence": "node scripts/build-workbench-stage0-evidence.js",
     "workbench:stage1-evidence": "node scripts/build-workbench-stage1-evidence.js",
+    "workbench:stage2-evidence": "node scripts/build-workbench-stage2-evidence.js",
+    "workbench:stage2-browser": "node scripts/run-workbench-stage2-browser.js",
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"

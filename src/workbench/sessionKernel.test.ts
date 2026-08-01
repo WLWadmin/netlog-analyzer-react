@@ -125,8 +125,12 @@ describe('WorkbenchSessionKernel', () => {
     if (created.type !== 'session-created') return;
     expect(created.session).toMatchObject({
       state: 'degraded',
-      eventCount: 3,
+      eventCount: 2,
       screenshotCount: 1,
+      trackEventCounts: {
+        main: 1,
+        rendering: 1,
+      },
       missingCapabilities: [
         expect.objectContaining({ capability: 'cpu-profile' }),
       ],
@@ -149,6 +153,27 @@ describe('WorkbenchSessionKernel', () => {
     if (viewport.type !== 'viewport-result') return;
     expect(viewport.events.map(event => event.name)).toEqual(['RunTask', 'Layout']);
 
+    const selection = await subject.dispatch({
+      type: 'query-selection',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'selection',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: { startUs: 0, endUs: 12 },
+    });
+    expect(selection).toMatchObject({
+      type: 'selection-result',
+      range: { startUs: 0, endUs: 12 },
+      matchedCount: 2,
+      trackCounts: { main: 1, rendering: 1 },
+      statusCounts: { normal: 1, unmarked: 1 },
+      truncation: {
+        truncated: false,
+        countedCount: 2,
+        totalMatched: 2,
+      },
+    });
+
     const detail = await subject.dispatch({
       type: 'query-event-detail',
       schemaVersion: WORKBENCH_SCHEMA_VERSION,
@@ -170,6 +195,26 @@ describe('WorkbenchSessionKernel', () => {
     });
     expect(evidence.type).toBe('evidence-result');
     expect(JSON.stringify(evidence)).not.toMatch(/args|secret|traceEvents/);
+
+    const screenshotIndex = await subject.dispatch({
+      type: 'query-screenshot-index',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'screenshot-index',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    });
+    expect(screenshotIndex).toMatchObject({
+      type: 'screenshot-index-result',
+      screenshots: [{
+        screenshotId: 'trace:screenshot:2',
+        evidenceId: 'trace:event:2',
+        timestampUs: 20,
+        encodedBytes: 4,
+        decodedBytes: 64,
+      }],
+      rejectedCount: 0,
+    });
+    expect(JSON.stringify(screenshotIndex)).not.toMatch(/bytes|AQIDBA/);
 
     const screenshot = await subject.dispatch({
       type: 'query-screenshot',
@@ -287,7 +332,7 @@ describe('WorkbenchSessionKernel', () => {
     });
     expect(subject.getResourceStats()).toMatchObject({
       state: 'degraded',
-      eventCount: 3,
+      eventCount: 2,
       activeQueryCount: 0,
     });
   });

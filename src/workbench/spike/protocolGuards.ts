@@ -90,6 +90,7 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         && typeof value.range.endUs === 'number'
         && Number.isFinite(value.range.endUs)
         && Number.isInteger(value.limit)
+        && (value.balanceByTrack === undefined || typeof value.balanceByTrack === 'boolean')
         && (value.allowTruncation === undefined || typeof value.allowTruncation === 'boolean')
         && (
           value.continuation === undefined
@@ -100,12 +101,16 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
             && isNonEmptyString(value.continuation.afterEventId)
           )
         );
+    case 'query-selection':
+      return isSessionRef(value) && isRange(value.range);
     case 'query-event-detail':
       return isSessionRef(value) && isNonEmptyString(value.eventId);
     case 'query-capabilities':
       return isSessionRef(value);
     case 'query-evidence':
       return isSessionRef(value) && isNonEmptyString(value.evidenceId);
+    case 'query-screenshot-index':
+      return isSessionRef(value);
     case 'query-screenshot':
       return isSessionRef(value) && isNonEmptyString(value.screenshotId);
     case 'cancel-query':
@@ -131,7 +136,15 @@ function isTimelineEvent(value: unknown): boolean {
     && isFiniteNumber(value.durationUs)
     && Number.isInteger(value.depth)
     && isNonEmptyString(value.category)
-    && isNonEmptyString(value.name);
+    && isNonEmptyString(value.name)
+    && (
+      value.status === undefined
+      || value.status === 'normal'
+      || value.status === 'warning'
+      || value.status === 'error'
+      || value.status === 'incomplete'
+      || value.status === 'candidate'
+    );
 }
 
 function isEventDetail(value: unknown): boolean {
@@ -189,6 +202,12 @@ function isSessionDescriptor(value: unknown): boolean {
     ))
     && isRange(value.range)
     && isNonNegativeInteger(value.eventCount)
+    && isRecord(value.trackEventCounts)
+    && Object.entries(value.trackEventCounts).every(([trackId, count]) => (
+      ['milestones', 'network', 'main', 'rendering', 'interactions', 'frames'].includes(trackId)
+      && isNonNegativeInteger(count)
+      && count > 0
+    ))
     && isNonNegativeInteger(value.screenshotCount);
 }
 
@@ -225,6 +244,25 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
         && Array.isArray(value.events)
         && value.events.every(isTimelineEvent)
         && isTruncation(value.truncation, value.events.length);
+    case 'selection-result':
+      return isSessionRef(value)
+        && isRange(value.range)
+        && isNonNegativeInteger(value.matchedCount)
+        && isRecord(value.trackCounts)
+        && Object.values(value.trackCounts).every(isNonNegativeInteger)
+        && isRecord(value.statusCounts)
+        && Object.entries(value.statusCounts).every(([status, count]) => (
+          ['normal', 'warning', 'error', 'incomplete', 'candidate', 'unmarked'].includes(status)
+          && isNonNegativeInteger(count)
+        ))
+        && isRecord(value.truncation)
+        && typeof value.truncation.truncated === 'boolean'
+        && isNonNegativeInteger(value.truncation.countedCount)
+        && isNonNegativeInteger(value.truncation.totalMatched)
+        && (
+          value.truncation.reason === undefined
+          || isNonEmptyString(value.truncation.reason)
+        );
     case 'event-detail-result':
       return isSessionRef(value) && isEventDetail(value.detail);
     case 'query-cancelled':
@@ -261,6 +299,18 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
         && isNonEmptyString(value.screenshot.screenshotId)
         && value.screenshot.mimeType === 'image/jpeg'
         && value.screenshot.bytes instanceof Uint8Array;
+    case 'screenshot-index-result':
+      return isSessionRef(value)
+        && Array.isArray(value.screenshots)
+        && value.screenshots.every(item => (
+          isRecord(item)
+          && isNonEmptyString(item.screenshotId)
+          && isNonEmptyString(item.evidenceId)
+          && isFiniteNumber(item.timestampUs)
+          && isNonNegativeInteger(item.encodedBytes)
+          && isNonNegativeInteger(item.decodedBytes)
+        ))
+        && isNonNegativeInteger(value.rejectedCount);
     case 'capability-missing':
       return isSessionRef(value)
         && isCapability(value.capability)
@@ -314,6 +364,12 @@ export function isWorkbenchBenchmarkWorkerRequest(
         value.eventCount as typeof WORKBENCH_BENCHMARK_EVENT_COUNTS[number],
       );
   }
+  if (value.type === 'prepare-workbench-product-benchmark') {
+    return isNonEmptyString(value.requestId)
+      && WORKBENCH_BENCHMARK_EVENT_COUNTS.includes(
+        value.eventCount as typeof WORKBENCH_BENCHMARK_EVENT_COUNTS[number],
+      );
+  }
   return value.type === 'dispatch-workbench-request'
     && isWorkbenchRequest(value.request);
 }
@@ -328,6 +384,14 @@ export function isWorkbenchBenchmarkWorkerResponse(
         && isBenchmarkMetrics(value.metrics)
         && isWorkbenchResponse(value.session)
         && value.session.type === 'session-created'
+        && hasWorkerMeasurement(value);
+    case 'workbench-product-benchmark-prepared':
+      return isNonEmptyString(value.requestId)
+        && isBenchmarkMetrics(value.metrics)
+        && isRecord(value.source)
+        && isNonEmptyString(value.source.sourceId)
+        && value.source.parserId === 'trace'
+        && isNonEmptyString(value.source.fingerprint)
         && hasWorkerMeasurement(value);
     case 'workbench-response':
       return isWorkbenchResponse(value.response) && hasWorkerMeasurement(value);

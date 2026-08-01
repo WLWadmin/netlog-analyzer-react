@@ -179,6 +179,7 @@ describe('traceWorkerClient', () => {
           missingCapabilities: [],
           range: { startUs: 0, endUs: 1 },
           eventCount: 1,
+          trackEventCounts: { main: 1 },
           screenshotCount: 0,
         },
       },

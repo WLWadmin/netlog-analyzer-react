@@ -25,12 +25,63 @@ function sessionResponse(requestId: string): WorkbenchResponse {
       missingCapabilities: [],
       range: { startUs: 0, endUs: 100 },
       eventCount: 1,
+      trackEventCounts: { main: 1 },
       screenshotCount: 0,
     },
   };
 }
 
 describe('TraceWorkbenchClient', () => {
+  it('publishes real indexing work without exposing 100% before session commit', async () => {
+    let resolveCreate: ((response: WorkbenchResponse) => void) | undefined;
+    let requestId = '';
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => new Promise(resolve => {
+        if (request.type === 'create-session') {
+          requestId = request.requestId;
+          resolveCreate = resolve;
+        }
+      }),
+      close: jest.fn(),
+    });
+    const pending = client.createSession();
+    client.handleProgress({
+      type: 'progress',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId,
+      sessionId: 'session-1',
+      sessionRevision: 1,
+      phase: 'indexing-events',
+      unit: 'events',
+      completed: 40,
+      total: 100,
+    });
+    expect(client.getSnapshot().progress).toMatchObject({
+      completed: 40,
+      total: 100,
+    });
+    client.handleProgress({
+      type: 'progress',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId,
+      sessionId: 'session-1',
+      sessionRevision: 1,
+      phase: 'indexing-events',
+      unit: 'events',
+      completed: 100,
+      total: 100,
+    });
+    expect(client.getSnapshot().progress?.completed).toBe(40);
+
+    resolveCreate?.(sessionResponse(requestId));
+    await pending;
+    expect(client.getSnapshot().progress).toBeUndefined();
+  });
+
   it('closes the retained Worker when session creation cannot complete', async () => {
     const close = jest.fn();
     const client = new TraceWorkbenchClient({
@@ -167,5 +218,88 @@ describe('TraceWorkbenchClient', () => {
       truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
     });
     await Promise.all(pending);
+  });
+
+  it('uses latest-wins for selection queries and discards a late selection result', async () => {
+    const selectionResolvers: Array<(response: WorkbenchResponse) => void> = [];
+    const requests: WorkbenchRequest[] = [];
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => {
+        requests.push(request);
+        if (request.type === 'create-session') {
+          return Promise.resolve(sessionResponse(request.requestId));
+        }
+        if (request.type === 'cancel-query') {
+          return Promise.resolve({
+            type: 'query-cancelled',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            targetRequestId: request.targetRequestId,
+          });
+        }
+        return new Promise(resolve => selectionResolvers.push(resolve));
+      },
+      close: jest.fn(),
+    });
+    await client.createSession();
+    const first = client.querySelection({ startUs: 0, endUs: 10 });
+    const latest = client.querySelection({ startUs: 20, endUs: 30 });
+    const firstRequest = requests.find(
+      (request): request is Extract<WorkbenchRequest, { type: 'query-selection' }> => (
+        request.type === 'query-selection'
+      ),
+    );
+    if (!firstRequest) throw new Error('missing selection request');
+    selectionResolvers.shift()?.({
+      type: 'selection-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: firstRequest.requestId,
+      sessionId: firstRequest.sessionId,
+      sessionRevision: firstRequest.sessionRevision,
+      range: firstRequest.range,
+      matchedCount: 1,
+      trackCounts: { main: 1 },
+      statusCounts: { normal: 1 },
+      truncation: { truncated: false, countedCount: 1, totalMatched: 1 },
+    });
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (requests.filter(request => request.type === 'query-selection').length === 2) break;
+      await Promise.resolve();
+    }
+    const selectionRequests = requests.filter(
+      (request): request is Extract<WorkbenchRequest, { type: 'query-selection' }> => (
+        request.type === 'query-selection'
+      ),
+    );
+    const latestRequest = selectionRequests[1];
+    selectionResolvers.shift()?.({
+      type: 'selection-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: latestRequest.requestId,
+      sessionId: latestRequest.sessionId,
+      sessionRevision: latestRequest.sessionRevision,
+      range: latestRequest.range,
+      matchedCount: 2,
+      trackCounts: { rendering: 2 },
+      statusCounts: { warning: 2 },
+      truncation: { truncated: false, countedCount: 2, totalMatched: 2 },
+    });
+    await Promise.all([first, latest]);
+
+    expect(client.getSnapshot().selection).toMatchObject({
+      range: { startUs: 20, endUs: 30 },
+      matchedCount: 2,
+    });
+    expect(client.getSnapshot().discardedResponseCount).toBe(1);
+    expect(client.getSelectionQueueStats()).toMatchObject({
+      maxQueueDepth: 2,
+      cancelledRequestCount: 1,
+    });
   });
 });

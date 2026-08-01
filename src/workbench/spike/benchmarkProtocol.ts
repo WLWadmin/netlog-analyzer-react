@@ -1,5 +1,6 @@
 import type {
   SessionCreatedResponse,
+  WorkbenchSourceRef,
   WorkbenchRequest,
   WorkbenchResponse,
 } from './protocol';
@@ -13,8 +14,15 @@ export interface PrepareWorkbenchBenchmarkRequest {
   eventCount: WorkbenchBenchmarkEventCount;
 }
 
+export interface PrepareWorkbenchProductBenchmarkRequest {
+  type: 'prepare-workbench-product-benchmark';
+  requestId: string;
+  eventCount: WorkbenchBenchmarkEventCount;
+}
+
 export type WorkbenchBenchmarkWorkerRequest =
   | PrepareWorkbenchBenchmarkRequest
+  | PrepareWorkbenchProductBenchmarkRequest
   | {
       type: 'dispatch-workbench-request';
       request: WorkbenchRequest;
@@ -39,6 +47,14 @@ export type WorkbenchBenchmarkWorkerResponse =
       requestId: string;
       metrics: WorkbenchBenchmarkCorpusMetrics;
       session: SessionCreatedResponse;
+      workerElapsedMs: number;
+      uiTransferBytes: number;
+    }
+  | {
+      type: 'workbench-product-benchmark-prepared';
+      requestId: string;
+      metrics: WorkbenchBenchmarkCorpusMetrics;
+      source: WorkbenchSourceRef;
       workerElapsedMs: number;
       uiTransferBytes: number;
     }

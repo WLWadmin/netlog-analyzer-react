@@ -55,6 +55,10 @@ export interface WorkbenchSessionDescriptor extends WorkbenchSessionRef {
     endUs: number;
   };
   eventCount: number;
+  trackEventCounts: Partial<Record<
+    'milestones' | 'network' | 'main' | 'rendering' | 'interactions' | 'frames',
+    number
+  >>;
   screenshotCount: number;
 }
 
@@ -66,6 +70,7 @@ export interface WorkbenchTimelineEventDto {
   depth: number;
   category: string;
   name: string;
+  status?: 'normal' | 'warning' | 'error' | 'incomplete' | 'candidate';
 }
 
 export interface WorkbenchEventDetailDto extends WorkbenchTimelineEventDto {
@@ -104,10 +109,19 @@ export interface QueryViewportRequest extends WorkbenchSessionRequestBase {
     endUs: number;
   };
   limit: number;
+  balanceByTrack?: boolean;
   allowTruncation?: boolean;
   continuation?: {
     afterStartUs: number;
     afterEventId: string;
+  };
+}
+
+export interface QuerySelectionRequest extends WorkbenchSessionRequestBase {
+  type: 'query-selection';
+  range: {
+    startUs: number;
+    endUs: number;
   };
 }
 
@@ -139,12 +153,18 @@ export interface QueryScreenshotRequest extends WorkbenchSessionRequestBase {
   screenshotId: string;
 }
 
+export interface QueryScreenshotIndexRequest extends WorkbenchSessionRequestBase {
+  type: 'query-screenshot-index';
+}
+
 export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
+  | QuerySelectionRequest
   | QueryEventDetailRequest
   | QueryCapabilitiesRequest
   | QueryEvidenceRequest
+  | QueryScreenshotIndexRequest
   | QueryScreenshotRequest
   | CancelQueryRequest
   | ReleaseSessionRequest;
@@ -177,6 +197,26 @@ export interface ViewportResultResponse extends WorkbenchSessionResponseBase {
   };
   events: WorkbenchTimelineEventDto[];
   truncation: WorkbenchTruncation;
+}
+
+export interface SelectionResultResponse extends WorkbenchSessionResponseBase {
+  type: 'selection-result';
+  range: {
+    startUs: number;
+    endUs: number;
+  };
+  matchedCount: number;
+  trackCounts: Record<string, number>;
+  statusCounts: Partial<Record<
+    'normal' | 'warning' | 'error' | 'incomplete' | 'candidate' | 'unmarked',
+    number
+  >>;
+  truncation: {
+    truncated: boolean;
+    countedCount: number;
+    totalMatched: number;
+    reason?: string;
+  };
 }
 
 export interface EventDetailResultResponse extends WorkbenchSessionResponseBase {
@@ -228,6 +268,18 @@ export interface ScreenshotResultResponse extends WorkbenchSessionResponseBase {
   };
 }
 
+export interface ScreenshotIndexResultResponse extends WorkbenchSessionResponseBase {
+  type: 'screenshot-index-result';
+  screenshots: Array<{
+    screenshotId: string;
+    evidenceId: string;
+    timestampUs: number;
+    encodedBytes: number;
+    decodedBytes: number;
+  }>;
+  rejectedCount: number;
+}
+
 export interface CapabilityMissingResponse extends WorkbenchSessionResponseBase {
   type: 'capability-missing';
   capability: WorkbenchCapability;
@@ -250,11 +302,13 @@ export type WorkbenchResponse =
   | WorkbenchProgressResponse
   | SessionCreatedResponse
   | ViewportResultResponse
+  | SelectionResultResponse
   | EventDetailResultResponse
   | QueryCancelledResponse
   | SessionReleasedResponse
   | CapabilitiesResultResponse
   | EvidenceResultResponse
+  | ScreenshotIndexResultResponse
   | ScreenshotResultResponse
   | CapabilityMissingResponse
   | StructuredErrorResponse;
