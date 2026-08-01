@@ -148,8 +148,9 @@ class WorkbenchBenchmarkBridge {
     });
   };
 
-  private readonly onError = (): void => {
-    this.rejectAll(new Error('Workbench benchmark Worker crashed'));
+  private readonly onError = (event: ErrorEvent): void => {
+    const detail = event.message ? `: ${event.message}` : '';
+    this.rejectAll(new Error(`Workbench benchmark Worker crashed${detail}`));
   };
 
   private rejectAll(error: Error): void {
@@ -451,6 +452,7 @@ async function runBenchmark(
 
     return {
       schemaVersion: 1,
+      status: 'browser-benchmark-verified',
       codeRef: process.env.REACT_APP_WORKBENCH_BENCHMARK_REF ?? 'uncommitted-working-tree',
       environment: {
         browserUserAgent: navigator.userAgent,
@@ -524,7 +526,7 @@ function renderHarness(root: HTMLElement): {
 } {
   root.innerHTML = `
     <main style="max-width:1100px;margin:24px auto;padding:20px;font:14px/1.5 system-ui;color:#152033">
-      <h1 style="font-size:22px">Performance Workbench 阶段 0 Browser Benchmark</h1>
+      <h1 style="font-size:22px">Performance Workbench Browser Benchmark</h1>
       <p>仅验证 Worker 查询、背压与 Canvas 绘制，不是产品 Timeline。</p>
       <label>事件级别
         <select id="workbench-event-count">
@@ -581,8 +583,10 @@ export function maybeRunWorkbenchBrowserBenchmark(): boolean {
       output.textContent = JSON.stringify(result, null, 2);
       harness.setStatus('完成');
       download.disabled = false;
-    } catch {
-      harness.setStatus('失败：benchmark 未形成有效结论');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown benchmark error';
+      output.textContent = message;
+      harness.setStatus(`失败：${message}`);
     } finally {
       run.disabled = false;
     }

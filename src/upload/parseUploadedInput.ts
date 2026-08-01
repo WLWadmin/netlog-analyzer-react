@@ -18,6 +18,8 @@ import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
 import { isTraceAnalysisEnabled } from './traceUploadFeature';
 import type { AnalysisProgress } from './analysisProgress';
+import type { TraceWorkbenchClient } from '../workbench/client';
+import { isTraceWorkbenchEnabled } from '../workbench/featureFlag';
 
 const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
@@ -83,6 +85,7 @@ export type UploadedParseResult =
   | {
       kind: 'trace';
       result: TraceAnalysisResult;
+      workbench?: TraceWorkbenchClient;
     };
 
 export async function parseUploadedInput(options: {
@@ -154,6 +157,7 @@ export async function parseUploadedInput(options: {
     };
     const task = inspectTraceUploadInWorker(data, {
       hint: fileTypeHint,
+      enableWorkbench: isTraceWorkbenchEnabled(),
       onProgress: (progress: TraceTaskProgress) => {
         onProgress?.(progress.phase);
         const completed = progress.processedEvents ?? progress.processedBytes;
@@ -192,6 +196,7 @@ export async function parseUploadedInput(options: {
     const outcome = await task.promise;
     if (outcome.kind === 'trace') {
       if (!isTraceAnalysisEnabled()) {
+        await outcome.workbench?.close();
         throw new TraceWorkerError({
           code: 'TRACE_FEATURE_DISABLED',
           stage: 'validating-trace',
@@ -199,7 +204,11 @@ export async function parseUploadedInput(options: {
           recoverable: false,
         });
       }
-      return { kind: 'trace', result: outcome.result };
+      return {
+        kind: 'trace',
+        result: outcome.result,
+        ...(outcome.workbench ? { workbench: outcome.workbench } : {}),
+      };
     }
     if (outcome.kind === 'source-unresolved') {
       throw new TraceWorkerError({

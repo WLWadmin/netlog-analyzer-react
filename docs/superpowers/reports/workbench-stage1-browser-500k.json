@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "status": "browser-benchmark-verified",
+  "codeRef": "5ee405903edf9bf9b54c077412369e71034c22dd+stage1-review-working-tree",
+  "environment": {
+    "browserUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+    "operatingSystem": "MacIntel",
+    "cpu": {
+      "model": null,
+      "logicalCores": 10,
+      "limitation": "Web platform does not expose CPU model"
+    },
+    "memory": {
+      "deviceGiB": 16,
+      "limitation": "deviceMemory is rounded and may be unavailable"
+    },
+    "dpr": 1
+  },
+  "corpus": {
+    "sourceBytes": 46593406,
+    "jsonBytes": 46593406,
+    "eventCount": 500000,
+    "eventFamilyDistribution": {
+      "screenshot": 500,
+      "network": 100000,
+      "rendering": 100000,
+      "interaction": 100000,
+      "frames": 100000,
+      "main-thread": 99500
+    },
+    "screenshotEncodedBytes": 512000,
+    "screenshotDecodedBytes": 8192000,
+    "fileReadMs": 16.19999998807907,
+    "jsonParseMs": 85.19999998807907,
+    "indexBuildMs": 1968.9000000357628,
+    "sampleHash": "b1592edcdbb7d77a8614ff122b65b3252bea1a3647c6f879512700d997f810a5"
+  },
+  "runs": {
+    "warmupCount": 3,
+    "validRunCount": 10
+  },
+  "timings": {
+    "firstInteractiveMs": 2395.8,
+    "viewportQuery": {
+      "samplesMs": [
+        2.1,
+        2.3,
+        2.1,
+        2.1,
+        2.2,
+        2.1,
+        2.5,
+        2.2,
+        2.3,
+        2
+      ],
+      "p50Ms": 2.1,
+      "p95Ms": 2.5
+    },
+    "viewportWorker": {
+      "samplesMs": [
+        1,
+        1.2,
+        1,
+        1,
+        1,
+        1,
+        1.2,
+        0.9,
+        1,
+        0.9
+      ],
+      "p50Ms": 1,
+      "p95Ms": 1.2
+    },
+    "selectionQuery": {
+      "samplesMs": [
+        118,
+        120.3,
+        120.1,
+        115.1,
+        117.4,
+        115.4,
+        115.4,
+        119,
+        115.1,
+        117.2
+      ],
+      "p50Ms": 117.2,
+      "p95Ms": 120.3
+    },
+    "canvasDraw": {
+      "samplesMs": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.4,
+        0.4,
+        0.4,
+        0.6,
+        0.3,
+        0.4
+      ],
+      "p50Ms": 0.4,
+      "p95Ms": 0.6
+    },
+    "zoom": {
+      "samplesMs": [
+        3.4,
+        2.8,
+        2.8,
+        2.5,
+        2.5,
+        2.3,
+        2.3,
+        2.4,
+        2.1,
+        2.1
+      ],
+      "p50Ms": 2.4,
+      "p95Ms": 3.4
+    },
+    "pan": {
+      "samplesMs": [
+        2.4,
+        2.6,
+        2.6,
+        2.3,
+        2.3,
+        2.1,
+        2.3,
+        2.1,
+        2.2,
+        2.1
+      ],
+      "p50Ms": 2.3,
+      "p95Ms": 2.6
+    },
+    "hover": {
+      "samplesMs": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "p50Ms": 0,
+      "p95Ms": 0
+    },
+    "cancellationResponseMs": 0.5,
+    "totalBenchmarkMs": 3994
+  },
+  "transfer": {
+    "workerUiBytes": 15638554
+  },
+  "memory": {
+    "uiPeakBytes": 17245253,
+    "workerPeakBytes": null,
+    "limitation": "The browser does not expose per-Worker peak memory to page JavaScript"
+  },
+  "cancellation": {
+    "controlResponseType": "query-cancelled",
+    "queryResponseType": "structured-error",
+    "queryErrorCode": "query-cancelled"
+  },
+  "queue": {
+    "maxQueueDepth": 2,
+    "cancelledRequestCount": 1,
+    "droppedPendingRequestCount": 18,
+    "discardedLateResponseCount": 1
+  },
+  "release": {
+    "responseType": "session-released"
+  },
+  "safety": {
+    "maxJsonBytes": 134217728,
+    "limitRaised": false,
+    "rawTraceEventsReturnedToUi": false
+  }
+}

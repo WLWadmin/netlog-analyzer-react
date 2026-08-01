@@ -55,6 +55,8 @@ docs/superpowers/reports/*
 !docs/superpowers/reports/workbench-browser-benchmark-500k.json
 !docs/superpowers/reports/workbench-stage0-capabilities.json
 !docs/superpowers/reports/workbench-stage0-capabilities.md
+!docs/superpowers/reports/workbench-stage1-*.json
+!docs/superpowers/reports/workbench-stage1-*.md
 public/test.log
 public/test.har
 fix_combined_upload_and_dedup.patch

@@ -1,16 +1,19 @@
-import type { TraceAnalysisResult } from '../diagnosis/trace';
 import type {
   TracePublicError,
   TraceTaskProgress,
 } from '../parsers/trace/types';
+import { TraceWorkbenchClient } from '../workbench/client';
+import type { WorkbenchRequest, WorkbenchResponse } from '../workbench/protocol';
+import { isTraceWorkerResponse } from './traceWorkerProtocolGuards';
 import type {
   TraceUploadHint,
   TraceWorkerOutcome,
   TraceWorkerRequest,
-  TraceWorkerResponse,
 } from './traceWorkerProtocols';
 
 export const TRACE_WORKER_TIMEOUT_MS = 5 * 60 * 1000;
+const TRACE_WORKER_CANCEL_GRACE_MS = 50;
+const WORKBENCH_QUERY_TIMEOUT_MS = 10_000;
 
 export class TraceWorkerError extends Error {
   readonly detail: TracePublicError;
@@ -24,12 +27,14 @@ export class TraceWorkerError extends Error {
 
 export interface TraceWorkerTask {
   promise: Promise<TraceWorkerOutcome>;
+  done?: Promise<void>;
   cancel(): void;
 }
 
 export interface TraceWorkerOptions {
   hint: TraceUploadHint;
   timeoutMs?: number;
+  enableWorkbench?: boolean;
   onProgress?: (progress: TraceTaskProgress) => void;
 }
 
@@ -48,6 +53,7 @@ function workerFailure(message: string): TracePublicError {
 function failedTask(detail: TracePublicError): TraceWorkerTask {
   return {
     promise: Promise.reject(new TraceWorkerError(detail)),
+    done: Promise.resolve(),
     cancel: () => undefined,
   };
 }
@@ -64,90 +70,138 @@ export function createTraceWorkerTask(
   } catch {
     return failedTask(workerFailure('Trace Worker 创建失败'));
   }
-  let settled = false;
-  let timer: ReturnType<typeof setTimeout>;
+  let uploadSettled = false;
+  let closed = false;
+  let uploadTimer: ReturnType<typeof setTimeout>;
+  let cancelTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveTask: (outcome: TraceWorkerOutcome) => void = () => undefined;
   let rejectTask: (reason: TraceWorkerError) => void = () => undefined;
+  let resolveDone: () => void = () => undefined;
+  let workbenchClient: TraceWorkbenchClient | undefined;
+  const pendingWorkbench = new Map<string, {
+    timer: ReturnType<typeof setTimeout>;
+    resolve(response: WorkbenchResponse): void;
+    reject(error: Error): void;
+  }>();
+
+  const rejectWorkbench = (error: Error) => {
+    for (const pending of pendingWorkbench.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    pendingWorkbench.clear();
+  };
 
   const cleanup = () => {
-    clearTimeout(timer);
+    if (closed) return;
+    closed = true;
+    clearTimeout(uploadTimer);
+    if (cancelTimer) clearTimeout(cancelTimer);
     worker.removeEventListener('message', onMessage);
     worker.removeEventListener('error', onWorkerError);
     worker.removeEventListener('messageerror', onMessageError);
     worker.terminate();
+    rejectWorkbench(new Error('Trace Workbench Worker closed'));
+    resolveDone();
   };
 
-  const settleError = (detail: TracePublicError) => {
-    if (settled) return;
-    settled = true;
+  const failWorker = (detail: TracePublicError) => {
+    if (!uploadSettled) {
+      uploadSettled = true;
+      rejectTask(new TraceWorkerError(detail));
+    }
+    workbenchClient?.fail();
     cleanup();
-    rejectTask(new TraceWorkerError(detail));
   };
 
-  const settleSuccess = (outcome: TraceWorkerOutcome) => {
-    if (settled) return;
-    settled = true;
-    cleanup();
+  const settleSuccess = (outcome: TraceWorkerOutcome, keepAlive: boolean) => {
+    if (uploadSettled) return;
+    uploadSettled = true;
+    clearTimeout(uploadTimer);
     resolveTask(outcome);
+    if (!keepAlive) cleanup();
   };
 
-  function onMessage(event: MessageEvent<TraceWorkerResponse>) {
-    const response: unknown = event.data;
+  const dispatchWorkbench = (request: WorkbenchRequest): Promise<WorkbenchResponse> => {
+    if (closed) return Promise.reject(new Error('Trace Workbench Worker is closed'));
+    if (pendingWorkbench.has(request.requestId)) {
+      return Promise.reject(new Error('Duplicate Workbench requestId'));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingWorkbench.delete(request.requestId);
+        reject(new Error('Workbench query timed out'));
+      }, WORKBENCH_QUERY_TIMEOUT_MS);
+      pendingWorkbench.set(request.requestId, { timer, resolve, reject });
+      try {
+        worker.postMessage({
+          type: 'workbench-request',
+          taskId,
+          request,
+        } satisfies TraceWorkerRequest);
+      } catch {
+        clearTimeout(timer);
+        pendingWorkbench.delete(request.requestId);
+        reject(new Error('Workbench request could not be sent'));
+      }
+    });
+  };
+
+  function onMessage(event: MessageEvent<unknown>) {
+    const raw = event.data;
     if (
-      response === null
-      || typeof response !== 'object'
-      || !('taskId' in response)
-      || response.taskId !== taskId
-      || settled
+      raw === null
+      || typeof raw !== 'object'
+      || !('taskId' in raw)
+      || raw.taskId !== taskId
+      || closed
     ) {
       return;
     }
-    if (!('type' in response) || typeof response.type !== 'string') {
-      settleError(workerFailure('Trace Worker 返回了无效消息'));
+    if (!isTraceWorkerResponse(raw)) {
+      failWorker(workerFailure('Trace Worker 返回了无效消息'));
       return;
     }
-    if (response.type === 'trace-progress') {
-      if (!('progress' in response) || response.progress === null || typeof response.progress !== 'object') {
-        settleError(workerFailure('Trace Worker 返回了无效消息'));
-        return;
-      }
-      options.onProgress?.(response.progress as TraceTaskProgress);
-    } else if (response.type === 'trace-analysis-result') {
-      if (!('result' in response) || response.result === null || typeof response.result !== 'object') {
-        settleError(workerFailure('Trace Worker 返回了无效消息'));
-        return;
-      }
-      settleSuccess({ kind: 'trace', result: response.result as TraceAnalysisResult });
-    } else if (response.type === 'detected-source') {
-      if (
-        !('source' in response)
-        || (response.source !== 'har' && response.source !== 'netlog')
-        || !('encoding' in response)
-        || (response.encoding !== 'plain-json' && response.encoding !== 'gzip-json')
-      ) {
-        settleError(workerFailure('Trace Worker 返回了无效消息'));
-        return;
+    if (raw.type === 'workbench-response') {
+      const response = raw.response;
+      if (response.type === 'progress') return;
+      const pending = pendingWorkbench.get(response.requestId);
+      if (!pending) return;
+      pendingWorkbench.delete(response.requestId);
+      clearTimeout(pending.timer);
+      pending.resolve(response);
+      return;
+    }
+    if (uploadSettled) return;
+    if (raw.type === 'trace-progress') {
+      options.onProgress?.(raw.progress);
+    } else if (raw.type === 'trace-analysis-result') {
+      if (options.enableWorkbench && raw.workbenchSource) {
+        workbenchClient = new TraceWorkbenchClient(raw.workbenchSource, {
+          dispatch: dispatchWorkbench,
+          close: cleanup,
+        });
       }
       settleSuccess({
+        kind: 'trace',
+        result: raw.result,
+        ...(workbenchClient ? { workbench: workbenchClient } : {}),
+      }, workbenchClient !== undefined);
+    } else if (raw.type === 'detected-source') {
+      settleSuccess({
         kind: 'detected-source',
-        source: response.source,
-        encoding: response.encoding,
-      });
-    } else if (response.type === 'source-unresolved') {
-      settleSuccess({ kind: 'source-unresolved' });
-    } else if (response.type === 'trace-error') {
-      if (!('error' in response) || response.error === null || typeof response.error !== 'object') {
-        settleError(workerFailure('Trace Worker 返回了无效消息'));
-        return;
-      }
-      settleError(response.error as TracePublicError);
-    } else {
-      settleError(workerFailure('Trace Worker 返回了无效消息'));
+        source: raw.source,
+        encoding: raw.encoding,
+      }, false);
+    } else if (raw.type === 'source-unresolved') {
+      settleSuccess({ kind: 'source-unresolved' }, false);
+    } else if (raw.type === 'trace-error') {
+      failWorker(raw.error);
     }
   }
 
   function onWorkerError() {
-    settleError({
+    failWorker({
       code: 'TRACE_WORKER_FAILED',
       stage: 'reading-file',
       message: 'Trace Worker 运行失败',
@@ -156,7 +210,7 @@ export function createTraceWorkerTask(
   }
 
   function onMessageError() {
-    settleError({
+    failWorker({
       code: 'TRACE_WORKER_FAILED',
       stage: 'reading-file',
       message: 'Trace Worker 消息读取失败',
@@ -168,12 +222,24 @@ export function createTraceWorkerTask(
     resolveTask = resolve;
     rejectTask = reject;
   });
-  timer = setTimeout(() => settleError({
-    code: 'TRACE_TIMEOUT',
-    stage: 'reading-file',
-    message: 'Trace 分析超时',
-    recoverable: true,
-  }), options.timeoutMs ?? TRACE_WORKER_TIMEOUT_MS);
+  const done = new Promise<void>(resolve => {
+    resolveDone = resolve;
+  });
+  uploadTimer = setTimeout(() => {
+    if (uploadSettled) return;
+    uploadSettled = true;
+    rejectTask(new TraceWorkerError({
+      code: 'TRACE_TIMEOUT',
+      stage: 'reading-file',
+      message: 'Trace 分析超时',
+      recoverable: true,
+    }));
+    try {
+      worker.postMessage({ type: 'cancel-trace-task', taskId } satisfies TraceWorkerRequest);
+    } finally {
+      cancelTimer = setTimeout(cleanup, TRACE_WORKER_CANCEL_GRACE_MS);
+    }
+  }, options.timeoutMs ?? TRACE_WORKER_TIMEOUT_MS);
 
   worker.addEventListener('message', onMessage);
   worker.addEventListener('error', onWorkerError);
@@ -183,22 +249,35 @@ export function createTraceWorkerTask(
     taskId,
     file,
     hint: options.hint,
+    keepWorkbenchAlive: options.enableWorkbench === true,
   };
   try {
     worker.postMessage(request);
   } catch {
-    settleError(workerFailure('Trace Worker 消息发送失败'));
+    failWorker(workerFailure('Trace Worker 消息发送失败'));
   }
 
   return {
     promise,
+    done,
     cancel() {
-      settleError({
-        code: 'TRACE_CANCELLED',
-        stage: 'reading-file',
-        message: '已取消 Trace 分析',
-        recoverable: true,
-      });
+      if (closed) return;
+      if (!uploadSettled) {
+        uploadSettled = true;
+        clearTimeout(uploadTimer);
+        rejectTask(new TraceWorkerError({
+          code: 'TRACE_CANCELLED',
+          stage: 'reading-file',
+          message: '已取消 Trace 分析',
+          recoverable: true,
+        }));
+      }
+      workbenchClient?.fail();
+      try {
+        worker.postMessage({ type: 'cancel-trace-task', taskId } satisfies TraceWorkerRequest);
+      } finally {
+        cancelTimer = setTimeout(cleanup, TRACE_WORKER_CANCEL_GRACE_MS);
+      }
     },
   };
 }

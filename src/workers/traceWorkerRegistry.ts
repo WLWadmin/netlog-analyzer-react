@@ -13,7 +13,7 @@ export function replaceActiveTraceWorkerTask(
 ): TraceWorkerTask {
   cancelActiveTraceWorkerTask();
   activeTask = task;
-  void task.promise.finally(() => {
+  void (task.done ?? task.promise).finally(() => {
     if (activeTask === task) activeTask = undefined;
   }).catch(() => {
     // The caller owns task.promise; this chain only clears the registry.

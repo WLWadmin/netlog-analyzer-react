@@ -46,6 +46,8 @@ export class TraceIntakeError extends Error {
 interface ReadTraceFileOptions {
   hint?: 'trace' | 'json-auto';
   onProgress?: (progress: TraceTaskProgress) => void;
+  isCancelled?: () => boolean;
+  yieldControl?: () => Promise<void>;
   maxCompressedBytes?: number;
   maxJsonBytes?: number;
   maxEvents?: number;
@@ -197,6 +199,10 @@ export async function readTraceFileForWorker(
 
   try {
     while (true) {
+      if (options.isCancelled?.()) {
+        await reader.cancel();
+        throwTraceError('TRACE_CANCELLED', 'reading-file', '已取消 Trace 分析');
+      }
       const { done, value } = await reader.read();
       if (done) break;
       if (sniffing) {
@@ -247,6 +253,7 @@ export async function readTraceFileForWorker(
         processedBytes: gzip ? jsonBytes : Math.min(jsonBytes, file.size),
         totalBytes: gzip ? undefined : file.size,
       });
+      await options.yieldControl?.();
     }
   } catch (error) {
     if (error instanceof TraceIntakeError) throw error;

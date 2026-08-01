@@ -1,4 +1,5 @@
 export const WORKBENCH_SPIKE_SCHEMA_VERSION = 1 as const;
+export const WORKBENCH_SCHEMA_VERSION = WORKBENCH_SPIKE_SCHEMA_VERSION;
 
 export type WorkbenchCapability =
   | 'timeline-events'
@@ -8,7 +9,18 @@ export type WorkbenchCapability =
   | 'rendering'
   | 'interactions'
   | 'frames'
-  | 'screenshots';
+  | 'screenshots'
+  | 'raw-evidence';
+
+export type WorkbenchSessionState =
+  | 'creating'
+  | 'indexing-minimum'
+  | 'ready'
+  | 'enriching'
+  | 'degraded'
+  | 'releasing'
+  | 'released'
+  | 'failed';
 
 export type WorkbenchQueryErrorCode =
   | 'unsupported-capability'
@@ -31,7 +43,7 @@ export interface WorkbenchSourceRef {
 }
 
 export interface WorkbenchSessionDescriptor extends WorkbenchSessionRef {
-  state: 'ready' | 'degraded';
+  state: WorkbenchSessionState;
   source: WorkbenchSourceRef;
   capabilities: WorkbenchCapability[];
   missingCapabilities: Array<{
@@ -43,6 +55,7 @@ export interface WorkbenchSessionDescriptor extends WorkbenchSessionRef {
     endUs: number;
   };
   eventCount: number;
+  screenshotCount: number;
 }
 
 export interface WorkbenchTimelineEventDto {
@@ -112,10 +125,27 @@ export interface ReleaseSessionRequest extends WorkbenchSessionRequestBase {
   type: 'release-session';
 }
 
+export interface QueryCapabilitiesRequest extends WorkbenchSessionRequestBase {
+  type: 'query-capabilities';
+}
+
+export interface QueryEvidenceRequest extends WorkbenchSessionRequestBase {
+  type: 'query-evidence';
+  evidenceId: string;
+}
+
+export interface QueryScreenshotRequest extends WorkbenchSessionRequestBase {
+  type: 'query-screenshot';
+  screenshotId: string;
+}
+
 export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
   | QueryEventDetailRequest
+  | QueryCapabilitiesRequest
+  | QueryEvidenceRequest
+  | QueryScreenshotRequest
   | CancelQueryRequest
   | ReleaseSessionRequest;
 
@@ -129,7 +159,7 @@ interface WorkbenchSessionResponseBase extends WorkbenchResponseBase, WorkbenchS
 export interface WorkbenchProgressResponse extends WorkbenchSessionResponseBase {
   type: 'progress';
   phase: 'indexing-events' | 'querying-events' | 'releasing-session';
-  unit: 'events';
+  unit: 'events' | 'bytes';
   completed: number;
   total: number;
 }
@@ -163,6 +193,39 @@ export interface SessionReleasedResponse extends WorkbenchSessionResponseBase {
   type: 'session-released';
   releasedRequestCount: number;
   revokedBlobUrlCount: number;
+  releasedBufferCount: number;
+}
+
+export interface CapabilitiesResultResponse extends WorkbenchSessionResponseBase {
+  type: 'capabilities-result';
+  capabilities: WorkbenchCapability[];
+  missingCapabilities: Array<{
+    capability: WorkbenchCapability;
+    reason: string;
+  }>;
+}
+
+export interface EvidenceResultResponse extends WorkbenchSessionResponseBase {
+  type: 'evidence-result';
+  evidence: {
+    evidenceId: string;
+    name?: string;
+    category?: string;
+    phase?: string;
+    timestampUs?: number;
+    durationUs?: number;
+    processId?: number;
+    threadId?: number;
+  };
+}
+
+export interface ScreenshotResultResponse extends WorkbenchSessionResponseBase {
+  type: 'screenshot-result';
+  screenshot: {
+    screenshotId: string;
+    mimeType: 'image/jpeg';
+    bytes: Uint8Array;
+  };
 }
 
 export interface CapabilityMissingResponse extends WorkbenchSessionResponseBase {
@@ -190,5 +253,8 @@ export type WorkbenchResponse =
   | EventDetailResultResponse
   | QueryCancelledResponse
   | SessionReleasedResponse
+  | CapabilitiesResultResponse
+  | EvidenceResultResponse
+  | ScreenshotResultResponse
   | CapabilityMissingResponse
   | StructuredErrorResponse;

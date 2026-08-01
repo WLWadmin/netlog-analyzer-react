@@ -1,40 +1,31 @@
 /// <reference lib="webworker" />
 
 import { TRACE_LIMITS } from '../../parsers/trace/traceLimits';
+import type { ChromiumTraceFile } from '../../parsers/trace/types';
+import { WORKBENCH_SCHEMA_VERSION } from '../protocol';
+import { WorkbenchSessionKernel } from '../sessionKernel';
+import { MinimalTraceEngineAdapter } from '../traceEngineAdapter';
 import type {
   WorkbenchBenchmarkEventCount,
   WorkbenchBenchmarkWorkerResponse,
 } from './benchmarkProtocol';
-import {
-  WorkbenchSpikeKernel,
-  type WorkbenchSpikeSource,
-  type WorkbenchSpikeSourceEvent,
-} from './kernel';
-import { WORKBENCH_SPIKE_SCHEMA_VERSION } from './protocol';
 import { isWorkbenchBenchmarkWorkerRequest } from './protocolGuards';
 
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
-const sourceStore = new Map<string, WorkbenchSpikeSource>();
-let kernel = createKernel();
+let adapter: MinimalTraceEngineAdapter | undefined;
+let kernel: WorkbenchSessionKernel | undefined;
 
 interface SyntheticTraceEvent {
   ts: number;
   dur: number;
   cat: string;
   name: string;
-  track: string;
-  depth: number;
-  screenshot?: {
-    encoded: string;
-    width: number;
-    height: number;
+  ph: 'X';
+  pid: number;
+  tid: number;
+  args?: {
+    snapshot: string;
   };
-}
-
-function createKernel(): WorkbenchSpikeKernel {
-  return new WorkbenchSpikeKernel({
-    resolveSource: sourceId => sourceStore.get(sourceId),
-  });
 }
 
 function post(response: WorkbenchBenchmarkWorkerResponse): void {
@@ -45,7 +36,7 @@ function transferBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
-function percentileHash(bytes: Uint8Array): Promise<string> {
+function sampleHash(bytes: Uint8Array): Promise<string> {
   return crypto.subtle.digest('SHA-256', bytes).then(digest => (
     [...new Uint8Array(digest)]
       .map(value => value.toString(16).padStart(2, '0'))
@@ -63,23 +54,15 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Synthet
       dur: index % 100 === 0 ? 500 : 5 + (index % 20),
       cat: screenshot ? 'screenshot' : family,
       name: screenshot ? 'Screenshot' : `${family}-event`,
-      track: family,
-      depth: index % 8,
-      ...(screenshot
-        ? {
-            screenshot: {
-              encoded: 'A'.repeat(1_024),
-              width: 64,
-              height: 64,
-            },
-          }
-        : {}),
+      ph: 'X',
+      pid: 1 + (index % 4),
+      tid: 10 + (index % 8),
+      ...(screenshot ? { args: { snapshot: 'A'.repeat(1_024) } } : {}),
     };
   });
 }
 
-function projectSource(events: SyntheticTraceEvent[]): {
-  source: WorkbenchSpikeSource;
+function corpusMetrics(events: SyntheticTraceEvent[]): {
   eventFamilyDistribution: Record<string, number>;
   screenshotEncodedBytes: number;
   screenshotDecodedBytes: number;
@@ -87,32 +70,14 @@ function projectSource(events: SyntheticTraceEvent[]): {
   const eventFamilyDistribution: Record<string, number> = {};
   let screenshotEncodedBytes = 0;
   let screenshotDecodedBytes = 0;
-  const projected: WorkbenchSpikeSourceEvent[] = events.map(event => {
+  for (const event of events) {
     eventFamilyDistribution[event.cat] = (eventFamilyDistribution[event.cat] ?? 0) + 1;
-    if (event.screenshot) {
-      screenshotEncodedBytes += event.screenshot.encoded.length;
-      screenshotDecodedBytes += event.screenshot.width * event.screenshot.height * 4;
+    if (event.args?.snapshot) {
+      screenshotEncodedBytes += event.args.snapshot.length;
+      screenshotDecodedBytes += 64 * 64 * 4;
     }
-    return {
-      trackId: event.track,
-      startUs: event.ts,
-      durationUs: event.dur,
-      depth: event.depth,
-      category: event.cat,
-      name: event.name,
-      evidenceIds: [],
-      privateDetail: event.screenshot,
-    };
-  });
+  }
   return {
-    source: {
-      events: projected,
-      capabilities: ['timeline-events', 'event-detail'],
-      missingCapabilities: [
-        { capability: 'cpu-profile', reason: 'Synthetic benchmark omits CPU samples' },
-        { capability: 'screenshots', reason: 'Synthetic screenshot bytes are never exposed to UI' },
-      ],
-    },
     eventFamilyDistribution,
     screenshotEncodedBytes,
     screenshotDecodedBytes,
@@ -130,31 +95,46 @@ async function prepareBenchmark(
   if (sourceBuffer.byteLength > TRACE_LIMITS.maxJsonBytes) {
     throw new Error('Synthetic benchmark exceeds the existing 128 MiB Trace JSON limit');
   }
-
   const fileReadStartedAt = performance.now();
   const fileText = new TextDecoder().decode(sourceBuffer);
   const fileReadMs = performance.now() - fileReadStartedAt;
   const parseStartedAt = performance.now();
-  const parsed = JSON.parse(fileText) as { traceEvents: SyntheticTraceEvent[] };
+  const parsed = JSON.parse(fileText) as ChromiumTraceFile;
   const jsonParseMs = performance.now() - parseStartedAt;
-  const projected = projectSource(parsed.traceEvents);
-  const sourceId = `workbench-benchmark-${eventCount}`;
-  sourceStore.clear();
-  kernel.failWorker();
-  kernel = createKernel();
-  sourceStore.set(sourceId, projected.source);
+  const metrics = corpusMetrics(rawEvents);
 
+  kernel?.fail();
+  adapter?.release();
+  adapter = new MinimalTraceEngineAdapter(parsed, {
+    encoding: 'plain-json',
+    jsonBytes: sourceBuffer.byteLength,
+    skippedEventCount: 0,
+    warnings: [],
+  });
+  await adapter.analyze({
+    isCancelled: () => false,
+    onProgress: () => undefined,
+    yieldControl: () => Promise.resolve(),
+  });
+  const source = {
+    sourceId: `workbench-benchmark-${eventCount}`,
+    parserId: 'trace' as const,
+    fingerprint: `synthetic:${eventCount}`,
+  };
+  kernel = new WorkbenchSessionKernel(adapter, source);
   const indexStartedAt = performance.now();
   const session = await kernel.dispatch({
     type: 'create-session',
-    schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+    schemaVersion: WORKBENCH_SCHEMA_VERSION,
     requestId: `${requestId}-create-session`,
-    source: {
-      sourceId,
-      parserId: 'trace',
-      fingerprint: `synthetic:${eventCount}`,
-    },
-    requestedCapabilities: ['timeline-events', 'event-detail', 'cpu-profile', 'screenshots'],
+    source,
+    requestedCapabilities: [
+      'timeline-events',
+      'event-detail',
+      'raw-evidence',
+      'cpu-profile',
+      'screenshots',
+    ],
   });
   const indexBuildMs = performance.now() - indexStartedAt;
   if (session.type !== 'session-created') {
@@ -168,13 +148,13 @@ async function prepareBenchmark(
       sourceBytes: sourceBuffer.byteLength,
       jsonBytes: sourceBuffer.byteLength,
       eventCount,
-      eventFamilyDistribution: projected.eventFamilyDistribution,
-      screenshotEncodedBytes: projected.screenshotEncodedBytes,
-      screenshotDecodedBytes: projected.screenshotDecodedBytes,
+      eventFamilyDistribution: metrics.eventFamilyDistribution,
+      screenshotEncodedBytes: metrics.screenshotEncodedBytes,
+      screenshotDecodedBytes: metrics.screenshotDecodedBytes,
       fileReadMs,
       jsonParseMs,
       indexBuildMs,
-      sampleHash: await percentileHash(sourceBuffer),
+      sampleHash: await sampleHash(sourceBuffer),
     },
     session,
     workerElapsedMs: performance.now() - startedAt,
@@ -204,6 +184,7 @@ workerScope.addEventListener('message', async (
       await prepareBenchmark(message.requestId, message.eventCount);
       return;
     }
+    if (!kernel) throw new Error('Workbench benchmark is not prepared');
     const startedAt = performance.now();
     const response = await kernel.dispatch(message.request);
     const outbound: WorkbenchBenchmarkWorkerResponse = {

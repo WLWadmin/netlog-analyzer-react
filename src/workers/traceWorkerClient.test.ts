@@ -130,6 +130,83 @@ describe('traceWorkerClient', () => {
     expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the parsed Worker alive for an explicit Workbench session and closes it on release', async () => {
+    const worker = new FakeWorker();
+    const task = createTraceWorkerTask(
+      new File(['{}'], 'sample.trace'),
+      { hint: 'trace', enableWorkbench: true },
+      () => worker as unknown as Worker,
+    );
+    const currentTaskId = taskId(worker);
+    worker.emit('message', messageEvent({
+      type: 'trace-analysis-result',
+      taskId: currentTaskId,
+      result: analysisResult(10),
+      workbenchSource: {
+        sourceId: `trace-source:${currentTaskId}`,
+        parserId: 'trace',
+        fingerprint: 'trace:10:0',
+      },
+    }));
+    const outcome = await task.promise;
+    expect(outcome.kind).toBe('trace');
+    if (outcome.kind !== 'trace' || !outcome.workbench) return;
+    expect(worker.terminate).not.toHaveBeenCalled();
+
+    const createPromise = outcome.workbench.createSession();
+    const createEnvelope = worker.postMessage.mock.calls.at(-1)?.[0];
+    expect(createEnvelope).toMatchObject({
+      type: 'workbench-request',
+      taskId: currentTaskId,
+      request: { type: 'create-session' },
+    });
+    const createRequestId = createEnvelope.request.requestId;
+    worker.emit('message', messageEvent({
+      type: 'workbench-response',
+      taskId: currentTaskId,
+      response: {
+        type: 'session-created',
+        schemaVersion: 1,
+        requestId: createRequestId,
+        sessionId: 'session-1',
+        sessionRevision: 1,
+        session: {
+          sessionId: 'session-1',
+          sessionRevision: 1,
+          state: 'ready',
+          source: createEnvelope.request.source,
+          capabilities: ['timeline-events'],
+          missingCapabilities: [],
+          range: { startUs: 0, endUs: 1 },
+          eventCount: 1,
+          screenshotCount: 0,
+        },
+      },
+    }));
+    await expect(createPromise).resolves.toMatchObject({ sessionId: 'session-1' });
+
+    const closePromise = outcome.workbench.close();
+    const releaseEnvelope = worker.postMessage.mock.calls.at(-1)?.[0];
+    expect(releaseEnvelope.request.type).toBe('release-session');
+    worker.emit('message', messageEvent({
+      type: 'workbench-response',
+      taskId: currentTaskId,
+      response: {
+        type: 'session-released',
+        schemaVersion: 1,
+        requestId: releaseEnvelope.request.requestId,
+        sessionId: 'session-1',
+        sessionRevision: 1,
+        releasedRequestCount: 0,
+        revokedBlobUrlCount: 0,
+        releasedBufferCount: 0,
+      },
+    }));
+    await closePromise;
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await expect(task.done).resolves.toBeUndefined();
+  });
+
   it('terminates on cancel and timeout', async () => {
     jest.useFakeTimers();
     const cancelWorker = new FakeWorker();
@@ -140,6 +217,7 @@ describe('traceWorkerClient', () => {
     );
     cancelled.cancel();
     await expectError(cancelled.promise, 'TRACE_CANCELLED');
+    jest.advanceTimersByTime(50);
     expect(cancelWorker.terminate).toHaveBeenCalledTimes(1);
 
     const timeoutWorker = new FakeWorker();
@@ -150,11 +228,13 @@ describe('traceWorkerClient', () => {
     );
     jest.advanceTimersByTime(10);
     await expectError(timedOut.promise, 'TRACE_TIMEOUT');
+    jest.advanceTimersByTime(50);
     expect(timeoutWorker.terminate).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
   });
 
   it('ignores late progress, success and error after cancellation', async () => {
+    jest.useFakeTimers();
     const worker = new FakeWorker();
     const onProgress = jest.fn();
     const task = createTraceWorkerTask(
@@ -187,8 +267,10 @@ describe('traceWorkerClient', () => {
     }));
 
     await expectError(task.promise, 'TRACE_CANCELLED');
+    jest.advanceTimersByTime(50);
     expect(onProgress).not.toHaveBeenCalled();
     expect(worker.terminate).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
   });
 
   it.each(['error', 'messageerror'])('terminates on Worker %s', async type => {

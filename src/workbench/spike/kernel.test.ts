@@ -113,6 +113,9 @@ describe('Workbench stage 0 protocol and query spike', () => {
       'create-session',
       'query-viewport',
       'query-event-detail',
+      'query-capabilities',
+      'query-evidence',
+      'query-screenshot',
       'cancel-query',
       'release-session',
     ];
@@ -126,7 +129,7 @@ describe('Workbench stage 0 protocol and query spike', () => {
       'worker-failed',
     ];
 
-    expect(new Set(requestNames).size).toBe(5);
+    expect(new Set(requestNames).size).toBe(8);
     expect(new Set(errorCodes).size).toBe(7);
   });
 
@@ -193,6 +196,24 @@ describe('Workbench stage 0 protocol and query spike', () => {
       response: { ...response, events: [{ privateDetail: 'leak' }] },
       workerElapsedMs: 1,
       uiTransferBytes: 10,
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      type: 'session-created',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'create-invalid-state',
+      sessionId: 'session',
+      sessionRevision: 1,
+      session: {
+        sessionId: 'session',
+        sessionRevision: 1,
+        state: 'failed',
+        source: sourceRef,
+        capabilities: [],
+        missingCapabilities: [],
+        range: { startUs: 0, endUs: 0 },
+        eventCount: 0,
+        screenshotCount: 0,
+      },
     })).toBe(false);
   });
 

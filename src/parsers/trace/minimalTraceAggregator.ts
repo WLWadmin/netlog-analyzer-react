@@ -815,6 +815,7 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
         || eventIndex + 1 === total
       ) {
         options.onProgress({ phase: 'scan-events', processed: eventIndex + 1, total });
+        await options.yieldControl?.();
         if (options.isCancelled()) throw new TraceAggregationCancelled();
       }
     }

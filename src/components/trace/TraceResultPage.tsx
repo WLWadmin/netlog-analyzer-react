@@ -4,6 +4,8 @@ import { buildTraceJsonExport, buildTraceMarkdownReport } from '../../parsers/tr
 import { useNavigation } from '../../contexts/NavigationContext';
 import type { TraceTab } from '../../utils/hashRouting';
 import { downloadTextFile } from '../../utils/downloadTextFile';
+import type { TraceWorkbenchClient } from '../../workbench/client';
+import { isTraceWorkbenchEnabled } from '../../workbench/featureFlag';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 import { buildTraceDiagnosisViewModel, type TraceEvidenceTarget, type TraceFactTarget } from './traceDiagnosisViewModel';
 import TraceConclusionTab from './tabs/TraceConclusionTab';
@@ -13,12 +15,14 @@ import TraceMainThreadTab from './tabs/TraceMainThreadTab';
 import TraceNetworkTab from './tabs/TraceNetworkTab';
 import TraceOverviewTab from './tabs/TraceOverviewTab';
 import TraceRenderingTab from './tabs/TraceRenderingTab';
+import TraceWorkbenchInternalPanel from './TraceWorkbenchInternalPanel';
 import './traceResultPage.css';
 
 interface TraceResultPageProps {
   result: TraceAnalysisResult;
   activeTab?: TraceTab;
   onTabChange?: (tab: TraceTab) => void;
+  workbenchClient?: TraceWorkbenchClient;
 }
 
 const TABS: Array<{ tab: TraceTab; label: string }> = [
@@ -28,7 +32,12 @@ const TABS: Array<{ tab: TraceTab; label: string }> = [
   { tab: 'evidence', label: '证据' },
 ];
 
-const TraceResultPage: React.FC<TraceResultPageProps> = ({ result, activeTab = 'conclusion', onTabChange }) => {
+const TraceResultPage: React.FC<TraceResultPageProps> = ({
+  result,
+  activeTab = 'conclusion',
+  onTabChange,
+  workbenchClient,
+}) => {
   const { navigateTo } = useNavigation();
   const [exportError, setExportError] = useState('');
   const diagnosisViewModel = useMemo(() => buildTraceDiagnosisViewModel(result), [result]);
@@ -101,6 +110,10 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({ result, activeTab = '
         title="Trace 分析边界"
         description="当前结论只基于本次录制窗口内的有限事实。缺失采集上下文、未校准时间域或弱关联线索不会被写成确定根因。"
       />
+
+      {isTraceWorkbenchEnabled() && (
+        <TraceWorkbenchInternalPanel client={workbenchClient} />
+      )}
 
       <nav className="trace-route-nav" aria-label="Trace 分析导航">
         {TABS.map(item => (

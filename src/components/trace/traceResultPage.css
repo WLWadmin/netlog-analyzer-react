@@ -192,6 +192,29 @@
   margin: 16px 0 0;
 }
 
+.trace-workbench-internal {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.trace-workbench-internal button {
+  min-height: 40px;
+}
+
+.trace-workbench-limitations,
+.trace-workbench-query-result {
+  margin: 12px 0;
+}
+
+.trace-workbench-query-result ul {
+  max-height: 240px;
+  margin: 8px 0;
+  overflow: auto;
+}
+
 .trace-limitations ul {
   margin: 0;
   padding-left: 20px;

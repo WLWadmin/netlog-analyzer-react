@@ -9,6 +9,7 @@ export interface TraceAggregationProgress {
 export interface TraceAggregationOptions {
   isCancelled: () => boolean;
   onProgress: (progress: TraceAggregationProgress) => void;
+  yieldControl?: () => Promise<void>;
 }
 
 export interface TraceAggregatorOutput<TFacts> {

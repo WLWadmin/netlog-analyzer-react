@@ -94,9 +94,20 @@ const result: TraceAnalysisResult = {
 
 describe('TraceResultPage', () => {
   beforeEach(() => {
+    delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
     mockBuildTraceMarkdownReport.mockReset();
     mockBuildTraceJsonExport.mockReset();
     mockDownloadTextFile.mockReset();
+  });
+
+  it('only exposes the internal Workbench entry when the compile-time flag is enabled', () => {
+    const { rerender } = render(<TraceResultPage result={result} />);
+    expect(screen.queryByText('分析工作台（内部）')).toBeNull();
+
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    rerender(<TraceResultPage result={result} />);
+    expect(screen.getByText('分析工作台（内部）')).not.toBeNull();
+    expect(screen.getByText(/没有可复用的 Workbench Worker/)).not.toBeNull();
   });
 
   it('exports Markdown and JSON from the current result', async () => {

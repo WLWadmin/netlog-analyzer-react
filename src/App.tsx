@@ -55,6 +55,7 @@ import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
 import type { ParserMode } from './components/upload/ParserModeSelect';
 import type { FileParserId } from './upload/fileFormatTypes';
 import type { TraceAnalysisResult } from './diagnosis/trace';
+import type { TraceWorkbenchClient } from './workbench/client';
 import {
   createExecutableFileFormatRegistry,
   createFileParseInput,
@@ -138,6 +139,7 @@ const AppContent: React.FC = () => {
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
   const [traceResult, setTraceResult] = useState<TraceAnalysisResult | null>(null);
+  const [traceWorkbenchClient, setTraceWorkbenchClient] = useState<TraceWorkbenchClient | null>(null);
   const [rawUploadDataByType, setRawUploadDataByType] = useState<{ har?: unknown; netlog?: unknown; log?: unknown }>({});
   const [rawDataIdByType, setRawDataIdByType] = useState<{ har?: string; netlog?: string }>({});
   const [netlogDataset, setNetlogDataset] = useState<NetlogDatasetState>(unavailableNetlogDatasetState);
@@ -157,6 +159,7 @@ const AppContent: React.FC = () => {
   const invalidateTraceSession = useCallback(() => {
     cancelActiveTraceWorkerTask();
     setTraceResult(null);
+    setTraceWorkbenchClient(null);
     consumeIntent();
   }, [consumeIntent]);
 
@@ -415,6 +418,7 @@ const AppContent: React.FC = () => {
       });
 
       if (!isActiveLoad(taskId)) {
+        if (parsed.kind === 'trace') await parsed.workbench?.close();
         if ('rawDataId' in parsed && useWorker && parsed.rawDataId) {
           releaseRawDataId(parsed.rawDataId);
         }
@@ -428,6 +432,7 @@ const AppContent: React.FC = () => {
       }
 
       if (parsed.kind === 'trace') {
+        await parsed.workbench?.close();
         message.warning('Trace 当前不参与 HAR/NetLog 联合诊断');
         finishLoad(taskId);
         return;
@@ -563,12 +568,14 @@ const AppContent: React.FC = () => {
       'go-service-log@1': 'log',
     };
     if (parsed.kind !== expectedKind[parserId]) {
+      if (parsed.kind === 'trace') await parsed.workbench?.close();
       throw new Error('解析器返回的数据类型与绑定结果不一致');
     }
 
     setIpRoutingConclusions([]);
     if (parsed.kind === 'trace') {
       setTraceResult(parsed.result);
+      setTraceWorkbenchClient(parsed.workbench ?? null);
       setFileType('trace');
       setActiveTab('conclusion');
       setActiveSubTab(undefined);
@@ -746,6 +753,7 @@ const AppContent: React.FC = () => {
     setHarResult(null);
     setLogResult(null);
     setTraceResult(null);
+    setTraceWorkbenchClient(null);
     setRawUploadDataByType({});
     setRawDataIdByType({});
     datasetIndexTaskIdRef.current += 1;
@@ -1327,6 +1335,7 @@ const AppContent: React.FC = () => {
             <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>
               <TraceResultPage
                 result={traceResult}
+                workbenchClient={traceWorkbenchClient ?? undefined}
                 activeTab={resolveTraceTab(activeTab)}
                 onTabChange={(tab) => {
                   setActiveTab(tab);

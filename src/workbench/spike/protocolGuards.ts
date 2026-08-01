@@ -22,6 +22,7 @@ const CAPABILITIES: WorkbenchCapability[] = [
   'interactions',
   'frames',
   'screenshots',
+  'raw-evidence',
 ];
 
 const ERROR_CODES: WorkbenchQueryErrorCode[] = [
@@ -101,6 +102,12 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         );
     case 'query-event-detail':
       return isSessionRef(value) && isNonEmptyString(value.eventId);
+    case 'query-capabilities':
+      return isSessionRef(value);
+    case 'query-evidence':
+      return isSessionRef(value) && isNonEmptyString(value.evidenceId);
+    case 'query-screenshot':
+      return isSessionRef(value) && isNonEmptyString(value.screenshotId);
     case 'cancel-query':
       return isSessionRef(value) && isNonEmptyString(value.targetRequestId);
     case 'release-session':
@@ -158,7 +165,16 @@ function isTruncation(value: unknown, returnedEventCount: number): boolean {
 function isSessionDescriptor(value: unknown): boolean {
   return isRecord(value)
     && isSessionRef(value)
-    && (value.state === 'ready' || value.state === 'degraded')
+    && (
+      value.state === 'creating'
+      || value.state === 'indexing-minimum'
+      || value.state === 'ready'
+      || value.state === 'enriching'
+      || value.state === 'degraded'
+      || value.state === 'releasing'
+      || value.state === 'released'
+      || value.state === 'failed'
+    )
     && isRecord(value.source)
     && isNonEmptyString(value.source.sourceId)
     && value.source.parserId === 'trace'
@@ -172,7 +188,8 @@ function isSessionDescriptor(value: unknown): boolean {
       && isNonEmptyString(item.reason)
     ))
     && isRange(value.range)
-    && isNonNegativeInteger(value.eventCount);
+    && isNonNegativeInteger(value.eventCount)
+    && isNonNegativeInteger(value.screenshotCount);
 }
 
 function hasOptionalSessionRef(value: Record<string, unknown>): boolean {
@@ -199,6 +216,7 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
       return isSessionRef(value)
         && isSessionDescriptor(value.session)
         && isRecord(value.session)
+        && (value.session.state === 'ready' || value.session.state === 'degraded')
         && value.session.sessionId === value.sessionId
         && value.session.sessionRevision === value.sessionRevision;
     case 'viewport-result':
@@ -214,7 +232,35 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
     case 'session-released':
       return isSessionRef(value)
         && isNonNegativeInteger(value.releasedRequestCount)
-        && isNonNegativeInteger(value.revokedBlobUrlCount);
+        && isNonNegativeInteger(value.revokedBlobUrlCount)
+        && isNonNegativeInteger(value.releasedBufferCount);
+    case 'capabilities-result':
+      return isSessionRef(value)
+        && Array.isArray(value.capabilities)
+        && value.capabilities.every(isCapability)
+        && Array.isArray(value.missingCapabilities)
+        && value.missingCapabilities.every(item => (
+          isRecord(item)
+          && isCapability(item.capability)
+          && isNonEmptyString(item.reason)
+        ));
+    case 'evidence-result':
+      return isSessionRef(value)
+        && isRecord(value.evidence)
+        && isNonEmptyString(value.evidence.evidenceId)
+        && (value.evidence.name === undefined || isNonEmptyString(value.evidence.name))
+        && (value.evidence.category === undefined || isNonEmptyString(value.evidence.category))
+        && (value.evidence.phase === undefined || isNonEmptyString(value.evidence.phase))
+        && (value.evidence.timestampUs === undefined || isFiniteNumber(value.evidence.timestampUs))
+        && (value.evidence.durationUs === undefined || isFiniteNumber(value.evidence.durationUs))
+        && (value.evidence.processId === undefined || isFiniteNumber(value.evidence.processId))
+        && (value.evidence.threadId === undefined || isFiniteNumber(value.evidence.threadId));
+    case 'screenshot-result':
+      return isSessionRef(value)
+        && isRecord(value.screenshot)
+        && isNonEmptyString(value.screenshot.screenshotId)
+        && value.screenshot.mimeType === 'image/jpeg'
+        && value.screenshot.bytes instanceof Uint8Array;
     case 'capability-missing':
       return isSessionRef(value)
         && isCapability(value.capability)

@@ -166,6 +166,22 @@ export class WorkbenchSpikeKernel {
         return this.queryViewport(request, onProgress);
       case 'query-event-detail':
         return this.queryEventDetail(request);
+      case 'query-capabilities':
+        return this.queryCapabilities(request);
+      case 'query-evidence':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'raw-evidence',
+          'Raw evidence is unavailable in the stage 0 kernel',
+        );
+      case 'query-screenshot':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'screenshots',
+          'Screenshots are unavailable in the stage 0 kernel',
+        );
       case 'cancel-query':
         return this.cancelQuery(request);
       case 'release-session':
@@ -283,6 +299,7 @@ export class WorkbenchSpikeKernel {
       missingCapabilities,
       range: { startUs, endUs },
       eventCount: indexed.length,
+      screenshotCount: 0,
     };
     this.sessions.set(sessionId, {
       descriptor,
@@ -484,6 +501,22 @@ export class WorkbenchSpikeKernel {
     };
   }
 
+  private queryCapabilities(
+    request: Extract<WorkbenchRequest, { type: 'query-capabilities' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    return {
+      type: 'capabilities-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      capabilities: session.descriptor.capabilities,
+      missingCapabilities: session.descriptor.missingCapabilities,
+    };
+  }
+
   private releaseSession(
     request: Extract<WorkbenchRequest, { type: 'release-session' }>,
   ): WorkbenchResponse {
@@ -491,6 +524,7 @@ export class WorkbenchSpikeKernel {
     if ('type' in session) return session;
     const releasedRequestCount = session.activeQueries.size;
     const revokedBlobUrlCount = session.blobUrls.length;
+    const releasedBufferCount = session.transferables.length;
     this.disposeSession(request.sessionId);
     return {
       type: 'session-released',
@@ -500,6 +534,7 @@ export class WorkbenchSpikeKernel {
       sessionRevision: request.sessionRevision,
       releasedRequestCount,
       revokedBlobUrlCount,
+      releasedBufferCount,
     };
   }
 
