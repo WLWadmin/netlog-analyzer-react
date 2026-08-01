@@ -30,6 +30,7 @@
     "benchmark:netlog-worker": "node scripts/benchmark-netlog-worker.js",
     "benchmark:netlog-browser": "node scripts/benchmark-netlog-browser.js",
     "benchmark:evidence": "node scripts/build-netlog-benchmark-evidence.js",
+    "workbench:stage0-evidence": "node scripts/build-workbench-stage0-evidence.js",
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"

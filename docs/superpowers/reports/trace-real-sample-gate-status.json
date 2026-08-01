@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-08-01",
+  "codeRef": "ec6fc9ab4152118dd0b023d0a6f85863494012bc+working-tree",
+  "status": "blocked",
+  "manifest": {
+    "configured": false,
+    "parseable": false,
+    "sampleCount": 0
+  },
+  "currentRun": {
+    "executed": false,
+    "passedSampleIds": [],
+    "failedSampleIds": [],
+    "skippedSampleIds": [
+      "TRACE-SAMPLE-01",
+      "TRACE-SAMPLE-02",
+      "TRACE-SAMPLE-03",
+      "TRACE-SAMPLE-04",
+      "TRACE-SAMPLE-05"
+    ],
+    "reason": "TRACE_SAMPLE_MANIFEST_PATH is not configured in this environment"
+  },
+  "historicalDesignRecord": {
+    "codeRef": "pre-merge record",
+    "passedSampleIds": [
+      "TRACE-SAMPLE-01",
+      "TRACE-SAMPLE-02",
+      "TRACE-SAMPLE-05"
+    ],
+    "failedSampleIds": [
+      "TRACE-SAMPLE-03",
+      "TRACE-SAMPLE-04"
+    ],
+    "failureSummary": "Manifest declared multi-process or OOPIF capability that the injected samples did not contain",
+    "mayBeUsedAsCurrentPassEvidence": false
+  },
+  "privacy": {
+    "pathsPersisted": false,
+    "urlsPersisted": false,
+    "headersPersisted": false,
+    "cookiesPersisted": false,
+    "tokensPersisted": false,
+    "screenshotsPersisted": false
+  },
+  "gatePassed": false,
+  "requiredNextEvidence": [
+    "Provide a five-sample external manifest without exposing paths",
+    "Determine whether TRACE-SAMPLE-03/04 samples or manifest declarations are wrong",
+    "Run all five samples three times on the final merged ref",
+    "Save a sanitized passing artifact"
+  ]
+}

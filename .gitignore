@@ -37,6 +37,24 @@ net_error
 # test files
 .superpowers
 docs/
+!docs/
+docs/*
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/adr/
+docs/superpowers/adr/*
+!docs/superpowers/adr/2026-08-01-workbench-trace-engine.md
+!docs/superpowers/reports/
+docs/superpowers/reports/*
+!docs/superpowers/reports/2026-08-01-workbench-browser-benchmark.md
+!docs/superpowers/reports/2026-08-01-workbench-stage0-merge-baseline.md
+!docs/superpowers/reports/2026-08-01-workbench-stage0-protocol-contract.md
+!docs/superpowers/reports/trace-real-sample-gate-status.json
+!docs/superpowers/reports/workbench-browser-benchmark-1000k.json
+!docs/superpowers/reports/workbench-browser-benchmark-100k.json
+!docs/superpowers/reports/workbench-browser-benchmark-500k.json
+!docs/superpowers/reports/workbench-stage0-capabilities.json
+!docs/superpowers/reports/workbench-stage0-capabilities.md
 public/test.log
 public/test.har
 fix_combined_upload_and_dedup.patch
