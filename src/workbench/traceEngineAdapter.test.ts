@@ -53,6 +53,13 @@ describe('MinimalTraceEngineAdapter', () => {
           ts: 200,
           dur: 50,
         },
+        {
+          name: 'RasterTask',
+          cat: 'rendering',
+          ph: 'X',
+          ts: 300,
+          dur: 25,
+        },
       ],
     }, {
       encoding: 'plain-json',
@@ -68,9 +75,75 @@ describe('MinimalTraceEngineAdapter', () => {
     const session = await adapter.buildSessionData(options);
 
     expect(session.timeline.getStats().trackEventCounts).toEqual({
-      rendering: 2,
+      rendering: 3,
     });
     expect(session.advanced).toBeUndefined();
+  });
+
+  it('uses the same GPU evidence for advanced queries and registered tracks', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE6 = '1';
+    const adapter = new MinimalTraceEngineAdapter({
+      traceEvents: [
+        {
+          name: 'process_name',
+          cat: '__metadata',
+          ph: 'M',
+          pid: 7,
+          args: { name: 'GPU Process' },
+        },
+        {
+          name: 'GPUTask',
+          cat: 'cc,gpu',
+          ph: 'X',
+          ts: 100,
+          dur: 10,
+          pid: 1,
+          tid: 2,
+        },
+        {
+          name: 'GPUTask',
+          cat: 'cc',
+          ph: 'X',
+          ts: 200,
+          dur: 20,
+          pid: 7,
+          tid: 8,
+        },
+        {
+          name: 'OtherActivity',
+          cat: 'network,other',
+          ph: 'X',
+          ts: 300,
+          dur: 5,
+        },
+      ],
+    }, {
+      encoding: 'plain-json',
+      jsonBytes: 100,
+      skippedEventCount: 0,
+      warnings: [],
+    });
+    const options = {
+      isCancelled: () => false,
+      onProgress: jest.fn(),
+    };
+    await adapter.analyze(options);
+    const session = await adapter.buildSessionData(options);
+
+    expect(session.timeline.getStats().trackEventCounts).toEqual({
+      'gpu-raster': 2,
+      network: 1,
+    });
+    expect(session.advanced?.queryGpuRaster({ startUs: 0, endUs: 1_000 }))
+      .toMatchObject({
+        status: 'available',
+        result: { intervals: [{ activity: 'gpu' }, { activity: 'gpu' }] },
+      });
   });
 
   it('produces deterministic metadata, capabilities and timeline IDs', async () => {

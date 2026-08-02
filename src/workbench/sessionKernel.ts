@@ -1122,12 +1122,32 @@ export class WorkbenchSessionKernel {
         ...analysis,
       };
     }
+    if (request.capability === 'memory-trend') {
+      const analysis = advanced.queryMemoryTrend(request.range);
+      return {
+        type: 'advanced-analysis-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        capability: request.capability,
+        ...analysis,
+      };
+    }
+    if (request.capability === 'gpu-raster') {
+      const analysis = advanced.queryGpuRaster(request.range);
+      return {
+        type: 'advanced-analysis-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        capability: request.capability,
+        ...analysis,
+      };
+    }
     const result = (() => {
       switch (request.capability) {
-        case 'memory-trend':
-          return { kind: 'memory-trend' as const, samples: [], gcEvents: [] };
-        case 'gpu-raster':
-          return { kind: 'gpu-raster' as const, intervals: [] };
         case 'custom-query':
           return {
             kind: 'custom-query' as const,

@@ -117,35 +117,53 @@ assert(
     && source.blockingGates.includes('worker-peak-memory-unmeasured'),
   'external release blockers must remain explicit',
 );
-assert(source.stage6Round1.releaseAccepted === false, 'Stage 6 round 1 is not release accepted');
-assert(
-  source.stage6Round1.featureFlag === 'REACT_APP_ENABLE_TRACE_STAGE6=1',
-  'Stage 6 round 1 must declare its independent feature flag',
-);
-assert(
-  source.stage6Round1.browserVerification.state === 'not-run',
-  'Stage 6 round 1 must not claim browser verification',
-);
-assert(
-  source.stage6Round1.batches.map(batch => batch.batchId).join(',') === '41,42,43',
-  'Stage 6 round 1 batch set differs',
-);
-for (const batch of source.stage6Round1.batches) {
-  assert(batch.states.includes('implemented'), `Batch ${batch.batchId} lacks implementation state`);
+function validateStage6Round(round, label, expectedBatches, primaryStates) {
+  assert(round.releaseAccepted === false, `${label} is not release accepted`);
   assert(
-    batch.states.includes('automated-verified'),
-    `Batch ${batch.batchId} lacks automated verification`,
+    round.featureFlag === 'REACT_APP_ENABLE_TRACE_STAGE6=1',
+    `${label} must declare its independent feature flag`,
   );
   assert(
-    batch.states.includes('real-sample-blocked'),
-    `Batch ${batch.batchId} omits real sample blocking`,
+    round.browserVerification.state === 'not-run',
+    `${label} must not claim browser verification`,
   );
   assert(
-    !batch.states.includes('browser-verified')
-      && !batch.states.includes('release-accepted'),
-    `Batch ${batch.batchId} overstates verification`,
+    round.batches.map(batch => batch.batchId).join(',') === expectedBatches.join(','),
+    `${label} batch set differs`,
   );
+  for (const batch of round.batches) {
+    assert(
+      batch.states.includes(primaryStates[batch.batchId]),
+      `Batch ${batch.batchId} lacks ${primaryStates[batch.batchId]} state`,
+    );
+    assert(
+      batch.states.includes('automated-verified'),
+      `Batch ${batch.batchId} lacks automated verification`,
+    );
+    assert(
+      batch.states.includes('real-sample-blocked'),
+      `Batch ${batch.batchId} omits real sample blocking`,
+    );
+    assert(
+      !batch.states.includes('browser-verified')
+        && !batch.states.includes('release-accepted'),
+      `Batch ${batch.batchId} overstates verification`,
+    );
+  }
 }
+
+validateStage6Round(
+  source.stage6Round1,
+  'Stage 6 round 1',
+  [41, 42, 43],
+  { 41: 'implemented', 42: 'implemented', 43: 'implemented' },
+);
+validateStage6Round(
+  source.stage6Round2,
+  'Stage 6 round 2',
+  [44, 45, 46],
+  { 44: 'implemented', 45: 'implemented', 46: 'audited' },
+);
 
 const allCriterionIds = new Set();
 for (const record of source.records) {
@@ -249,8 +267,11 @@ const lines = [
   `- Stage 6 第一轮：${source.stage6Round1.batches.map(batch => (
     `Batch ${batch.batchId} ${batch.states.map(state => `\`${state}\``).join('/')}`
   )).join('；')}`,
+  `- Stage 6 第二轮：${source.stage6Round2.batches.map(batch => (
+    `Batch ${batch.batchId} ${batch.states.map(state => `\`${state}\``).join('/')}`
+  )).join('；')}`,
   `- Stage 6 开关：\`${source.stage6Round1.featureFlag}\`（仍依赖前五档 Workbench 开关）`,
-  `- 浏览器验证：\`${source.stage6Round1.browserVerification.state}\``,
+  `- 浏览器验证：第一轮 \`${source.stage6Round1.browserVerification.state}\`，第二轮 \`${source.stage6Round2.browserVerification.state}\``,
   `- 状态计数：${source.allowedCriterionStatuses.map(status => `${status}=${statusCounts[status]}`).join('，')}`,
   '- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。',
   '',

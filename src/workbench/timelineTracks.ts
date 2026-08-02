@@ -3,6 +3,7 @@ import type { WorkbenchCapability } from './protocol';
 export type TimelineTrackId =
   | 'layout-shifts'
   | 'animations'
+  | 'gpu-raster'
   | 'milestones'
   | 'network'
   | 'main'
@@ -75,6 +76,20 @@ export const TIMELINE_TRACK_REGISTRY = new TimelineTrackRegistry([
       || name.startsWith('CompositorAnimation::')
     ),
     displayOrder: 101,
+  },
+  {
+    id: 'gpu-raster',
+    label: 'GPU / Raster',
+    capability: 'rendering',
+    description: 'Trace 中含明确证据的 GPU 与 RasterTask 活动',
+    matches: (name, category) => (
+      name === 'RasterTask'
+      || (
+        (name === 'GPUTask' || name === 'GpuTask' || name === 'GPU::Task')
+        && category.toLowerCase().includes('gpu')
+      )
+    ),
+    displayOrder: 102,
   },
   {
     id: 'milestones',

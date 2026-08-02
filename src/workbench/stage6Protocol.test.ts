@@ -15,6 +15,30 @@ const session = {
 };
 
 describe('Stage 6 advanced analysis protocol', () => {
+  it('accepts session descriptors that expose the GPU/Raster track', () => {
+    expect(isWorkbenchResponse({
+      type: 'session-created',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'session-stage6',
+      ...session,
+      session: {
+        ...session,
+        state: 'ready',
+        source: {
+          sourceId: 'trace-source',
+          parserId: 'trace',
+          fingerprint: 'trace:1:1',
+        },
+        capabilities: ['timeline-events', 'rendering'],
+        missingCapabilities: [],
+        range: { startUs: 0, endUs: 1_000 },
+        eventCount: 1,
+        trackEventCounts: { 'gpu-raster': 1 },
+        screenshotCount: 0,
+      },
+    })).toBe(true);
+  });
+
   it('accepts the six bounded capabilities and rejects extra request data', () => {
     const capabilities: QueryAdvancedAnalysisRequest['capability'][] = [
       'layout-shifts',
@@ -57,7 +81,6 @@ describe('Stage 6 advanced analysis protocol', () => {
         clusters: [],
       },
     };
-
     expect(isWorkbenchResponse(response)).toBe(true);
     expect(isWorkbenchResponse({
       ...response,
@@ -87,5 +110,123 @@ describe('Stage 6 advanced analysis protocol', () => {
       'status',
       'trackId',
     ]);
+  });
+
+  it('accepts bounded memory results and rejects raw or malformed fields', () => {
+    const response: AdvancedAnalysisResultResponse = {
+      type: 'advanced-analysis-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'advanced-memory',
+      ...session,
+      capability: 'memory-trend',
+      status: 'available',
+      evidenceIds: ['trace:event:1', 'trace:event:2'],
+      limitations: ['不确认内存泄漏。'],
+      result: {
+        kind: 'memory-trend',
+        samples: [{
+          timestampUs: 10,
+          metric: 'js-heap-used',
+          bytes: 1_024,
+          evidenceIds: ['trace:event:1'],
+        }],
+        gcEvents: [{
+          eventId: 'trace:gc:2',
+          type: 'minor',
+          startUs: 20,
+          durationUs: 5,
+          interactionEventIds: [],
+          longTaskEventIds: ['trace:timeline:3'],
+          evidenceIds: ['trace:event:2'],
+        }],
+        summary: {
+          gcCount: 1,
+          totalPauseUs: 5,
+          maxPauseUs: 5,
+        },
+      },
+    };
+    if (response.result.kind !== 'memory-trend') {
+      throw new Error('unexpected memory result');
+    }
+    const memoryResult = response.result;
+
+    expect(isWorkbenchResponse(response)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...response,
+      result: {
+        ...memoryResult,
+        rawEvents: [{ args: { data: { jsHeapSizeUsed: 1_024 } } }],
+      },
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...response,
+      result: {
+        ...memoryResult,
+        gcEvents: Array.from({ length: 2 }, (_, index) => ({
+          ...memoryResult.gcEvents[0],
+          eventId: `trace:gc:${index}`,
+          interactionEventIds: Array.from(
+            { length: 1_001 },
+            (__, contextIndex) => `trace:interaction:${index}:${contextIndex}`,
+          ),
+        })),
+        summary: {
+          gcCount: 2,
+          totalPauseUs: 10,
+          maxPauseUs: 5,
+        },
+      },
+    })).toBe(false);
+  });
+
+  it('accepts bounded GPU/Raster summaries and rejects utilization claims', () => {
+    const response: AdvancedAnalysisResultResponse = {
+      type: 'advanced-analysis-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'advanced-gpu-raster',
+      ...session,
+      capability: 'gpu-raster',
+      status: 'available',
+      evidenceIds: ['trace:event:1'],
+      limitations: ['只报告记录到的活动。'],
+      result: {
+        kind: 'gpu-raster',
+        intervals: [{
+          eventId: 'trace:gpu-raster:1',
+          activity: 'raster',
+          startUs: 10,
+          durationUs: 5,
+          evidenceIds: ['trace:event:1'],
+        }],
+        summary: {
+          intervalCount: 1,
+          gpuIntervalCount: 0,
+          rasterIntervalCount: 1,
+          totalDurationUs: 5,
+          maxDurationUs: 5,
+        },
+      },
+    };
+    if (response.result.kind !== 'gpu-raster') {
+      throw new Error('unexpected GPU/Raster result');
+    }
+    const gpuRasterResult = response.result;
+
+    expect(isWorkbenchResponse(response)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...response,
+      result: { ...gpuRasterResult, gpuUtilization: 99 },
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...response,
+      result: {
+        ...gpuRasterResult,
+        summary: {
+          ...gpuRasterResult.summary,
+          intervalCount: 0,
+        },
+      },
+    })).toBe(false);
   });
 });

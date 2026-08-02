@@ -377,30 +377,56 @@ function isAdvancedAnalysisResult(
           && isStringArray(animation.limitations)
         ));
     case 'memory-trend':
-      return hasOnlyKeys(value, ['kind', 'samples', 'gcEvents'])
+      return hasOnlyKeys(value, ['kind', 'samples', 'gcEvents', 'summary'])
         && Array.isArray(value.samples)
+        && value.samples.length <= 2_000
         && value.samples.every(sample => (
           isRecord(sample)
-          && hasOnlyKeys(sample, ['timestampUs', 'bytes', 'evidenceIds'])
+          && hasOnlyKeys(sample, [
+            'timestampUs', 'metric', 'bytes', 'evidenceIds',
+          ])
           && isFiniteNumber(sample.timestampUs)
+          && sample.metric === 'js-heap-used'
           && isNonNegativeInteger(sample.bytes)
           && isEvidenceIds(sample.evidenceIds)
         ))
         && Array.isArray(value.gcEvents)
+        && value.gcEvents.length <= 2_000
         && value.gcEvents.every(event => (
           isRecord(event)
           && hasOnlyKeys(event, [
-            'eventId', 'startUs', 'durationUs', 'evidenceIds',
+            'eventId', 'type', 'startUs', 'durationUs',
+            'interactionEventIds', 'longTaskEventIds', 'evidenceIds',
           ])
           && isNonEmptyString(event.eventId)
+          && ['minor', 'major', 'incremental', 'other']
+            .includes(String(event.type))
           && isFiniteNumber(event.startUs)
           && isFiniteNumber(event.durationUs)
           && event.durationUs >= 0
+          && isEvidenceIds(event.interactionEventIds)
+          && isEvidenceIds(event.longTaskEventIds)
           && isEvidenceIds(event.evidenceIds)
-        ));
+        ))
+        && value.gcEvents.reduce((sum, event) => (
+          sum
+          + event.interactionEventIds.length
+          + event.longTaskEventIds.length
+        ), 0) <= 2_000
+        && isRecord(value.summary)
+        && hasOnlyKeys(value.summary, [
+          'gcCount', 'totalPauseUs', 'maxPauseUs',
+        ])
+        && isNonNegativeInteger(value.summary.gcCount)
+        && value.summary.gcCount >= value.gcEvents.length
+        && isFiniteNumber(value.summary.totalPauseUs)
+        && value.summary.totalPauseUs >= 0
+        && isFiniteNumber(value.summary.maxPauseUs)
+        && value.summary.maxPauseUs >= 0;
     case 'gpu-raster':
-      return hasOnlyKeys(value, ['kind', 'intervals'])
+      return hasOnlyKeys(value, ['kind', 'intervals', 'summary'])
         && Array.isArray(value.intervals)
+        && value.intervals.length <= 2_000
         && value.intervals.every(interval => (
           isRecord(interval)
           && hasOnlyKeys(interval, [
@@ -412,7 +438,22 @@ function isAdvancedAnalysisResult(
           && isFiniteNumber(interval.durationUs)
           && interval.durationUs >= 0
           && isEvidenceIds(interval.evidenceIds)
-        ));
+        ))
+        && isRecord(value.summary)
+        && hasOnlyKeys(value.summary, [
+          'intervalCount', 'gpuIntervalCount', 'rasterIntervalCount',
+          'totalDurationUs', 'maxDurationUs',
+        ])
+        && isNonNegativeInteger(value.summary.intervalCount)
+        && value.summary.intervalCount >= value.intervals.length
+        && isNonNegativeInteger(value.summary.gpuIntervalCount)
+        && isNonNegativeInteger(value.summary.rasterIntervalCount)
+        && value.summary.gpuIntervalCount + value.summary.rasterIntervalCount
+          === value.summary.intervalCount
+        && isFiniteNumber(value.summary.totalDurationUs)
+        && value.summary.totalDurationUs >= 0
+        && isFiniteNumber(value.summary.maxDurationUs)
+        && value.summary.maxDurationUs >= 0;
     case 'custom-query':
       return hasOnlyKeys(value, [
         'kind', 'supportedFields', 'supportedOperators',
@@ -582,7 +623,7 @@ function isSessionDescriptor(value: unknown): boolean {
     && Object.entries(value.trackEventCounts).every(([trackId, count]) => (
       [
         'layout-shifts', 'animations', 'milestones', 'network', 'main', 'rendering',
-        'interactions', 'frames',
+        'interactions', 'frames', 'gpu-raster',
       ].includes(trackId)
       && isNonNegativeInteger(count)
       && count > 0

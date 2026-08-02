@@ -29,6 +29,8 @@ import InsightNavigator from './InsightNavigator';
 import TraceComparisonPanel from './TraceComparisonPanel';
 import LayoutShiftPanel from './LayoutShiftPanel';
 import AnimationCompositionPanel from './AnimationCompositionPanel';
+import MemoryTrendPanel from './MemoryTrendPanel';
+import GpuRasterPanel from './GpuRasterPanel';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
@@ -143,11 +145,25 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const crossSourceEnabled = isTraceCrossSourceEnabled();
   const stage5Enabled = isTraceStage5Enabled();
   const stage6Enabled = isTraceStage6Enabled();
+  const advancedRange = interaction.selection ?? interaction.viewport;
   const returnFocus = useRef<Array<
     HTMLElement | { evidenceEntityId: string } | null
   >>([]);
   const pendingEvidenceFocus = useRef<string | undefined>(undefined);
   const mainRef = useRef<HTMLElement>(null);
+  const focusAdvancedRange = (range: { startUs: number; endUs: number }) => {
+    const duration = Math.max(range.endUs - range.startUs, 50_000);
+    store.navigateTo({
+      viewport: {
+        startUs: range.startUs - duration,
+        endUs: range.endUs + duration,
+      },
+    }, {
+      drawerOpen,
+      scrollTop: mainRef.current?.scrollTop ?? 0,
+    });
+    store.setSelection(range);
+  };
 
   useEffect(() => {
     const entityId = pendingEvidenceFocus.current;
@@ -509,37 +525,23 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             <>
               <LayoutShiftPanel
                 client={client}
-                range={session.range}
-                onFocusRange={range => {
-                  const duration = Math.max(range.endUs - range.startUs, 50_000);
-                  store.navigateTo({
-                    viewport: {
-                      startUs: range.startUs - duration,
-                      endUs: range.endUs + duration,
-                    },
-                  }, {
-                    drawerOpen,
-                    scrollTop: mainRef.current?.scrollTop ?? 0,
-                  });
-                  store.setSelection(range);
-                }}
+                range={advancedRange}
+                onFocusRange={focusAdvancedRange}
               />
               <AnimationCompositionPanel
                 client={client}
-                range={session.range}
-                onFocusRange={range => {
-                  const duration = Math.max(range.endUs - range.startUs, 50_000);
-                  store.navigateTo({
-                    viewport: {
-                      startUs: range.startUs - duration,
-                      endUs: range.endUs + duration,
-                    },
-                  }, {
-                    drawerOpen,
-                    scrollTop: mainRef.current?.scrollTop ?? 0,
-                  });
-                  store.setSelection(range);
-                }}
+                range={advancedRange}
+                onFocusRange={focusAdvancedRange}
+              />
+              <MemoryTrendPanel
+                client={client}
+                range={advancedRange}
+                onFocusRange={focusAdvancedRange}
+              />
+              <GpuRasterPanel
+                client={client}
+                range={advancedRange}
+                onFocusRange={focusAdvancedRange}
               />
             </>
           )}

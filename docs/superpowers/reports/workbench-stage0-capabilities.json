@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "reviewDate": "2026-08-02",
   "reviewer": "TRAE",
-  "baseRef": "b82776ebdd1a7918c4125cd62ba97d2c7440985f",
+  "baseRef": "ed2fd9e9d85c550aeab90102665f678c6cb91ea4",
   "allowedCriterionStatuses": [
     "implemented-verified",
     "implemented-unverified",
@@ -44,7 +44,52 @@
         "state": "passed",
         "passedSuites": 156,
         "skippedSuites": 3,
-        "passedTests": 983,
+        "passedTests": 984,
+        "skippedTests": 11
+      },
+      "diffCheck": "passed"
+    }
+  },
+  "stage6Round2": {
+    "releaseAccepted": false,
+    "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
+    "browserVerification": {
+      "state": "not-run",
+      "reason": "按分批验证策略，浏览器 benchmark 与六档 feature flag 构建延后到 Batch 49–50。"
+    },
+    "batches": [
+      {
+        "batchId": 44,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["仅接受明确 GC 名称、持续时间和 jsHeapSizeUsed 字节计数器；结果、交互/长任务上下文和证据引用均按整个响应 2000 项上限返回；不支持 Heap Snapshot、对象保留链或泄漏确认。"]
+      },
+      {
+        "batchId": 45,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["GPU 查询和轨道共用事件名、类别及进程/线程元数据白名单，且只统计含明确持续时间的活动；结果和证据引用均按整个响应 2000 项上限返回；不推断利用率、硬件瓶颈、显存压力或驱动根因。"]
+      },
+      {
+        "batchId": 46,
+        "states": ["audited", "automated-verified", "real-sample-blocked"],
+        "limitations": ["复用既有双 Trace 比较并补齐审计测试；尚无真实同场景 Trace 对。"]
+      }
+    ],
+    "validation": {
+      "targetedJest": {
+        "state": "passed",
+        "passedSuites": 6,
+        "passedTests": 69,
+        "scope": "advancedAnalysisStore, traceEngineAdapter, sessionKernel, client, stage6Protocol, capabilityAudit"
+      },
+      "targetedEslint": {
+        "state": "passed",
+        "checkedFiles": 10
+      },
+      "fullJest": {
+        "state": "passed",
+        "passedSuites": 158,
+        "skippedSuites": 3,
+        "passedTests": 1013,
         "skippedTests": 11
       },
       "diffCheck": "passed"
@@ -74,7 +119,7 @@
           "codeEvidence": ["src/workbench/timelineTracks.ts"],
           "testEvidence": ["src/workbench/timelineTracks.test.ts"],
           "sampleEvidence": ["SYNTH-LAYOUT-SHIFT"],
-          "limitations": ["registry 已支持高级轨道；当前注册布局偏移与动画轨道。"]
+          "limitations": ["registry 已支持高级轨道；当前注册布局偏移、动画与 GPU/Raster 轨道。"]
         }
       ]
     },
@@ -159,11 +204,11 @@
         {
           "criterionId": "CPU-01-GC-MEMORY-TREND",
           "points": 2,
-          "status": "absent",
-          "codeEvidence": [],
-          "testEvidence": [],
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/advancedAnalysisStore.ts", "src/components/trace/workbench/MemoryTrendPanel.tsx", "src/workbench/sessionKernel.ts"],
+          "testEvidence": ["src/workbench/advancedAnalysisStore.test.ts", "src/components/trace/workbench/MemoryTrendPanel.test.tsx", "src/workbench/sessionKernel.test.ts", "src/workbench/stage6Protocol.test.ts"],
           "sampleEvidence": [],
-          "limitations": ["Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。"]
+          "limitations": ["仅接受明确 GC 名称、持续时间和 jsHeapSizeUsed 字节值；结果、交互/长任务上下文和证据引用均按整个响应 2000 项上限返回；无 Heap Snapshot，不输出对象保留链、对象级归因、确定内存泄漏或泄漏速度；真实样本仍阻塞。"]
         }
       ]
     },
@@ -330,11 +375,11 @@
         {
           "criterionId": "RFI-02-GPU-RASTER",
           "points": 1,
-          "status": "absent",
-          "codeEvidence": [],
-          "testEvidence": [],
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/advancedAnalysisStore.ts", "src/workbench/timelineTracks.ts", "src/components/trace/workbench/GpuRasterPanel.tsx"],
+          "testEvidence": ["src/workbench/advancedAnalysisStore.test.ts", "src/workbench/timelineTracks.test.ts", "src/components/trace/workbench/GpuRasterPanel.test.tsx", "src/workbench/sessionKernel.test.ts", "src/workbench/stage6Protocol.test.ts"],
           "sampleEvidence": [],
-          "limitations": ["Stage 6 GPU/Raster 摘要轨道尚未实现。"]
+          "limitations": ["GPU 查询和轨道共用白名单且只统计含明确持续时间的活动；结果和证据引用均按整个响应 2000 项上限返回；不推断利用率、硬件瓶颈、显存压力或驱动根因；真实样本仍阻塞。"]
         }
       ]
     },

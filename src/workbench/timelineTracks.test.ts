@@ -12,6 +12,8 @@ describe('timeline tracks', () => {
     ['RunTask', 'other', 'main'],
     ['CompositorAnimation', 'animation', 'animations'],
     ['NonCompositorAnimation', 'animation', undefined],
+    ['RasterTask', 'rendering', 'gpu-raster'],
+    ['GPUTask', 'gpu', 'gpu-raster'],
     ['Layout', 'rendering', 'rendering'],
     ['EventTiming', 'interaction', 'interactions'],
     ['AnimationFrame', 'rendering', 'frames'],
@@ -30,6 +32,7 @@ describe('timeline tracks', () => {
       'frames',
       'layout-shifts',
       'animations',
+      'gpu-raster',
     ]);
     expect(TIMELINE_TRACKS.every(track => track.label && track.capability)).toBe(true);
   });
@@ -52,5 +55,6 @@ describe('timeline tracks', () => {
   it('preserves core classification when advanced tracks are disabled', () => {
     expect(classifyCoreTimelineTrack('Animation', 'rendering')).toBe('rendering');
     expect(classifyCoreTimelineTrack('LayoutShift', 'loading')).toBe('rendering');
+    expect(classifyCoreTimelineTrack('RasterTask', 'rendering')).toBe('rendering');
   });
 });

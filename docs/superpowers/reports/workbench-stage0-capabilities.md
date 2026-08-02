@@ -1,15 +1,16 @@
 # Performance Workbench 能力证据表
 
-- 基础代码 ref：`b82776ebdd1a7918c4125cd62ba97d2c7440985f`
+- 基础代码 ref：`ed2fd9e9d85c550aeab90102665f678c6cb91ea4`
 - 复核人：TRAE
 - 复核日期：2026-08-02
-- 自动计分：79 / 100
+- 自动计分：82 / 100
 - 发布验收：未接受
 - 外部门禁：`real-sample-blocked`、`worker-peak-memory-unmeasured`
 - Stage 6 第一轮：Batch 41 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 42 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 43 `implemented`/`automated-verified`/`real-sample-blocked`
+- Stage 6 第二轮：Batch 44 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 45 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 46 `audited`/`automated-verified`/`real-sample-blocked`
 - Stage 6 开关：`REACT_APP_ENABLE_TRACE_STAGE6=1`（仍依赖前五档 Workbench 开关）
-- 浏览器验证：`not-run`
-- 状态计数：implemented-verified=26，implemented-unverified=12，designed=1，absent=5
+- 浏览器验证：第一轮 `not-run`，第二轮 `not-run`
+- 状态计数：implemented-verified=28，implemented-unverified=12，designed=1，absent=3
 - 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。
 
 ## 域汇总
@@ -17,9 +18,9 @@
 | 能力域 | 已得分 | 可得分 | 未计分原因 |
 |---|---:|---:|---|
 | 时间轴与跨轨联动 | 18 | 20 | TL-02-BROWSER-ACCESSIBILITY: Stage 5 浏览器 artifact 被忽略，master 无可提交运行证据。<br>TL-04-LARGE-TRACE-BROWSER: master 不包含可提交的 Stage 5 100K/500K/1M 浏览器运行 artifact。 |
-| 主线程与 CPU 分析 | 12 | 15 | CPU-01-GC-MEMORY-TREND: Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。<br>CPU-02-REAL-PROFILE-SHAPES: 仓库外真实 CPU Profile 形状仍为 real-sample-blocked。 |
+| 主线程与 CPU 分析 | 14 | 15 | CPU-02-REAL-PROFILE-SHAPES: 仓库外真实 CPU Profile 形状仍为 real-sample-blocked。 |
 | 网络瀑布 | 7 | 10 | NET-01-REAL-REQUEST-SHAPES: 仓库外真实请求样本门禁未通过。<br>NET-02-CONNECTION-PHASES: 离线 Trace 尚未提供完整 DNS/TCP/TLS/代理阶段瀑布。 |
-| 渲染、帧与交互 | 7 | 10 | RFI-01-REAL-RENDERING-SAMPLE: 真实渲染故障样本仍为 real-sample-blocked。<br>RFI-02-GPU-RASTER: Stage 6 GPU/Raster 摘要轨道尚未实现。<br>RFI-03-REAL-SCREENSHOT-TRACE: 仓库外真实截图 Trace 未验证。 |
+| 渲染、帧与交互 | 8 | 10 | RFI-01-REAL-RENDERING-SAMPLE: 真实渲染故障样本仍为 real-sample-blocked。<br>RFI-03-REAL-SCREENSHOT-TRACE: 仓库外真实截图 Trace 未验证。 |
 | Call Tree、Bottom-up、Event Log | 8 | 10 | AGG-01-BROWSER-WORKFLOW: master 无可提交的 Stage 5 浏览器工作流 artifact。<br>AGG-01-REAL-PROFILE-WORKFLOW: 真实 CPU Profile 工作流仍为 real-sample-blocked。 |
 | 导航、选区与查询 | 8 | 10 | NAV-04-BROWSER-SESSION: 缺少 master 内可提交的浏览器会话 artifact。<br>NAV-03-DECLARATIVE-QUERY: Stage 6 声明式自定义查询尚未实现。 |
 | 自动诊断与证据 | 7 | 10 | DIA-01-REAL-PRECISION: 真实故障样本精确率门禁未通过。<br>DIA-02-REAL-CROSS-SOURCE: 真实 Trace/HAR/NetLog 配对仍为 real-sample-blocked。 |
@@ -31,13 +32,13 @@
 | Criteria ID | 能力域 | 分值 | 状态 | 代码证据 | 测试/样本证据 | 限制 |
 |---|---|---:|---|---|---|---|
 | TL-01-CORE-TRACKS | 时间轴与跨轨联动 | 6 | `implemented-verified` | `src/workbench/timelineTracks.ts`<br>`src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/timelineTracks.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx`<br>`SYNTH-WB-CONTRACT` | 仅对已注册核心轨道计分。 |
-| TL-01-EXTENSIBLE-REGISTRY | 时间轴与跨轨联动 | 2 | `implemented-verified` | `src/workbench/timelineTracks.ts` | `src/workbench/timelineTracks.test.ts`<br>`SYNTH-LAYOUT-SHIFT` | registry 已支持高级轨道；当前注册布局偏移与动画轨道。 |
+| TL-01-EXTENSIBLE-REGISTRY | 时间轴与跨轨联动 | 2 | `implemented-verified` | `src/workbench/timelineTracks.ts` | `src/workbench/timelineTracks.test.ts`<br>`SYNTH-LAYOUT-SHIFT` | registry 已支持高级轨道；当前注册布局偏移、动画与 GPU/Raster 轨道。 |
 | TL-02-INTERACTION | 时间轴与跨轨联动 | 5 | `implemented-verified` | `src/workbench/timelineInteractionStore.ts`<br>`src/workbench/timelineGeometry.ts` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/workbench/timelineGeometry.test.ts`<br>`SYNTH-WB-CONTRACT` | 自动化测试证明状态与几何行为，不替代真实浏览器验收。 |
 | TL-02-BROWSER-ACCESSIBILITY | 时间轴与跨轨联动 | 1 | `implemented-unverified` | `src/components/trace/workbench/TimelineCanvas.tsx` | `src/components/trace/workbench/TimelineCanvas.test.tsx` | Stage 5 浏览器 artifact 被忽略，master 无可提交运行证据。 |
 | TL-04-VIEWPORT-QUERY | 时间轴与跨轨联动 | 5 | `implemented-verified` | `src/workbench/client.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/workbench/timelineColumnarStore.ts` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/timelineColumnarStore.test.ts`<br>`SYNTH-WB-CONTRACT` | 查询结果允许显式 LOD 和截断。 |
 | TL-04-LARGE-TRACE-BROWSER | 时间轴与跨轨联动 | 1 | `implemented-unverified` | `src/benchmark/workbenchBrowserBenchmark.ts` | 无 | master 不包含可提交的 Stage 5 100K/500K/1M 浏览器运行 artifact。 |
 | CPU-01-TASK-PROFILE-FACTS | 主线程与 CPU 分析 | 3 | `implemented-verified` | `src/parsers/trace/taskFacts.ts`<br>`src/parsers/trace/cpuProfileFacts.ts` | `src/parsers/trace/taskFacts.test.ts`<br>`src/parsers/trace/cpuProfileFacts.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 仅计主线程任务与 CPU Profile 基础事实。 |
-| CPU-01-GC-MEMORY-TREND | 主线程与 CPU 分析 | 2 | `absent` | 无 | 无 | Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。 |
+| CPU-01-GC-MEMORY-TREND | 主线程与 CPU 分析 | 2 | `implemented-verified` | `src/workbench/advancedAnalysisStore.ts`<br>`src/components/trace/workbench/MemoryTrendPanel.tsx`<br>`src/workbench/sessionKernel.ts` | `src/workbench/advancedAnalysisStore.test.ts`<br>`src/components/trace/workbench/MemoryTrendPanel.test.tsx`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/stage6Protocol.test.ts` | 仅接受明确 GC 名称、持续时间和 jsHeapSizeUsed 字节值；结果、交互/长任务上下文和证据引用均按整个响应 2000 项上限返回；无 Heap Snapshot，不输出对象保留链、对象级归因、确定内存泄漏或泄漏速度；真实样本仍阻塞。 |
 | CPU-02-FLAME-CHART | 主线程与 CPU 分析 | 4 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/components/trace/workbench/FlameChartCanvas.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/components/trace/workbench/FlameChartCanvas.test.tsx`<br>`SYNTH-CPU-PROFILE` | 仅由合成 CPU Profile 形状验证。 |
 | CPU-02-REAL-PROFILE-SHAPES | 主线程与 CPU 分析 | 1 | `implemented-unverified` | `src/workbench/cpuProfileStore.ts` | 无 | 仓库外真实 CPU Profile 形状仍为 real-sample-blocked。 |
 | CPU-03-SELECTION-AGGREGATES | 主线程与 CPU 分析 | 5 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-CPU-PROFILE` | 采样命中不等同于真实函数调用次数。 |
@@ -50,7 +51,7 @@
 | RFI-01-ANIMATION-COMPOSITION | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/advancedAnalysisStore.ts`<br>`src/components/trace/workbench/AnimationCompositionPanel.tsx` | `src/workbench/advancedAnalysisStore.test.ts`<br>`src/components/trace/workbench/AnimationCompositionPanel.test.tsx`<br>`src/workbench/sessionKernel.test.ts`<br>`SYNTH-ANIMATION-COMPOSITION` | 时间重叠只作范围关联，不证明动画导致帧或渲染活动；真实样本仍阻塞。 |
 | RFI-01-REAL-RENDERING-SAMPLE | 渲染、帧与交互 | 1 | `implemented-unverified` | `src/parsers/trace/traceFactCollectors.ts` | 无 | 真实渲染故障样本仍为 real-sample-blocked。 |
 | RFI-02-FRAME-RANGES | 渲染、帧与交互 | 2 | `implemented-verified` | `src/parsers/trace/traceFactCollectors.ts`<br>`src/components/trace/workbench/TimelineCanvas.tsx` | `src/parsers/trace/minimalTraceAggregator.batch3.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx`<br>`SYNTH-FRAME` | 帧预算使用 60Hz 参考，不推断设备刷新率。 |
-| RFI-02-GPU-RASTER | 渲染、帧与交互 | 1 | `absent` | 无 | 无 | Stage 6 GPU/Raster 摘要轨道尚未实现。 |
+| RFI-02-GPU-RASTER | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/advancedAnalysisStore.ts`<br>`src/workbench/timelineTracks.ts`<br>`src/components/trace/workbench/GpuRasterPanel.tsx` | `src/workbench/advancedAnalysisStore.test.ts`<br>`src/workbench/timelineTracks.test.ts`<br>`src/components/trace/workbench/GpuRasterPanel.test.tsx`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/stage6Protocol.test.ts` | GPU 查询和轨道共用白名单且只统计含明确持续时间的活动；结果和证据引用均按整个响应 2000 项上限返回；不推断利用率、硬件瓶颈、显存压力或驱动根因；真实样本仍阻塞。 |
 | RFI-03-SCREENSHOT-LIFECYCLE | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/rawEvidenceStore.ts`<br>`src/components/trace/workbench/ScreenshotFilmstrip.tsx` | `src/workbench/rawEvidenceStore.test.ts`<br>`src/components/trace/workbench/ScreenshotFilmstrip.test.tsx`<br>`SYNTH-WB-SCREENSHOT` | 截图不进入插件或默认导出。 |
 | RFI-03-REAL-SCREENSHOT-TRACE | 渲染、帧与交互 | 1 | `implemented-unverified` | `src/workbench/rawEvidenceStore.ts` | 无 | 仓库外真实截图 Trace 未验证。 |
 | AGG-01-BOUNDED-QUERIES | Call Tree、Bottom-up、Event Log | 8 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-CPU-PROFILE` | 列表按上限和 continuation 有界返回。 |

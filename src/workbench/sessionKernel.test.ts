@@ -575,6 +575,34 @@ describe('WorkbenchSessionKernel', () => {
     }
   });
 
+  it('releases the previous baseline when a replacement commits', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const first = await addBaseline(subject, created, trace);
+    if (first.type !== 'comparison-baseline-result') {
+      throw new Error('first baseline unavailable');
+    }
+    const release = jest.spyOn(MinimalTraceEngineAdapter.prototype, 'release');
+    try {
+      const replacement = await addBaseline(subject, first, {
+        traceEvents: trace.traceEvents.map(event => ({
+          ...event,
+          ts: typeof event.ts === 'number' ? event.ts + 1_000 : event.ts,
+        })),
+      });
+      expect(replacement).toMatchObject({
+        type: 'comparison-baseline-result',
+        operation: 'added',
+        baselineAvailable: true,
+        sessionRevision: first.sessionRevision + 1,
+      });
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
   it('keeps comparison operations disabled without changing the session revision', async () => {
     process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
     process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
@@ -703,6 +731,91 @@ describe('WorkbenchSessionKernel', () => {
       type: 'trace-comparison-result',
       status,
       regression: 'unavailable',
+    });
+  });
+
+  it('aligns by capture-relative offsets instead of absolute timestamps', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const absoluteOffsetUs = 5_000_000;
+    const shiftedBaseline: ChromiumTraceFile = {
+      traceEvents: trace.traceEvents.map(event => ({
+        ...event,
+        ts: typeof event.ts === 'number'
+          ? event.ts + absoluteOffsetUs
+          : event.ts,
+      })),
+    };
+    const added = await addBaseline(subject, created, shiftedBaseline);
+    if (added.type !== 'comparison-baseline-result') {
+      throw new Error('baseline unavailable');
+    }
+
+    const compared = await subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'compare-relative-time',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: true,
+    });
+
+    expect(compared).toMatchObject({
+      type: 'trace-comparison-result',
+      status: 'comparable',
+      regression: 'stable',
+      baselineRange: {
+        startUs: created.session.range.startUs + absoluteOffsetUs,
+        endUs: created.session.range.endUs + absoluteOffsetUs,
+      },
+      limitations: expect.arrayContaining([
+        expect.stringContaining('相对偏移对齐'),
+      ]),
+    });
+  });
+
+  it('does not turn event-count differences into a regression conclusion', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const baseline: ChromiumTraceFile = {
+      traceEvents: [
+        ...trace.traceEvents,
+        ...trace.traceEvents
+          .filter(event => event.name !== 'Screenshot')
+          .map(event => ({
+            ...event,
+            ts: typeof event.ts === 'number' ? event.ts + 1 : event.ts,
+          })),
+      ],
+    };
+    const added = await addBaseline(subject, created, baseline);
+    if (added.type !== 'comparison-baseline-result') {
+      throw new Error('baseline unavailable');
+    }
+
+    const compared = await subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'compare-event-count-only',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: true,
+    });
+
+    expect(compared).toMatchObject({
+      type: 'trace-comparison-result',
+      status: 'comparable',
+      regression: 'stable',
+      metrics: expect.arrayContaining([{
+        metric: 'matched-events',
+        current: 2,
+        baseline: 4,
+        deltaPercent: -50,
+      }]),
     });
   });
 
@@ -959,6 +1072,109 @@ describe('WorkbenchSessionKernel', () => {
       },
     });
     expect(JSON.stringify(response)).toMatch(/不证明动画导致/);
+  });
+
+  it('returns bounded memory and GC evidence without raw counter data', async () => {
+    enableStage6();
+    const subject = await kernel({}, {
+      traceEvents: [
+        {
+          name: 'UpdateCounters',
+          cat: 'v8',
+          ph: 'I',
+          ts: 100,
+          args: { data: { jsHeapSizeUsed: 1_024, secret: '<REDACTED>' } },
+        },
+        {
+          name: 'MajorGC',
+          cat: 'v8',
+          ph: 'X',
+          ts: 200,
+          dur: 25,
+        },
+      ],
+    });
+    const created = await createSession(subject);
+    const response = await subject.dispatch({
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'memory-trend',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      capability: 'memory-trend',
+      range: { startUs: 0, endUs: 1_000 },
+    });
+
+    expect(response).toMatchObject({
+      type: 'advanced-analysis-result',
+      capability: 'memory-trend',
+      status: 'available',
+      result: {
+        kind: 'memory-trend',
+        samples: [{ metric: 'js-heap-used', bytes: 1_024 }],
+        gcEvents: [{ type: 'major', durationUs: 25 }],
+        summary: { gcCount: 1, totalPauseUs: 25, maxPauseUs: 25 },
+      },
+    });
+    expect(JSON.stringify(response)).not.toMatch(/secret|args|rawTrace/i);
+  });
+
+  it('returns explicit GPU/Raster activity without hardware conclusions', async () => {
+    enableStage6();
+    const subject = await kernel({}, {
+      traceEvents: [
+        {
+          name: 'RasterTask',
+          cat: 'cc',
+          ph: 'X',
+          ts: 100,
+          dur: 20,
+          pid: 1,
+          tid: 10,
+        },
+        {
+          name: 'GPUTask',
+          cat: 'gpu',
+          ph: 'X',
+          ts: 200,
+          dur: 30,
+          pid: 2,
+          tid: 20,
+        },
+      ],
+    });
+    const created = await createSession(subject);
+
+    expect(created.session.trackEventCounts).toMatchObject({ 'gpu-raster': 2 });
+    const response = await subject.dispatch({
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'gpu-raster',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      capability: 'gpu-raster',
+      range: { startUs: 0, endUs: 1_000 },
+    });
+    expect(response).toMatchObject({
+      type: 'advanced-analysis-result',
+      capability: 'gpu-raster',
+      status: 'available',
+      result: {
+        kind: 'gpu-raster',
+        intervals: [
+          { activity: 'raster', durationUs: 20 },
+          { activity: 'gpu', durationUs: 30 },
+        ],
+        summary: {
+          intervalCount: 2,
+          totalDurationUs: 50,
+          maxDurationUs: 30,
+        },
+      },
+    });
+    expect(JSON.stringify(response)).not.toMatch(
+      /utilization|hardware bottleneck|driver root cause|rawTrace/i,
+    );
   });
 
   it('releases indexes and evidence when the Worker fails', async () => {

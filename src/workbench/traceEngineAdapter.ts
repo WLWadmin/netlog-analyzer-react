@@ -20,7 +20,13 @@ import type {
   TraceRequestFacts,
 } from '../parsers/trace/types';
 import type { WorkbenchCapability } from './protocol';
-import { AdvancedAnalysisStore } from './advancedAnalysisStore';
+import {
+  AdvancedAnalysisStore,
+  classifyGpuRasterActivity,
+  collectGpuEvidenceMetadata,
+  isGpuRasterCandidateName,
+  type GpuEvidenceMetadata,
+} from './advancedAnalysisStore';
 import { CpuProfileStore } from './cpuProfileStore';
 import { RawEvidenceStore } from './rawEvidenceStore';
 import {
@@ -125,6 +131,7 @@ function eventCategory(event: ChromiumTraceEvent): string {
 function projectTimelineEvent(
   event: ChromiumTraceEvent,
   sourceIndex: number,
+  gpuMetadata: GpuEvidenceMetadata,
 ): TimelineStoreEventInput | undefined {
   const startUs = readFiniteNumber(event.ts);
   if (startUs === undefined) return undefined;
@@ -134,10 +141,26 @@ function projectTimelineEvent(
   const navigationId = readNavigationId(event);
   const name = readString(event.name) ?? 'Unnamed';
   const category = eventCategory(event);
-  let semanticTrack = classifyTimelineTrack(name, category);
+  const rawCategory = readString(event.cat) ?? category;
+  const duration = readFiniteNumber(event.dur);
+  const gpuRasterActivity = classifyGpuRasterActivity(event, gpuMetadata);
+  const classificationCategory = isGpuRasterCandidateName(name)
+    ? gpuRasterActivity === 'gpu' ? `${rawCategory},gpu` : rawCategory
+    : category;
+  let semanticTrack = (
+    isTraceStage6Enabled()
+    && isGpuRasterCandidateName(name)
+    && (gpuRasterActivity === undefined || duration === undefined || duration < 0)
+  )
+    ? classifyCoreTimelineTrack(name, category)
+    : classifyTimelineTrack(name, classificationCategory);
   if (!semanticTrack) return undefined;
   if (
-    (semanticTrack === 'layout-shifts' || semanticTrack === 'animations')
+    (
+      semanticTrack === 'layout-shifts'
+      || semanticTrack === 'animations'
+      || semanticTrack === 'gpu-raster'
+    )
     && !isTraceStage6Enabled()
   ) {
     semanticTrack = classifyCoreTimelineTrack(name, category);
@@ -400,6 +423,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
             families.has('rendering')
             || (trackEventCounts['layout-shifts'] ?? 0) > 0
             || (trackEventCounts.animations ?? 0) > 0
+            || (trackEventCounts['gpu-raster'] ?? 0) > 0
           )
         )
         || (capability === 'interactions' && families.has('interaction'))
@@ -424,6 +448,8 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     if (!this.analysis) throw new Error('Trace analysis must complete before indexing');
     if (this.sessionData) return this.sessionData;
     const timelineEvents = new Map<number, TimelineStoreEventInput>();
+    const advancedTimelineEvents = new Map<number, TimelineStoreEventInput>();
+    const gpuMetadata = collectGpuEvidenceMetadata(this.trace.traceEvents);
     const total = this.trace.traceEvents.length;
     const yieldInterval = this.adapterOptions.indexYieldInterval ?? 2_048;
     options.onProgress({
@@ -434,8 +460,21 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     });
     for (let sourceIndex = 0; sourceIndex < total; sourceIndex += 1) {
       if (options.isCancelled()) throw new TraceAggregationCancelled();
-      const projected = projectTimelineEvent(this.trace.traceEvents[sourceIndex], sourceIndex);
-      if (projected) timelineEvents.set(sourceIndex, projected);
+      const projected = projectTimelineEvent(
+        this.trace.traceEvents[sourceIndex],
+        sourceIndex,
+        gpuMetadata,
+      );
+      if (projected) {
+        timelineEvents.set(sourceIndex, projected);
+        if (
+          projected.trackId === 'layout-shifts'
+          || projected.trackId === 'animations'
+          || projected.trackId === 'gpu-raster'
+        ) {
+          advancedTimelineEvents.set(sourceIndex, projected);
+        }
+      }
       if ((sourceIndex + 1) % yieldInterval === 0) {
         options.onProgress({
           phase: 'indexing-events',
@@ -453,13 +492,21 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     for (const semanticEvent of projectedFacts.events) {
       timelineEvents.set(semanticEvent.sourceIndex, semanticEvent);
     }
+    for (const [sourceIndex, advancedEvent] of advancedTimelineEvents) {
+      timelineEvents.set(sourceIndex, advancedEvent);
+    }
     if (options.isCancelled()) throw new TraceAggregationCancelled();
     this.sessionData = {
       timeline: TimelineColumnarStore.build([...timelineEvents.values()]),
       evidence: new RawEvidenceStore(this.trace.traceEvents),
       cpuProfile: CpuProfileStore.build(this.trace.traceEvents),
       ...(isTraceStage6Enabled()
-        ? { advanced: new AdvancedAnalysisStore(this.trace.traceEvents) }
+        ? {
+            advanced: new AdvancedAnalysisStore(
+              this.trace.traceEvents,
+              this.analysis.context,
+            ),
+          }
         : {}),
     };
     options.onProgress({

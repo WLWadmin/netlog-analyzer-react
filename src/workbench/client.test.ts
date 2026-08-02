@@ -268,6 +268,61 @@ describe('TraceWorkbenchClient', () => {
     });
   });
 
+  it('discards a late comparison response without replacing stable state', async () => {
+    const pending: Array<{
+      request: Extract<WorkbenchRequest, { type: 'query-trace-comparison' }>;
+      resolve(response: WorkbenchResponse): void;
+    }> = [];
+    const dispatch = jest.fn((
+      request: WorkbenchRequest,
+    ): Promise<WorkbenchResponse> => {
+      if (request.type === 'create-session') {
+        return Promise.resolve(sessionResponse(request.requestId));
+      }
+      if (request.type === 'query-trace-comparison') {
+        return new Promise(resolve => pending.push({ request, resolve }));
+      }
+      throw new Error('unexpected request');
+    });
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, { dispatch, close: jest.fn() });
+    await client.createSession();
+
+    const first = client.queryTraceComparison({ startUs: 0, endUs: 10 }, true);
+    const second = client.queryTraceComparison({ startUs: 10, endUs: 20 }, true);
+    const response = (
+      item: typeof pending[number],
+      regression: 'stable' | 'improved',
+    ): WorkbenchResponse => ({
+      type: 'trace-comparison-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: item.request.requestId,
+      sessionId: item.request.sessionId,
+      sessionRevision: item.request.sessionRevision,
+      status: 'comparable',
+      range: item.request.range,
+      baselineRange: item.request.range,
+      regression,
+      metrics: [],
+      evidenceIds: [],
+      limitations: [],
+    });
+
+    pending[1].resolve(response(pending[1], 'improved'));
+    await second;
+    pending[0].resolve(response(pending[0], 'stable'));
+    await first;
+
+    expect(client.getSnapshot().comparison).toMatchObject({
+      range: { startUs: 10, endUs: 20 },
+      regression: 'improved',
+    });
+    expect(client.getSnapshot().discardedResponseCount).toBe(1);
+  });
+
   it('sends at most one cancellation for the active viewport and bounds the queue', async () => {
     const resolvers: Array<(response: WorkbenchResponse) => void> = [];
     const requests: WorkbenchRequest[] = [];

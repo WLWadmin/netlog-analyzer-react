@@ -71,6 +71,7 @@ export interface WorkbenchSessionDescriptor extends WorkbenchSessionRef {
   trackEventCounts: Partial<Record<
     | 'layout-shifts'
     | 'animations'
+    | 'gpu-raster'
     | 'milestones'
     | 'network'
     | 'main'
@@ -532,15 +533,24 @@ export interface MemoryTrendAnalysisDto {
   kind: 'memory-trend';
   samples: Array<{
     timestampUs: number;
+    metric: 'js-heap-used';
     bytes: number;
     evidenceIds: string[];
   }>;
   gcEvents: Array<{
     eventId: string;
+    type: 'minor' | 'major' | 'incremental' | 'other';
     startUs: number;
     durationUs: number;
+    interactionEventIds: string[];
+    longTaskEventIds: string[];
     evidenceIds: string[];
   }>;
+  summary: {
+    gcCount: number;
+    totalPauseUs: number;
+    maxPauseUs: number;
+  };
 }
 
 export interface GpuRasterAnalysisDto {
@@ -552,6 +562,13 @@ export interface GpuRasterAnalysisDto {
     durationUs: number;
     evidenceIds: string[];
   }>;
+  summary: {
+    intervalCount: number;
+    gpuIntervalCount: number;
+    rasterIntervalCount: number;
+    totalDurationUs: number;
+    maxDurationUs: number;
+  };
 }
 
 export interface CustomQueryCapabilityDto {
