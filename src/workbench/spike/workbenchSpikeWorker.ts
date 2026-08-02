@@ -73,6 +73,7 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Chromiu
     }
     const family = families[index % families.length];
     const screenshot = index % 1_000 === 0;
+    const crossSourceRequest = index === 10_001 || index === 20_001;
     return {
       ts: index * 10,
       dur: index % 100 === 0 ? 500 : 5 + (index % 20),
@@ -83,6 +84,8 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Chromiu
           : family,
       name: screenshot
         ? 'Screenshot'
+        : crossSourceRequest
+          ? 'ResourceSendRequest'
         : family === 'network'
           ? 'ResourceEvent'
           : family === 'rendering'
@@ -97,6 +100,13 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Chromiu
       tid: 10 + (index % 8),
       ...(screenshot
         ? { args: { snapshot: 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' } }
+        : crossSourceRequest
+          ? { args: { data: {
+              requestId: String(index === 10_001 ? 1 : 2),
+              navigationId: 'navigation-1',
+              requestMethod: 'GET',
+              url: `https://api.example.test/resource-${index === 10_001 ? 1 : 2}`,
+            } } }
         : {}),
     };
   });
@@ -257,7 +267,9 @@ workerScope.addEventListener('message', async (
     }
     if (!kernel) throw new Error('Workbench benchmark is not prepared');
     const startedAt = performance.now();
-    const response = await kernel.dispatch(message.request);
+    const response = message.type === 'dispatch-workbench-source-file'
+      ? await kernel.dispatchSourceFile(message.request, message.file)
+      : await kernel.dispatch(message.request);
     const outbound: WorkbenchBenchmarkWorkerResponse = {
       type: 'workbench-response',
       response,

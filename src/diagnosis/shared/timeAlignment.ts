@@ -13,6 +13,129 @@
 
 import type { HarRequestEntry } from '../../harParser';
 import type { NetlogClockContext, URLRequest } from '../../parsers/netlog/parser';
+import type { TimeAlignment } from '../../workbench/crossSourceProtocol';
+
+export interface AlignmentAnchor {
+  anchorId: string;
+  type: TimeAlignment['anchorType'];
+  sourceTime: { value: number; unit: 'us' | 'ms' };
+  traceTimeUs: number;
+  evidenceIds: string[];
+}
+
+function toUs(time: AlignmentAnchor['sourceTime']): number | undefined {
+  if (!Number.isFinite(time.value)) return undefined;
+  const value = time.unit === 'ms' ? time.value * 1_000 : time.value;
+  return Number.isSafeInteger(Math.trunc(value)) ? value : undefined;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+export function alignClockDomains(input: {
+  alignmentId: string;
+  sourceIds: string[];
+  anchors: AlignmentAnchor[];
+  conflictThresholdUs?: number;
+  unavailableReason?: string;
+}): TimeAlignment {
+  if (input.unavailableReason) {
+    return {
+      alignmentId: input.alignmentId,
+      sourceIds: [...input.sourceIds],
+      anchorType: input.anchors[0]?.type ?? 'phase-feature',
+      offsetUs: 0,
+      uncertaintyUs: Number.MAX_SAFE_INTEGER,
+      sampleCount: 0,
+      conflicts: [],
+      confidence: 'unavailable',
+      limitations: [input.unavailableReason],
+    };
+  }
+  const validAnchors = input.anchors.flatMap(anchor => {
+    const sourceUs = toUs(anchor.sourceTime);
+    return sourceUs === undefined || !Number.isFinite(anchor.traceTimeUs)
+      ? []
+      : [{ anchor, sourceUs, offsetUs: anchor.traceTimeUs - sourceUs }];
+  });
+  if (validAnchors.length === 0) {
+    return {
+      alignmentId: input.alignmentId,
+      sourceIds: [...input.sourceIds],
+      anchorType: input.anchors[0]?.type ?? 'phase-feature',
+      offsetUs: 0,
+      uncertaintyUs: Number.MAX_SAFE_INTEGER,
+      sampleCount: 0,
+      conflicts: [],
+      confidence: 'unavailable',
+      limitations: [
+        input.unavailableReason ?? '没有有限且单位明确的校时锚点。',
+      ],
+    };
+  }
+  const offsetUs = median(validAnchors.map(item => item.offsetUs));
+  const uncertaintyUs = Math.max(
+    ...validAnchors.map(item => Math.abs(item.offsetUs - offsetUs)),
+  );
+  const conflictThresholdUs = input.conflictThresholdUs ?? 5_000;
+  const conflicts = validAnchors
+    .filter(item => Math.abs(item.offsetUs - offsetUs) > conflictThresholdUs)
+    .map(item => `锚点 ${item.anchor.anchorId} 与中位 offset 冲突`);
+  const sourceTimes = validAnchors.map(item => item.sourceUs);
+  const confidence = conflicts.length > 0
+    ? 'low'
+    : validAnchors.length >= 2
+      ? 'high'
+      : 'medium';
+  return {
+    alignmentId: input.alignmentId,
+    sourceIds: [...input.sourceIds],
+    anchorType: validAnchors[0].anchor.type,
+    offsetUs,
+    uncertaintyUs,
+    sampleCount: validAnchors.length,
+    conflicts,
+    validRange: {
+      startUs: Math.min(...sourceTimes),
+      endUs: Math.max(...sourceTimes),
+    },
+    confidence,
+    limitations: [
+      ...(validAnchors.length === 1
+        ? ['只有一个校时锚点，不能排除时钟漂移。']
+        : []),
+      ...(conflicts.length > 0
+        ? ['锚点冲突，禁止用于确定性端到端耗时。']
+        : []),
+    ],
+  };
+}
+
+export function projectAlignedTimeUs(
+  time: { value: number; unit: 'us' | 'ms' },
+  alignment: TimeAlignment,
+): number | undefined {
+  if (
+    alignment.confidence === 'unavailable'
+    || alignment.confidence === 'low'
+  ) return undefined;
+  const sourceUs = toUs(time);
+  if (sourceUs === undefined) return undefined;
+  if (
+    alignment.validRange
+    && (
+      sourceUs < alignment.validRange.startUs
+      || sourceUs > alignment.validRange.endUs
+    )
+  ) return undefined;
+  const projected = sourceUs + alignment.offsetUs;
+  return Number.isSafeInteger(Math.trunc(projected)) ? projected : undefined;
+}
 
 export interface TimeAlignmentContext {
   enabled: boolean;

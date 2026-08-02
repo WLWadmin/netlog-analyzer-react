@@ -50,3 +50,21 @@ export type {
   WorkbenchListTruncation,
   WorkbenchTruncation,
 } from './spike/protocol';
+
+export type {
+  ClockDomain,
+  CorrelationCandidate,
+  CorrelationConfidence,
+  CrossSourceEntity,
+  CrossSourceKind,
+  CrossSourceRequest,
+  CrossSourceResponse,
+  EvidenceGraphEdge,
+  EvidenceGraphEdgeKind,
+  EvidenceGraphNode,
+  EvidenceGraphNodeKind,
+  SourceCapability,
+  SourceDescriptor,
+  SourceState,
+  TimeAlignment,
+} from './crossSourceProtocol';

@@ -8,15 +8,24 @@ const path = require('path');
 const WebSocket = require('ws');
 
 const root = path.resolve(__dirname, '..');
-const buildDir = path.resolve(process.env.WORKBENCH_STAGE3_BUILD_DIR
-  ?? '/tmp/netlog-workbench-stage3-product-build');
-const reportDir = path.resolve(process.env.WORKBENCH_STAGE3_REPORT_DIR
+const stage4Mode = process.env.WORKBENCH_BROWSER_STAGE === '4';
+const artifactStage = stage4Mode ? 'stage4' : 'stage3';
+const buildDir = path.resolve(process.env[
+  stage4Mode ? 'WORKBENCH_STAGE4_BUILD_DIR' : 'WORKBENCH_STAGE3_BUILD_DIR'
+] ?? `/tmp/netlog-workbench-${artifactStage}-product-build`);
+const reportDir = path.resolve(process.env[
+  stage4Mode ? 'WORKBENCH_STAGE4_REPORT_DIR' : 'WORKBENCH_STAGE3_REPORT_DIR'
+]
   ?? path.join(root, 'docs/superpowers/reports'));
-const port = Number(process.env.WORKBENCH_STAGE3_PORT ?? 4183);
+const port = Number(process.env[
+  stage4Mode ? 'WORKBENCH_STAGE4_PORT' : 'WORKBENCH_STAGE3_PORT'
+] ?? (stage4Mode ? 4184 : 4183));
+const debugPort = stage4Mode ? 9226 : 9225;
+const flagOffBuildDir = '/tmp/netlog-workbench-stage4-flag-off-build';
 const chromePath = process.env.CHROME_PATH
   ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const eventCounts = [100_000, 500_000, 1_000_000];
-const command = 'node scripts/run-workbench-stage3-browser.js';
+const command = `node scripts/run-workbench-${artifactStage}-browser.js`;
 const warmupCount = 5;
 const validRunCount = 10;
 const totalRunCount = warmupCount + validRunCount;
@@ -91,7 +100,28 @@ function buildProductBenchmark() {
       REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
       REACT_APP_ENABLE_TRACE_TIMELINE: '1',
       REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
-      REACT_APP_WORKBENCH_BENCHMARK_REF: `${head}+stage3-working-tree`,
+      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage4Mode ? '1' : '0',
+      REACT_APP_WORKBENCH_BENCHMARK_REF: `${head}+${artifactStage}-working-tree`,
+    },
+    stdio: 'inherit',
+  });
+}
+
+function buildFlagOffBenchmark() {
+  if (!stage4Mode) return;
+  childProcess.execFileSync('npm', ['run', 'build'], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DISABLE_ESLINT_PLUGIN: 'true',
+      PUBLIC_URL: '/',
+      BUILD_PATH: flagOffBuildDir,
+      REACT_APP_ENABLE_WORKBENCH_BENCHMARK: '1',
+      REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
+      REACT_APP_ENABLE_TRACE_TIMELINE: '1',
+      REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
+      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: '0',
+      REACT_APP_WORKBENCH_BENCHMARK_REF: 'stage4-cross-source-off',
     },
     stdio: 'inherit',
   });
@@ -101,7 +131,7 @@ function getJson(urlPath) {
   return new Promise((resolve, reject) => {
     http.get({
       host: '127.0.0.1',
-      port: 9225,
+      port: debugPort,
       path: urlPath,
     }, response => {
       let body = '';
@@ -109,6 +139,286 @@ function getJson(urlPath) {
       response.on('end', () => resolve(JSON.parse(body)));
     }).on('error', reject);
   });
+}
+
+async function runCrossSourceChecks(cdp) {
+  await cdp.evaluate(`Array.from(document.querySelectorAll('button'))
+    .find(button => button.textContent.includes('管理来源')).click()`);
+  const dispatchFile = async (label, name, value) => cdp.evaluate(`(() => {
+    const input = document.querySelector(
+      'input[aria-label=${JSON.stringify(label)}]'
+    );
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(
+      [JSON.stringify(${JSON.stringify(value)})],
+      ${JSON.stringify(name)},
+      { type: 'application/json' },
+    ));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  const harEntry = (id, milliseconds, method = 'GET') => ({
+    pageref: 'navigation-1',
+    startedDateTime: `2026-08-02T00:00:00.${String(milliseconds).padStart(3, '0')}Z`,
+    time: 10,
+    request: {
+      method,
+      url: `https://api.example.test/resource-${id}?token=<REDACTED>`,
+      headers: [],
+      queryString: [{ name: 'token', value: '<REDACTED>' }],
+    },
+    response: {
+      status: 200,
+      statusText: 'OK',
+      headers: [],
+      content: { size: 0, mimeType: 'application/json' },
+    },
+    timings: {
+      blocked: 0, dns: 1, connect: 1, ssl: 1,
+      send: 1, wait: 5, receive: 1,
+    },
+    _initiator: { requestId: String(id) },
+  });
+  await dispatchFile('追加 HAR 文件', 'synthetic.har', {
+    log: {
+      creator: { name: 'stage4-synthetic' },
+      pages: [{
+        id: 'navigation-1',
+        startedDateTime: '2026-08-02T00:00:00.000Z',
+        pageTimings: {},
+      }],
+      entries: [harEntry(1, 100), harEntry(2, 200)],
+    },
+  });
+  await cdp.waitFor(
+    `document.querySelector('.trace-source-summary')?.textContent.includes('HAR')
+      || document.querySelector('.trace-source-list')?.textContent.includes('HAR 来源')`,
+    'HAR source addition',
+  );
+  await dispatchFile('追加 NetLog 文件', 'synthetic-netlog.json', {
+    constants: {
+      timeTickOffset: 1_775_260_800_000,
+      logEventTypes: { URL_REQUEST_START_JOB: 111 },
+      logSourceType: { URL_REQUEST: 1 },
+    },
+    events: [
+      {
+        time: '100.01', type: 111, phase: 0,
+        source: { id: 1, type: 1 },
+        params: { url: 'https://api.example.test/resource-1', method: 'GET' },
+      },
+      {
+        time: '200.01', type: 111, phase: 0,
+        source: { id: 2, type: 1 },
+        params: { url: 'https://api.example.test/resource-2', method: 'GET' },
+      },
+      {
+        time: '101', type: 111, phase: 0,
+        source: { id: 3, type: 1 },
+        params: { url: 'https://api.example.test/resource-1', method: 'POST' },
+      },
+    ],
+  });
+  await cdp.waitFor(
+    `document.querySelector('.trace-source-list')?.textContent.includes('NetLog 来源')`,
+    'NetLog source addition',
+  );
+  await cdp.waitFor(
+    `document.querySelector('.trace-evidence-graph')?.textContent.includes('高置信关联')`,
+    'high-confidence evidence graph',
+  );
+  const initial = await cdp.evaluate(`(() => ({
+    sourceCount: document.querySelectorAll('.trace-source-list li').length,
+    high: document.querySelector('.trace-evidence-graph').textContent.includes('高置信关联'),
+    candidate: document.querySelector('.trace-evidence-graph').textContent.includes('候选关联'),
+    graphEdges: document.querySelectorAll('[aria-label="等价证据路径"] li').length,
+    confidenceCounts: Array.from(
+      document.querySelectorAll('[aria-label="等价证据路径"] li')
+    ).reduce((counts, item) => {
+      const text = item.textContent;
+      if (text.includes('高置信')) counts.high += 1;
+      else if (text.includes('中置信')) counts.medium += 1;
+      else if (text.includes('低置信')) counts.low += 1;
+      else counts.unavailable += 1;
+      return counts;
+    }, { high: 0, medium: 0, low: 0, unavailable: 0 }),
+    queryCount: (
+      window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples['query-evidence-graph'] || []
+    ).length,
+    sourceChanges: window.__STAGE3_PRODUCT_BENCHMARK__.sourceChanges,
+  }))()`);
+  const graphNavigation = await cdp.evaluate(`(async () => {
+    const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+    const before = (state.protocolSamples['query-evidence-graph'] || []).length;
+    const graph = document.querySelector('.trace-evidence-graph');
+    const button = graph.querySelector('[aria-label="证据图节点"] button');
+    const entityId = button.dataset.evidenceEntityId;
+    button.focus();
+    button.click();
+    while ((state.protocolSamples['query-evidence-graph'] || []).length <= before) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    let selectedButton;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      selectedButton = document.querySelector(
+        '.trace-evidence-graph [aria-label="证据图节点"] button[aria-pressed="true"]'
+      );
+      if (selectedButton) break;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    const selected = !!selectedButton;
+    const beforeRestore = (state.protocolSamples['query-evidence-graph'] || []).length;
+    document.querySelector('.trace-evidence-graph').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    );
+    while ((state.protocolSamples['query-evidence-graph'] || []).length <= beforeRestore) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    let currentButtons = [];
+    let restoredButton;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      currentButtons = Array.from(document.querySelectorAll(
+        '.trace-evidence-graph [aria-label="证据图节点"] button'
+      ));
+      restoredButton = currentButtons.find(
+        item => item.dataset.evidenceEntityId === entityId
+      );
+      if (
+        restoredButton
+        && !currentButtons.some(item => item.getAttribute('aria-pressed') === 'true')
+      ) break;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    return {
+      entityId,
+      selected,
+      restored: !currentButtons.some(item => item.getAttribute('aria-pressed') === 'true'),
+      focusRestored: document.activeElement === restoredButton
+        || document.activeElement === document.querySelector('.trace-evidence-graph'),
+      restoredEntityId: restoredButton?.dataset.evidenceEntityId,
+      activeEntityId: document.activeElement?.dataset?.evidenceEntityId,
+      activeTagName: document.activeElement?.tagName,
+    };
+  })()`);
+  const sourceChangesBeforeCancellation = await cdp.evaluate(
+    'window.__STAGE3_PRODUCT_BENCHMARK__.sourceChanges.length',
+  );
+  await dispatchFile('追加 HAR 文件', 'replacement.har', {
+    log: {
+      creator: { name: 'stage4-synthetic-replacement' },
+      pages: [],
+      entries: [harEntry(1, 100)],
+    },
+  });
+  await cdp.waitFor(
+    `!!document.querySelector('[role="alertdialog"]')`,
+    'same-kind replacement confirmation',
+  );
+  const replaceConfirmation = await cdp.evaluate(`(() => {
+    const dialog = document.querySelector('[role="alertdialog"]');
+    const visible = !!dialog;
+    Array.from(dialog.querySelectorAll('button'))
+      .find(button => button.textContent.includes('取消替换')).click();
+    return visible;
+  })()`);
+  await cdp.waitFor(
+    `!document.querySelector('[role="alertdialog"]')`,
+    'replacement cancellation',
+  );
+  const replacementCancelled = await cdp.evaluate(
+    `window.__STAGE3_PRODUCT_BENCHMARK__.sourceChanges.length
+      === ${sourceChangesBeforeCancellation}`,
+  );
+  await dispatchFile('追加 HAR 文件', 'conflicting.har', {
+    log: {
+      creator: { name: 'stage4-conflicting-alignment' },
+      pages: [{
+        id: 'navigation-1',
+        startedDateTime: '2026-08-02T00:00:00.000Z',
+        pageTimings: {},
+      }],
+      entries: [harEntry(1, 100), harEntry(2, 500)],
+    },
+  });
+  await cdp.waitFor(
+    `!!document.querySelector('[role="alertdialog"]')`,
+    'conflicting HAR replacement confirmation',
+  );
+  await cdp.evaluate(`Array.from(
+    document.querySelector('[role="alertdialog"]').querySelectorAll('button')
+  ).find(button => button.textContent.includes('确认替换')).click()`);
+  await cdp.waitFor(
+    `document.querySelector('.trace-evidence-graph')?.textContent.includes('时间校准 · 低置信')`,
+    'alignment conflict explanation',
+  );
+  const alignmentConflict = await cdp.evaluate(
+    `document.querySelector('.trace-evidence-graph').textContent.includes('时间校准 · 低置信')`,
+  );
+  await dispatchFile('追加 NetLog 文件', 'uncalibrated-netlog.json', {
+    constants: {
+      logEventTypes: { URL_REQUEST_START_JOB: 111 },
+      logSourceType: { URL_REQUEST: 1 },
+    },
+    events: [{
+      time: '100', type: 111, phase: 0,
+      source: { id: 1, type: 1 },
+      params: { url: 'https://api.example.test/resource-1', method: 'GET' },
+    }],
+  });
+  await cdp.waitFor(
+    `!!document.querySelector('[role="alertdialog"]')`,
+    'uncalibrated NetLog replacement confirmation',
+  );
+  await cdp.evaluate(`Array.from(
+    document.querySelector('[role="alertdialog"]').querySelectorAll('button')
+  ).find(button => button.textContent.includes('确认替换')).click()`);
+  await cdp.waitFor(
+    `document.querySelector('.trace-evidence-graph')?.textContent.includes('时间校准 · 不可用')`,
+    'unavailable alignment explanation',
+  );
+  const alignmentUnavailable = await cdp.evaluate(
+    `document.querySelector('.trace-evidence-graph').textContent.includes('时间校准 · 不可用')`,
+  );
+  await cdp.evaluate(`Array.from(document.querySelectorAll('button'))
+    .find(button => button.getAttribute('aria-label') === '移除 NetLog 来源').click()`);
+  await cdp.waitFor(
+    `!document.querySelector('.trace-source-list')?.textContent.includes('NetLog 来源')`,
+    'NetLog source removal',
+  );
+  const afterRemoval = await cdp.evaluate(`(() => ({
+    sourceCount: document.querySelectorAll('.trace-source-list li').length,
+    graphEdges: document.querySelectorAll('[aria-label="等价证据路径"] li').length,
+    sourceChanges: window.__STAGE3_PRODUCT_BENCHMARK__.sourceChanges,
+  }))()`);
+  const revisions = afterRemoval.sourceChanges.map(item => item.sourceRevision);
+  const sourceRevisionObserved = revisions.length >= 5
+    && revisions.every((revision, index) => (
+      index === 0 || revision === revisions[index - 1] + 1
+    ));
+  const removal = afterRemoval.sourceChanges.find(item => item.operation === 'removed');
+  return {
+    addHar: initial.sourceCount >= 2,
+    addNetLog: initial.sourceCount === 3,
+    replacementConfirmation: replaceConfirmation,
+    replacementCancelled,
+    replacementConfirmed: afterRemoval.sourceChanges
+      .some(item => item.operation === 'replaced'),
+    highCandidate: initial.high,
+    candidateExplanation: initial.candidate,
+    confidenceCounts: initial.confidenceCounts,
+    alignmentConflict,
+    alignmentUnavailable,
+    graphNavigation: initial.queryCount > 0
+      && graphNavigation.selected
+      && graphNavigation.restored
+      && graphNavigation.focusRestored,
+    graphNavigationChecks: graphNavigation,
+    removeSource: afterRemoval.sourceCount === 2,
+    revokedEdgeCount: removal?.revokedEdgeCount
+      ?? Math.max(0, initial.graphEdges - afterRemoval.graphEdges),
+    revokedFindingCount: removal?.revokedFindingCount ?? 0,
+    sourceRevisionObserved,
+  };
 }
 
 async function waitForHttp() {
@@ -616,6 +926,9 @@ async function runOne(cdp, eventCount, diffHash) {
     'cancellation response',
   );
   await sleep(250);
+  const crossSource = stage4Mode && eventCount === eventCounts[0]
+    ? await runCrossSourceChecks(cdp)
+    : undefined;
   const stateBeforeClose = await cdp.evaluate('window.__STAGE3_PRODUCT_BENCHMARK__');
   const componentMounts = await cdp.evaluate(`(() => {
     const state = window.__STAGE3_PRODUCT_BENCHMARK__;
@@ -648,7 +961,7 @@ async function runOne(cdp, eventCount, diffHash) {
   const selectionProtocolSamples = stateBeforeClose.protocolSamples['query-selection'] ?? [];
   const cancellationSamples = stateBeforeClose.protocolSamples['cancel-query'] ?? [];
   const artifact = {
-    schemaVersion: 3,
+    schemaVersion: stage4Mode ? 4 : 3,
     status: 'browser-benchmark-verified',
     codeRef: stateBeforeClose.codeRef,
     workingTreeDiffHash: diffHash,
@@ -694,6 +1007,7 @@ async function runOne(cdp, eventCount, diffHash) {
       filmstripOpened: resources.created > 0,
       filmstripDialogClosed: dialogEscape,
       ...expertChecks,
+      ...(crossSource ? { crossSource } : {}),
     },
     responsive: viewports,
     themes: {
@@ -753,6 +1067,7 @@ async function runOne(cdp, eventCount, diffHash) {
 
 async function main() {
   buildProductBenchmark();
+  buildFlagOffBenchmark();
   assert(fs.existsSync(path.join(buildDir, 'index.html')), `Build directory is missing: ${buildDir}`);
   fs.mkdirSync(reportDir, { recursive: true });
   const diffHash = workingTreeDiffHash();
@@ -761,6 +1076,13 @@ async function main() {
     ['-m', 'http.server', String(port), '--directory', buildDir],
     { cwd: root, stdio: 'ignore' },
   );
+  const flagOffServer = stage4Mode
+    ? childProcess.spawn(
+        'python3',
+        ['-m', 'http.server', String(port + 1), '--directory', flagOffBuildDir],
+        { cwd: root, stdio: 'ignore' },
+      )
+    : undefined;
   const profileDir = fs.mkdtempSync('/tmp/netlog-stage3-product-chrome.');
   let chrome;
   try {
@@ -776,7 +1098,7 @@ async function main() {
       '--disable-component-update',
       '--disable-sync',
       '--no-first-run',
-      '--remote-debugging-port=9225',
+      `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${profileDir}`,
       `http://127.0.0.1:${port}/`,
     ], { stdio: 'ignore' });
@@ -799,10 +1121,28 @@ async function main() {
     const artifacts = [];
     for (const eventCount of eventCounts) {
       const artifact = await runOne(cdp, eventCount, diffHash);
+      if (stage4Mode && eventCount === eventCounts[0]) {
+        const crossSource = artifact.interactions.crossSource;
+        for (const key of [
+          'addHar', 'addNetLog', 'replacementConfirmation',
+          'replacementCancelled', 'replacementConfirmed', 'highCandidate',
+          'candidateExplanation', 'alignmentConflict', 'alignmentUnavailable',
+          'graphNavigation', 'removeSource', 'sourceRevisionObserved',
+        ]) {
+          assert(
+            crossSource?.[key] === true,
+            `Stage 4 check failed: ${key} ${JSON.stringify(
+              key === 'graphNavigation'
+                ? crossSource?.graphNavigationChecks
+                : crossSource?.[key],
+            )}`,
+          );
+        }
+      }
       artifacts.push(artifact);
       const suffix = eventCount === 1_000_000 ? '1000k' : `${eventCount / 1_000}k`;
       fs.writeFileSync(
-        path.join(reportDir, `workbench-stage3-browser-${suffix}.json`),
+        path.join(reportDir, `workbench-${artifactStage}-browser-${suffix}.json`),
         `${JSON.stringify(artifact, null, 2)}\n`,
       );
       process.stdout.write(`${JSON.stringify({
@@ -813,11 +1153,37 @@ async function main() {
         selectionP95: artifact.timings.selectionQuery.p95Ms,
       })}\n`);
     }
+    let flagOff;
+    if (stage4Mode) {
+      await cdp.send('Page.navigate', {
+        url: `http://127.0.0.1:${port + 1}/?stage3-product-benchmark=1&event-count=100000`,
+      });
+      await cdp.waitFor(
+        `window.__STAGE3_PRODUCT_BENCHMARK__?.ready === true
+          || !!window.__STAGE3_PRODUCT_BENCHMARK__?.error`,
+        'Stage 4 flag-off product benchmark',
+      );
+      flagOff = await cdp.evaluate(`(() => ({
+        crossSourceUiAbsent:
+          !document.querySelector('.trace-cross-source-panel')
+          && !document.querySelector('.trace-evidence-graph'),
+        noCrossSourceQueries: !Object.keys(
+          window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples
+        ).some(type => [
+          'query-sources', 'query-alignment', 'query-correlation',
+          'query-evidence-graph', 'add-source', 'replace-source', 'remove-source'
+        ].includes(type)),
+        error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
+      }))()`);
+      assert(flagOff.crossSourceUiAbsent, 'Stage 4 UI appeared with cross-source flag off');
+      assert(flagOff.noCrossSourceQueries, 'Cross-source query ran with its flag off');
+      assert(!flagOff.error, `Stage 4 flag-off benchmark failed: ${flagOff.error}`);
+    }
     const uiSource = artifacts[0];
     fs.writeFileSync(
-      path.join(reportDir, 'workbench-stage3-ui-validation.json'),
+      path.join(reportDir, `workbench-${artifactStage}-ui-validation.json`),
       `${JSON.stringify({
-        schemaVersion: 3,
+        schemaVersion: stage4Mode ? 4 : 3,
         status: 'browser-benchmark-verified',
         codeRef: uiSource.codeRef,
         workingTreeDiffHash: diffHash,
@@ -829,6 +1195,7 @@ async function main() {
         accessibility: uiSource.accessibility,
         themes: uiSource.themes,
         resources: uiSource.resources,
+        flagOff,
         consoleErrors: uiSource.consoleErrors,
       }, null, 2)}\n`,
     );
@@ -836,7 +1203,12 @@ async function main() {
   } finally {
     chrome?.kill('SIGTERM');
     server.kill('SIGTERM');
-    await Promise.all([waitForExit(chrome), waitForExit(server)]);
+    flagOffServer?.kill('SIGTERM');
+    await Promise.all([
+      waitForExit(chrome),
+      waitForExit(server),
+      waitForExit(flagOffServer),
+    ]);
     fs.rmSync(profileDir, {
       recursive: true,
       force: true,

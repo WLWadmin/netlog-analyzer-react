@@ -19,6 +19,7 @@ export interface TimelineHistoryEntry {
   viewport: TimelineRange;
   selection?: TimelineRange;
   selectedEventId?: string;
+  highlightedEntityId?: string;
   drawerOpen: boolean;
   scrollTop: number;
 }
@@ -158,6 +159,7 @@ export class TimelineInteractionStore {
       viewport: this.snapshot.viewport,
       selection: this.snapshot.selection,
       selectedEventId: this.snapshot.selectedEventId,
+      highlightedEntityId: this.snapshot.highlightedEntityId,
       drawerOpen: context.drawerOpen,
       scrollTop: context.scrollTop,
     });
@@ -175,6 +177,7 @@ export class TimelineInteractionStore {
       viewport: previous.viewport,
       selection: previous.selection,
       selectedEventId: previous.selectedEventId,
+      highlightedEntityId: previous.highlightedEntityId,
     });
     return previous;
   }

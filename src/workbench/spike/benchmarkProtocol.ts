@@ -4,6 +4,7 @@ import type {
   WorkbenchRequest,
   WorkbenchResponse,
 } from './protocol';
+import type { CrossSourceRequest } from '../crossSourceProtocol';
 
 export const WORKBENCH_BENCHMARK_EVENT_COUNTS = [100_000, 500_000, 1_000_000] as const;
 export type WorkbenchBenchmarkEventCount = typeof WORKBENCH_BENCHMARK_EVENT_COUNTS[number];
@@ -26,6 +27,14 @@ export type WorkbenchBenchmarkWorkerRequest =
   | {
       type: 'dispatch-workbench-request';
       request: WorkbenchRequest;
+    }
+  | {
+      type: 'dispatch-workbench-source-file';
+      request: Extract<
+        CrossSourceRequest,
+        { type: 'add-source' | 'replace-source' }
+      >;
+      file: File;
     };
 
 export interface WorkbenchBenchmarkCorpusMetrics {

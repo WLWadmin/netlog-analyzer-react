@@ -9,6 +9,7 @@ import type {
   WorkbenchResponse,
   WorkbenchSourceRef,
 } from '../workbench/protocol';
+import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 
 export type TraceUploadHint = 'trace' | 'json-auto';
 
@@ -28,6 +29,12 @@ export type TraceWorkerRequest =
       type: 'workbench-request';
       taskId: string;
       request: WorkbenchRequest;
+    }
+  | {
+      type: 'workbench-source-file';
+      taskId: string;
+      request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>;
+      file: File;
     };
 
 export type TraceWorkerResponse =

@@ -15,6 +15,7 @@ import {
   type WorkbenchTimelineEventDto,
 } from '../workbench/spike/protocol';
 import { isWorkbenchBenchmarkWorkerResponse } from '../workbench/spike/protocolGuards';
+import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 
 const WARMUP_RUNS = 3;
 const VALID_RUNS = 10;
@@ -111,6 +112,32 @@ export class WorkbenchBenchmarkBridge {
     });
   }
 
+  dispatchSourceFile(
+    request: Extract<
+      CrossSourceRequest,
+      { type: 'add-source' | 'replace-source' }
+    >,
+    file: File,
+  ): Promise<WorkerMeasurement<WorkbenchResponse>> {
+    const message: WorkbenchBenchmarkWorkerRequest = {
+      type: 'dispatch-workbench-source-file',
+      request,
+      file,
+    };
+    return this.send(message, request.requestId, file.size).then(measurement => {
+      if (measurement.value.type !== 'workbench-response') {
+        throw new Error('Unexpected Workbench source response');
+      }
+      return {
+        value: measurement.value.response,
+        roundTripMs: measurement.roundTripMs,
+        workerElapsedMs: measurement.value.workerElapsedMs,
+        requestBytes: measurement.requestBytes,
+        responseBytes: measurement.value.uiTransferBytes,
+      };
+    });
+  }
+
   close(): void {
     this.worker.removeEventListener('message', this.onMessage);
     this.worker.removeEventListener('error', this.onError);
@@ -124,8 +151,9 @@ export class WorkbenchBenchmarkBridge {
   private send(
     message: WorkbenchBenchmarkWorkerRequest,
     requestId: string,
+    binaryBytes = 0,
   ): Promise<WorkerMeasurement<WorkbenchBenchmarkWorkerResponse>> {
-    const requestBytes = encodedBytes(message);
+    const requestBytes = encodedBytes(message) + binaryBytes;
     return new Promise((resolve, reject) => {
       if (this.pending.has(requestId)) {
         reject(new Error(`Duplicate Workbench benchmark requestId: ${requestId}`));

@@ -81,6 +81,13 @@ async function createSession(subject: WorkbenchSessionKernel) {
 }
 
 describe('WorkbenchSessionKernel', () => {
+  afterEach(() => {
+    delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
+    delete process.env.REACT_APP_ENABLE_TRACE_TIMELINE;
+    delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
+    delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
+  });
+
   it('rejects a concurrent create request instead of building the index twice', async () => {
     const subject = await kernel({ yieldControl: () => Promise.resolve() });
     const request = {
@@ -289,6 +296,125 @@ describe('WorkbenchSessionKernel', () => {
       ]),
     });
     expect(JSON.stringify(callTree)).not.toMatch(/timeDeltas|children|args/);
+  });
+
+  it('increments the session revision and revokes stale cross-source queries', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const added = await subject.dispatchSourceFile({
+      type: 'add-source',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'add-har',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      sourceToken: 'prepared-har',
+      expectedKind: 'har',
+    }, new File([JSON.stringify({
+      log: {
+        creator: { name: 'synthetic' },
+        entries: [{
+          startedDateTime: '2026-08-02T00:00:00.000Z',
+          time: 10,
+          request: {
+            method: 'GET',
+            url: 'https://example.test/path?token=<REDACTED>',
+            headers: [],
+            queryString: [],
+          },
+          response: {
+            status: 200,
+            statusText: 'OK',
+            headers: [],
+            content: { size: 0, mimeType: 'text/plain' },
+          },
+          timings: {
+            blocked: 0, dns: 0, connect: 0, ssl: 0,
+            send: 1, wait: 8, receive: 1,
+          },
+        }],
+      },
+    })], 'synthetic.har'));
+
+    expect(added).toMatchObject({
+      type: 'source-change-result',
+      operation: 'added',
+      sessionRevision: created.sessionRevision + 1,
+      sourceRevision: 1,
+    });
+    const stale = await subject.dispatch({
+      type: 'query-sources',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'stale-sources',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    });
+    expect(stale).toMatchObject({
+      type: 'structured-error',
+      error: { code: 'session-released' },
+    });
+    if (added.type !== 'source-change-result') return;
+    const har = added.sources.find(source => source.kind === 'har')!;
+    const removed = await subject.dispatch({
+      type: 'remove-source',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'remove-har',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      sourceId: har.sourceId,
+    });
+    expect(removed).toMatchObject({
+      type: 'source-change-result',
+      operation: 'removed',
+      sessionRevision: added.sessionRevision + 1,
+      sources: [expect.objectContaining({ kind: 'trace' })],
+    });
+  });
+
+  it('does not revive a source store when release wins an in-flight source read', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    const subject = await kernel();
+    const created = await createSession(subject);
+    let finishRead: ((value: string) => void) | undefined;
+    const file = {
+      size: 100,
+      text: () => new Promise<string>(resolve => {
+        finishRead = resolve;
+      }),
+    } as File;
+    const pending = subject.dispatchSourceFile({
+      type: 'add-source',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'slow-har',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      sourceToken: 'slow-har-token',
+      expectedKind: 'har',
+    }, file);
+    await Promise.resolve();
+    const released = await subject.dispatch({
+      type: 'release-session',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'release-during-source',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    });
+    finishRead?.(JSON.stringify({
+      log: { creator: { name: 'synthetic' }, entries: [] },
+    }));
+
+    expect(released.type).toBe('session-released');
+    await expect(pending).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'session-released' },
+    });
+    expect(subject.getResourceStats().state).toBe('released');
   });
 
   it('increments revisions, rejects stale requests and releases all resources', async () => {

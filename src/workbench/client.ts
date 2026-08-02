@@ -32,6 +32,10 @@ import {
   type WorkbenchSessionDescriptor,
   type WorkbenchSourceRef,
 } from './protocol';
+import type {
+  CrossSourceRequest,
+  CrossSourceResponse,
+} from './crossSourceProtocol';
 
 export interface TraceWorkbenchClientSnapshot {
   status: 'available' | 'creating' | 'ready' | 'degraded' | 'released' | 'failed';
@@ -43,6 +47,10 @@ export interface TraceWorkbenchClientSnapshot {
   bottomUp?: BottomUpResultResponse;
   eventLog?: EventLogResultResponse;
   search?: SearchResultResponse;
+  sources?: Extract<CrossSourceResponse, { type: 'sources-result' | 'source-change-result' }>;
+  alignments?: Extract<CrossSourceResponse, { type: 'alignment-result' }>;
+  correlations?: Extract<CrossSourceResponse, { type: 'correlation-result' }>;
+  evidenceGraph?: Extract<CrossSourceResponse, { type: 'evidence-graph-result' }>;
   eventDetail?: EventDetailResultResponse;
   evidence?: EvidenceResultResponse;
   screenshotIndex?: ScreenshotIndexResultResponse;
@@ -55,6 +63,7 @@ export interface TraceWorkbenchClientSnapshot {
     | 'cpu'
     | 'event-log'
     | 'search'
+    | 'cross-source'
     | 'event-detail'
     | 'evidence'
     | 'screenshot-index'
@@ -66,10 +75,25 @@ export interface TraceWorkbenchClientSnapshot {
 
 interface TraceWorkbenchTransport {
   dispatch(request: WorkbenchRequest): Promise<WorkbenchResponse>;
+  dispatchSourceFile?(
+    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    file: File,
+  ): Promise<WorkbenchResponse>;
   close(): void;
 }
 
 type Listener = () => void;
+type CrossSourceQueryInput =
+  | { type: 'query-sources'; requestId: string }
+  | { type: 'query-alignment'; requestId: string; limit: number }
+  | { type: 'query-correlation'; requestId: string; entityId?: string; limit: number }
+  | {
+    type: 'query-evidence-graph';
+    requestId: string;
+    range?: { startUs: number; endUs: number };
+    selectedEntityId?: string;
+    limit: number;
+  };
 
 export class TraceWorkbenchClient {
   private snapshot: TraceWorkbenchClientSnapshot = {
@@ -277,6 +301,70 @@ export class TraceWorkbenchClient {
     });
   }
 
+  async addSource(file: File, kind: 'har' | 'netlog'): Promise<WorkbenchResponse> {
+    return this.changeSource(file, kind);
+  }
+
+  async replaceSource(
+    file: File,
+    kind: 'har' | 'netlog',
+    replacedSourceId: string,
+  ): Promise<WorkbenchResponse> {
+    return this.changeSource(file, kind, replacedSourceId);
+  }
+
+  async removeSource(sourceId: string): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    return this.executeLatest('cross-source', {
+      type: 'remove-source',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId('remove-source'),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      sourceId,
+    });
+  }
+
+  async querySources(): Promise<WorkbenchResponse> {
+    return this.executeCrossSourceQuery({
+      type: 'query-sources',
+      requestId: this.nextRequestId('sources'),
+    });
+  }
+
+  async queryAlignments(limit = 100): Promise<WorkbenchResponse> {
+    return this.executeCrossSourceQuery({
+      type: 'query-alignment',
+      requestId: this.nextRequestId('alignment'),
+      limit,
+    });
+  }
+
+  async queryCorrelations(entityId?: string, limit = 500): Promise<WorkbenchResponse> {
+    return this.executeCrossSourceQuery({
+      type: 'query-correlation',
+      requestId: this.nextRequestId('correlation'),
+      ...(entityId ? { entityId } : {}),
+      limit,
+    });
+  }
+
+  async queryEvidenceGraph(
+    input: {
+      range?: { startUs: number; endUs: number };
+      selectedEntityId?: string;
+      limit?: number;
+    } = {},
+  ): Promise<WorkbenchResponse> {
+    return this.executeCrossSourceQuery({
+      type: 'query-evidence-graph',
+      requestId: this.nextRequestId('evidence-graph'),
+      ...(input.range ? { range: input.range } : {}),
+      ...(input.selectedEntityId ? { selectedEntityId: input.selectedEntityId } : {}),
+      limit: input.limit ?? 300,
+    });
+  }
+
   async queryEventDetail(eventId: string): Promise<WorkbenchResponse> {
     const session = this.requireSession();
     return this.executeLatest('event-detail', {
@@ -447,6 +535,22 @@ export class TraceWorkbenchClient {
   private accept(response: WorkbenchResponse): boolean {
     const session = this.snapshot.session;
     if (
+      session
+      && response.type === 'source-change-result'
+      && response.sessionId === session.sessionId
+      && response.sessionRevision === session.sessionRevision + 1
+    ) {
+      this.latestRequestIds.clear();
+      this.updateSuccess('cross-source', {
+        session: { ...session, sessionRevision: response.sessionRevision },
+        sources: response,
+        alignments: undefined,
+        correlations: undefined,
+        evidenceGraph: undefined,
+      });
+      return true;
+    }
+    if (
       !session
       || !('sessionId' in response)
       || response.sessionId !== session.sessionId
@@ -467,6 +571,12 @@ export class TraceWorkbenchClient {
             ? 'event-log'
             : response.type === 'search-result'
               ? 'search'
+              : response.type === 'sources-result'
+                || response.type === 'source-change-result'
+                || response.type === 'alignment-result'
+                || response.type === 'correlation-result'
+                || response.type === 'evidence-graph-result'
+                ? 'cross-source'
       : response.type === 'event-detail-result'
         ? 'event-detail'
         : response.type === 'evidence-result'
@@ -501,6 +611,14 @@ export class TraceWorkbenchClient {
       this.updateSuccess('event-log', { eventLog: response });
     } else if (response.type === 'search-result') {
       this.updateSuccess('search', { search: response });
+    } else if (response.type === 'sources-result' || response.type === 'source-change-result') {
+      this.updateSuccess('cross-source', { sources: response });
+    } else if (response.type === 'alignment-result') {
+      this.updateSuccess('cross-source', { alignments: response });
+    } else if (response.type === 'correlation-result') {
+      this.updateSuccess('cross-source', { correlations: response });
+    } else if (response.type === 'evidence-graph-result') {
+      this.updateSuccess('cross-source', { evidenceGraph: response });
     } else if (response.type === 'event-detail-result') {
       this.updateSuccess('event-detail', { eventDetail: response });
     } else if (response.type === 'evidence-result') {
@@ -521,6 +639,7 @@ export class TraceWorkbenchClient {
         || errorChannel === 'cpu'
         || errorChannel === 'event-log'
         || errorChannel === 'search'
+        || errorChannel === 'cross-source'
         || errorChannel === 'event-detail'
         || errorChannel === 'evidence'
         || errorChannel === 'screenshot-index'
@@ -599,6 +718,54 @@ export class TraceWorkbenchClient {
   ): Promise<WorkbenchResponse | undefined> {
     this.latestRequestIds.set('cpu', request.requestId);
     return this.cpuDispatcher.submit(request);
+  }
+
+  private async changeSource(
+    file: File,
+    kind: 'har' | 'netlog',
+    replacedSourceId?: string,
+  ): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    const request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }> =
+      replacedSourceId
+        ? {
+            type: 'replace-source',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: this.nextRequestId('replace-source'),
+            sessionId: session.sessionId,
+            sessionRevision: session.sessionRevision,
+            sourceToken: this.nextRequestId('source-token'),
+            expectedKind: kind,
+            replacedSourceId,
+          }
+        : {
+            type: 'add-source',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: this.nextRequestId('add-source'),
+            sessionId: session.sessionId,
+            sessionRevision: session.sessionRevision,
+            sourceToken: this.nextRequestId('source-token'),
+            expectedKind: kind,
+          };
+    if (!this.transport.dispatchSourceFile) {
+      throw new Error('Cross-source file transport is unavailable');
+    }
+    this.latestRequestIds.set('cross-source', request.requestId);
+    const response = await this.transport.dispatchSourceFile(request, file);
+    this.accept(response);
+    return response;
+  }
+
+  private executeCrossSourceQuery(
+    request: CrossSourceQueryInput,
+  ): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    return this.executeLatest('cross-source', {
+      ...request,
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+    } as CrossSourceRequest);
   }
 
   private failAndClose(lastError?: StructuredErrorResponse): void {

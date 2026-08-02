@@ -27,11 +27,13 @@ describe('TimelineInteractionStore', () => {
     const store = new TimelineInteractionStore({ startUs: 0, endUs: 1_000 });
     store.setSelection({ startUs: 200, endUs: 400 });
     store.selectEvent('event-before');
+    store.highlightEntity('entity-before');
 
     store.navigateTo({
       viewport: { startUs: 500, endUs: 700 },
       selectedEventId: 'event-target',
     });
+    store.highlightEntity('entity-target');
     expect(store.getSnapshot()).toMatchObject({
       viewport: { startUs: 500, endUs: 700 },
       selectedEventId: 'event-target',
@@ -45,6 +47,7 @@ describe('TimelineInteractionStore', () => {
       viewport: { startUs: 0, endUs: 1_000 },
       selection: { startUs: 200, endUs: 400 },
       selectedEventId: 'event-before',
+      highlightedEntityId: 'entity-before',
     });
     expect(store.restorePrevious()).toBeUndefined();
   });

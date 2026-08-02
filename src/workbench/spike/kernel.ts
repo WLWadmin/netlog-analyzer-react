@@ -211,6 +211,19 @@ export class WorkbenchSpikeKernel {
         return this.cancelQuery(request);
       case 'release-session':
         return this.releaseSession(request);
+      case 'add-source':
+      case 'replace-source':
+      case 'remove-source':
+      case 'query-sources':
+      case 'query-alignment':
+      case 'query-correlation':
+      case 'query-evidence-graph':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'timeline-events',
+          'Cross-source analysis is unavailable in the stage 0 kernel',
+        );
     }
   }
 

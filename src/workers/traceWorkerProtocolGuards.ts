@@ -4,6 +4,7 @@ import type {
   TraceWorkerRequest,
   TraceWorkerResponse,
 } from './traceWorkerProtocols';
+import { isCrossSourceRequest } from '../workbench/crossSourceProtocolGuards';
 
 const TRACE_PHASES: TraceTaskPhase[] = [
   'sniffing-source',
@@ -19,6 +20,10 @@ const TRACE_PHASES: TraceTaskPhase[] = [
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(value).every(key => keys.includes(key));
 }
 
 function isString(value: unknown): value is string {
@@ -38,9 +43,25 @@ function isSource(value: unknown): boolean {
 
 export function isTraceWorkerRequest(value: unknown): value is TraceWorkerRequest {
   if (!isRecord(value) || !isString(value.type) || !isString(value.taskId)) return false;
-  if (value.type === 'cancel-trace-task') return true;
-  if (value.type === 'workbench-request') return isWorkbenchRequest(value.request);
-  return value.type === 'inspect-trace-upload'
+  if (value.type === 'cancel-trace-task') {
+    return hasOnlyKeys(value, ['type', 'taskId']);
+  }
+  if (value.type === 'workbench-request') {
+    return hasOnlyKeys(value, ['type', 'taskId', 'request'])
+      && isWorkbenchRequest(value.request);
+  }
+  if (value.type === 'workbench-source-file') {
+    return hasOnlyKeys(value, ['type', 'taskId', 'request', 'file'])
+      && isCrossSourceRequest(value.request)
+      && isRecord(value.request)
+      && (value.request.type === 'add-source' || value.request.type === 'replace-source')
+      && typeof File !== 'undefined'
+      && value.file instanceof File;
+  }
+  return hasOnlyKeys(value, [
+    'type', 'taskId', 'file', 'hint', 'keepWorkbenchAlive',
+  ])
+    && value.type === 'inspect-trace-upload'
     && (value.hint === 'trace' || value.hint === 'json-auto')
     && typeof value.keepWorkbenchAlive === 'boolean'
     && typeof File !== 'undefined'

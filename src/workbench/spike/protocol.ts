@@ -1,3 +1,8 @@
+import type {
+  CrossSourceRequest,
+  CrossSourceResponse,
+} from '../crossSourceProtocol';
+
 export const WORKBENCH_SPIKE_SCHEMA_VERSION = 1 as const;
 export const WORKBENCH_SCHEMA_VERSION = WORKBENCH_SPIKE_SCHEMA_VERSION;
 
@@ -217,7 +222,8 @@ export type WorkbenchRequest =
   | QueryScreenshotIndexRequest
   | QueryScreenshotRequest
   | CancelQueryRequest
-  | ReleaseSessionRequest;
+  | ReleaseSessionRequest
+  | CrossSourceRequest;
 
 interface WorkbenchResponseBase {
   schemaVersion: typeof WORKBENCH_SPIKE_SCHEMA_VERSION;
@@ -438,4 +444,5 @@ export type WorkbenchResponse =
   | ScreenshotIndexResultResponse
   | ScreenshotResultResponse
   | CapabilityMissingResponse
-  | StructuredErrorResponse;
+  | StructuredErrorResponse
+  | CrossSourceResponse;

@@ -210,6 +210,43 @@ async function dispatchWorkbench(
   }
 }
 
+async function dispatchWorkbenchSourceFile(
+  request: Extract<TraceWorkerRequest, { type: 'workbench-source-file' }>,
+): Promise<void> {
+  if (!activeTask || activeTask.taskId !== request.taskId || !sessionKernel) {
+    postWorkbench(request.taskId, {
+      type: 'structured-error',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.request.requestId,
+      sessionId: request.request.sessionId,
+      sessionRevision: request.request.sessionRevision,
+      error: {
+        code: 'session-released',
+        message: 'Workbench session is unavailable',
+        recoverable: false,
+      },
+    });
+    return;
+  }
+  try {
+    const response = await sessionKernel.dispatchSourceFile(request.request, request.file);
+    postWorkbench(request.taskId, response);
+  } catch {
+    postWorkbench(request.taskId, {
+      type: 'structured-error',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.request.requestId,
+      sessionId: request.request.sessionId,
+      sessionRevision: request.request.sessionRevision,
+      error: {
+        code: 'worker-failed',
+        message: 'Workbench source operation failed',
+        recoverable: true,
+      },
+    });
+  }
+}
+
 workerScope.addEventListener('message', (event: MessageEvent<unknown>) => {
   const request = event.data;
   if (!isTraceWorkerRequest(request)) return;
@@ -219,6 +256,10 @@ workerScope.addEventListener('message', (event: MessageEvent<unknown>) => {
   }
   if (request.type === 'workbench-request') {
     void dispatchWorkbench(request);
+    return;
+  }
+  if (request.type === 'workbench-source-file') {
+    void dispatchWorkbenchSourceFile(request);
     return;
   }
   void inspectTrace(request);

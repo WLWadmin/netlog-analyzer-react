@@ -9,6 +9,7 @@ import {
   type WorkbenchBenchmarkCorpusMetrics,
 } from '../workbench/spike/benchmarkProtocol';
 import type { WorkbenchRequest } from '../workbench/protocol';
+import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 import { WorkbenchBenchmarkBridge } from './workbenchBrowserBenchmark';
 
 export interface Stage2ProductBenchmarkState {
@@ -19,6 +20,12 @@ export interface Stage2ProductBenchmarkState {
   protocolSamples: Partial<Record<WorkbenchRequest['type'], number[]>>;
   workerSamples: Partial<Record<WorkbenchRequest['type'], number[]>>;
   transferBytes: number;
+  sourceChanges: Array<{
+    operation: 'added' | 'replaced' | 'removed';
+    sourceRevision: number;
+    revokedEdgeCount: number;
+    revokedFindingCount: number;
+  }>;
   queue: {
     viewport: ReturnType<TraceWorkbenchClient['getQueueStats']>;
     selection: ReturnType<TraceWorkbenchClient['getSelectionQueueStats']>;
@@ -62,6 +69,7 @@ export async function runStage2ProductBenchmark(): Promise<void> {
     protocolSamples: {},
     workerSamples: {},
     transferBytes: 0,
+    sourceChanges: [],
     queue: {
       viewport: {
         maxQueueDepth: 0,
@@ -111,6 +119,36 @@ export async function runStage2ProductBenchmark(): Promise<void> {
         appendSample(state.protocolSamples, request.type, performance.now() - startedAt);
         appendSample(state.workerSamples, request.type, measurement.workerElapsedMs);
         state.transferBytes += measurement.requestBytes + measurement.responseBytes;
+        if (measurement.value.type === 'source-change-result') {
+          state.sourceChanges.push({
+            operation: measurement.value.operation,
+            sourceRevision: measurement.value.sourceRevision,
+            revokedEdgeCount: measurement.value.revokedEdgeCount,
+            revokedFindingCount: measurement.value.revokedFindingCount,
+          });
+        }
+        return measurement.value;
+      },
+      dispatchSourceFile: async (
+        request: Extract<
+          CrossSourceRequest,
+          { type: 'add-source' | 'replace-source' }
+        >,
+        file: File,
+      ) => {
+        const startedAt = performance.now();
+        const measurement = await bridge.dispatchSourceFile(request, file);
+        appendSample(state.protocolSamples, request.type, performance.now() - startedAt);
+        appendSample(state.workerSamples, request.type, measurement.workerElapsedMs);
+        state.transferBytes += measurement.requestBytes + measurement.responseBytes;
+        if (measurement.value.type === 'source-change-result') {
+          state.sourceChanges.push({
+            operation: measurement.value.operation,
+            sourceRevision: measurement.value.sourceRevision,
+            revokedEdgeCount: measurement.value.revokedEdgeCount,
+            revokedFindingCount: measurement.value.revokedFindingCount,
+          });
+        }
         return measurement.value;
       },
       close: () => {

@@ -4,6 +4,7 @@ import type {
 } from '../parsers/trace/types';
 import { TraceWorkbenchClient } from '../workbench/client';
 import type { WorkbenchRequest, WorkbenchResponse } from '../workbench/protocol';
+import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 import { isTraceWorkerResponse } from './traceWorkerProtocolGuards';
 import type {
   TraceUploadHint,
@@ -14,6 +15,7 @@ import type {
 export const TRACE_WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 const TRACE_WORKER_CANCEL_GRACE_MS = 50;
 const WORKBENCH_QUERY_TIMEOUT_MS = 10_000;
+const WORKBENCH_SOURCE_TIMEOUT_MS = 120_000;
 
 export class TraceWorkerError extends Error {
   readonly detail: TracePublicError;
@@ -147,6 +149,35 @@ export function createTraceWorkerTask(
     });
   };
 
+  const dispatchWorkbenchSourceFile = (
+    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    file: File,
+  ): Promise<WorkbenchResponse> => {
+    if (closed) return Promise.reject(new Error('Trace Workbench Worker is closed'));
+    if (pendingWorkbench.has(request.requestId)) {
+      return Promise.reject(new Error('Duplicate Workbench requestId'));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingWorkbench.delete(request.requestId);
+        reject(new Error('Workbench source operation timed out'));
+      }, WORKBENCH_SOURCE_TIMEOUT_MS);
+      pendingWorkbench.set(request.requestId, { timer, resolve, reject });
+      try {
+        worker.postMessage({
+          type: 'workbench-source-file',
+          taskId,
+          request,
+          file,
+        } satisfies TraceWorkerRequest);
+      } catch {
+        clearTimeout(timer);
+        pendingWorkbench.delete(request.requestId);
+        reject(new Error('Workbench source file could not be sent'));
+      }
+    });
+  };
+
   function onMessage(event: MessageEvent<unknown>) {
     const raw = event.data;
     if (
@@ -182,6 +213,7 @@ export function createTraceWorkerTask(
       if (options.enableWorkbench && raw.workbenchSource) {
         workbenchClient = new TraceWorkbenchClient(raw.workbenchSource, {
           dispatch: dispatchWorkbench,
+          dispatchSourceFile: dispatchWorkbenchSourceFile,
           close: cleanup,
         });
       }

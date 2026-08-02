@@ -11,3 +11,8 @@ export function isTraceExpertAnalysisEnabled(): boolean {
   return isTraceTimelineEnabled()
     && process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS === '1';
 }
+
+export function isTraceCrossSourceEnabled(): boolean {
+  return isTraceExpertAnalysisEnabled()
+    && process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE === '1';
+}

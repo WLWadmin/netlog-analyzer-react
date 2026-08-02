@@ -30,6 +30,11 @@ import {
   TimelineQueryCancelled,
   TimelineQueryTimeout,
 } from './timelineColumnarStore';
+import type {
+  CrossSourceRequest,
+} from './crossSourceProtocol';
+import { CrossSourceStore } from './crossSourceStore';
+import { isTraceCrossSourceEnabled } from './featureFlag';
 
 interface QueryToken {
   cancelled: boolean;
@@ -88,6 +93,7 @@ export class WorkbenchSessionKernel {
   private state: WorkbenchSessionState = 'released';
   private revision = 0;
   private readonly activeQueries = new Map<string, QueryToken>();
+  private crossSource?: CrossSourceStore;
   private readonly now: () => number;
   private readonly yieldControl: () => Promise<void>;
   private readonly queryTimeoutMs: number;
@@ -139,6 +145,84 @@ export class WorkbenchSessionKernel {
         return this.cancelQuery(request);
       case 'release-session':
         return this.releaseSession(request);
+      case 'add-source':
+      case 'replace-source':
+        return structuredError(
+          request.requestId,
+          'worker-failed',
+          'Source file payload was not prepared by the Worker',
+          true,
+          request,
+        );
+      case 'remove-source':
+      case 'query-sources':
+      case 'query-alignment':
+      case 'query-correlation':
+      case 'query-evidence-graph':
+        return this.dispatchCrossSource(request);
+    }
+  }
+
+  async dispatchSourceFile(
+    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    file: File,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!this.crossSource || !isTraceCrossSourceEnabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Cross-source analysis is disabled',
+        true,
+        request,
+      );
+    }
+    const store = this.crossSource;
+    try {
+      const result = await store.addSource(
+        request.expectedKind,
+        file,
+        request.type === 'replace-source' ? request.replacedSourceId : undefined,
+      );
+      if (
+        this.crossSource !== store
+        || !this.sessionData
+        || !this.descriptor
+        || this.state === 'released'
+        || this.state === 'failed'
+        || this.descriptor.sessionRevision !== request.sessionRevision
+      ) {
+        store.release();
+        return structuredError(
+          request.requestId,
+          'session-released',
+          'Source operation completed after the Workbench session changed',
+          false,
+          request,
+        );
+      }
+      this.bumpSourceRevision();
+      return {
+        type: 'source-change-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: this.descriptor!.sessionId,
+        sessionRevision: this.descriptor!.sessionRevision,
+        sourceRevision: this.crossSource.getSourceRevision(),
+        operation: result.operation,
+        sources: this.crossSource.getSources(),
+        revokedEdgeCount: result.revokedEdgeCount,
+        revokedFindingCount: result.revokedFindingCount,
+      };
+    } catch {
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Source parsing or indexing failed; stable sources were preserved',
+        true,
+        request,
+      );
     }
   }
 
@@ -271,6 +355,13 @@ export class WorkbenchSessionKernel {
       trackEventCounts: timelineStats.trackEventCounts,
       screenshotCount: evidenceStats.screenshotCount,
     };
+    if (isTraceCrossSourceEnabled()) {
+      this.crossSource = new CrossSourceStore(
+        this.source.sourceId,
+        this.adapter.getRequestFacts(),
+        this.adapter.getMetadata().jsonBytes,
+      );
+    }
     if (finalIndexProgress) {
       onProgress?.({
         type: 'progress',
@@ -731,6 +822,104 @@ export class WorkbenchSessionKernel {
     };
   }
 
+  private dispatchCrossSource(
+    request: Exclude<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!this.crossSource || !isTraceCrossSourceEnabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Cross-source analysis is disabled',
+        true,
+        request,
+      );
+    }
+    const base = {
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: this.descriptor!.sessionId,
+      sessionRevision: this.descriptor!.sessionRevision,
+      sourceRevision: this.crossSource.getSourceRevision(),
+    };
+    if (request.type === 'remove-source') {
+      let revoked: { revokedEdgeCount: number; revokedFindingCount: number };
+      try {
+        revoked = this.crossSource.removeSource(request.sourceId);
+      } catch {
+        return structuredError(
+          request.requestId,
+          'unsupported-capability',
+          'Only an existing HAR or NetLog source can be removed',
+          true,
+          request,
+        );
+      }
+      this.bumpSourceRevision();
+      return {
+        ...base,
+        type: 'source-change-result',
+        sessionRevision: this.descriptor!.sessionRevision,
+        sourceRevision: this.crossSource.getSourceRevision(),
+        operation: 'removed',
+        sources: this.crossSource.getSources(),
+        ...revoked,
+      };
+    }
+    if (request.type === 'query-sources') {
+      return { ...base, type: 'sources-result', sources: this.crossSource.getSources() };
+    }
+    if (request.type === 'query-alignment') {
+      return {
+        ...base,
+        type: 'alignment-result',
+        alignments: this.crossSource.getAlignments().slice(0, request.limit),
+      };
+    }
+    if (request.type === 'query-correlation') {
+      const result = this.crossSource.getCorrelations(request.limit, request.entityId);
+      return {
+        ...base,
+        type: 'correlation-result',
+        candidates: result.candidates,
+        entities: result.entities,
+        truncation: {
+          truncated: result.totalMatched > result.candidates.length,
+          totalMatched: result.totalMatched,
+          returnedCount: result.candidates.length,
+        },
+      };
+    }
+    const graph = this.crossSource.getEvidenceGraph(
+      request.limit,
+      request.selectedEntityId,
+      request.range,
+    );
+    return {
+      ...base,
+      type: 'evidence-graph-result',
+      nodes: graph.nodes,
+      edges: graph.edges,
+      limitations: graph.limitations,
+      truncation: {
+        truncated: graph.totalMatched > graph.nodes.length + graph.edges.length,
+        totalMatched: graph.totalMatched,
+        returnedCount: graph.nodes.length + graph.edges.length,
+      },
+    };
+  }
+
+  private bumpSourceRevision(): void {
+    this.revision += 1;
+    if (this.descriptor) {
+      this.descriptor = {
+        ...this.descriptor,
+        sessionRevision: this.revision,
+      };
+    }
+  }
+
   private queryCapabilities(
     request: Extract<WorkbenchRequest, { type: 'query-capabilities' }>,
   ): WorkbenchResponse {
@@ -914,6 +1103,8 @@ export class WorkbenchSessionKernel {
     this.sessionData?.timeline.release();
     this.sessionData?.evidence.release();
     this.sessionData?.cpuProfile.release();
+    this.crossSource?.release();
+    this.crossSource = undefined;
     this.sessionData = undefined;
     this.adapter.release();
   }

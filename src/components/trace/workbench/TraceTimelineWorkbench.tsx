@@ -11,12 +11,17 @@ import type {
 } from '../../../diagnosis/trace';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
 import type { WorkbenchEventDetailDto } from '../../../workbench/protocol';
-import { isTraceExpertAnalysisEnabled } from '../../../workbench/featureFlag';
+import {
+  isTraceCrossSourceEnabled,
+  isTraceExpertAnalysisEnabled,
+} from '../../../workbench/featureFlag';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
 import { TIMELINE_TRACKS } from '../../../workbench/timelineTracks';
 import ScreenshotFilmstrip from './ScreenshotFilmstrip';
 import TimelineCanvas from './TimelineCanvas';
 import ExpertAnalysisDrawer from './ExpertAnalysisDrawer';
+import CrossSourcePanel from './CrossSourcePanel';
+import CrossSourceEvidenceGraph from './CrossSourceEvidenceGraph';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
@@ -117,8 +122,22 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [evidenceError, setEvidenceError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
-  const returnFocus = useRef<Array<HTMLElement | null>>([]);
+  const crossSourceEnabled = isTraceCrossSourceEnabled();
+  const returnFocus = useRef<Array<
+    HTMLElement | { evidenceEntityId: string } | null
+  >>([]);
+  const pendingEvidenceFocus = useRef<string | undefined>(undefined);
   const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const entityId = pendingEvidenceFocus.current;
+    if (!entityId) return;
+    const target = [...document.querySelectorAll<HTMLButtonElement>(
+      '[data-evidence-entity-id]',
+    )].find(button => button.dataset.evidenceEntityId === entityId);
+    (target ?? document.querySelector<HTMLElement>('.trace-evidence-graph'))?.focus();
+    pendingEvidenceFocus.current = undefined;
+  }, [clientSnapshot.evidenceGraph]);
 
   useEffect(() => {
     let disposed = false;
@@ -299,9 +318,14 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
     if (!previous) return;
     setDrawerOpen(previous.drawerOpen);
     const focus = returnFocus.current.pop();
+    if (focus && !(focus instanceof HTMLElement)) {
+      pendingEvidenceFocus.current = focus.evidenceEntityId;
+    }
     requestAnimationFrame(() => {
       if (mainRef.current) mainRef.current.scrollTop = previous.scrollTop;
-      focus?.focus();
+      if (focus instanceof HTMLElement) {
+        focus.focus();
+      }
     });
   };
 
@@ -362,6 +386,8 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
           <button type="button" onClick={close} disabled={closing}>关闭工作台</button>
         </div>
       </header>
+
+      {crossSourceEnabled && <CrossSourcePanel client={client} />}
 
       <div className="trace-timeline-layout">
         <aside className="trace-insight-navigator" aria-label="诊断与时间范围导航">
@@ -597,6 +623,24 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
                 client={client}
                 store={store}
                 onOpenEvent={openDetail}
+                onEscape={() => {
+                  if (store.hasHistory()) restorePrevious();
+                  else store.highlightEntity(undefined);
+                }}
+              />
+            )}
+            {crossSourceEnabled && (
+              <CrossSourceEvidenceGraph
+                client={client}
+                store={store}
+                onNavigate={entityId => {
+                  store.saveHistory({
+                    drawerOpen,
+                    scrollTop: mainRef.current?.scrollTop ?? 0,
+                  });
+                  returnFocus.current.push({ evidenceEntityId: entityId });
+                  store.highlightEntity(entityId);
+                }}
                 onEscape={() => {
                   if (store.hasHistory()) restorePrevious();
                   else store.highlightEntity(undefined);

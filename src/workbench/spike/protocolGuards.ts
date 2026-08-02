@@ -12,6 +12,10 @@ import {
   type WorkbenchBenchmarkWorkerResponse,
   type WorkbenchBenchmarkCorpusMetrics,
 } from './benchmarkProtocol';
+import {
+  isCrossSourceRequest,
+  isCrossSourceResponse,
+} from '../crossSourceProtocolGuards';
 
 const CAPABILITIES: WorkbenchCapability[] = [
   'timeline-events',
@@ -157,6 +161,14 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
       return isSessionRef(value) && isNonEmptyString(value.targetRequestId);
     case 'release-session':
       return isSessionRef(value);
+    case 'add-source':
+    case 'replace-source':
+    case 'remove-source':
+    case 'query-sources':
+    case 'query-alignment':
+    case 'query-correlation':
+    case 'query-evidence-graph':
+      return isCrossSourceRequest(value);
     default:
       return false;
   }
@@ -537,6 +549,12 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
           value.error.capability === undefined
           || isCapability(value.error.capability)
         );
+    case 'sources-result':
+    case 'source-change-result':
+    case 'alignment-result':
+    case 'correlation-result':
+    case 'evidence-graph-result':
+      return isCrossSourceResponse(value);
     default:
       return false;
   }
@@ -582,8 +600,18 @@ export function isWorkbenchBenchmarkWorkerRequest(
         value.eventCount as typeof WORKBENCH_BENCHMARK_EVENT_COUNTS[number],
       );
   }
-  return value.type === 'dispatch-workbench-request'
-    && isWorkbenchRequest(value.request);
+  if (value.type === 'dispatch-workbench-request') {
+    return isWorkbenchRequest(value.request);
+  }
+  return value.type === 'dispatch-workbench-source-file'
+    && isCrossSourceRequest(value.request)
+    && isRecord(value.request)
+    && (
+      value.request.type === 'add-source'
+      || value.request.type === 'replace-source'
+    )
+    && typeof File !== 'undefined'
+    && value.file instanceof File;
 }
 
 export function isWorkbenchBenchmarkWorkerResponse(

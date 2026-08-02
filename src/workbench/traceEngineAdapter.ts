@@ -17,6 +17,7 @@ import type {
   TraceContextResult,
   TraceEncoding,
   TraceParserWarning,
+  TraceRequestFacts,
 } from '../parsers/trace/types';
 import type { WorkbenchCapability } from './protocol';
 import { CpuProfileStore } from './cpuProfileStore';
@@ -63,6 +64,7 @@ export interface TraceEngineAdapter {
   getMetadata(): TraceEngineMetadata;
   getCapabilities(): TraceEngineCapability[];
   buildSessionData(options: TraceEngineOperationOptions): Promise<TraceEngineSessionData>;
+  getRequestFacts(): readonly TraceRequestFacts[];
   release(): void;
 }
 
@@ -357,6 +359,10 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
       eventCount: this.trace.traceEvents.length,
       jsonBytes: this.intakeSeed.jsonBytes,
     };
+  }
+
+  getRequestFacts(): readonly TraceRequestFacts[] {
+    return this.analysis?.context.requests ?? [];
   }
 
   getCapabilities(): TraceEngineCapability[] {
