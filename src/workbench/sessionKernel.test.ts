@@ -87,6 +87,7 @@ async function createSession(subject: WorkbenchSessionKernel) {
       'raw-evidence',
       'screenshots',
       'cpu-profile',
+      'rendering',
     ],
   });
   expect(response.type).toBe('session-created');
@@ -100,6 +101,11 @@ function enableStage5() {
   process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
   process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
   process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+}
+
+function enableStage6() {
+  enableStage5();
+  process.env.REACT_APP_ENABLE_TRACE_STAGE6 = '1';
 }
 
 async function addBaseline(
@@ -128,6 +134,7 @@ describe('WorkbenchSessionKernel', () => {
     delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
     delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
     delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
   });
 
   it('rejects a concurrent create request instead of building the index twice', async () => {
@@ -802,6 +809,156 @@ describe('WorkbenchSessionKernel', () => {
       eventCount: 2,
       activeQueryCount: 0,
     });
+  });
+
+  it('returns explicit unavailable Stage 6 DTOs without exposing raw events', async () => {
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const capabilities = [
+      'layout-shifts',
+      'animation-composition',
+      'memory-trend',
+      'gpu-raster',
+      'custom-query',
+      'track-plugin',
+    ] as const;
+
+    const blocked = await subject.dispatch({
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'advanced-disabled',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      capability: 'layout-shifts',
+      range: { startUs: -100, endUs: 30 },
+    });
+    expect(blocked).toMatchObject({
+      type: 'structured-error',
+      error: { code: 'unsupported-capability' },
+    });
+
+    enableStage6();
+    const enabledSubject = await kernel();
+    const enabledSession = await createSession(enabledSubject);
+    for (const capability of capabilities) {
+      const response = await enabledSubject.dispatch({
+        type: 'query-advanced-analysis',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: `advanced-${capability}`,
+        sessionId: enabledSession.sessionId,
+        sessionRevision: enabledSession.sessionRevision,
+        capability,
+        range: { startUs: -100, endUs: 30 },
+      });
+
+      expect(response).toMatchObject({
+        type: 'advanced-analysis-result',
+        capability,
+        status: 'unavailable',
+        evidenceIds: [],
+        result: { kind: capability },
+      });
+      expect(isWorkbenchResponse(response)).toBe(true);
+      expect(JSON.stringify(response)).not.toMatch(
+        /"args"|"headers"|"snapshot"|"rawTrace"|"url"/i,
+      );
+    }
+  });
+
+  it('projects explicit LayoutShift evidence into a cluster and registered track', async () => {
+    enableStage6();
+    const subject = await kernel({}, {
+      traceEvents: [{
+        name: 'LayoutShift',
+        cat: 'loading',
+        ph: 'I',
+        ts: 100,
+        pid: 1,
+        tid: 10,
+        args: {
+          data: {
+            weighted_score_delta: 0.125,
+            had_recent_input: false,
+          },
+        },
+      }],
+    });
+    const created = await createSession(subject);
+
+    expect(created.session.trackEventCounts).toEqual({ 'layout-shifts': 1 });
+    expect(created.session.capabilities).toContain('rendering');
+    const response = await subject.dispatch({
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'layout-shifts',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      capability: 'layout-shifts',
+      range: { startUs: 0, endUs: 1_000 },
+    });
+    expect(response).toMatchObject({
+      type: 'advanced-analysis-result',
+      status: 'available',
+      result: {
+        kind: 'layout-shifts',
+        clusters: [{
+          cumulativeScore: 0.125,
+          memberEventIds: ['trace:timeline:0'],
+          evidenceIds: ['trace:event:0'],
+        }],
+      },
+    });
+  });
+
+  it('projects explicit compositor state without promoting overlap to attribution', async () => {
+    enableStage6();
+    const subject = await kernel({}, {
+      traceEvents: [
+        {
+          name: 'CompositorAnimation',
+          cat: 'cc,animation',
+          ph: 'X',
+          ts: 100,
+          dur: 100,
+          pid: 1,
+          tid: 10,
+        },
+        {
+          name: 'DrawFrame',
+          cat: 'cc',
+          ph: 'X',
+          ts: 120,
+          dur: 10,
+          pid: 1,
+          tid: 11,
+        },
+      ],
+    });
+    const created = await createSession(subject);
+
+    expect(created.session.trackEventCounts).toMatchObject({ animations: 1 });
+    const response = await subject.dispatch({
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'animations',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      capability: 'animation-composition',
+      range: { startUs: 0, endUs: 1_000 },
+    });
+    expect(response).toMatchObject({
+      type: 'advanced-analysis-result',
+      status: 'available',
+      result: {
+        kind: 'animation-composition',
+        animations: [{
+          state: 'composited',
+          frameEventIds: ['trace:timeline:1'],
+          evidenceIds: ['trace:event:0'],
+        }],
+      },
+    });
+    expect(JSON.stringify(response)).toMatch(/不证明动画导致/);
   });
 
   it('releases indexes and evidence when the Worker fails', async () => {

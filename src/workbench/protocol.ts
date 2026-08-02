@@ -4,16 +4,25 @@ export {
 } from './spike/protocol';
 
 export type {
+  AdvancedAnalysisDto,
+  AdvancedAnalysisResultResponse,
+  AdvancedWorkbenchCapability,
+  AnimationCompositionAnalysisDto,
   CapabilityMissingResponse,
   CapabilitiesResultResponse,
   BottomUpResultResponse,
   CallTreeResultResponse,
   ComparisonBaselineResultResponse,
   CreateSessionRequest,
+  CustomQueryCapabilityDto,
   EventDetailResultResponse,
   EvidenceResultResponse,
   EventLogResultResponse,
   FlameChartResultResponse,
+  GpuRasterAnalysisDto,
+  LayoutShiftAnalysisDto,
+  MemoryTrendAnalysisDto,
+  QueryAdvancedAnalysisRequest,
   QueryBottomUpRequest,
   QueryCallTreeRequest,
   QueryTraceComparisonRequest,
@@ -34,6 +43,7 @@ export type {
   SelectionResultResponse,
   SearchResultResponse,
   StructuredErrorResponse,
+  TrackPluginCapabilityDto,
   TraceComparisonResultResponse,
   TraceComparisonStatus,
   ViewportResultResponse,
@@ -54,6 +64,7 @@ export type {
   WorkbenchListTruncation,
   WorkbenchTruncation,
   WorkbenchViewportLod,
+  WorkbenchProjectedPluginEventDto,
 } from './spike/protocol';
 
 export type {

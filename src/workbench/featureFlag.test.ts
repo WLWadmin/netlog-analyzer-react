@@ -2,6 +2,7 @@ import {
   isTraceCrossSourceEnabled,
   isTraceExpertAnalysisEnabled,
   isTraceStage5Enabled,
+  isTraceStage6Enabled,
   isTraceTimelineEnabled,
   isTraceWorkbenchEnabled,
 } from './featureFlag';
@@ -13,6 +14,7 @@ describe('Trace Workbench feature flag', () => {
     delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
     delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
     delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
   });
 
   it('is disabled by default and only accepts the explicit compile-time value', () => {
@@ -71,5 +73,20 @@ describe('Trace Workbench feature flag', () => {
 
     process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '0';
     expect(isTraceStage5Enabled()).toBe(false);
+  });
+
+  it('only enables Stage 6 when all six flags are explicit', () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+    expect(isTraceStage6Enabled()).toBe(false);
+
+    process.env.REACT_APP_ENABLE_TRACE_STAGE6 = '1';
+    expect(isTraceStage6Enabled()).toBe(true);
+
+    process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '0';
+    expect(isTraceStage6Enabled()).toBe(false);
   });
 });

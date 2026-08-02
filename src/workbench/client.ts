@@ -6,6 +6,7 @@ import {
   LatestViewportDispatcher,
 } from './clientState';
 import {
+  type AdvancedAnalysisResultResponse,
   type BottomUpResultResponse,
   type CallTreeResultResponse,
   type EventLogResultResponse,
@@ -13,6 +14,7 @@ import {
   WORKBENCH_SCHEMA_VERSION,
   type EvidenceResultResponse,
   type EventDetailResultResponse,
+  type QueryAdvancedAnalysisRequest,
   type QueryViewportRequest,
   type QuerySelectionRequest,
   type QueryBottomUpRequest,
@@ -313,6 +315,35 @@ export class TraceWorkbenchClient {
       search: undefined,
       queryErrors,
     });
+  }
+
+  async queryAdvancedAnalysis(
+    capability: QueryAdvancedAnalysisRequest['capability'],
+    range: QueryAdvancedAnalysisRequest['range'],
+  ): Promise<AdvancedAnalysisResultResponse> {
+    const session = this.requireSession();
+    const request: QueryAdvancedAnalysisRequest = {
+      type: 'query-advanced-analysis',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId(`advanced-${capability}`),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      capability,
+      range,
+    };
+    const channel = `advanced-${capability}`;
+    this.latestRequestIds.set(channel, request.requestId);
+    const response = await this.transport.dispatch(request);
+    if (!this.accept(response)) {
+      throw new Error('Advanced analysis response is stale');
+    }
+    if (
+      response.type !== 'advanced-analysis-result'
+      || response.capability !== capability
+    ) {
+      throw new Error('Advanced analysis did not return the requested capability');
+    }
+    return response;
   }
 
   async addSource(file: File, kind: 'har' | 'netlog'): Promise<WorkbenchResponse> {
@@ -645,8 +676,10 @@ export class TraceWorkbenchClient {
       this.discard();
       return false;
     }
-    const channel = response.type === 'viewport-result'
-      ? 'viewport'
+    const channel = response.type === 'advanced-analysis-result'
+      ? `advanced-${response.capability}`
+      : response.type === 'viewport-result'
+        ? 'viewport'
       : response.type === 'selection-result'
         ? 'selection'
         : response.type === 'flame-chart-result'

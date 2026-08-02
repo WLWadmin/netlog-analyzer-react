@@ -17,6 +17,14 @@ export type WorkbenchCapability =
   | 'screenshots'
   | 'raw-evidence';
 
+export type AdvancedWorkbenchCapability =
+  | 'layout-shifts'
+  | 'animation-composition'
+  | 'memory-trend'
+  | 'gpu-raster'
+  | 'custom-query'
+  | 'track-plugin';
+
 export type WorkbenchSessionState =
   | 'creating'
   | 'indexing-minimum'
@@ -61,7 +69,14 @@ export interface WorkbenchSessionDescriptor extends WorkbenchSessionRef {
   };
   eventCount: number;
   trackEventCounts: Partial<Record<
-    'milestones' | 'network' | 'main' | 'rendering' | 'interactions' | 'frames',
+    | 'layout-shifts'
+    | 'animations'
+    | 'milestones'
+    | 'network'
+    | 'main'
+    | 'rendering'
+    | 'interactions'
+    | 'frames',
     number
   >>;
   screenshotCount: number;
@@ -231,6 +246,12 @@ export interface QueryTraceComparisonRequest extends WorkbenchSessionRequestBase
   sameScenarioConfirmed: boolean;
 }
 
+export interface QueryAdvancedAnalysisRequest extends WorkbenchSessionRequestBase {
+  type: 'query-advanced-analysis';
+  capability: AdvancedWorkbenchCapability;
+  range: { startUs: number; endUs: number };
+}
+
 export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
@@ -250,6 +271,7 @@ export type WorkbenchRequest =
   | AddComparisonBaselineRequest
   | RemoveComparisonBaselineRequest
   | QueryTraceComparisonRequest
+  | QueryAdvancedAnalysisRequest
   | CrossSourceRequest;
 
 interface WorkbenchResponseBase {
@@ -468,6 +490,99 @@ export interface TraceComparisonResultResponse extends WorkbenchSessionResponseB
   limitations: string[];
 }
 
+export interface WorkbenchProjectedPluginEventDto {
+  eventId: string;
+  evidenceIds: string[];
+  trackId: string;
+  category: string;
+  name: string;
+  startUs: number;
+  durationUs: number;
+  status?: NonNullable<WorkbenchTimelineEventDto['status']>;
+}
+
+export interface LayoutShiftAnalysisDto {
+  kind: 'layout-shifts';
+  clusters: Array<{
+    clusterId: string;
+    startUs: number;
+    endUs: number;
+    cumulativeScore: number;
+    memberEventIds: string[];
+    evidenceIds: string[];
+    limitations: string[];
+  }>;
+}
+
+export interface AnimationCompositionAnalysisDto {
+  kind: 'animation-composition';
+  animations: Array<{
+    animationId: string;
+    startUs: number;
+    endUs: number;
+    state: 'composited' | 'not-composited' | 'unknown';
+    frameEventIds: string[];
+    renderingEventIds: string[];
+    evidenceIds: string[];
+    limitations: string[];
+  }>;
+}
+
+export interface MemoryTrendAnalysisDto {
+  kind: 'memory-trend';
+  samples: Array<{
+    timestampUs: number;
+    bytes: number;
+    evidenceIds: string[];
+  }>;
+  gcEvents: Array<{
+    eventId: string;
+    startUs: number;
+    durationUs: number;
+    evidenceIds: string[];
+  }>;
+}
+
+export interface GpuRasterAnalysisDto {
+  kind: 'gpu-raster';
+  intervals: Array<{
+    eventId: string;
+    activity: 'gpu' | 'raster';
+    startUs: number;
+    durationUs: number;
+    evidenceIds: string[];
+  }>;
+}
+
+export interface CustomQueryCapabilityDto {
+  kind: 'custom-query';
+  supportedFields: string[];
+  supportedOperators: string[];
+}
+
+export interface TrackPluginCapabilityDto {
+  kind: 'track-plugin';
+  projectedEvents: WorkbenchProjectedPluginEventDto[];
+  maxEvents: number;
+}
+
+export type AdvancedAnalysisDto =
+  | LayoutShiftAnalysisDto
+  | AnimationCompositionAnalysisDto
+  | MemoryTrendAnalysisDto
+  | GpuRasterAnalysisDto
+  | CustomQueryCapabilityDto
+  | TrackPluginCapabilityDto;
+
+export interface AdvancedAnalysisResultResponse extends WorkbenchSessionResponseBase {
+  type: 'advanced-analysis-result';
+  capability: AdvancedWorkbenchCapability;
+  status: 'available' | 'insufficient' | 'unavailable';
+  evidenceIds: string[];
+  limitations: string[];
+  result: AdvancedAnalysisDto;
+}
+
 export interface CapabilityMissingResponse extends WorkbenchSessionResponseBase {
   type: 'capability-missing';
   capability: WorkbenchCapability;
@@ -505,6 +620,7 @@ export type WorkbenchResponse =
   | ScreenshotResultResponse
   | ComparisonBaselineResultResponse
   | TraceComparisonResultResponse
+  | AdvancedAnalysisResultResponse
   | CapabilityMissingResponse
   | StructuredErrorResponse
   | CrossSourceResponse;

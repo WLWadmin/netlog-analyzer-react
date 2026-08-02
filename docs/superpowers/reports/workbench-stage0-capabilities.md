@@ -1,38 +1,78 @@
-# Performance Workbench 阶段 0 能力证据表
+# Performance Workbench 能力证据表
 
-- 基础代码 ref：`7399b1eec05bd6f846a74f854b117147e6ef8fa7`
+- 基础代码 ref：`b82776ebdd1a7918c4125cd62ba97d2c7440985f`
 - 复核人：TRAE
-- 复核日期：2026-08-01
-- 自动计分：70 / 100
-- 状态计数：implemented-verified=19，implemented-unverified=0，partial=1，designed=1，absent=4
-- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的原子项计分；阶段 0 Spike 不计入当前产品得分。
+- 复核日期：2026-08-02
+- 自动计分：79 / 100
+- 发布验收：未接受
+- 外部门禁：`real-sample-blocked`、`worker-peak-memory-unmeasured`
+- Stage 6 第一轮：Batch 41 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 42 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 43 `implemented`/`automated-verified`/`real-sample-blocked`
+- Stage 6 开关：`REACT_APP_ENABLE_TRACE_STAGE6=1`（仍依赖前五档 Workbench 开关）
+- 浏览器验证：`not-run`
+- 状态计数：implemented-verified=26，implemented-unverified=12，designed=1，absent=5
+- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。
 
-| ID | 能力域 | 分值 | 状态 | 用户可观察行为 | 代码 ref 与文件证据 | 测试/任务证据 | 样本 ID | 已知限制 | 复核日期 |
-|---|---|---:|---|---|---|---|---|---|---|
-| TL-01 | 时间轴与跨轨联动 | 8 | `implemented-verified` | 在统一时间轴查看 CPU、网络和渲染轨道。 | `working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx`<br>`working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx` | `src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx` | `SYNTH-WB-100K`<br>`SYNTH-WB-500K`<br>`SYNTH-WB-1000K` | 仓库外真实 Trace 样本仍阻塞；浏览器交互证据需在阶段 2 artifact 中单列。 | 2026-08-01 |
-| TL-02 | 时间轴与跨轨联动 | 6 | `implemented-verified` | 缩放、平移并保持跨轨证据游标。 | `working-tree@7399b1e:src/workbench/timelineInteractionStore.ts`<br>`working-tree@7399b1e:src/workbench/timelineGeometry.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/workbench/timelineGeometry.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx` | `SYNTH-WB-CONTRACT` | 交互时延仍需阶段 2 production browser benchmark 复核。 | 2026-08-01 |
-| TL-03 | 时间轴与跨轨联动 | 不计分 | `implemented-verified` | 阶段 0 测试界面按视口查询相交事件并用 Canvas 绘制。 | `working-tree@ec6fc9a:src/workbench/spike/kernel.ts`<br>`working-tree@ec6fc9a:src/benchmark/workbenchBrowserBenchmark.ts` | `src/workbench/spike/kernel.test.ts`<br>`workbench-browser-benchmark-100k.json`<br>`workbench-browser-benchmark-500k.json`<br>`workbench-browser-benchmark-1000k.json` | `SYNTH-WB-100K`<br>`SYNTH-WB-500K`<br>`SYNTH-WB-1000K` | 仅为阶段 0 Spike，scoreEligible=false，不代表产品 Timeline。 | 2026-08-01 |
-| TL-04 | 时间轴与跨轨联动 | 6 | `implemented-verified` | 产品 Timeline 按视口查询所有相交事件并跨轨联动。 | `7399b1e:src/workbench/client.ts`<br>`7399b1e:src/workbench/sessionKernel.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx` | `SYNTH-WB-CONTRACT` | 真实样本与发布验收未通过。 | 2026-08-01 |
-| CPU-01 | 主线程与 CPU 分析 | 5 | `implemented-verified` | 报告页展示主线程任务、长任务与 CPU Profile 事实。 | `ec6fc9a:src/parsers/trace/minimalTraceAggregator.ts`<br>`ec6fc9a:src/components/trace/tabs/TraceMainThreadTab.tsx` | `src/parsers/trace/cpuProfileFacts.test.ts`<br>`src/parsers/trace/taskFacts.test.ts` | `TRACE-SAMPLE-01`<br>`TRACE-SAMPLE-02`<br>`TRACE-SAMPLE-05` | 没有 Flame Chart、Call Tree 或 Bottom-up。 | 2026-08-01 |
-| CPU-02 | 主线程与 CPU 分析 | 5 | `absent` | 按时间顺序浏览 Flame Chart。 | 无 | 无 | 无 | 阶段 3 候选能力。 | 2026-08-01 |
-| CPU-03 | 主线程与 CPU 分析 | 5 | `absent` | 按选区查看 self time、total time 和调用次数。 | 无 | 无 | 无 | 当前聚合事实不等同于选区 CPU 查询。 | 2026-08-01 |
-| NET-01 | 网络瀑布 | 5 | `implemented-verified` | 报告页展示 Trace 请求生命周期、状态与发起关系。 | `ec6fc9a:src/parsers/trace/requestFacts.ts`<br>`ec6fc9a:src/components/trace/tabs/TraceNetworkTab.tsx` | `src/parsers/trace/requestFacts.test.ts`<br>`src/parsers/trace/minimalTraceAggregator.real-shapes.test.ts` | `TRACE-SAMPLE-01`<br>`TRACE-SAMPLE-02`<br>`TRACE-SAMPLE-05` | 没有统一时间轴上的网络瀑布。 | 2026-08-01 |
-| NET-02 | 网络瀑布 | 5 | `partial` | 在时间轴瀑布中缩放、过滤并联动发起关系。 | `working-tree@7399b1e:src/workbench/traceEngineAdapter.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/traceEngineAdapter.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx` | `SYNTH-WB-CONTRACT` | 请求范围、状态和发起事件可定位；阶段 3 搜索与过滤尚未实现。 | 2026-08-01 |
-| RFI-01 | 渲染、帧与交互 | 5 | `implemented-verified` | 报告页展示渲染、帧、交互和 Forced Reflow 事实。 | `ec6fc9a:src/parsers/trace/traceFactCollectors.ts`<br>`ec6fc9a:src/components/trace/tabs/TraceRenderingTab.tsx`<br>`ec6fc9a:src/components/trace/tabs/TraceInteractionsTab.tsx` | `src/parsers/trace/interactionFacts.test.ts`<br>`src/parsers/trace/minimalTraceAggregator.batch3.test.ts` | `TRACE-SAMPLE-01`<br>`TRACE-SAMPLE-02`<br>`TRACE-SAMPLE-05` | 事实位于报告列表，不能与时间轴帧轨联动。 | 2026-08-01 |
-| RFI-02 | 渲染、帧与交互 | 3 | `implemented-verified` | 在统一范围定位掉帧、交互和渲染活动。 | `working-tree@7399b1e:src/workbench/traceEngineAdapter.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/traceEngineAdapter.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx` | `SYNTH-WB-CONTRACT` | 帧预算使用 60Hz 参考；未推断实际刷新率。 | 2026-08-01 |
-| RFI-03 | 渲染、帧与交互 | 2 | `implemented-verified` | 按时间浏览 Trace 内已有截图。 | `7399b1e:src/workbench/rawEvidenceStore.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/ScreenshotFilmstrip.tsx` | `src/workbench/rawEvidenceStore.test.ts`<br>`src/components/trace/workbench/ScreenshotFilmstrip.test.tsx` | `SYNTH-WB-SCREENSHOT` | 截图按用户操作逐帧传输；仓库外真实截图 Trace 未验证。 | 2026-08-01 |
-| AGG-01 | Call Tree、Bottom-up、Event Log | 10 | `absent` | 在当前选区切换 Call Tree、Bottom-up 和 Event Log。 | 无 | 无 | 无 | 阶段 3 候选能力。 | 2026-08-01 |
-| NAV-01 | 导航、选区与查询 | 2 | `implemented-verified` | 报告页可在结论、事实和证据页签间定位。 | `ec6fc9a:src/components/trace/useTraceTargetNavigation.ts`<br>`ec6fc9a:src/components/trace/TraceResultPage.tsx` | `src/components/trace/useTraceTargetNavigation.test.tsx`<br>`src/components/trace/TraceResultPage.test.tsx` | `TRACE-GOLDEN-CORPUS` | 不是时间范围历史或选区查询。 | 2026-08-01 |
-| NAV-02 | 导航、选区与查询 | 不计分 | `implemented-verified` | Spike 支持 session/revision/request、视口、详情、取消和 release。 | `working-tree@ec6fc9a:src/workbench/spike/protocol.ts`<br>`working-tree@ec6fc9a:src/workbench/spike/kernel.ts` | `src/workbench/spike/kernel.test.ts` | `SYNTH-WB-CONTRACT` | 阶段 0 风险验证，不计入当前产品得分。 | 2026-08-01 |
-| NAV-04 | 导航、选区与查询 | 5 | `implemented-verified` | 产品 Workbench 支持会话、视口、详情、局部取消和释放。 | `7399b1e:src/workbench/client.ts`<br>`7399b1e:src/workbench/sessionKernel.ts`<br>`7399b1e:src/workers/traceWorkerTask.ts` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workers/traceWorkerClient.test.ts` | `SYNTH-WB-CONTRACT` | 内部 feature flag 路径，未发布验收。 | 2026-08-01 |
-| NAV-03 | 导航、选区与查询 | 3 | `implemented-verified` | 产品工作台保存并恢复视口、选区和焦点。 | `working-tree@7399b1e:src/workbench/timelineInteractionStore.ts`<br>`working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx` | `SYNTH-WB-CONTRACT` | 状态只存在当前页面内存，刷新后按设计不恢复本地文件。 | 2026-08-01 |
-| DIA-01 | 自动诊断与证据 | 8 | `implemented-verified` | 报告页输出证据约束诊断、确定性排序和白名单证据引用。 | `ec6fc9a:src/diagnosis/trace/traceDiagnosisRules.ts`<br>`ec6fc9a:src/diagnosis/trace/selectTraceDiagnoses.ts` | `src/diagnosis/trace/traceGoldenCorpus.test.ts`<br>`src/diagnosis/trace/selectTraceDiagnoses.test.ts` | `TRACE-GOLDEN-CORPUS` | 最高分主诊断只可视为报告页基线。 | 2026-08-01 |
-| DIA-02 | 自动诊断与证据 | 2 | `designed` | 围绕症状实体展示必要证据、反证和竞争原因。 | `V5 design section 10` | 无 | 无 | 竞争归因尚未实现。 | 2026-08-01 |
-| SAFE-01 | 稳定性、隐私与离线能力 | 3 | `implemented-verified` | 预检推荐后由用户确认 parser，并执行专用校验。 | `ec6fc9a:src/upload/createFileFormatIntake.ts`<br>`ec6fc9a:src/upload/useAnalysisIntake.ts` | `src/upload/createFileFormatIntake.test.ts`<br>`src/upload/useAnalysisIntake.test.tsx` | `SYNTH-FORMAT-GATEWAY` | 未知 JSON 不回退为 NetLog；Workbench 必须复用该入口。 | 2026-08-01 |
-| SAFE-02 | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | Trace 在 Worker 中读取、聚合并返回报告 DTO。 | `ec6fc9a:src/workers/traceAnalysisWorker.ts`<br>`ec6fc9a:src/workers/traceWorkerTask.ts` | `src/workers/traceWorkerClient.test.ts`<br>`src/workers/buildTraceAnalysisResult.test.ts` | `TRACE-SAMPLE-01`<br>`TRACE-SAMPLE-02`<br>`TRACE-SAMPLE-05` | 读取、聚合、索引和查询均使用协作式取消；真实样本门禁仍阻塞。 | 2026-08-01 |
-| SAFE-03 | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | 进度使用 bytes、events、requests、lines 或 rules 等真实工作量。 | `ec6fc9a:src/upload/analysisProgress.ts` | `src/upload/analysisProgress.test.ts`<br>`src/upload/parserProgress.test.ts` | `SYNTH-PROGRESS` | Workbench UI 展示真实 events 进度；100% 在稳定 Session 提交前不显示。 | 2026-08-01 |
-| SAFE-04 | 稳定性、隐私与离线能力 | 3 | `implemented-verified` | Trace 报告仅通过白名单 DTO 导出并经过敏感数据扫描。 | `ec6fc9a:src/parsers/trace/exportTraceReport.ts` | `src/parsers/trace/exportTraceReport.test.ts` | `TRACE-GOLDEN-CORPUS` | 截图不在当前导出能力内。 | 2026-08-01 |
-| DETAIL-01 | 事件详情、搜索与过滤 | 2 | `implemented-verified` | 报告页可查看受控事实与 evidence 引用。 | `ec6fc9a:src/components/trace/tabs/TraceEvidenceTab.tsx`<br>`ec6fc9a:src/parsers/trace/eventAccessors.ts` | `src/parsers/trace/eventAccessors.test.ts`<br>`src/components/trace/TraceResultPage.facts.test.tsx` | `TRACE-GOLDEN-CORPUS` | 不是按事件 ID 查询原始详情。 | 2026-08-01 |
-| DETAIL-02 | 事件详情、搜索与过滤 | 3 | `absent` | 在 Timeline 与 Event Log 中搜索、过滤和前后导航。 | 无 | 无 | 无 | 阶段 3 候选能力。 | 2026-08-01 |
+## 域汇总
+
+| 能力域 | 已得分 | 可得分 | 未计分原因 |
+|---|---:|---:|---|
+| 时间轴与跨轨联动 | 18 | 20 | TL-02-BROWSER-ACCESSIBILITY: Stage 5 浏览器 artifact 被忽略，master 无可提交运行证据。<br>TL-04-LARGE-TRACE-BROWSER: master 不包含可提交的 Stage 5 100K/500K/1M 浏览器运行 artifact。 |
+| 主线程与 CPU 分析 | 12 | 15 | CPU-01-GC-MEMORY-TREND: Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。<br>CPU-02-REAL-PROFILE-SHAPES: 仓库外真实 CPU Profile 形状仍为 real-sample-blocked。 |
+| 网络瀑布 | 7 | 10 | NET-01-REAL-REQUEST-SHAPES: 仓库外真实请求样本门禁未通过。<br>NET-02-CONNECTION-PHASES: 离线 Trace 尚未提供完整 DNS/TCP/TLS/代理阶段瀑布。 |
+| 渲染、帧与交互 | 7 | 10 | RFI-01-REAL-RENDERING-SAMPLE: 真实渲染故障样本仍为 real-sample-blocked。<br>RFI-02-GPU-RASTER: Stage 6 GPU/Raster 摘要轨道尚未实现。<br>RFI-03-REAL-SCREENSHOT-TRACE: 仓库外真实截图 Trace 未验证。 |
+| Call Tree、Bottom-up、Event Log | 8 | 10 | AGG-01-BROWSER-WORKFLOW: master 无可提交的 Stage 5 浏览器工作流 artifact。<br>AGG-01-REAL-PROFILE-WORKFLOW: 真实 CPU Profile 工作流仍为 real-sample-blocked。 |
+| 导航、选区与查询 | 8 | 10 | NAV-04-BROWSER-SESSION: 缺少 master 内可提交的浏览器会话 artifact。<br>NAV-03-DECLARATIVE-QUERY: Stage 6 声明式自定义查询尚未实现。 |
+| 自动诊断与证据 | 7 | 10 | DIA-01-REAL-PRECISION: 真实故障样本精确率门禁未通过。<br>DIA-02-REAL-CROSS-SOURCE: 真实 Trace/HAR/NetLog 配对仍为 real-sample-blocked。 |
+| 稳定性、隐私与离线能力 | 8 | 10 | SAFE-02-WORKER-PEAK-MEMORY: 页面 JavaScript 无法测量独立 Worker 峰值内存。<br>SAFE-04-TRACK-PLUGIN-PROJECTION: 仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。 |
+| 事件详情、搜索与过滤 | 4 | 5 | DETAIL-02-CUSTOM-QUERY: Stage 6 声明式自定义查询尚未实现。 |
+
+## Criteria 明细
+
+| Criteria ID | 能力域 | 分值 | 状态 | 代码证据 | 测试/样本证据 | 限制 |
+|---|---|---:|---|---|---|---|
+| TL-01-CORE-TRACKS | 时间轴与跨轨联动 | 6 | `implemented-verified` | `src/workbench/timelineTracks.ts`<br>`src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/timelineTracks.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx`<br>`SYNTH-WB-CONTRACT` | 仅对已注册核心轨道计分。 |
+| TL-01-EXTENSIBLE-REGISTRY | 时间轴与跨轨联动 | 2 | `implemented-verified` | `src/workbench/timelineTracks.ts` | `src/workbench/timelineTracks.test.ts`<br>`SYNTH-LAYOUT-SHIFT` | registry 已支持高级轨道；当前注册布局偏移与动画轨道。 |
+| TL-02-INTERACTION | 时间轴与跨轨联动 | 5 | `implemented-verified` | `src/workbench/timelineInteractionStore.ts`<br>`src/workbench/timelineGeometry.ts` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/workbench/timelineGeometry.test.ts`<br>`SYNTH-WB-CONTRACT` | 自动化测试证明状态与几何行为，不替代真实浏览器验收。 |
+| TL-02-BROWSER-ACCESSIBILITY | 时间轴与跨轨联动 | 1 | `implemented-unverified` | `src/components/trace/workbench/TimelineCanvas.tsx` | `src/components/trace/workbench/TimelineCanvas.test.tsx` | Stage 5 浏览器 artifact 被忽略，master 无可提交运行证据。 |
+| TL-04-VIEWPORT-QUERY | 时间轴与跨轨联动 | 5 | `implemented-verified` | `src/workbench/client.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/workbench/timelineColumnarStore.ts` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/timelineColumnarStore.test.ts`<br>`SYNTH-WB-CONTRACT` | 查询结果允许显式 LOD 和截断。 |
+| TL-04-LARGE-TRACE-BROWSER | 时间轴与跨轨联动 | 1 | `implemented-unverified` | `src/benchmark/workbenchBrowserBenchmark.ts` | 无 | master 不包含可提交的 Stage 5 100K/500K/1M 浏览器运行 artifact。 |
+| CPU-01-TASK-PROFILE-FACTS | 主线程与 CPU 分析 | 3 | `implemented-verified` | `src/parsers/trace/taskFacts.ts`<br>`src/parsers/trace/cpuProfileFacts.ts` | `src/parsers/trace/taskFacts.test.ts`<br>`src/parsers/trace/cpuProfileFacts.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 仅计主线程任务与 CPU Profile 基础事实。 |
+| CPU-01-GC-MEMORY-TREND | 主线程与 CPU 分析 | 2 | `absent` | 无 | 无 | Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。 |
+| CPU-02-FLAME-CHART | 主线程与 CPU 分析 | 4 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/components/trace/workbench/FlameChartCanvas.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/components/trace/workbench/FlameChartCanvas.test.tsx`<br>`SYNTH-CPU-PROFILE` | 仅由合成 CPU Profile 形状验证。 |
+| CPU-02-REAL-PROFILE-SHAPES | 主线程与 CPU 分析 | 1 | `implemented-unverified` | `src/workbench/cpuProfileStore.ts` | 无 | 仓库外真实 CPU Profile 形状仍为 real-sample-blocked。 |
+| CPU-03-SELECTION-AGGREGATES | 主线程与 CPU 分析 | 5 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-CPU-PROFILE` | 采样命中不等同于真实函数调用次数。 |
+| NET-01-REQUEST-LIFECYCLE | 网络瀑布 | 4 | `implemented-verified` | `src/parsers/trace/requestFacts.ts`<br>`src/workbench/traceEngineAdapter.ts` | `src/parsers/trace/requestFacts.test.ts`<br>`src/workbench/traceEngineAdapter.test.ts`<br>`TRACE-GOLDEN-CORPUS` | Trace 请求事实不推断 DNS、TCP、TLS、代理或服务端根因。 |
+| NET-01-REAL-REQUEST-SHAPES | 网络瀑布 | 1 | `implemented-unverified` | `src/parsers/trace/requestFacts.ts` | 无 | 仓库外真实请求样本门禁未通过。 |
+| NET-02-TIMELINE-SEARCH | 网络瀑布 | 3 | `implemented-verified` | `src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`SYNTH-WB-CONTRACT` | 搜索只覆盖白名单投影字段。 |
+| NET-02-CONNECTION-PHASES | 网络瀑布 | 2 | `absent` | 无 | 无 | 离线 Trace 尚未提供完整 DNS/TCP/TLS/代理阶段瀑布。 |
+| RFI-01-RENDERING-FACTS | 渲染、帧与交互 | 2 | `implemented-verified` | `src/parsers/trace/traceFactCollectors.ts`<br>`src/workbench/traceEngineAdapter.ts` | `src/parsers/trace/minimalTraceAggregator.batch3.test.ts`<br>`src/workbench/traceEngineAdapter.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 基础渲染事实不等于 CLS 或动画归因。 |
+| RFI-01-CLS-CLUSTERS | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/advancedAnalysisStore.ts`<br>`src/components/trace/workbench/LayoutShiftPanel.tsx` | `src/workbench/advancedAnalysisStore.test.ts`<br>`src/components/trace/workbench/LayoutShiftPanel.test.tsx`<br>`src/workbench/sessionKernel.test.ts`<br>`SYNTH-LAYOUT-SHIFT` | 不映射原页面 DOM，不推断布局偏移根因；真实样本仍阻塞。 |
+| RFI-01-ANIMATION-COMPOSITION | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/advancedAnalysisStore.ts`<br>`src/components/trace/workbench/AnimationCompositionPanel.tsx` | `src/workbench/advancedAnalysisStore.test.ts`<br>`src/components/trace/workbench/AnimationCompositionPanel.test.tsx`<br>`src/workbench/sessionKernel.test.ts`<br>`SYNTH-ANIMATION-COMPOSITION` | 时间重叠只作范围关联，不证明动画导致帧或渲染活动；真实样本仍阻塞。 |
+| RFI-01-REAL-RENDERING-SAMPLE | 渲染、帧与交互 | 1 | `implemented-unverified` | `src/parsers/trace/traceFactCollectors.ts` | 无 | 真实渲染故障样本仍为 real-sample-blocked。 |
+| RFI-02-FRAME-RANGES | 渲染、帧与交互 | 2 | `implemented-verified` | `src/parsers/trace/traceFactCollectors.ts`<br>`src/components/trace/workbench/TimelineCanvas.tsx` | `src/parsers/trace/minimalTraceAggregator.batch3.test.ts`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx`<br>`SYNTH-FRAME` | 帧预算使用 60Hz 参考，不推断设备刷新率。 |
+| RFI-02-GPU-RASTER | 渲染、帧与交互 | 1 | `absent` | 无 | 无 | Stage 6 GPU/Raster 摘要轨道尚未实现。 |
+| RFI-03-SCREENSHOT-LIFECYCLE | 渲染、帧与交互 | 1 | `implemented-verified` | `src/workbench/rawEvidenceStore.ts`<br>`src/components/trace/workbench/ScreenshotFilmstrip.tsx` | `src/workbench/rawEvidenceStore.test.ts`<br>`src/components/trace/workbench/ScreenshotFilmstrip.test.tsx`<br>`SYNTH-WB-SCREENSHOT` | 截图不进入插件或默认导出。 |
+| RFI-03-REAL-SCREENSHOT-TRACE | 渲染、帧与交互 | 1 | `implemented-unverified` | `src/workbench/rawEvidenceStore.ts` | 无 | 仓库外真实截图 Trace 未验证。 |
+| AGG-01-BOUNDED-QUERIES | Call Tree、Bottom-up、Event Log | 8 | `implemented-verified` | `src/workbench/cpuProfileStore.ts`<br>`src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/cpuProfileStore.test.ts`<br>`src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-CPU-PROFILE` | 列表按上限和 continuation 有界返回。 |
+| AGG-01-BROWSER-WORKFLOW | Call Tree、Bottom-up、Event Log | 1 | `implemented-unverified` | `src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx` | master 无可提交的 Stage 5 浏览器工作流 artifact。 |
+| AGG-01-REAL-PROFILE-WORKFLOW | Call Tree、Bottom-up、Event Log | 1 | `implemented-unverified` | `src/workbench/cpuProfileStore.ts` | 无 | 真实 CPU Profile 工作流仍为 real-sample-blocked。 |
+| NAV-01-REPORT-EVIDENCE | 导航、选区与查询 | 2 | `implemented-verified` | `src/components/trace/useTraceTargetNavigation.ts`<br>`src/components/trace/TraceResultPage.tsx` | `src/components/trace/useTraceTargetNavigation.test.tsx`<br>`src/components/trace/TraceResultPage.test.tsx`<br>`TRACE-GOLDEN-CORPUS` | 仅定位白名单证据 ID。 |
+| NAV-04-SESSION-LIFECYCLE | 导航、选区与查询 | 4 | `implemented-verified` | `src/workbench/client.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/workers/traceWorkerTask.ts` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workers/traceWorkerClient.test.ts`<br>`SYNTH-WB-CONTRACT` | 能力仍位于内部 feature flag 后。 |
+| NAV-04-BROWSER-SESSION | 导航、选区与查询 | 1 | `implemented-unverified` | `src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/components/trace/workbench/TraceTimelineWorkbench.test.tsx` | 缺少 master 内可提交的浏览器会话 artifact。 |
+| NAV-03-HISTORY-FOCUS | 导航、选区与查询 | 2 | `implemented-verified` | `src/workbench/timelineInteractionStore.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`SYNTH-WB-CONTRACT` | 页面刷新后不恢复本地文件。 |
+| NAV-03-DECLARATIVE-QUERY | 导航、选区与查询 | 1 | `absent` | 无 | 无 | Stage 6 声明式自定义查询尚未实现。 |
+| DIA-01-DETERMINISTIC-RULES | 自动诊断与证据 | 6 | `implemented-verified` | `src/diagnosis/trace/traceDiagnosisRules.ts`<br>`src/diagnosis/trace/selectTraceDiagnoses.ts` | `src/diagnosis/trace/traceGoldenCorpus.test.ts`<br>`src/diagnosis/trace/selectTraceDiagnoses.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 合成 corpus 只证明规则边界。 |
+| DIA-01-REAL-PRECISION | 自动诊断与证据 | 2 | `implemented-unverified` | `src/diagnosis/trace/traceDiagnosisRules.ts` | 无 | 真实故障样本精确率门禁未通过。 |
+| DIA-02-COMPETING-CAUSES | 自动诊断与证据 | 1 | `implemented-verified` | `src/diagnosis/trace/expertDiagnosis.ts` | `src/diagnosis/trace/expertDiagnosis.test.ts`<br>`SYNTH-EXTENSION-POSITIVE-NEGATIVE` | 时间重叠只允许 possible-contributor。 |
+| DIA-02-REAL-CROSS-SOURCE | 自动诊断与证据 | 1 | `implemented-unverified` | `src/workbench/crossSourceStore.ts` | `src/workbench/crossSourceStore.test.ts` | 真实 Trace/HAR/NetLog 配对仍为 real-sample-blocked。 |
+| SAFE-01-FORMAT-GATEWAY | 稳定性、隐私与离线能力 | 3 | `implemented-verified` | `src/upload/createFileFormatIntake.ts`<br>`src/upload/useAnalysisIntake.ts` | `src/upload/createFileFormatIntake.test.ts`<br>`src/upload/useAnalysisIntake.test.tsx`<br>`SYNTH-FORMAT-GATEWAY` | 未知 JSON 不回退为 NetLog。 |
+| SAFE-02-WORKER-EXECUTION | 稳定性、隐私与离线能力 | 1 | `implemented-verified` | `src/workers/traceAnalysisWorker.ts`<br>`src/workers/traceWorkerTask.ts` | `src/workers/traceWorkerClient.test.ts`<br>`src/workers/buildTraceAnalysisResult.test.ts`<br>`SYNTH-WB-CONTRACT` | 自动化测试不测量独立 Worker 峰值内存。 |
+| SAFE-02-WORKER-PEAK-MEMORY | 稳定性、隐私与离线能力 | 1 | `implemented-unverified` | `src/benchmark/workbenchBrowserBenchmark.ts` | 无 | 页面 JavaScript 无法测量独立 Worker 峰值内存。 |
+| SAFE-03-PROGRESS | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | `src/upload/analysisProgress.ts`<br>`src/workbench/sessionKernel.ts` | `src/upload/analysisProgress.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`SYNTH-PROGRESS` | 进度不推导发布验收状态。 |
+| SAFE-04-EXPORT-PROJECTION | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | `src/parsers/trace/exportTraceReport.ts` | `src/parsers/trace/exportTraceReport.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 截图不在默认导出内。 |
+| SAFE-04-TRACK-PLUGIN-PROJECTION | 稳定性、隐私与离线能力 | 1 | `designed` | `src/workbench/spike/protocol.ts` | `src/workbench/stage6Protocol.test.ts` | 仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。 |
+| DETAIL-01-EVIDENCE-DETAIL | 事件详情、搜索与过滤 | 2 | `implemented-verified` | `src/workbench/rawEvidenceStore.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/rawEvidenceStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`SYNTH-WB-CONTRACT` | UI 不接收 args、请求头或完整 URL 参数。 |
+| DETAIL-02-SEARCH-FILTER | 事件详情、搜索与过滤 | 2 | `implemented-verified` | `src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-WB-CONTRACT` | 搜索只匹配白名单名称、分类、轨道和状态。 |
+| DETAIL-02-CUSTOM-QUERY | 事件详情、搜索与过滤 | 1 | `absent` | 无 | 无 | Stage 6 声明式自定义查询尚未实现。 |
 
 该汇总由 `node scripts/build-workbench-stage0-evidence.js` 从 JSON 明细生成，不手写总体完成度。

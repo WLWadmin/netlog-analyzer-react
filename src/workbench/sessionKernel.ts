@@ -38,6 +38,7 @@ import { CrossSourceStore } from './crossSourceStore';
 import {
   isTraceCrossSourceEnabled,
   isTraceStage5Enabled,
+  isTraceStage6Enabled,
 } from './featureFlag';
 import { readTraceFileForWorker } from '../parsers/trace/readTraceFile';
 
@@ -181,6 +182,8 @@ export class WorkbenchSessionKernel {
         return this.removeComparisonBaseline(request);
       case 'query-trace-comparison':
         return this.queryTraceComparison(request);
+      case 'query-advanced-analysis':
+        return this.queryAdvancedAnalysis(request);
     }
   }
 
@@ -1077,6 +1080,81 @@ export class WorkbenchSessionKernel {
       sessionRevision: request.sessionRevision,
       capabilities: session.capabilities,
       missingCapabilities: session.missingCapabilities,
+    };
+  }
+
+  private queryAdvancedAnalysis(
+    request: Extract<WorkbenchRequest, { type: 'query-advanced-analysis' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage6Enabled() || !this.sessionData?.advanced) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 6 advanced analysis is disabled',
+        true,
+        request,
+      );
+    }
+    const advanced = this.sessionData.advanced;
+    if (request.capability === 'layout-shifts') {
+      const analysis = advanced.queryLayoutShifts(request.range);
+      return {
+        type: 'advanced-analysis-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        capability: request.capability,
+        ...analysis,
+      };
+    }
+    if (request.capability === 'animation-composition') {
+      const analysis = advanced.queryAnimationComposition(request.range);
+      return {
+        type: 'advanced-analysis-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        capability: request.capability,
+        ...analysis,
+      };
+    }
+    const result = (() => {
+      switch (request.capability) {
+        case 'memory-trend':
+          return { kind: 'memory-trend' as const, samples: [], gcEvents: [] };
+        case 'gpu-raster':
+          return { kind: 'gpu-raster' as const, intervals: [] };
+        case 'custom-query':
+          return {
+            kind: 'custom-query' as const,
+            supportedFields: [],
+            supportedOperators: [],
+          };
+        case 'track-plugin':
+          return {
+            kind: 'track-plugin' as const,
+            projectedEvents: [],
+            maxEvents: 0,
+          };
+      }
+    })();
+    return {
+      type: 'advanced-analysis-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      capability: request.capability,
+      status: 'unavailable',
+      evidenceIds: [],
+      limitations: [
+        `Trace does not provide verified ${request.capability} analysis evidence`,
+      ],
+      result,
     };
   }
 

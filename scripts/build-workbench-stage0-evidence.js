@@ -19,7 +19,7 @@ const benchmarkReportPath = path.join(
 );
 const benchmarkEventCounts = [100000, 500000, 1000000];
 const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-const allowedStatuses = new Set(source.allowedStatuses);
+const allowedStatuses = new Set(source.allowedCriterionStatuses);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -110,56 +110,176 @@ function readAndValidateBenchmark(eventCount) {
   return artifact;
 }
 
+assert(source.schemaVersion === 2, 'capability audit schemaVersion must be 2');
+assert(source.releaseAccepted === false, 'capability score cannot imply release acceptance');
+assert(
+  source.blockingGates.includes('real-sample-blocked')
+    && source.blockingGates.includes('worker-peak-memory-unmeasured'),
+  'external release blockers must remain explicit',
+);
+assert(source.stage6Round1.releaseAccepted === false, 'Stage 6 round 1 is not release accepted');
+assert(
+  source.stage6Round1.featureFlag === 'REACT_APP_ENABLE_TRACE_STAGE6=1',
+  'Stage 6 round 1 must declare its independent feature flag',
+);
+assert(
+  source.stage6Round1.browserVerification.state === 'not-run',
+  'Stage 6 round 1 must not claim browser verification',
+);
+assert(
+  source.stage6Round1.batches.map(batch => batch.batchId).join(',') === '41,42,43',
+  'Stage 6 round 1 batch set differs',
+);
+for (const batch of source.stage6Round1.batches) {
+  assert(batch.states.includes('implemented'), `Batch ${batch.batchId} lacks implementation state`);
+  assert(
+    batch.states.includes('automated-verified'),
+    `Batch ${batch.batchId} lacks automated verification`,
+  );
+  assert(
+    batch.states.includes('real-sample-blocked'),
+    `Batch ${batch.batchId} omits real sample blocking`,
+  );
+  assert(
+    !batch.states.includes('browser-verified')
+      && !batch.states.includes('release-accepted'),
+    `Batch ${batch.batchId} overstates verification`,
+  );
+}
+
+const allCriterionIds = new Set();
 for (const record of source.records) {
   assert(typeof record.capabilityId === 'string', 'capabilityId is required');
-  assert(allowedStatuses.has(record.status), `${record.capabilityId} has invalid status`);
   assert(Number.isInteger(record.points) && record.points >= 0, `${record.capabilityId} has invalid points`);
   assert(typeof record.observableBehavior === 'string', `${record.capabilityId} lacks behavior`);
-  assert(Array.isArray(record.codeEvidence), `${record.capabilityId} lacks code evidence`);
-  assert(Array.isArray(record.testOrExpertEvidence), `${record.capabilityId} lacks test evidence`);
-  assert(Array.isArray(record.sampleIds), `${record.capabilityId} lacks sample IDs`);
-  assert(Array.isArray(record.limitations), `${record.capabilityId} lacks limitations`);
-  assert(record.reviewDate === source.reviewDate, `${record.capabilityId} review date differs`);
+  assert(Array.isArray(record.criteria), `${record.capabilityId} lacks criteria`);
+  const criterionIds = new Set();
+  let criterionPoints = 0;
+  for (const criterion of record.criteria) {
+    assert(
+      typeof criterion.criterionId === 'string'
+        && criterion.criterionId.startsWith(`${record.capabilityId}-`),
+      `${record.capabilityId} has invalid criterionId`,
+    );
+    assert(!criterionIds.has(criterion.criterionId), `${criterion.criterionId} is duplicated`);
+    assert(!allCriterionIds.has(criterion.criterionId), `${criterion.criterionId} is globally duplicated`);
+    criterionIds.add(criterion.criterionId);
+    allCriterionIds.add(criterion.criterionId);
+    assert(
+      Number.isInteger(criterion.points) && criterion.points > 0,
+      `${criterion.criterionId} has invalid points`,
+    );
+    criterionPoints += criterion.points;
+    assert(allowedStatuses.has(criterion.status), `${criterion.criterionId} has invalid status`);
+    for (const field of [
+      'codeEvidence', 'testEvidence', 'sampleEvidence', 'limitations',
+    ]) {
+      assert(Array.isArray(criterion[field]), `${criterion.criterionId} lacks ${field}`);
+    }
+    for (const evidencePath of [
+      ...criterion.codeEvidence,
+      ...criterion.testEvidence,
+    ]) {
+      assert(
+        typeof evidencePath === 'string'
+          && fs.existsSync(path.join(root, evidencePath)),
+        `${criterion.criterionId} references missing evidence: ${evidencePath}`,
+      );
+    }
+    assert(criterion.limitations.length > 0, `${criterion.criterionId} lacks limitations`);
+    if (criterion.status === 'implemented-verified') {
+      assert(
+        criterion.codeEvidence.length > 0,
+        `${criterion.criterionId} lacks code evidence`,
+      );
+      assert(
+        criterion.testEvidence.length > 0,
+        `${criterion.criterionId} lacks committed automated test evidence`,
+      );
+    }
+  }
+  assert(
+    criterionPoints === record.points,
+    `${record.capabilityId} criteria total ${criterionPoints}, expected ${record.points}`,
+  );
 }
 
 const scoringRecords = source.records.filter(record => record.scoreEligible);
 const totalPoints = scoringRecords.reduce((sum, record) => sum + record.points, 0);
 const earnedPoints = scoringRecords
-  .filter(record => record.status === 'implemented-verified')
-  .reduce((sum, record) => sum + record.points, 0);
+  .flatMap(record => record.criteria)
+  .filter(criterion => criterion.status === 'implemented-verified')
+  .reduce((sum, criterion) => sum + criterion.points, 0);
 assert(totalPoints === 100, `score-eligible capability points must total 100, got ${totalPoints}`);
 
 const statusCounts = Object.fromEntries(
-  source.allowedStatuses.map(status => [
+  source.allowedCriterionStatuses.map(status => [
     status,
-    source.records.filter(record => record.status === status).length,
+    source.records.flatMap(record => record.criteria)
+      .filter(criterion => criterion.status === status).length,
   ]),
 );
+const domains = [...new Set(scoringRecords.map(record => record.domain))];
+const domainScores = domains.map(domain => {
+  const records = scoringRecords.filter(record => record.domain === domain);
+  const availablePoints = records.reduce((sum, record) => sum + record.points, 0);
+  const criteria = records.flatMap(record => record.criteria);
+  const domainEarnedPoints = criteria
+    .filter(criterion => criterion.status === 'implemented-verified')
+    .reduce((sum, criterion) => sum + criterion.points, 0);
+  return {
+    domain,
+    earnedPoints: domainEarnedPoints,
+    availablePoints,
+    unscoredReasons: criteria
+      .filter(criterion => criterion.status !== 'implemented-verified')
+      .map(criterion => `${criterion.criterionId}: ${criterion.limitations.join('；')}`),
+  };
+});
 
 const lines = [
-  '# Performance Workbench 阶段 0 能力证据表',
+  '# Performance Workbench 能力证据表',
   '',
   `- 基础代码 ref：\`${source.baseRef}\``,
   `- 复核人：${source.reviewer}`,
   `- 复核日期：${source.reviewDate}`,
   `- 自动计分：${earnedPoints} / ${totalPoints}`,
-  `- 状态计数：${source.allowedStatuses.map(status => `${status}=${statusCounts[status]}`).join('，')}`,
-  '- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的原子项计分；阶段 0 Spike 不计入当前产品得分。',
+  `- 发布验收：${source.releaseAccepted ? '已接受' : '未接受'}`,
+  `- 外部门禁：${source.blockingGates.map(gate => `\`${gate}\``).join('、')}`,
+  `- Stage 6 第一轮：${source.stage6Round1.batches.map(batch => (
+    `Batch ${batch.batchId} ${batch.states.map(state => `\`${state}\``).join('/')}`
+  )).join('；')}`,
+  `- Stage 6 开关：\`${source.stage6Round1.featureFlag}\`（仍依赖前五档 Workbench 开关）`,
+  `- 浏览器验证：\`${source.stage6Round1.browserVerification.state}\``,
+  `- 状态计数：${source.allowedCriterionStatuses.map(status => `${status}=${statusCounts[status]}`).join('，')}`,
+  '- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。',
   '',
-  '| ID | 能力域 | 分值 | 状态 | 用户可观察行为 | 代码 ref 与文件证据 | 测试/任务证据 | 样本 ID | 已知限制 | 复核日期 |',
-  '|---|---|---:|---|---|---|---|---|---|---|',
-  ...source.records.map(record => [
-    `| ${record.capabilityId}`,
+  '## 域汇总',
+  '',
+  '| 能力域 | 已得分 | 可得分 | 未计分原因 |',
+  '|---|---:|---:|---|',
+  ...domainScores.map(domain => (
+    `| ${domain.domain} | ${domain.earnedPoints} | ${domain.availablePoints} | ${domain.unscoredReasons.join('<br>') || '无'} |`
+  )),
+  '',
+  '## Criteria 明细',
+  '',
+  '| Criteria ID | 能力域 | 分值 | 状态 | 代码证据 | 测试/样本证据 | 限制 |',
+  '|---|---|---:|---|---|---|---|',
+  ...source.records.flatMap(record => record.criteria.map(criterion => [
+    `| ${criterion.criterionId}`,
     record.domain,
-    record.scoreEligible ? String(record.points) : '不计分',
-    `\`${record.status}\``,
-    record.observableBehavior,
-    record.codeEvidence.length > 0 ? record.codeEvidence.map(item => `\`${item}\``).join('<br>') : '无',
-    record.testOrExpertEvidence.length > 0 ? record.testOrExpertEvidence.map(item => `\`${item}\``).join('<br>') : '无',
-    record.sampleIds.length > 0 ? record.sampleIds.map(item => `\`${item}\``).join('<br>') : '无',
-    record.limitations.join('<br>'),
-    `${record.reviewDate} |`,
-  ].join(' | ')),
+    record.scoreEligible ? String(criterion.points) : '不计分',
+    `\`${criterion.status}\``,
+    criterion.codeEvidence.length > 0
+      ? criterion.codeEvidence.map(item => `\`${item}\``).join('<br>')
+      : '无',
+    [...criterion.testEvidence, ...criterion.sampleEvidence].length > 0
+      ? [...criterion.testEvidence, ...criterion.sampleEvidence]
+        .map(item => `\`${item}\``).join('<br>')
+      : '无',
+    `${criterion.limitations.join('<br>')} |`,
+  ].join(' | '))),
   '',
   '该汇总由 `node scripts/build-workbench-stage0-evidence.js` 从 JSON 明细生成，不手写总体完成度。',
   '',
@@ -214,4 +334,5 @@ console.log(JSON.stringify({
   earnedPoints,
   totalPoints,
   statusCounts,
+  domainScores,
 }));

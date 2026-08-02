@@ -21,3 +21,8 @@ export function isTraceStage5Enabled(): boolean {
   return isTraceCrossSourceEnabled()
     && process.env.REACT_APP_ENABLE_TRACE_STAGE5 === '1';
 }
+
+export function isTraceStage6Enabled(): boolean {
+  return isTraceStage5Enabled()
+    && process.env.REACT_APP_ENABLE_TRACE_STAGE6 === '1';
+}

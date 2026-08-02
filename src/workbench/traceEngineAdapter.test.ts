@@ -22,6 +22,57 @@ const trace: ChromiumTraceFile = {
 };
 
 describe('MinimalTraceEngineAdapter', () => {
+  afterEach(() => {
+    delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
+    delete process.env.REACT_APP_ENABLE_TRACE_TIMELINE;
+    delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
+    delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
+  });
+
+  it('does not build or project advanced analysis while the Stage 6 flag is off', async () => {
+    const adapter = new MinimalTraceEngineAdapter({
+      traceEvents: [
+        {
+          name: 'LayoutShift',
+          cat: 'loading',
+          ph: 'I',
+          ts: 100,
+          args: {
+            data: {
+              weighted_score_delta: 0.1,
+              had_recent_input: false,
+            },
+          },
+        },
+        {
+          name: 'Animation',
+          cat: 'rendering',
+          ph: 'X',
+          ts: 200,
+          dur: 50,
+        },
+      ],
+    }, {
+      encoding: 'plain-json',
+      jsonBytes: 100,
+      skippedEventCount: 0,
+      warnings: [],
+    });
+    const options = {
+      isCancelled: () => false,
+      onProgress: jest.fn(),
+    };
+    await adapter.analyze(options);
+    const session = await adapter.buildSessionData(options);
+
+    expect(session.timeline.getStats().trackEventCounts).toEqual({
+      rendering: 2,
+    });
+    expect(session.advanced).toBeUndefined();
+  });
+
   it('produces deterministic metadata, capabilities and timeline IDs', async () => {
     const first = new MinimalTraceEngineAdapter(trace, {
       encoding: 'plain-json',

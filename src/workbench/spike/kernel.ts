@@ -228,6 +228,14 @@ export class WorkbenchSpikeKernel {
           'timeline-events',
           'Cross-source analysis is unavailable in the stage 0 kernel',
         );
+      case 'query-advanced-analysis':
+        return sessionError(
+          request.requestId,
+          'unsupported-capability',
+          'Advanced analysis is unavailable in the stage 0 kernel',
+          true,
+          request,
+        );
     }
   }
 

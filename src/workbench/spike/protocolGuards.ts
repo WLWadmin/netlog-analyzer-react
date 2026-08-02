@@ -1,5 +1,6 @@
 import {
   WORKBENCH_SPIKE_SCHEMA_VERSION,
+  type AdvancedWorkbenchCapability,
   type WorkbenchCapability,
   type WorkbenchQueryErrorCode,
   type WorkbenchRequest,
@@ -39,6 +40,15 @@ const ERROR_CODES: WorkbenchQueryErrorCode[] = [
   'worker-failed',
 ];
 
+const ADVANCED_CAPABILITIES: AdvancedWorkbenchCapability[] = [
+  'layout-shifts',
+  'animation-composition',
+  'memory-trend',
+  'gpu-raster',
+  'custom-query',
+  'track-plugin',
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -75,6 +85,11 @@ function isCapability(value: unknown): value is WorkbenchCapability {
 function isErrorCode(value: unknown): value is WorkbenchQueryErrorCode {
   return typeof value === 'string'
     && ERROR_CODES.includes(value as WorkbenchQueryErrorCode);
+}
+
+function isAdvancedCapability(value: unknown): value is AdvancedWorkbenchCapability {
+  return typeof value === 'string'
+    && ADVANCED_CAPABILITIES.includes(value as AdvancedWorkbenchCapability);
 }
 
 function hasBase(value: Record<string, unknown>): boolean {
@@ -181,6 +196,14 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         && isSessionRef(value)
         && isRange(value.range)
         && typeof value.sameScenarioConfirmed === 'boolean';
+    case 'query-advanced-analysis':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'capability', 'range',
+      ])
+        && isSessionRef(value)
+        && isAdvancedCapability(value.capability)
+        && isRange(value.range);
     case 'add-source':
     case 'replace-source':
     case 'remove-source':
@@ -300,6 +323,130 @@ function isComparisonMetric(value: unknown): boolean {
     && isNonNegativeInteger(value.current)
     && isNonNegativeInteger(value.baseline)
     && (value.deltaPercent === undefined || isFiniteNumber(value.deltaPercent));
+}
+
+function isEvidenceIds(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.length <= 10_000
+    && value.every(isNonEmptyString);
+}
+
+function isAdvancedAnalysisResult(
+  capability: AdvancedWorkbenchCapability,
+  value: unknown,
+): boolean {
+  if (!isRecord(value) || value.kind !== capability) return false;
+  switch (value.kind) {
+    case 'layout-shifts':
+      return hasOnlyKeys(value, ['kind', 'clusters'])
+        && Array.isArray(value.clusters)
+        && value.clusters.every(cluster => (
+          isRecord(cluster)
+          && hasOnlyKeys(cluster, [
+            'clusterId', 'startUs', 'endUs', 'cumulativeScore',
+            'memberEventIds', 'evidenceIds', 'limitations',
+          ])
+          && isNonEmptyString(cluster.clusterId)
+          && isFiniteNumber(cluster.startUs)
+          && isFiniteNumber(cluster.endUs)
+          && cluster.startUs <= cluster.endUs
+          && isFiniteNumber(cluster.cumulativeScore)
+          && cluster.cumulativeScore >= 0
+          && isEvidenceIds(cluster.memberEventIds)
+          && isEvidenceIds(cluster.evidenceIds)
+          && isStringArray(cluster.limitations)
+        ));
+    case 'animation-composition':
+      return hasOnlyKeys(value, ['kind', 'animations'])
+        && Array.isArray(value.animations)
+        && value.animations.every(animation => (
+          isRecord(animation)
+          && hasOnlyKeys(animation, [
+            'animationId', 'startUs', 'endUs', 'state', 'frameEventIds',
+            'renderingEventIds', 'evidenceIds', 'limitations',
+          ])
+          && isNonEmptyString(animation.animationId)
+          && isFiniteNumber(animation.startUs)
+          && isFiniteNumber(animation.endUs)
+          && animation.startUs <= animation.endUs
+          && ['composited', 'not-composited', 'unknown']
+            .includes(String(animation.state))
+          && isEvidenceIds(animation.frameEventIds)
+          && isEvidenceIds(animation.renderingEventIds)
+          && isEvidenceIds(animation.evidenceIds)
+          && isStringArray(animation.limitations)
+        ));
+    case 'memory-trend':
+      return hasOnlyKeys(value, ['kind', 'samples', 'gcEvents'])
+        && Array.isArray(value.samples)
+        && value.samples.every(sample => (
+          isRecord(sample)
+          && hasOnlyKeys(sample, ['timestampUs', 'bytes', 'evidenceIds'])
+          && isFiniteNumber(sample.timestampUs)
+          && isNonNegativeInteger(sample.bytes)
+          && isEvidenceIds(sample.evidenceIds)
+        ))
+        && Array.isArray(value.gcEvents)
+        && value.gcEvents.every(event => (
+          isRecord(event)
+          && hasOnlyKeys(event, [
+            'eventId', 'startUs', 'durationUs', 'evidenceIds',
+          ])
+          && isNonEmptyString(event.eventId)
+          && isFiniteNumber(event.startUs)
+          && isFiniteNumber(event.durationUs)
+          && event.durationUs >= 0
+          && isEvidenceIds(event.evidenceIds)
+        ));
+    case 'gpu-raster':
+      return hasOnlyKeys(value, ['kind', 'intervals'])
+        && Array.isArray(value.intervals)
+        && value.intervals.every(interval => (
+          isRecord(interval)
+          && hasOnlyKeys(interval, [
+            'eventId', 'activity', 'startUs', 'durationUs', 'evidenceIds',
+          ])
+          && isNonEmptyString(interval.eventId)
+          && (interval.activity === 'gpu' || interval.activity === 'raster')
+          && isFiniteNumber(interval.startUs)
+          && isFiniteNumber(interval.durationUs)
+          && interval.durationUs >= 0
+          && isEvidenceIds(interval.evidenceIds)
+        ));
+    case 'custom-query':
+      return hasOnlyKeys(value, [
+        'kind', 'supportedFields', 'supportedOperators',
+      ])
+        && isStringArray(value.supportedFields)
+        && isStringArray(value.supportedOperators);
+    case 'track-plugin':
+      return hasOnlyKeys(value, ['kind', 'projectedEvents', 'maxEvents'])
+        && isNonNegativeInteger(value.maxEvents)
+        && Array.isArray(value.projectedEvents)
+        && value.projectedEvents.length <= value.maxEvents
+        && value.projectedEvents.every(event => (
+          isRecord(event)
+          && hasOnlyKeys(event, [
+            'eventId', 'evidenceIds', 'trackId', 'category', 'name',
+            'startUs', 'durationUs', 'status',
+          ])
+          && isNonEmptyString(event.eventId)
+          && isEvidenceIds(event.evidenceIds)
+          && isNonEmptyString(event.trackId)
+          && isNonEmptyString(event.category)
+          && isNonEmptyString(event.name)
+          && isFiniteNumber(event.startUs)
+          && isFiniteNumber(event.durationUs)
+          && event.durationUs >= 0
+          && (
+            event.status === undefined
+            || ['normal', 'warning', 'error', 'incomplete', 'candidate']
+              .includes(String(event.status))
+          )
+        ));
+    default:
+      return false;
+  }
 }
 
 function isEventDetail(value: unknown): boolean {
@@ -433,7 +580,10 @@ function isSessionDescriptor(value: unknown): boolean {
     && isNonNegativeInteger(value.eventCount)
     && isRecord(value.trackEventCounts)
     && Object.entries(value.trackEventCounts).every(([trackId, count]) => (
-      ['milestones', 'network', 'main', 'rendering', 'interactions', 'frames'].includes(trackId)
+      [
+        'layout-shifts', 'animations', 'milestones', 'network', 'main', 'rendering',
+        'interactions', 'frames',
+      ].includes(trackId)
       && isNonNegativeInteger(count)
       && count > 0
     ))
@@ -630,6 +780,17 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
         && value.metrics.every(isComparisonMetric)
         && isStringArray(value.evidenceIds)
         && isStringArray(value.limitations);
+    case 'advanced-analysis-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'capability', 'status', 'evidenceIds', 'limitations', 'result',
+      ])
+        && isSessionRef(value)
+        && isAdvancedCapability(value.capability)
+        && ['available', 'insufficient', 'unavailable'].includes(String(value.status))
+        && isEvidenceIds(value.evidenceIds)
+        && isStringArray(value.limitations)
+        && isAdvancedAnalysisResult(value.capability, value.result);
     case 'capability-missing':
       return isSessionRef(value)
         && isCapability(value.capability)

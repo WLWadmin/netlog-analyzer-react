@@ -423,4 +423,58 @@ describe('TraceWorkbenchClient', () => {
       cancelledRequestCount: 1,
     });
   });
+
+  it('rejects a stale advanced result instead of returning it to the panel', async () => {
+    const requests: Array<Extract<
+      WorkbenchRequest,
+      { type: 'query-advanced-analysis' }
+    >> = [];
+    const resolvers: Array<(response: WorkbenchResponse) => void> = [];
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => {
+        if (request.type === 'create-session') {
+          return Promise.resolve(sessionResponse(request.requestId));
+        }
+        if (request.type !== 'query-advanced-analysis') {
+          throw new Error('unexpected request');
+        }
+        requests.push(request);
+        return new Promise(resolve => resolvers.push(resolve));
+      },
+      close: jest.fn(),
+    });
+    await client.createSession();
+    const first = client.queryAdvancedAnalysis(
+      'layout-shifts',
+      { startUs: 0, endUs: 10 },
+    );
+    const latest = client.queryAdvancedAnalysis(
+      'layout-shifts',
+      { startUs: 20, endUs: 30 },
+    );
+    const response = (index: number): WorkbenchResponse => ({
+      type: 'advanced-analysis-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: requests[index].requestId,
+      sessionId: requests[index].sessionId,
+      sessionRevision: requests[index].sessionRevision,
+      capability: 'layout-shifts',
+      status: 'unavailable',
+      evidenceIds: [],
+      limitations: ['没有明确 LayoutShift 事件。'],
+      result: { kind: 'layout-shifts', clusters: [] },
+    });
+    resolvers[1](response(1));
+    await expect(latest).resolves.toMatchObject({
+      type: 'advanced-analysis-result',
+      capability: 'layout-shifts',
+    });
+    resolvers[0](response(0));
+    await expect(first).rejects.toThrow('response is stale');
+    expect(client.getSnapshot().discardedResponseCount).toBe(1);
+  });
 });

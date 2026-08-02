@@ -1,457 +1,674 @@
 {
-  "schemaVersion": 1,
-  "reviewDate": "2026-08-01",
+  "schemaVersion": 2,
+  "reviewDate": "2026-08-02",
   "reviewer": "TRAE",
-  "baseRef": "7399b1eec05bd6f846a74f854b117147e6ef8fa7",
-  "allowedStatuses": [
+  "baseRef": "b82776ebdd1a7918c4125cd62ba97d2c7440985f",
+  "allowedCriterionStatuses": [
     "implemented-verified",
     "implemented-unverified",
-    "partial",
     "designed",
     "absent"
   ],
+  "releaseAccepted": false,
+  "blockingGates": [
+    "real-sample-blocked",
+    "worker-peak-memory-unmeasured"
+  ],
+  "stage6Round1": {
+    "releaseAccepted": false,
+    "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
+    "browserVerification": {
+      "state": "not-run",
+      "reason": "按分批验证策略，浏览器 benchmark 与 feature flag 构建延后到 Batch 49–50。"
+    },
+    "batches": [
+      {
+        "batchId": 41,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["能力计分不推导发布验收；Worker 独立峰值内存未测。"]
+      },
+      {
+        "batchId": 42,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["CLS 仅由合成单元 fixture 验证，尚无独立 corpus；不映射 DOM，不推断根因。"]
+      },
+      {
+        "batchId": 43,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["动画状态仅由合成单元 fixture 验证，尚无独立 corpus；时间重叠不构成归因。"]
+      }
+    ],
+    "validation": {
+      "targetedJest": "passed",
+      "fullJest": {
+        "state": "passed",
+        "passedSuites": 156,
+        "skippedSuites": 3,
+        "passedTests": 983,
+        "skippedTests": 11
+      },
+      "diffCheck": "passed"
+    }
+  },
   "records": [
     {
       "capabilityId": "TL-01",
       "domain": "时间轴与跨轨联动",
       "points": 8,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "在统一时间轴查看 CPU、网络和渲染轨道。",
-      "codeEvidence": [
-        "working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx",
-        "working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx",
-        "src/components/trace/workbench/TimelineCanvas.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-100K", "SYNTH-WB-500K", "SYNTH-WB-1000K"],
-      "limitations": ["仓库外真实 Trace 样本仍阻塞；浏览器交互证据需在阶段 2 artifact 中单列。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "在统一时间轴查看 CPU、网络、渲染和可扩展高级轨道。",
+      "criteria": [
+        {
+          "criterionId": "TL-01-CORE-TRACKS",
+          "points": 6,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineTracks.ts", "src/components/trace/workbench/TimelineCanvas.tsx"],
+          "testEvidence": ["src/workbench/timelineTracks.test.ts", "src/components/trace/workbench/TimelineCanvas.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["仅对已注册核心轨道计分。"]
+        },
+        {
+          "criterionId": "TL-01-EXTENSIBLE-REGISTRY",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineTracks.ts"],
+          "testEvidence": ["src/workbench/timelineTracks.test.ts"],
+          "sampleEvidence": ["SYNTH-LAYOUT-SHIFT"],
+          "limitations": ["registry 已支持高级轨道；当前注册布局偏移与动画轨道。"]
+        }
+      ]
     },
     {
       "capabilityId": "TL-02",
       "domain": "时间轴与跨轨联动",
       "points": 6,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "缩放、平移并保持跨轨证据游标。",
-      "codeEvidence": [
-        "working-tree@7399b1e:src/workbench/timelineInteractionStore.ts",
-        "working-tree@7399b1e:src/workbench/timelineGeometry.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/timelineInteractionStore.test.ts",
-        "src/workbench/timelineGeometry.test.ts",
-        "src/components/trace/workbench/TimelineCanvas.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["交互时延仍需阶段 2 production browser benchmark 复核。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "缩放、平移并保持跨轨证据游标和键盘路径。",
+      "criteria": [
+        {
+          "criterionId": "TL-02-INTERACTION",
+          "points": 5,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineInteractionStore.ts", "src/workbench/timelineGeometry.ts"],
+          "testEvidence": ["src/workbench/timelineInteractionStore.test.ts", "src/workbench/timelineGeometry.test.ts"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["自动化测试证明状态与几何行为，不替代真实浏览器验收。"]
+        },
+        {
+          "criterionId": "TL-02-BROWSER-ACCESSIBILITY",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/components/trace/workbench/TimelineCanvas.tsx"],
+          "testEvidence": ["src/components/trace/workbench/TimelineCanvas.test.tsx"],
+          "sampleEvidence": [],
+          "limitations": ["Stage 5 浏览器 artifact 被忽略，master 无可提交运行证据。"]
+        }
+      ]
     },
     {
       "capabilityId": "TL-03",
       "domain": "时间轴与跨轨联动",
       "points": 0,
       "scoreEligible": false,
-      "status": "implemented-verified",
-      "observableBehavior": "阶段 0 测试界面按视口查询相交事件并用 Canvas 绘制。",
-      "codeEvidence": [
-        "working-tree@ec6fc9a:src/workbench/spike/kernel.ts",
-        "working-tree@ec6fc9a:src/benchmark/workbenchBrowserBenchmark.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/spike/kernel.test.ts",
-        "workbench-browser-benchmark-100k.json",
-        "workbench-browser-benchmark-500k.json",
-        "workbench-browser-benchmark-1000k.json"
-      ],
-      "sampleIds": ["SYNTH-WB-100K", "SYNTH-WB-500K", "SYNTH-WB-1000K"],
-      "limitations": ["仅为阶段 0 Spike，scoreEligible=false，不代表产品 Timeline。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "历史阶段 0 Spike，不参与产品计分。",
+      "criteria": []
     },
     {
       "capabilityId": "TL-04",
       "domain": "时间轴与跨轨联动",
       "points": 6,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "产品 Timeline 按视口查询所有相交事件并跨轨联动。",
-      "codeEvidence": [
-        "7399b1e:src/workbench/client.ts",
-        "7399b1e:src/workbench/sessionKernel.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/client.test.ts",
-        "src/workbench/sessionKernel.test.ts",
-        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["真实样本与发布验收未通过。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "产品 Timeline 按视口查询相交事件并保持有界传输。",
+      "criteria": [
+        {
+          "criterionId": "TL-04-VIEWPORT-QUERY",
+          "points": 5,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/client.ts", "src/workbench/sessionKernel.ts", "src/workbench/timelineColumnarStore.ts"],
+          "testEvidence": ["src/workbench/client.test.ts", "src/workbench/sessionKernel.test.ts", "src/workbench/timelineColumnarStore.test.ts"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["查询结果允许显式 LOD 和截断。"]
+        },
+        {
+          "criterionId": "TL-04-LARGE-TRACE-BROWSER",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/benchmark/workbenchBrowserBenchmark.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["master 不包含可提交的 Stage 5 100K/500K/1M 浏览器运行 artifact。"]
+        }
+      ]
     },
     {
       "capabilityId": "CPU-01",
       "domain": "主线程与 CPU 分析",
       "points": 5,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页展示主线程任务、长任务与 CPU Profile 事实。",
-      "codeEvidence": [
-        "ec6fc9a:src/parsers/trace/minimalTraceAggregator.ts",
-        "ec6fc9a:src/components/trace/tabs/TraceMainThreadTab.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/parsers/trace/cpuProfileFacts.test.ts",
-        "src/parsers/trace/taskFacts.test.ts"
-      ],
-      "sampleIds": ["TRACE-SAMPLE-01", "TRACE-SAMPLE-02", "TRACE-SAMPLE-05"],
-      "limitations": ["没有 Flame Chart、Call Tree 或 Bottom-up。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "展示主线程任务、CPU Profile 事实及 GC/内存趋势。",
+      "criteria": [
+        {
+          "criterionId": "CPU-01-TASK-PROFILE-FACTS",
+          "points": 3,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/parsers/trace/taskFacts.ts", "src/parsers/trace/cpuProfileFacts.ts"],
+          "testEvidence": ["src/parsers/trace/taskFacts.test.ts", "src/parsers/trace/cpuProfileFacts.test.ts"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["仅计主线程任务与 CPU Profile 基础事实。"]
+        },
+        {
+          "criterionId": "CPU-01-GC-MEMORY-TREND",
+          "points": 2,
+          "status": "absent",
+          "codeEvidence": [],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["Stage 6 GC/内存趋势尚未实现；不支持 Heap Snapshot 或泄漏确认。"]
+        }
+      ]
     },
     {
       "capabilityId": "CPU-02",
       "domain": "主线程与 CPU 分析",
       "points": 5,
       "scoreEligible": true,
-      "status": "absent",
       "observableBehavior": "按时间顺序浏览 Flame Chart。",
-      "codeEvidence": [],
-      "testOrExpertEvidence": [],
-      "sampleIds": [],
-      "limitations": ["阶段 3 候选能力。"],
-      "reviewDate": "2026-08-01"
+      "criteria": [
+        {
+          "criterionId": "CPU-02-FLAME-CHART",
+          "points": 4,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/cpuProfileStore.ts", "src/components/trace/workbench/FlameChartCanvas.tsx"],
+          "testEvidence": ["src/workbench/cpuProfileStore.test.ts", "src/components/trace/workbench/FlameChartCanvas.test.tsx"],
+          "sampleEvidence": ["SYNTH-CPU-PROFILE"],
+          "limitations": ["仅由合成 CPU Profile 形状验证。"]
+        },
+        {
+          "criterionId": "CPU-02-REAL-PROFILE-SHAPES",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/workbench/cpuProfileStore.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["仓库外真实 CPU Profile 形状仍为 real-sample-blocked。"]
+        }
+      ]
     },
     {
       "capabilityId": "CPU-03",
       "domain": "主线程与 CPU 分析",
       "points": 5,
       "scoreEligible": true,
-      "status": "absent",
-      "observableBehavior": "按选区查看 self time、total time 和调用次数。",
-      "codeEvidence": [],
-      "testOrExpertEvidence": [],
-      "sampleIds": [],
-      "limitations": ["当前聚合事实不等同于选区 CPU 查询。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "按选区查看 self time、total time、采样命中和调用次数。",
+      "criteria": [
+        {
+          "criterionId": "CPU-03-SELECTION-AGGREGATES",
+          "points": 5,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/cpuProfileStore.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.tsx"],
+          "testEvidence": ["src/workbench/cpuProfileStore.test.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx"],
+          "sampleEvidence": ["SYNTH-CPU-PROFILE"],
+          "limitations": ["采样命中不等同于真实函数调用次数。"]
+        }
+      ]
     },
     {
       "capabilityId": "NET-01",
       "domain": "网络瀑布",
       "points": 5,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页展示 Trace 请求生命周期、状态与发起关系。",
-      "codeEvidence": [
-        "ec6fc9a:src/parsers/trace/requestFacts.ts",
-        "ec6fc9a:src/components/trace/tabs/TraceNetworkTab.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/parsers/trace/requestFacts.test.ts",
-        "src/parsers/trace/minimalTraceAggregator.real-shapes.test.ts"
-      ],
-      "sampleIds": ["TRACE-SAMPLE-01", "TRACE-SAMPLE-02", "TRACE-SAMPLE-05"],
-      "limitations": ["没有统一时间轴上的网络瀑布。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "展示 Trace 请求生命周期、状态和发起关系。",
+      "criteria": [
+        {
+          "criterionId": "NET-01-REQUEST-LIFECYCLE",
+          "points": 4,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/parsers/trace/requestFacts.ts", "src/workbench/traceEngineAdapter.ts"],
+          "testEvidence": ["src/parsers/trace/requestFacts.test.ts", "src/workbench/traceEngineAdapter.test.ts"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["Trace 请求事实不推断 DNS、TCP、TLS、代理或服务端根因。"]
+        },
+        {
+          "criterionId": "NET-01-REAL-REQUEST-SHAPES",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/parsers/trace/requestFacts.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["仓库外真实请求样本门禁未通过。"]
+        }
+      ]
     },
     {
       "capabilityId": "NET-02",
       "domain": "网络瀑布",
       "points": 5,
       "scoreEligible": true,
-      "status": "partial",
-      "observableBehavior": "在时间轴瀑布中缩放、过滤并联动发起关系。",
-      "codeEvidence": [
-        "working-tree@7399b1e:src/workbench/traceEngineAdapter.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/traceEngineAdapter.test.ts",
-        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["请求范围、状态和发起事件可定位；阶段 3 搜索与过滤尚未实现。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "在时间轴瀑布中缩放、过滤并复核请求阶段。",
+      "criteria": [
+        {
+          "criterionId": "NET-02-TIMELINE-SEARCH",
+          "points": 3,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineColumnarStore.ts", "src/components/trace/workbench/TraceTimelineWorkbench.tsx"],
+          "testEvidence": ["src/workbench/timelineColumnarStore.test.ts", "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["搜索只覆盖白名单投影字段。"]
+        },
+        {
+          "criterionId": "NET-02-CONNECTION-PHASES",
+          "points": 2,
+          "status": "absent",
+          "codeEvidence": [],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["离线 Trace 尚未提供完整 DNS/TCP/TLS/代理阶段瀑布。"]
+        }
+      ]
     },
     {
       "capabilityId": "RFI-01",
       "domain": "渲染、帧与交互",
       "points": 5,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页展示渲染、帧、交互和 Forced Reflow 事实。",
-      "codeEvidence": [
-        "ec6fc9a:src/parsers/trace/traceFactCollectors.ts",
-        "ec6fc9a:src/components/trace/tabs/TraceRenderingTab.tsx",
-        "ec6fc9a:src/components/trace/tabs/TraceInteractionsTab.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/parsers/trace/interactionFacts.test.ts",
-        "src/parsers/trace/minimalTraceAggregator.batch3.test.ts"
-      ],
-      "sampleIds": ["TRACE-SAMPLE-01", "TRACE-SAMPLE-02", "TRACE-SAMPLE-05"],
-      "limitations": ["事实位于报告列表，不能与时间轴帧轨联动。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "定位渲染活动、CLS 聚类和动画合成状态。",
+      "criteria": [
+        {
+          "criterionId": "RFI-01-RENDERING-FACTS",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/parsers/trace/traceFactCollectors.ts", "src/workbench/traceEngineAdapter.ts"],
+          "testEvidence": ["src/parsers/trace/minimalTraceAggregator.batch3.test.ts", "src/workbench/traceEngineAdapter.test.ts"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["基础渲染事实不等于 CLS 或动画归因。"]
+        },
+        {
+          "criterionId": "RFI-01-CLS-CLUSTERS",
+          "points": 1,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/advancedAnalysisStore.ts", "src/components/trace/workbench/LayoutShiftPanel.tsx"],
+          "testEvidence": ["src/workbench/advancedAnalysisStore.test.ts", "src/components/trace/workbench/LayoutShiftPanel.test.tsx", "src/workbench/sessionKernel.test.ts"],
+          "sampleEvidence": ["SYNTH-LAYOUT-SHIFT"],
+          "limitations": ["不映射原页面 DOM，不推断布局偏移根因；真实样本仍阻塞。"]
+        },
+        {
+          "criterionId": "RFI-01-ANIMATION-COMPOSITION",
+          "points": 1,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/advancedAnalysisStore.ts", "src/components/trace/workbench/AnimationCompositionPanel.tsx"],
+          "testEvidence": ["src/workbench/advancedAnalysisStore.test.ts", "src/components/trace/workbench/AnimationCompositionPanel.test.tsx", "src/workbench/sessionKernel.test.ts"],
+          "sampleEvidence": ["SYNTH-ANIMATION-COMPOSITION"],
+          "limitations": ["时间重叠只作范围关联，不证明动画导致帧或渲染活动；真实样本仍阻塞。"]
+        },
+        {
+          "criterionId": "RFI-01-REAL-RENDERING-SAMPLE",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/parsers/trace/traceFactCollectors.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["真实渲染故障样本仍为 real-sample-blocked。"]
+        }
+      ]
     },
     {
       "capabilityId": "RFI-02",
       "domain": "渲染、帧与交互",
       "points": 3,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "在统一范围定位掉帧、交互和渲染活动。",
-      "codeEvidence": [
-        "working-tree@7399b1e:src/workbench/traceEngineAdapter.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/TimelineCanvas.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/traceEngineAdapter.test.ts",
-        "src/components/trace/workbench/TimelineCanvas.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["帧预算使用 60Hz 参考；未推断实际刷新率。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "定位掉帧、超预算帧及 GPU/Raster 活动。",
+      "criteria": [
+        {
+          "criterionId": "RFI-02-FRAME-RANGES",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/parsers/trace/traceFactCollectors.ts", "src/components/trace/workbench/TimelineCanvas.tsx"],
+          "testEvidence": ["src/parsers/trace/minimalTraceAggregator.batch3.test.ts", "src/components/trace/workbench/TimelineCanvas.test.tsx"],
+          "sampleEvidence": ["SYNTH-FRAME"],
+          "limitations": ["帧预算使用 60Hz 参考，不推断设备刷新率。"]
+        },
+        {
+          "criterionId": "RFI-02-GPU-RASTER",
+          "points": 1,
+          "status": "absent",
+          "codeEvidence": [],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["Stage 6 GPU/Raster 摘要轨道尚未实现。"]
+        }
+      ]
     },
     {
       "capabilityId": "RFI-03",
       "domain": "渲染、帧与交互",
       "points": 2,
       "scoreEligible": true,
-      "status": "implemented-verified",
       "observableBehavior": "按时间浏览 Trace 内已有截图。",
-      "codeEvidence": [
-        "7399b1e:src/workbench/rawEvidenceStore.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/ScreenshotFilmstrip.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/rawEvidenceStore.test.ts",
-        "src/components/trace/workbench/ScreenshotFilmstrip.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-SCREENSHOT"],
-      "limitations": ["截图按用户操作逐帧传输；仓库外真实截图 Trace 未验证。"],
-      "reviewDate": "2026-08-01"
+      "criteria": [
+        {
+          "criterionId": "RFI-03-SCREENSHOT-LIFECYCLE",
+          "points": 1,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/rawEvidenceStore.ts", "src/components/trace/workbench/ScreenshotFilmstrip.tsx"],
+          "testEvidence": ["src/workbench/rawEvidenceStore.test.ts", "src/components/trace/workbench/ScreenshotFilmstrip.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-SCREENSHOT"],
+          "limitations": ["截图不进入插件或默认导出。"]
+        },
+        {
+          "criterionId": "RFI-03-REAL-SCREENSHOT-TRACE",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/workbench/rawEvidenceStore.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["仓库外真实截图 Trace 未验证。"]
+        }
+      ]
     },
     {
       "capabilityId": "AGG-01",
       "domain": "Call Tree、Bottom-up、Event Log",
       "points": 10,
       "scoreEligible": true,
-      "status": "absent",
       "observableBehavior": "在当前选区切换 Call Tree、Bottom-up 和 Event Log。",
-      "codeEvidence": [],
-      "testOrExpertEvidence": [],
-      "sampleIds": [],
-      "limitations": ["阶段 3 候选能力。"],
-      "reviewDate": "2026-08-01"
+      "criteria": [
+        {
+          "criterionId": "AGG-01-BOUNDED-QUERIES",
+          "points": 8,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/cpuProfileStore.ts", "src/workbench/timelineColumnarStore.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.tsx"],
+          "testEvidence": ["src/workbench/cpuProfileStore.test.ts", "src/workbench/timelineColumnarStore.test.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx"],
+          "sampleEvidence": ["SYNTH-CPU-PROFILE"],
+          "limitations": ["列表按上限和 continuation 有界返回。"]
+        },
+        {
+          "criterionId": "AGG-01-BROWSER-WORKFLOW",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/components/trace/workbench/ExpertAnalysisDrawer.tsx"],
+          "testEvidence": ["src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx"],
+          "sampleEvidence": [],
+          "limitations": ["master 无可提交的 Stage 5 浏览器工作流 artifact。"]
+        },
+        {
+          "criterionId": "AGG-01-REAL-PROFILE-WORKFLOW",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/workbench/cpuProfileStore.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["真实 CPU Profile 工作流仍为 real-sample-blocked。"]
+        }
+      ]
     },
     {
       "capabilityId": "NAV-01",
       "domain": "导航、选区与查询",
       "points": 2,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页可在结论、事实和证据页签间定位。",
-      "codeEvidence": [
-        "ec6fc9a:src/components/trace/useTraceTargetNavigation.ts",
-        "ec6fc9a:src/components/trace/TraceResultPage.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/components/trace/useTraceTargetNavigation.test.tsx",
-        "src/components/trace/TraceResultPage.test.tsx"
-      ],
-      "sampleIds": ["TRACE-GOLDEN-CORPUS"],
-      "limitations": ["不是时间范围历史或选区查询。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "在结论、事实和证据之间定位。",
+      "criteria": [
+        {
+          "criterionId": "NAV-01-REPORT-EVIDENCE",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/components/trace/useTraceTargetNavigation.ts", "src/components/trace/TraceResultPage.tsx"],
+          "testEvidence": ["src/components/trace/useTraceTargetNavigation.test.tsx", "src/components/trace/TraceResultPage.test.tsx"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["仅定位白名单证据 ID。"]
+        }
+      ]
     },
     {
       "capabilityId": "NAV-02",
       "domain": "导航、选区与查询",
       "points": 0,
       "scoreEligible": false,
-      "status": "implemented-verified",
-      "observableBehavior": "Spike 支持 session/revision/request、视口、详情、取消和 release。",
-      "codeEvidence": [
-        "working-tree@ec6fc9a:src/workbench/spike/protocol.ts",
-        "working-tree@ec6fc9a:src/workbench/spike/kernel.ts"
-      ],
-      "testOrExpertEvidence": ["src/workbench/spike/kernel.test.ts"],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["阶段 0 风险验证，不计入当前产品得分。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "历史阶段 0 协议 Spike，不参与产品计分。",
+      "criteria": []
     },
     {
       "capabilityId": "NAV-04",
       "domain": "导航、选区与查询",
       "points": 5,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "产品 Workbench 支持会话、视口、详情、局部取消和释放。",
-      "codeEvidence": [
-        "7399b1e:src/workbench/client.ts",
-        "7399b1e:src/workbench/sessionKernel.ts",
-        "7399b1e:src/workers/traceWorkerTask.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/client.test.ts",
-        "src/workbench/sessionKernel.test.ts",
-        "src/workers/traceWorkerClient.test.ts"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["内部 feature flag 路径，未发布验收。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "支持会话、视口、详情、局部取消和释放。",
+      "criteria": [
+        {
+          "criterionId": "NAV-04-SESSION-LIFECYCLE",
+          "points": 4,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/client.ts", "src/workbench/sessionKernel.ts", "src/workers/traceWorkerTask.ts"],
+          "testEvidence": ["src/workbench/client.test.ts", "src/workbench/sessionKernel.test.ts", "src/workers/traceWorkerClient.test.ts"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["能力仍位于内部 feature flag 后。"]
+        },
+        {
+          "criterionId": "NAV-04-BROWSER-SESSION",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/components/trace/workbench/TraceTimelineWorkbench.tsx"],
+          "testEvidence": ["src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"],
+          "sampleEvidence": [],
+          "limitations": ["缺少 master 内可提交的浏览器会话 artifact。"]
+        }
+      ]
     },
     {
       "capabilityId": "NAV-03",
       "domain": "导航、选区与查询",
       "points": 3,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "产品工作台保存并恢复视口、选区和焦点。",
-      "codeEvidence": [
-        "working-tree@7399b1e:src/workbench/timelineInteractionStore.ts",
-        "working-tree@7399b1e:src/components/trace/workbench/TraceTimelineWorkbench.tsx"
-      ],
-      "testOrExpertEvidence": [
-        "src/workbench/timelineInteractionStore.test.ts",
-        "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-WB-CONTRACT"],
-      "limitations": ["状态只存在当前页面内存，刷新后按设计不恢复本地文件。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "恢复视口、选区和焦点，并执行受控声明式查询。",
+      "criteria": [
+        {
+          "criterionId": "NAV-03-HISTORY-FOCUS",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineInteractionStore.ts", "src/components/trace/workbench/TraceTimelineWorkbench.tsx"],
+          "testEvidence": ["src/workbench/timelineInteractionStore.test.ts", "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["页面刷新后不恢复本地文件。"]
+        },
+        {
+          "criterionId": "NAV-03-DECLARATIVE-QUERY",
+          "points": 1,
+          "status": "absent",
+          "codeEvidence": [],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["Stage 6 声明式自定义查询尚未实现。"]
+        }
+      ]
     },
     {
       "capabilityId": "DIA-01",
       "domain": "自动诊断与证据",
       "points": 8,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页输出证据约束诊断、确定性排序和白名单证据引用。",
-      "codeEvidence": [
-        "ec6fc9a:src/diagnosis/trace/traceDiagnosisRules.ts",
-        "ec6fc9a:src/diagnosis/trace/selectTraceDiagnoses.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/diagnosis/trace/traceGoldenCorpus.test.ts",
-        "src/diagnosis/trace/selectTraceDiagnoses.test.ts"
-      ],
-      "sampleIds": ["TRACE-GOLDEN-CORPUS"],
-      "limitations": ["最高分主诊断只可视为报告页基线。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "输出证据约束诊断、确定性排序和证据引用。",
+      "criteria": [
+        {
+          "criterionId": "DIA-01-DETERMINISTIC-RULES",
+          "points": 6,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/diagnosis/trace/traceDiagnosisRules.ts", "src/diagnosis/trace/selectTraceDiagnoses.ts"],
+          "testEvidence": ["src/diagnosis/trace/traceGoldenCorpus.test.ts", "src/diagnosis/trace/selectTraceDiagnoses.test.ts"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["合成 corpus 只证明规则边界。"]
+        },
+        {
+          "criterionId": "DIA-01-REAL-PRECISION",
+          "points": 2,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/diagnosis/trace/traceDiagnosisRules.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["真实故障样本精确率门禁未通过。"]
+        }
+      ]
     },
     {
       "capabilityId": "DIA-02",
       "domain": "自动诊断与证据",
       "points": 2,
       "scoreEligible": true,
-      "status": "designed",
-      "observableBehavior": "围绕症状实体展示必要证据、反证和竞争原因。",
-      "codeEvidence": ["V5 design section 10"],
-      "testOrExpertEvidence": [],
-      "sampleIds": [],
-      "limitations": ["竞争归因尚未实现。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "展示必要证据、反证和竞争原因。",
+      "criteria": [
+        {
+          "criterionId": "DIA-02-COMPETING-CAUSES",
+          "points": 1,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/diagnosis/trace/expertDiagnosis.ts"],
+          "testEvidence": ["src/diagnosis/trace/expertDiagnosis.test.ts"],
+          "sampleEvidence": ["SYNTH-EXTENSION-POSITIVE-NEGATIVE"],
+          "limitations": ["时间重叠只允许 possible-contributor。"]
+        },
+        {
+          "criterionId": "DIA-02-REAL-CROSS-SOURCE",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/workbench/crossSourceStore.ts"],
+          "testEvidence": ["src/workbench/crossSourceStore.test.ts"],
+          "sampleEvidence": [],
+          "limitations": ["真实 Trace/HAR/NetLog 配对仍为 real-sample-blocked。"]
+        }
+      ]
     },
     {
       "capabilityId": "SAFE-01",
       "domain": "稳定性、隐私与离线能力",
       "points": 3,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "预检推荐后由用户确认 parser，并执行专用校验。",
-      "codeEvidence": [
-        "ec6fc9a:src/upload/createFileFormatIntake.ts",
-        "ec6fc9a:src/upload/useAnalysisIntake.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/upload/createFileFormatIntake.test.ts",
-        "src/upload/useAnalysisIntake.test.tsx"
-      ],
-      "sampleIds": ["SYNTH-FORMAT-GATEWAY"],
-      "limitations": ["未知 JSON 不回退为 NetLog；Workbench 必须复用该入口。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "通过预检和专用校验选择解析器。",
+      "criteria": [
+        {
+          "criterionId": "SAFE-01-FORMAT-GATEWAY",
+          "points": 3,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/upload/createFileFormatIntake.ts", "src/upload/useAnalysisIntake.ts"],
+          "testEvidence": ["src/upload/createFileFormatIntake.test.ts", "src/upload/useAnalysisIntake.test.tsx"],
+          "sampleEvidence": ["SYNTH-FORMAT-GATEWAY"],
+          "limitations": ["未知 JSON 不回退为 NetLog。"]
+        }
+      ]
     },
     {
       "capabilityId": "SAFE-02",
       "domain": "稳定性、隐私与离线能力",
       "points": 2,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "Trace 在 Worker 中读取、聚合并返回报告 DTO。",
-      "codeEvidence": [
-        "ec6fc9a:src/workers/traceAnalysisWorker.ts",
-        "ec6fc9a:src/workers/traceWorkerTask.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/workers/traceWorkerClient.test.ts",
-        "src/workers/buildTraceAnalysisResult.test.ts"
-      ],
-      "sampleIds": ["TRACE-SAMPLE-01", "TRACE-SAMPLE-02", "TRACE-SAMPLE-05"],
-      "limitations": ["读取、聚合、索引和查询均使用协作式取消；真实样本门禁仍阻塞。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "在 Worker 中读取、聚合和查询 Trace，并记录内存门禁。",
+      "criteria": [
+        {
+          "criterionId": "SAFE-02-WORKER-EXECUTION",
+          "points": 1,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workers/traceAnalysisWorker.ts", "src/workers/traceWorkerTask.ts"],
+          "testEvidence": ["src/workers/traceWorkerClient.test.ts", "src/workers/buildTraceAnalysisResult.test.ts"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["自动化测试不测量独立 Worker 峰值内存。"]
+        },
+        {
+          "criterionId": "SAFE-02-WORKER-PEAK-MEMORY",
+          "points": 1,
+          "status": "implemented-unverified",
+          "codeEvidence": ["src/benchmark/workbenchBrowserBenchmark.ts"],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["页面 JavaScript 无法测量独立 Worker 峰值内存。"]
+        }
+      ]
     },
     {
       "capabilityId": "SAFE-03",
       "domain": "稳定性、隐私与离线能力",
       "points": 2,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "进度使用 bytes、events、requests、lines 或 rules 等真实工作量。",
-      "codeEvidence": ["ec6fc9a:src/upload/analysisProgress.ts"],
-      "testOrExpertEvidence": [
-        "src/upload/analysisProgress.test.ts",
-        "src/upload/parserProgress.test.ts"
-      ],
-      "sampleIds": ["SYNTH-PROGRESS"],
-      "limitations": ["Workbench UI 展示真实 events 进度；100% 在稳定 Session 提交前不显示。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "进度使用真实工作量且稳定结果前不显示 100%。",
+      "criteria": [
+        {
+          "criterionId": "SAFE-03-PROGRESS",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/upload/analysisProgress.ts", "src/workbench/sessionKernel.ts"],
+          "testEvidence": ["src/upload/analysisProgress.test.ts", "src/workbench/sessionKernel.test.ts"],
+          "sampleEvidence": ["SYNTH-PROGRESS"],
+          "limitations": ["进度不推导发布验收状态。"]
+        }
+      ]
     },
     {
       "capabilityId": "SAFE-04",
       "domain": "稳定性、隐私与离线能力",
       "points": 3,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "Trace 报告仅通过白名单 DTO 导出并经过敏感数据扫描。",
-      "codeEvidence": ["ec6fc9a:src/parsers/trace/exportTraceReport.ts"],
-      "testOrExpertEvidence": ["src/parsers/trace/exportTraceReport.test.ts"],
-      "sampleIds": ["TRACE-GOLDEN-CORPUS"],
-      "limitations": ["截图不在当前导出能力内。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "仅导出和扩展白名单 DTO，不暴露原始 Trace。",
+      "criteria": [
+        {
+          "criterionId": "SAFE-04-EXPORT-PROJECTION",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/parsers/trace/exportTraceReport.ts"],
+          "testEvidence": ["src/parsers/trace/exportTraceReport.test.ts"],
+          "sampleEvidence": ["TRACE-GOLDEN-CORPUS"],
+          "limitations": ["截图不在默认导出内。"]
+        },
+        {
+          "criterionId": "SAFE-04-TRACK-PLUGIN-PROJECTION",
+          "points": 1,
+          "status": "designed",
+          "codeEvidence": ["src/workbench/spike/protocol.ts"],
+          "testEvidence": ["src/workbench/stage6Protocol.test.ts"],
+          "sampleEvidence": [],
+          "limitations": ["仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。"]
+        }
+      ]
     },
     {
       "capabilityId": "DETAIL-01",
       "domain": "事件详情、搜索与过滤",
       "points": 2,
       "scoreEligible": true,
-      "status": "implemented-verified",
-      "observableBehavior": "报告页可查看受控事实与 evidence 引用。",
-      "codeEvidence": [
-        "ec6fc9a:src/components/trace/tabs/TraceEvidenceTab.tsx",
-        "ec6fc9a:src/parsers/trace/eventAccessors.ts"
-      ],
-      "testOrExpertEvidence": [
-        "src/parsers/trace/eventAccessors.test.ts",
-        "src/components/trace/TraceResultPage.facts.test.tsx"
-      ],
-      "sampleIds": ["TRACE-GOLDEN-CORPUS"],
-      "limitations": ["不是按事件 ID 查询原始详情。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "查看受控事件详情与 evidence 引用。",
+      "criteria": [
+        {
+          "criterionId": "DETAIL-01-EVIDENCE-DETAIL",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/rawEvidenceStore.ts", "src/components/trace/workbench/TraceTimelineWorkbench.tsx"],
+          "testEvidence": ["src/workbench/rawEvidenceStore.test.ts", "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["UI 不接收 args、请求头或完整 URL 参数。"]
+        }
+      ]
     },
     {
       "capabilityId": "DETAIL-02",
       "domain": "事件详情、搜索与过滤",
       "points": 3,
       "scoreEligible": true,
-      "status": "absent",
-      "observableBehavior": "在 Timeline 与 Event Log 中搜索、过滤和前后导航。",
-      "codeEvidence": [],
-      "testOrExpertEvidence": [],
-      "sampleIds": [],
-      "limitations": ["阶段 3 候选能力。"],
-      "reviewDate": "2026-08-01"
+      "observableBehavior": "在 Timeline 与 Event Log 中搜索、过滤并执行受控查询。",
+      "criteria": [
+        {
+          "criterionId": "DETAIL-02-SEARCH-FILTER",
+          "points": 2,
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineColumnarStore.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.tsx"],
+          "testEvidence": ["src/workbench/timelineColumnarStore.test.ts", "src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx"],
+          "sampleEvidence": ["SYNTH-WB-CONTRACT"],
+          "limitations": ["搜索只匹配白名单名称、分类、轨道和状态。"]
+        },
+        {
+          "criterionId": "DETAIL-02-CUSTOM-QUERY",
+          "points": 1,
+          "status": "absent",
+          "codeEvidence": [],
+          "testEvidence": [],
+          "sampleEvidence": [],
+          "limitations": ["Stage 6 声明式自定义查询尚未实现。"]
+        }
+      ]
     }
   ]
 }

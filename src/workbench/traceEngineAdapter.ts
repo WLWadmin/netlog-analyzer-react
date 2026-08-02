@@ -20,13 +20,18 @@ import type {
   TraceRequestFacts,
 } from '../parsers/trace/types';
 import type { WorkbenchCapability } from './protocol';
+import { AdvancedAnalysisStore } from './advancedAnalysisStore';
 import { CpuProfileStore } from './cpuProfileStore';
 import { RawEvidenceStore } from './rawEvidenceStore';
 import {
   TimelineColumnarStore,
   type TimelineStoreEventInput,
 } from './timelineColumnarStore';
-import { classifyTimelineTrack } from './timelineTracks';
+import {
+  classifyCoreTimelineTrack,
+  classifyTimelineTrack,
+} from './timelineTracks';
+import { isTraceStage6Enabled } from './featureFlag';
 
 export interface TraceEngineMetadata {
   engine: 'minimal-trace-aggregator';
@@ -57,6 +62,7 @@ export interface TraceEngineSessionData {
   timeline: TimelineColumnarStore;
   evidence: RawEvidenceStore;
   cpuProfile: CpuProfileStore;
+  advanced?: AdvancedAnalysisStore;
 }
 
 export interface TraceEngineAdapter {
@@ -128,8 +134,15 @@ function projectTimelineEvent(
   const navigationId = readNavigationId(event);
   const name = readString(event.name) ?? 'Unnamed';
   const category = eventCategory(event);
-  const semanticTrack = classifyTimelineTrack(name, category);
+  let semanticTrack = classifyTimelineTrack(name, category);
   if (!semanticTrack) return undefined;
+  if (
+    (semanticTrack === 'layout-shifts' || semanticTrack === 'animations')
+    && !isTraceStage6Enabled()
+  ) {
+    semanticTrack = classifyCoreTimelineTrack(name, category);
+    if (!semanticTrack) return undefined;
+  }
   const durationUs = Math.max(0, readFiniteNumber(event.dur) ?? 0);
   return {
     sourceIndex,
@@ -368,6 +381,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
   getCapabilities(): TraceEngineCapability[] {
     const families = new Set(this.analysis?.intake.availableFamilies ?? []);
     const screenshots = this.trace.traceEvents.some(hasScreenshot);
+    const trackEventCounts = this.sessionData?.timeline.getStats().trackEventCounts ?? {};
     return ALL_CAPABILITIES.map(capability => {
       const cpuStatus = capability === 'cpu-profile'
         ? this.sessionData?.cpuProfile.getStatus()
@@ -380,7 +394,14 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
           && cpuStatus?.capability !== 'missing'
         )
         || (capability === 'network' && families.has('network'))
-        || (capability === 'rendering' && families.has('rendering'))
+        || (
+          capability === 'rendering'
+          && (
+            families.has('rendering')
+            || (trackEventCounts['layout-shifts'] ?? 0) > 0
+            || (trackEventCounts.animations ?? 0) > 0
+          )
+        )
         || (capability === 'interactions' && families.has('interaction'))
         || (capability === 'frames' && families.has('rendering'))
         || (capability === 'screenshots' && screenshots);
@@ -437,6 +458,9 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
       timeline: TimelineColumnarStore.build([...timelineEvents.values()]),
       evidence: new RawEvidenceStore(this.trace.traceEvents),
       cpuProfile: CpuProfileStore.build(this.trace.traceEvents),
+      ...(isTraceStage6Enabled()
+        ? { advanced: new AdvancedAnalysisStore(this.trace.traceEvents) }
+        : {}),
     };
     options.onProgress({
       phase: 'indexing-events',
@@ -451,6 +475,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     this.sessionData?.timeline.release();
     this.sessionData?.evidence.release();
     this.sessionData?.cpuProfile.release();
+    this.sessionData?.advanced?.release();
     this.sessionData = undefined;
     this.analysis = undefined;
     this.trace.traceEvents.length = 0;

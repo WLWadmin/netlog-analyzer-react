@@ -16,6 +16,7 @@ import {
   isTraceCrossSourceEnabled,
   isTraceExpertAnalysisEnabled,
   isTraceStage5Enabled,
+  isTraceStage6Enabled,
 } from '../../../workbench/featureFlag';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
 import { TIMELINE_TRACKS } from '../../../workbench/timelineTracks';
@@ -26,6 +27,8 @@ import CrossSourcePanel from './CrossSourcePanel';
 import CrossSourceEvidenceGraph from './CrossSourceEvidenceGraph';
 import InsightNavigator from './InsightNavigator';
 import TraceComparisonPanel from './TraceComparisonPanel';
+import LayoutShiftPanel from './LayoutShiftPanel';
+import AnimationCompositionPanel from './AnimationCompositionPanel';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
@@ -139,6 +142,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const crossSourceEnabled = isTraceCrossSourceEnabled();
   const stage5Enabled = isTraceStage5Enabled();
+  const stage6Enabled = isTraceStage6Enabled();
   const returnFocus = useRef<Array<
     HTMLElement | { evidenceEntityId: string } | null
   >>([]);
@@ -499,6 +503,45 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
               <strong>Screenshot Filmstrip</strong>
               <p>录制文件未包含截图能力。不会生成或推测历史画面。</p>
             </section>
+          )}
+
+          {stage6Enabled && (
+            <>
+              <LayoutShiftPanel
+                client={client}
+                range={session.range}
+                onFocusRange={range => {
+                  const duration = Math.max(range.endUs - range.startUs, 50_000);
+                  store.navigateTo({
+                    viewport: {
+                      startUs: range.startUs - duration,
+                      endUs: range.endUs + duration,
+                    },
+                  }, {
+                    drawerOpen,
+                    scrollTop: mainRef.current?.scrollTop ?? 0,
+                  });
+                  store.setSelection(range);
+                }}
+              />
+              <AnimationCompositionPanel
+                client={client}
+                range={session.range}
+                onFocusRange={range => {
+                  const duration = Math.max(range.endUs - range.startUs, 50_000);
+                  store.navigateTo({
+                    viewport: {
+                      startUs: range.startUs - duration,
+                      endUs: range.endUs + duration,
+                    },
+                  }, {
+                    drawerOpen,
+                    scrollTop: mainRef.current?.scrollTop ?? 0,
+                  });
+                  store.setSelection(range);
+                }}
+              />
+            </>
           )}
 
           <div id="trace-timeline-canvas-region">
