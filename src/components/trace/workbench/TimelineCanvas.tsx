@@ -163,6 +163,23 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       context.fillStyle = ink;
       context.fillText(track.label, 12, y + 27);
     }
+    const decorations: Array<{
+      event: WorkbenchTimelineEventDto;
+      x: number;
+      y: number;
+      width: number;
+    }> = [];
+    let activeFillColor: string | undefined;
+    const fillEventRect = (
+      color: string,
+      rect: { x: number; y: number; width: number; height: number },
+    ) => {
+      if (activeFillColor !== color) {
+        context.fillStyle = color;
+        activeFillColor = color;
+      }
+      context.fillRect(rect.x, rect.y, rect.width, rect.height);
+    };
     for (const event of orderedEvents) {
       const trackIndex = trackIndexes.get(
         event.trackId as TimelineTrackDefinition['id'],
@@ -178,15 +195,31 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       const endX = Math.max(startX + 2, Math.min(cssWidth, rawEndX));
       const width = endX - startX;
       const overviewY = event.trackId === 'network' ? 28 : 10;
+      const color = trackColors.get(
+        event.trackId as TimelineTrackDefinition['id'],
+      ) ?? ink;
       if (event.trackId === 'network' || event.trackId === 'main') {
-        context.fillStyle = trackColors.get(event.trackId) ?? ink;
-        context.fillRect(startX, overviewY, width, 8);
+        fillEventRect(color, { x: startX, y: overviewY, width, height: 8 });
       }
       const y = OVERVIEW_HEIGHT + trackIndex * TRACK_HEIGHT;
       const lane = eventLanes.get(event.id) ?? 0;
       const eventY = y + 8 + lane * EVENT_LANE_HEIGHT;
-      context.fillStyle = trackColors.get(event.trackId as TimelineTrackDefinition['id']) ?? ink;
-      context.fillRect(startX, eventY, width, 8);
+      fillEventRect(color, { x: startX, y: eventY, width, height: 8 });
+      if (
+        event.status === 'warning'
+        || event.status === 'error'
+        || event.status === 'incomplete'
+        || event.status === 'candidate'
+        || event.id === snapshot.selectedEventId
+      ) decorations.push({ event, x: startX, y: eventY, width });
+    }
+    for (const decoration of decorations) {
+      const {
+        event,
+        x: startX,
+        y: eventY,
+        width,
+      } = decoration;
       if (event.status === 'warning' || event.status === 'error') {
         context.strokeStyle = event.status === 'error'
           ? styles.getPropertyValue('--timeline-interactions').trim()

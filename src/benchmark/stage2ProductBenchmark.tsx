@@ -9,7 +9,6 @@ import {
   type WorkbenchBenchmarkCorpusMetrics,
 } from '../workbench/spike/benchmarkProtocol';
 import type { WorkbenchRequest } from '../workbench/protocol';
-import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 import { WorkbenchBenchmarkBridge } from './workbenchBrowserBenchmark';
 
 export interface Stage2ProductBenchmarkState {
@@ -26,6 +25,13 @@ export interface Stage2ProductBenchmarkState {
     revokedEdgeCount: number;
     revokedFindingCount: number;
   }>;
+  truncation: {
+    viewportObserved: number;
+    viewportTruncated: number;
+    viewportSampled: number;
+    selectionObserved: number;
+    selectionTruncated: number;
+  };
   queue: {
     viewport: ReturnType<TraceWorkbenchClient['getQueueStats']>;
     selection: ReturnType<TraceWorkbenchClient['getSelectionQueueStats']>;
@@ -70,6 +76,13 @@ export async function runStage2ProductBenchmark(): Promise<void> {
     workerSamples: {},
     transferBytes: 0,
     sourceChanges: [],
+    truncation: {
+      viewportObserved: 0,
+      viewportTruncated: 0,
+      viewportSampled: 0,
+      selectionObserved: 0,
+      selectionTruncated: 0,
+    },
     queue: {
       viewport: {
         maxQueueDepth: 0,
@@ -126,13 +139,26 @@ export async function runStage2ProductBenchmark(): Promise<void> {
             revokedEdgeCount: measurement.value.revokedEdgeCount,
             revokedFindingCount: measurement.value.revokedFindingCount,
           });
+        } else if (measurement.value.type === 'viewport-result') {
+          state.truncation.viewportObserved += 1;
+          if (measurement.value.truncation.truncated) {
+            state.truncation.viewportTruncated += 1;
+          }
+          if (measurement.value.lod?.mode === 'sampled') {
+            state.truncation.viewportSampled += 1;
+          }
+        } else if (measurement.value.type === 'selection-result') {
+          state.truncation.selectionObserved += 1;
+          if (measurement.value.truncation.truncated) {
+            state.truncation.selectionTruncated += 1;
+          }
         }
         return measurement.value;
       },
       dispatchSourceFile: async (
         request: Extract<
-          CrossSourceRequest,
-          { type: 'add-source' | 'replace-source' }
+          WorkbenchRequest,
+          { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
         >,
         file: File,
       ) => {

@@ -203,6 +203,8 @@ describe('TraceTimelineWorkbench', () => {
       fillText: jest.fn(),
       setTransform: jest.fn(),
       beginPath: jest.fn(),
+      rect: jest.fn(),
+      fill: jest.fn(),
       moveTo: jest.fn(),
       lineTo: jest.fn(),
       stroke: jest.fn(),

@@ -51,6 +51,9 @@ export interface TraceWorkbenchClientSnapshot {
   alignments?: Extract<CrossSourceResponse, { type: 'alignment-result' }>;
   correlations?: Extract<CrossSourceResponse, { type: 'correlation-result' }>;
   evidenceGraph?: Extract<CrossSourceResponse, { type: 'evidence-graph-result' }>;
+  insights?: Extract<CrossSourceResponse, { type: 'insights-result' }>;
+  comparisonBaseline?: Extract<WorkbenchResponse, { type: 'comparison-baseline-result' }>;
+  comparison?: Extract<WorkbenchResponse, { type: 'trace-comparison-result' }>;
   eventDetail?: EventDetailResultResponse;
   evidence?: EvidenceResultResponse;
   screenshotIndex?: ScreenshotIndexResultResponse;
@@ -64,6 +67,8 @@ export interface TraceWorkbenchClientSnapshot {
     | 'event-log'
     | 'search'
     | 'cross-source'
+    | 'insights'
+    | 'comparison'
     | 'event-detail'
     | 'evidence'
     | 'screenshot-index'
@@ -76,7 +81,10 @@ export interface TraceWorkbenchClientSnapshot {
 interface TraceWorkbenchTransport {
   dispatch(request: WorkbenchRequest): Promise<WorkbenchResponse>;
   dispatchSourceFile?(
-    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    request: Extract<
+      WorkbenchRequest,
+      { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
+    >,
     file: File,
   ): Promise<WorkbenchResponse>;
   close(): void;
@@ -92,6 +100,12 @@ type CrossSourceQueryInput =
     requestId: string;
     range?: { startUs: number; endUs: number };
     selectedEntityId?: string;
+    limit: number;
+  }
+  | {
+    type: 'query-insights';
+    requestId: string;
+    range: { startUs: number; endUs: number };
     limit: number;
   };
 
@@ -365,6 +379,64 @@ export class TraceWorkbenchClient {
     });
   }
 
+  async queryInsights(
+    range: { startUs: number; endUs: number },
+    limit = 20,
+  ): Promise<WorkbenchResponse> {
+    return this.executeCrossSourceQuery({
+      type: 'query-insights',
+      requestId: this.nextRequestId('insights'),
+      range,
+      limit,
+    });
+  }
+
+  async addComparisonBaseline(file: File): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    const request: Extract<WorkbenchRequest, { type: 'add-comparison-baseline' }> = {
+      type: 'add-comparison-baseline',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId('add-comparison-baseline'),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      sourceToken: this.nextRequestId('comparison-source-token'),
+    };
+    if (!this.transport.dispatchSourceFile) {
+      throw new Error('Comparison file transport is unavailable');
+    }
+    this.latestRequestIds.set('comparison', request.requestId);
+    const response = await this.transport.dispatchSourceFile(request, file);
+    this.accept(response);
+    return response;
+  }
+
+  async removeComparisonBaseline(): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    return this.executeLatest('comparison', {
+      type: 'remove-comparison-baseline',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId('remove-comparison-baseline'),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+    });
+  }
+
+  async queryTraceComparison(
+    range: { startUs: number; endUs: number },
+    sameScenarioConfirmed = false,
+  ): Promise<WorkbenchResponse> {
+    const session = this.requireSession();
+    return this.executeLatest('comparison', {
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId('trace-comparison'),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      range,
+      sameScenarioConfirmed,
+    });
+  }
+
   async queryEventDetail(eventId: string): Promise<WorkbenchResponse> {
     const session = this.requireSession();
     return this.executeLatest('event-detail', {
@@ -536,18 +608,32 @@ export class TraceWorkbenchClient {
     const session = this.snapshot.session;
     if (
       session
-      && response.type === 'source-change-result'
+      && (
+        response.type === 'source-change-result'
+        || response.type === 'comparison-baseline-result'
+      )
       && response.sessionId === session.sessionId
       && response.sessionRevision === session.sessionRevision + 1
     ) {
       this.latestRequestIds.clear();
-      this.updateSuccess('cross-source', {
+      this.updateSuccess(
+        response.type === 'source-change-result' ? 'cross-source' : 'comparison',
+        {
         session: { ...session, sessionRevision: response.sessionRevision },
-        sources: response,
-        alignments: undefined,
-        correlations: undefined,
-        evidenceGraph: undefined,
-      });
+        ...(response.type === 'source-change-result'
+          ? {
+              sources: response,
+              alignments: undefined,
+              correlations: undefined,
+              evidenceGraph: undefined,
+              insights: undefined,
+            }
+          : {
+              comparisonBaseline: response,
+              comparison: undefined,
+            }),
+        },
+      );
       return true;
     }
     if (
@@ -577,6 +663,11 @@ export class TraceWorkbenchClient {
                 || response.type === 'correlation-result'
                 || response.type === 'evidence-graph-result'
                 ? 'cross-source'
+                : response.type === 'insights-result'
+                  ? 'insights'
+                  : response.type === 'comparison-baseline-result'
+                    || response.type === 'trace-comparison-result'
+                    ? 'comparison'
       : response.type === 'event-detail-result'
         ? 'event-detail'
         : response.type === 'evidence-result'
@@ -619,6 +710,15 @@ export class TraceWorkbenchClient {
       this.updateSuccess('cross-source', { correlations: response });
     } else if (response.type === 'evidence-graph-result') {
       this.updateSuccess('cross-source', { evidenceGraph: response });
+    } else if (response.type === 'insights-result') {
+      this.updateSuccess('insights', { insights: response });
+    } else if (response.type === 'comparison-baseline-result') {
+      this.updateSuccess('comparison', {
+        comparisonBaseline: response,
+        comparison: undefined,
+      });
+    } else if (response.type === 'trace-comparison-result') {
+      this.updateSuccess('comparison', { comparison: response });
     } else if (response.type === 'event-detail-result') {
       this.updateSuccess('event-detail', { eventDetail: response });
     } else if (response.type === 'evidence-result') {
@@ -640,6 +740,8 @@ export class TraceWorkbenchClient {
         || errorChannel === 'event-log'
         || errorChannel === 'search'
         || errorChannel === 'cross-source'
+        || errorChannel === 'insights'
+        || errorChannel === 'comparison'
         || errorChannel === 'event-detail'
         || errorChannel === 'evidence'
         || errorChannel === 'screenshot-index'
@@ -760,7 +862,7 @@ export class TraceWorkbenchClient {
     request: CrossSourceQueryInput,
   ): Promise<WorkbenchResponse> {
     const session = this.requireSession();
-    return this.executeLatest('cross-source', {
+    return this.executeLatest(request.type === 'query-insights' ? 'insights' : 'cross-source', {
       ...request,
       schemaVersion: WORKBENCH_SCHEMA_VERSION,
       sessionId: session.sessionId,

@@ -99,6 +99,13 @@ const CrossSourceEvidenceGraph: React.FC<{
                 {node.label}
                 {node.confidence ? ` · ${CONFIDENCE_LABEL[node.confidence]}` : ''}
               </button>
+              {node.facts?.map(fact => <span key={fact}>事实：{fact}</span>)}
+              {node.timeRange && (
+                <span>
+                  范围：{(node.timeRange.startUs / 1_000).toFixed(2)}
+                  –{(node.timeRange.endUs / 1_000).toFixed(2)} ms
+                </span>
+              )}
               {node.limitations.map(limitation => (
                 <span key={limitation}>限制：{limitation}</span>
               ))}
@@ -116,6 +123,21 @@ const CrossSourceEvidenceGraph: React.FC<{
               {edge.conflictingFields.length > 0
                 ? ` · 冲突：${edge.conflictingFields.join('、')}`
                 : ''}
+              {edge.relationship === 'candidate-contribution'
+                ? ' · 仅候选贡献，不是已确认根因'
+                : ''}
+              {edge.counterEvidence?.map(item => (
+                <span key={item}>反证：{item}</span>
+              ))}
+              {edge.alternativeExplanations?.map(item => (
+                <span key={item}>替代解释：{item}</span>
+              ))}
+              {edge.timeRange && (
+                <span>
+                  定位范围：{(edge.timeRange.startUs / 1_000).toFixed(2)}
+                  –{(edge.timeRange.endUs / 1_000).toFixed(2)} ms
+                </span>
+              )}
               {edge.limitations.map(limitation => (
                 <span key={limitation}>限制：{limitation}</span>
               ))}

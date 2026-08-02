@@ -4,7 +4,6 @@ import type {
 } from '../parsers/trace/types';
 import { TraceWorkbenchClient } from '../workbench/client';
 import type { WorkbenchRequest, WorkbenchResponse } from '../workbench/protocol';
-import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 import { isTraceWorkerResponse } from './traceWorkerProtocolGuards';
 import type {
   TraceUploadHint,
@@ -36,6 +35,7 @@ export interface TraceWorkerTask {
 export interface TraceWorkerOptions {
   hint: TraceUploadHint;
   timeoutMs?: number;
+  workbenchSourceTimeoutMs?: number;
   enableWorkbench?: boolean;
   onProgress?: (progress: TraceTaskProgress) => void;
 }
@@ -150,7 +150,10 @@ export function createTraceWorkerTask(
   };
 
   const dispatchWorkbenchSourceFile = (
-    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    request: Extract<
+      WorkbenchRequest,
+      { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
+    >,
     file: File,
   ): Promise<WorkbenchResponse> => {
     if (closed) return Promise.reject(new Error('Trace Workbench Worker is closed'));
@@ -160,8 +163,16 @@ export function createTraceWorkerTask(
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pendingWorkbench.delete(request.requestId);
-        reject(new Error('Workbench source operation timed out'));
-      }, WORKBENCH_SOURCE_TIMEOUT_MS);
+        reject(new Error(
+          '来源操作超时，Workbench 会话已关闭。请重新打开工作台或重新上传文件。',
+        ));
+        failWorker({
+          code: 'TRACE_WORKER_FAILED',
+          stage: 'reading-file',
+          message: 'Workbench 来源操作超时，会话已失败关闭',
+          recoverable: true,
+        });
+      }, options.workbenchSourceTimeoutMs ?? WORKBENCH_SOURCE_TIMEOUT_MS);
       pendingWorkbench.set(request.requestId, { timer, resolve, reject });
       try {
         worker.postMessage({

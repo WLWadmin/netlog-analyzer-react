@@ -183,6 +183,91 @@ describe('TraceWorkbenchClient', () => {
     expect(client.getSnapshot().discardedResponseCount).toBe(1);
   });
 
+  it('commits local baseline revisions before comparison and removal', async () => {
+    const requests: WorkbenchRequest[] = [];
+    const dispatch = jest.fn(async (
+      request: WorkbenchRequest,
+    ): Promise<WorkbenchResponse> => {
+      requests.push(request);
+      if (request.type === 'create-session') return sessionResponse(request.requestId);
+      if (request.type === 'query-trace-comparison') {
+        return {
+          type: 'trace-comparison-result',
+          schemaVersion: WORKBENCH_SCHEMA_VERSION,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          sessionRevision: request.sessionRevision,
+          status: 'comparable',
+          range: request.range,
+          baselineRange: request.range,
+          regression: 'stable',
+          metrics: [],
+          evidenceIds: [],
+          limitations: [],
+        };
+      }
+      if (request.type === 'remove-comparison-baseline') {
+        return {
+          type: 'comparison-baseline-result',
+          schemaVersion: WORKBENCH_SCHEMA_VERSION,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          sessionRevision: request.sessionRevision + 1,
+          operation: 'removed',
+          baselineAvailable: false,
+          limitations: [],
+        };
+      }
+      throw new Error('unexpected request');
+    });
+    const dispatchSourceFile = jest.fn(async (
+      request: Extract<
+        WorkbenchRequest,
+        { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
+      >,
+    ): Promise<WorkbenchResponse> => ({
+      type: 'comparison-baseline-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision + 1,
+      operation: 'added',
+      baselineAvailable: true,
+      sourceBytes: 10,
+      eventCount: 1,
+      limitations: [],
+    }));
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, { dispatch, dispatchSourceFile, close: jest.fn() });
+    await client.createSession();
+
+    await client.addComparisonBaseline(new File(['trace'], 'baseline.trace'));
+    expect(client.getSnapshot().session?.sessionRevision).toBe(2);
+    await client.queryTraceComparison({ startUs: 0, endUs: 100 });
+    expect(requests.at(-1)).toMatchObject({
+      type: 'query-trace-comparison',
+      sessionRevision: 2,
+    });
+    expect(client.getSnapshot().comparison).toMatchObject({
+      status: 'comparable',
+      regression: 'stable',
+    });
+
+    await client.removeComparisonBaseline();
+    expect(requests.at(-1)).toMatchObject({
+      type: 'remove-comparison-baseline',
+      sessionRevision: 2,
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      session: { sessionRevision: 3 },
+      comparisonBaseline: { baselineAvailable: false },
+      comparison: undefined,
+    });
+  });
+
   it('sends at most one cancellation for the active viewport and bounds the queue', async () => {
     const resolvers: Array<(response: WorkbenchResponse) => void> = [];
     const requests: WorkbenchRequest[] = [];

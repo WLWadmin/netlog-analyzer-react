@@ -1,6 +1,7 @@
 import type {
   WorkbenchTimelineEventDto,
   WorkbenchTruncation,
+  WorkbenchViewportLod,
 } from './protocol';
 
 export interface TimelineStoreEventInput {
@@ -63,6 +64,7 @@ function selectBalancedPage(
 
 export interface TimelineQueryResult {
   events: WorkbenchTimelineEventDto[];
+  lod: WorkbenchViewportLod;
   truncation: WorkbenchTruncation;
 }
 
@@ -101,6 +103,17 @@ export interface TimelineEventLogResult {
     totalMatched: number;
     continuation?: string;
   };
+}
+
+export interface TimelineEvidenceEntity {
+  entityId: string;
+  kind: 'symptom' | 'main-thread' | 'rendering' | 'frame' | 'interaction';
+  label: string;
+  trackId: string;
+  startUs: number;
+  durationUs: number;
+  evidenceIds: string[];
+  limitations: string[];
 }
 
 export class TimelineQueryCancelled extends Error {
@@ -162,6 +175,26 @@ function sourceIndexFromEventId(value: string): number | undefined {
   if (!match) return undefined;
   const sourceIndex = Number(match[1]);
   return Number.isSafeInteger(sourceIndex) ? sourceIndex : undefined;
+}
+
+function viewportLod(
+  query: TimelineQuery,
+  totalMatched: number,
+  renderedEventCount: number,
+): WorkbenchViewportLod {
+  const sampled = query.balanceByTrack === true && totalMatched > renderedEventCount;
+  return {
+    mode: sampled ? 'sampled' : 'raw',
+    level: sampled ? Math.max(2, Math.ceil(totalMatched / query.limit)) : 1,
+    sourceEventCount: totalMatched,
+    renderedEventCount,
+    bucketUs: sampled
+      ? Math.max(1, (query.endUs - query.startUs) / Math.max(1, query.limit))
+      : 0,
+    explanation: sampled
+      ? '当前密度超过绘制上限，按轨道确定性降采样；缩小范围可查看原始事件。'
+      : '当前范围直接绘制原始事件。',
+  };
 }
 
 export class TimelineColumnarStore {
@@ -267,6 +300,7 @@ export class TimelineColumnarStore {
     ) {
       return {
         events: [],
+        lod: viewportLod(query, 0, 0),
         truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
       };
     }
@@ -299,6 +333,7 @@ export class TimelineColumnarStore {
     const last = events[events.length - 1];
     return {
       events,
+      lod: viewportLod(query, matches.length, events.length),
       truncation: {
         truncated,
         returnedCount: events.length,
@@ -336,6 +371,7 @@ export class TimelineColumnarStore {
     ) {
       return {
         events: [],
+        lod: viewportLod(query, 0, 0),
         truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
       };
     }
@@ -378,6 +414,7 @@ export class TimelineColumnarStore {
     const last = events[events.length - 1];
     return {
       events,
+      lod: viewportLod(query, matches.length, events.length),
       truncation: {
         truncated,
         returnedCount: events.length,
@@ -550,6 +587,42 @@ export class TimelineColumnarStore {
   getInput(eventIdValue: string): TimelineStoreEventInput | undefined {
     const sourceIndex = sourceIndexFromEventId(eventIdValue);
     return sourceIndex === undefined ? undefined : this.inputsBySourceIndex.get(sourceIndex);
+  }
+
+  getEvidenceEntities(): TimelineEvidenceEntity[] {
+    const entities: TimelineEvidenceEntity[] = [];
+    for (const [sourceIndex, input] of this.inputsBySourceIndex) {
+      const kind = input.trackId === 'main'
+        ? 'main-thread'
+        : input.trackId === 'rendering'
+          ? 'rendering'
+          : input.trackId === 'frames'
+            ? 'frame'
+            : input.trackId === 'interactions'
+              ? 'interaction'
+              : undefined;
+      if (!kind) continue;
+      if (
+        kind === 'main-thread'
+        && input.status !== 'warning'
+        && input.status !== 'error'
+      ) continue;
+      entities.push({
+        entityId: eventId(sourceIndex),
+        kind: input.status === 'warning' || input.status === 'error'
+          ? 'symptom'
+          : kind,
+        label: input.name,
+        trackId: input.trackId,
+        startUs: input.startUs,
+        durationUs: input.durationUs,
+        evidenceIds: [...input.evidenceIds],
+        limitations: ['时间重叠仅表示候选贡献，不能单独证明因果关系。'],
+      });
+    }
+    return entities.sort((left, right) => (
+      left.startUs - right.startUs || left.entityId.localeCompare(right.entityId)
+    ));
   }
 
   childIds(eventIdValue: string): string[] {

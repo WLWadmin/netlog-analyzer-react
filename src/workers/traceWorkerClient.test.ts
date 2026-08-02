@@ -208,6 +208,93 @@ describe('traceWorkerClient', () => {
     await expect(task.done).resolves.toBeUndefined();
   });
 
+  it('fails closed and terminates the session when a source operation times out', async () => {
+    jest.useFakeTimers();
+    const worker = new FakeWorker();
+    const task = createTraceWorkerTask(
+      new File(['{}'], 'sample.trace'),
+      {
+        hint: 'trace',
+        enableWorkbench: true,
+        workbenchSourceTimeoutMs: 10,
+      },
+      () => worker as unknown as Worker,
+    );
+    const currentTaskId = taskId(worker);
+    worker.emit('message', messageEvent({
+      type: 'trace-analysis-result',
+      taskId: currentTaskId,
+      result: analysisResult(10),
+      workbenchSource: {
+        sourceId: `trace-source:${currentTaskId}`,
+        parserId: 'trace',
+        fingerprint: 'trace:10:0',
+      },
+    }));
+    const outcome = await task.promise;
+    if (outcome.kind !== 'trace' || !outcome.workbench) {
+      throw new Error('Workbench unavailable');
+    }
+    const createPromise = outcome.workbench.createSession();
+    const createEnvelope = worker.postMessage.mock.calls.at(-1)?.[0];
+    worker.emit('message', messageEvent({
+      type: 'workbench-response',
+      taskId: currentTaskId,
+      response: {
+        type: 'session-created',
+        schemaVersion: 1,
+        requestId: createEnvelope.request.requestId,
+        sessionId: 'session-1',
+        sessionRevision: 1,
+        session: {
+          sessionId: 'session-1',
+          sessionRevision: 1,
+          state: 'ready',
+          source: createEnvelope.request.source,
+          capabilities: ['timeline-events'],
+          missingCapabilities: [],
+          range: { startUs: 0, endUs: 1 },
+          eventCount: 1,
+          trackEventCounts: { main: 1 },
+          screenshotCount: 0,
+        },
+      },
+    }));
+    await createPromise;
+
+    const sourcePromise = outcome.workbench.addSource(
+      new File(['{}'], 'slow.har'),
+      'har',
+    );
+    const sourceEnvelope = worker.postMessage.mock.calls.at(-1)?.[0];
+    jest.advanceTimersByTime(10);
+
+    await expect(sourcePromise).rejects.toThrow('会话已关闭');
+    expect(outcome.workbench.getSnapshot().status).toBe('failed');
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect([...worker.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+
+    worker.emit('message', messageEvent({
+      type: 'workbench-response',
+      taskId: currentTaskId,
+      response: {
+        type: 'source-change-result',
+        schemaVersion: 1,
+        requestId: sourceEnvelope.request.requestId,
+        sessionId: 'session-1',
+        sessionRevision: 2,
+        sourceRevision: 1,
+        operation: 'added',
+        sources: [],
+        revokedEdgeCount: 0,
+        revokedFindingCount: 0,
+      },
+    }));
+    expect(outcome.workbench.getSnapshot().sources).toBeUndefined();
+    await expect(task.done).resolves.toBeUndefined();
+    jest.useRealTimers();
+  });
+
   it('terminates on cancel and timeout', async () => {
     jest.useFakeTimers();
     const cancelWorker = new FakeWorker();

@@ -4,7 +4,6 @@ import type {
   TraceWorkerRequest,
   TraceWorkerResponse,
 } from './traceWorkerProtocols';
-import { isCrossSourceRequest } from '../workbench/crossSourceProtocolGuards';
 
 const TRACE_PHASES: TraceTaskPhase[] = [
   'sniffing-source',
@@ -52,9 +51,13 @@ export function isTraceWorkerRequest(value: unknown): value is TraceWorkerReques
   }
   if (value.type === 'workbench-source-file') {
     return hasOnlyKeys(value, ['type', 'taskId', 'request', 'file'])
-      && isCrossSourceRequest(value.request)
+      && isWorkbenchRequest(value.request)
       && isRecord(value.request)
-      && (value.request.type === 'add-source' || value.request.type === 'replace-source')
+      && (
+        value.request.type === 'add-source'
+        || value.request.type === 'replace-source'
+        || value.request.type === 'add-comparison-baseline'
+      )
       && typeof File !== 'undefined'
       && value.file instanceof File;
   }

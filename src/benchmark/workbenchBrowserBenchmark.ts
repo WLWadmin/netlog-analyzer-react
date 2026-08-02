@@ -15,7 +15,6 @@ import {
   type WorkbenchTimelineEventDto,
 } from '../workbench/spike/protocol';
 import { isWorkbenchBenchmarkWorkerResponse } from '../workbench/spike/protocolGuards';
-import type { CrossSourceRequest } from '../workbench/crossSourceProtocol';
 
 const WARMUP_RUNS = 3;
 const VALID_RUNS = 10;
@@ -114,8 +113,8 @@ export class WorkbenchBenchmarkBridge {
 
   dispatchSourceFile(
     request: Extract<
-      CrossSourceRequest,
-      { type: 'add-source' | 'replace-source' }
+      WorkbenchRequest,
+      { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
     >,
     file: File,
   ): Promise<WorkerMeasurement<WorkbenchResponse>> {

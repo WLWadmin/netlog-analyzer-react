@@ -79,6 +79,10 @@ export function isCrossSourceRequest(value: unknown): value is CrossSourceReques
         && (value.range === undefined || range(value.range))
         && (value.selectedEntityId === undefined || text(value.selectedEntityId))
         && positiveInteger(value.limit) && value.limit <= 1_000;
+    case 'query-insights':
+      return only(value, [...common, 'range', 'limit'])
+        && range(value.range)
+        && positiveInteger(value.limit) && value.limit <= 100;
     default:
       return false;
   }
@@ -205,7 +209,7 @@ function graphNode(value: unknown): boolean {
   return record(value)
     && only(value, [
       'nodeId', 'kind', 'label', 'sourceId', 'entityId', 'confidence',
-      'evidenceIds', 'limitations',
+      'facts', 'timeRange', 'evidenceIds', 'limitations',
     ])
     && text(value.nodeId) && text(value.label)
     && [
@@ -216,6 +220,8 @@ function graphNode(value: unknown): boolean {
     && (value.sourceId === undefined || text(value.sourceId))
     && (value.entityId === undefined || text(value.entityId))
     && (value.confidence === undefined || confidence(value.confidence))
+    && (value.facts === undefined || strings(value.facts))
+    && (value.timeRange === undefined || range(value.timeRange))
     && strings(value.evidenceIds)
     && strings(value.limitations);
 }
@@ -224,7 +230,8 @@ function graphEdge(value: unknown): boolean {
   return record(value)
     && only(value, [
       'edgeId', 'fromNodeId', 'toNodeId', 'kind', 'label', 'confidence',
-      'matchedFields', 'conflictingFields', 'limitations',
+      'relationship', 'matchedFields', 'conflictingFields', 'counterEvidence',
+      'alternativeExplanations', 'timeRange', 'limitations',
     ])
     && text(value.edgeId) && text(value.fromNodeId) && text(value.toNodeId)
     && text(value.label)
@@ -233,9 +240,40 @@ function graphEdge(value: unknown): boolean {
       'contradicts', 'initiates', 'redirects-to', 'connection-path',
     ].includes(String(value.kind))
     && confidence(value.confidence)
+    && (
+      value.relationship === undefined
+      || value.relationship === 'evidence-support'
+      || value.relationship === 'candidate-contribution'
+    )
     && strings(value.matchedFields)
     && strings(value.conflictingFields)
+    && (value.counterEvidence === undefined || strings(value.counterEvidence))
+    && (
+      value.alternativeExplanations === undefined
+      || strings(value.alternativeExplanations)
+    )
+    && (value.timeRange === undefined || range(value.timeRange))
     && strings(value.limitations);
+}
+
+function insight(value: unknown): boolean {
+  return record(value)
+    && only(value, [
+      'insightId', 'priority', 'phenomenon', 'evidenceQuality',
+      'attributionLevel', 'candidateReasons', 'limitations',
+      'verificationSteps', 'timeRange', 'evidenceNodeIds',
+    ])
+    && text(value.insightId)
+    && positiveInteger(value.priority)
+    && text(value.phenomenon)
+    && ['high', 'medium', 'low'].includes(String(value.evidenceQuality))
+    && ['possible-contributor', 'observation', 'insufficient']
+      .includes(String(value.attributionLevel))
+    && strings(value.candidateReasons)
+    && strings(value.limitations)
+    && strings(value.verificationSteps)
+    && range(value.timeRange)
+    && strings(value.evidenceNodeIds);
 }
 
 function truncation(value: unknown, returnedCount: number): boolean {
@@ -293,6 +331,17 @@ export function isCrossSourceResponse(value: unknown): value is CrossSourceRespo
       && value.edges.every(graphEdge)
       && strings(value.limitations)
       && truncation(value.truncation, value.nodes.length + value.edges.length);
+  }
+  if (value.type === 'insights-result') {
+    return only(value, [
+      ...common, 'range', 'insights', 'emptyReason', 'limitations', 'truncation',
+    ])
+      && range(value.range)
+      && Array.isArray(value.insights) && value.insights.length <= 100
+      && value.insights.every(insight)
+      && (value.emptyReason === undefined || text(value.emptyReason))
+      && strings(value.limitations)
+      && truncation(value.truncation, value.insights.length);
   }
   return false;
 }

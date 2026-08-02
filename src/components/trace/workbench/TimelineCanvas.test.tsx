@@ -35,6 +35,8 @@ describe('TimelineCanvas', () => {
       save: jest.fn(),
       restore: jest.fn(),
       beginPath: jest.fn(),
+      rect: jest.fn(),
+      fill: jest.fn(),
       moveTo: jest.fn(),
       lineTo: jest.fn(),
       stroke: jest.fn(),
@@ -221,13 +223,16 @@ describe('TimelineCanvas', () => {
 
   it('draws each active track label once even when a track has multiple events', () => {
     const fillText = jest.fn();
+    const fillRect = jest.fn();
+    const rect = jest.fn();
     jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       clearRect: jest.fn(),
-      fillRect: jest.fn(),
+      fillRect,
       strokeRect: jest.fn(),
       fillText,
       setTransform: jest.fn(),
       beginPath: jest.fn(),
+      rect,
       moveTo: jest.fn(),
       lineTo: jest.fn(),
       stroke: jest.fn(),
@@ -247,5 +252,7 @@ describe('TimelineCanvas', () => {
     );
 
     expect(fillText.mock.calls.filter(([label]) => label === 'Main')).toHaveLength(1);
+    expect(fillRect.mock.calls.length).toBeGreaterThan(2);
+    expect(rect).not.toHaveBeenCalled();
   });
 });

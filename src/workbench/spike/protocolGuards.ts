@@ -94,12 +94,12 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         && Array.isArray(value.requestedCapabilities)
         && value.requestedCapabilities.every(isCapability);
     case 'query-viewport':
-      return isSessionRef(value)
-        && isRecord(value.range)
-        && typeof value.range.startUs === 'number'
-        && Number.isFinite(value.range.startUs)
-        && typeof value.range.endUs === 'number'
-        && Number.isFinite(value.range.endUs)
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'limit', 'balanceByTrack', 'allowTruncation', 'continuation',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
         && Number.isInteger(value.limit)
         && (value.balanceByTrack === undefined || typeof value.balanceByTrack === 'boolean')
         && (value.allowTruncation === undefined || typeof value.allowTruncation === 'boolean')
@@ -161,6 +161,26 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
       return isSessionRef(value) && isNonEmptyString(value.targetRequestId);
     case 'release-session':
       return isSessionRef(value);
+    case 'add-comparison-baseline':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'sourceToken',
+      ])
+        && isSessionRef(value)
+        && isNonEmptyString(value.sourceToken);
+    case 'remove-comparison-baseline':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+      ])
+        && isSessionRef(value);
+    case 'query-trace-comparison':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'sameScenarioConfirmed',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && typeof value.sameScenarioConfirmed === 'boolean';
     case 'add-source':
     case 'replace-source':
     case 'remove-source':
@@ -168,6 +188,7 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
     case 'query-alignment':
     case 'query-correlation':
     case 'query-evidence-graph':
+    case 'query-insights':
       return isCrossSourceRequest(value);
     default:
       return false;
@@ -176,8 +197,10 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
 
 function isRange(value: unknown): value is { startUs: number; endUs: number } {
   return isRecord(value)
+    && hasOnlyKeys(value, ['startUs', 'endUs'])
     && isFiniteNumber(value.startUs)
-    && isFiniteNumber(value.endUs);
+    && isFiniteNumber(value.endUs)
+    && value.startUs <= value.endUs;
 }
 
 function isAnalysisSort(value: unknown): boolean {
@@ -251,6 +274,32 @@ function isTimelineEvent(value: unknown): boolean {
       'id', 'trackId', 'startUs', 'durationUs', 'depth', 'category', 'name', 'status',
     ])
     && isTimelineEventShape(value);
+}
+
+function isViewportLod(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'mode', 'level', 'sourceEventCount', 'renderedEventCount',
+      'bucketUs', 'explanation',
+    ])
+    && (value.mode === 'raw' || value.mode === 'sampled')
+    && Number.isInteger(value.level) && Number(value.level) >= 1
+    && isNonNegativeInteger(value.sourceEventCount)
+    && isNonNegativeInteger(value.renderedEventCount)
+    && isFiniteNumber(value.bucketUs) && value.bucketUs >= 0
+    && isNonEmptyString(value.explanation);
+}
+
+function isComparisonMetric(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, ['metric', 'current', 'baseline', 'deltaPercent'])
+    && [
+      'matched-events', 'warning-events', 'main', 'rendering',
+      'interactions', 'frames',
+    ].includes(String(value.metric))
+    && isNonNegativeInteger(value.current)
+    && isNonNegativeInteger(value.baseline)
+    && (value.deltaPercent === undefined || isFiniteNumber(value.deltaPercent));
 }
 
 function isEventDetail(value: unknown): boolean {
@@ -423,6 +472,7 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
         && isRange(value.range)
         && Array.isArray(value.events)
         && value.events.every(isTimelineEvent)
+        && (value.lod === undefined || isViewportLod(value.lod))
         && isTruncation(value.truncation, value.events.length);
     case 'selection-result':
       return isSessionRef(value)
@@ -535,6 +585,51 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
           && isNonNegativeInteger(item.decodedBytes)
         ))
         && isNonNegativeInteger(value.rejectedCount);
+    case 'comparison-baseline-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'operation', 'baselineAvailable', 'sourceBytes', 'eventCount',
+        'limitations',
+      ])
+        && isSessionRef(value)
+        && (value.operation === 'added' || value.operation === 'removed')
+        && typeof value.baselineAvailable === 'boolean'
+        && (value.sourceBytes === undefined || isNonNegativeInteger(value.sourceBytes))
+        && (value.eventCount === undefined || isNonNegativeInteger(value.eventCount))
+        && (
+          value.operation === 'added'
+            ? value.baselineAvailable === true
+              && isNonNegativeInteger(value.sourceBytes)
+              && isNonNegativeInteger(value.eventCount)
+            : value.baselineAvailable === false
+              && value.sourceBytes === undefined
+              && value.eventCount === undefined
+        )
+        && isStringArray(value.limitations);
+    case 'trace-comparison-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'status', 'range', 'baselineRange', 'regression', 'metrics',
+        'evidenceIds', 'limitations',
+      ])
+        && isSessionRef(value)
+        && [
+          'comparable', 'alignment-insufficient', 'capability-mismatch',
+          'sample-incomparable',
+        ].includes(String(value.status))
+        && isRange(value.range)
+        && (value.baselineRange === undefined || isRange(value.baselineRange))
+        && ['regressed', 'stable', 'improved', 'unavailable']
+          .includes(String(value.regression))
+        && (
+          value.status === 'comparable'
+          || value.regression === 'unavailable'
+        )
+        && Array.isArray(value.metrics)
+        && value.metrics.length <= 6
+        && value.metrics.every(isComparisonMetric)
+        && isStringArray(value.evidenceIds)
+        && isStringArray(value.limitations);
     case 'capability-missing':
       return isSessionRef(value)
         && isCapability(value.capability)
@@ -554,6 +649,7 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
     case 'alignment-result':
     case 'correlation-result':
     case 'evidence-graph-result':
+    case 'insights-result':
       return isCrossSourceResponse(value);
     default:
       return false;
@@ -604,11 +700,12 @@ export function isWorkbenchBenchmarkWorkerRequest(
     return isWorkbenchRequest(value.request);
   }
   return value.type === 'dispatch-workbench-source-file'
-    && isCrossSourceRequest(value.request)
+    && isWorkbenchRequest(value.request)
     && isRecord(value.request)
     && (
       value.request.type === 'add-source'
       || value.request.type === 'replace-source'
+      || value.request.type === 'add-comparison-baseline'
     )
     && typeof File !== 'undefined'
     && value.file instanceof File;

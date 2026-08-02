@@ -95,6 +95,15 @@ export interface WorkbenchTruncation {
   };
 }
 
+export interface WorkbenchViewportLod {
+  mode: 'raw' | 'sampled';
+  level: number;
+  sourceEventCount: number;
+  renderedEventCount: number;
+  bucketUs: number;
+  explanation: string;
+}
+
 interface WorkbenchRequestBase {
   schemaVersion: typeof WORKBENCH_SPIKE_SCHEMA_VERSION;
   requestId: string;
@@ -207,6 +216,21 @@ export interface QueryScreenshotIndexRequest extends WorkbenchSessionRequestBase
   type: 'query-screenshot-index';
 }
 
+export interface AddComparisonBaselineRequest extends WorkbenchSessionRequestBase {
+  type: 'add-comparison-baseline';
+  sourceToken: string;
+}
+
+export interface RemoveComparisonBaselineRequest extends WorkbenchSessionRequestBase {
+  type: 'remove-comparison-baseline';
+}
+
+export interface QueryTraceComparisonRequest extends WorkbenchSessionRequestBase {
+  type: 'query-trace-comparison';
+  range: { startUs: number; endUs: number };
+  sameScenarioConfirmed: boolean;
+}
+
 export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
@@ -223,6 +247,9 @@ export type WorkbenchRequest =
   | QueryScreenshotRequest
   | CancelQueryRequest
   | ReleaseSessionRequest
+  | AddComparisonBaselineRequest
+  | RemoveComparisonBaselineRequest
+  | QueryTraceComparisonRequest
   | CrossSourceRequest;
 
 interface WorkbenchResponseBase {
@@ -252,6 +279,7 @@ export interface ViewportResultResponse extends WorkbenchSessionResponseBase {
     endUs: number;
   };
   events: WorkbenchTimelineEventDto[];
+  lod?: WorkbenchViewportLod;
   truncation: WorkbenchTruncation;
 }
 
@@ -408,6 +436,38 @@ export interface ScreenshotIndexResultResponse extends WorkbenchSessionResponseB
   rejectedCount: number;
 }
 
+export type TraceComparisonStatus =
+  | 'comparable'
+  | 'alignment-insufficient'
+  | 'capability-mismatch'
+  | 'sample-incomparable';
+
+export interface ComparisonBaselineResultResponse extends WorkbenchSessionResponseBase {
+  type: 'comparison-baseline-result';
+  operation: 'added' | 'removed';
+  baselineAvailable: boolean;
+  sourceBytes?: number;
+  eventCount?: number;
+  limitations: string[];
+}
+
+export interface TraceComparisonResultResponse extends WorkbenchSessionResponseBase {
+  type: 'trace-comparison-result';
+  status: TraceComparisonStatus;
+  range: { startUs: number; endUs: number };
+  baselineRange?: { startUs: number; endUs: number };
+  regression: 'regressed' | 'stable' | 'improved' | 'unavailable';
+  metrics: Array<{
+    metric: 'matched-events' | 'warning-events' | 'main' | 'rendering'
+      | 'interactions' | 'frames';
+    current: number;
+    baseline: number;
+    deltaPercent?: number;
+  }>;
+  evidenceIds: string[];
+  limitations: string[];
+}
+
 export interface CapabilityMissingResponse extends WorkbenchSessionResponseBase {
   type: 'capability-missing';
   capability: WorkbenchCapability;
@@ -443,6 +503,8 @@ export type WorkbenchResponse =
   | EvidenceResultResponse
   | ScreenshotIndexResultResponse
   | ScreenshotResultResponse
+  | ComparisonBaselineResultResponse
+  | TraceComparisonResultResponse
   | CapabilityMissingResponse
   | StructuredErrorResponse
   | CrossSourceResponse;

@@ -8,20 +8,22 @@ const path = require('path');
 const WebSocket = require('ws');
 
 const root = path.resolve(__dirname, '..');
-const stage4Mode = process.env.WORKBENCH_BROWSER_STAGE === '4';
-const artifactStage = stage4Mode ? 'stage4' : 'stage3';
+const browserStage = Number(process.env.WORKBENCH_BROWSER_STAGE ?? 3);
+const stage4Mode = browserStage >= 4;
+const stage5Mode = browserStage >= 5;
+const artifactStage = `stage${browserStage}`;
 const buildDir = path.resolve(process.env[
-  stage4Mode ? 'WORKBENCH_STAGE4_BUILD_DIR' : 'WORKBENCH_STAGE3_BUILD_DIR'
+  `WORKBENCH_STAGE${browserStage}_BUILD_DIR`
 ] ?? `/tmp/netlog-workbench-${artifactStage}-product-build`);
 const reportDir = path.resolve(process.env[
-  stage4Mode ? 'WORKBENCH_STAGE4_REPORT_DIR' : 'WORKBENCH_STAGE3_REPORT_DIR'
+  `WORKBENCH_STAGE${browserStage}_REPORT_DIR`
 ]
   ?? path.join(root, 'docs/superpowers/reports'));
 const port = Number(process.env[
-  stage4Mode ? 'WORKBENCH_STAGE4_PORT' : 'WORKBENCH_STAGE3_PORT'
-] ?? (stage4Mode ? 4184 : 4183));
-const debugPort = stage4Mode ? 9226 : 9225;
-const flagOffBuildDir = '/tmp/netlog-workbench-stage4-flag-off-build';
+  `WORKBENCH_STAGE${browserStage}_PORT`
+] ?? (4180 + browserStage));
+const debugPort = 9222 + browserStage;
+const flagOffBuildDir = `/tmp/netlog-workbench-${artifactStage}-flag-off-build`;
 const chromePath = process.env.CHROME_PATH
   ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const eventCounts = [100_000, 500_000, 1_000_000];
@@ -101,6 +103,7 @@ function buildProductBenchmark() {
       REACT_APP_ENABLE_TRACE_TIMELINE: '1',
       REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
       REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage4Mode ? '1' : '0',
+      REACT_APP_ENABLE_TRACE_STAGE5: stage5Mode ? '1' : '0',
       REACT_APP_WORKBENCH_BENCHMARK_REF: `${head}+${artifactStage}-working-tree`,
     },
     stdio: 'inherit',
@@ -120,8 +123,11 @@ function buildFlagOffBenchmark() {
       REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
       REACT_APP_ENABLE_TRACE_TIMELINE: '1',
       REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
-      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: '0',
-      REACT_APP_WORKBENCH_BENCHMARK_REF: 'stage4-cross-source-off',
+      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage5Mode ? '1' : '0',
+      REACT_APP_ENABLE_TRACE_STAGE5: '0',
+      REACT_APP_WORKBENCH_BENCHMARK_REF: stage5Mode
+        ? 'stage5-off'
+        : 'stage4-cross-source-off',
     },
     stdio: 'inherit',
   });
@@ -615,6 +621,13 @@ async function runOne(cdp, eventCount, diffHash) {
     'window.__STAGE3_PRODUCT_BENCHMARK__?.error || null',
   );
   assert(!preparationError, `${eventCount} product benchmark failed: ${preparationError}`);
+  if (stage5Mode) {
+    await cdp.waitFor(
+      `(window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples['query-insights'] || [])
+        .length > 0`,
+      `${eventCount} initial Insights query`,
+    );
+  }
   await cdp.evaluate(`(() => {
     window.__stage3ResourceChecks = { created: 0, revoked: 0 };
     const create = URL.createObjectURL.bind(URL);
@@ -930,6 +943,9 @@ async function runOne(cdp, eventCount, diffHash) {
     ? await runCrossSourceChecks(cdp)
     : undefined;
   const stateBeforeClose = await cdp.evaluate('window.__STAGE3_PRODUCT_BENCHMARK__');
+  const pageHeapUsedBytes = await cdp.evaluate(
+    'performance.memory?.usedJSHeapSize ?? null',
+  );
   const componentMounts = await cdp.evaluate(`(() => {
     const state = window.__STAGE3_PRODUCT_BENCHMARK__;
     return {
@@ -945,6 +961,12 @@ async function runOne(cdp, eventCount, diffHash) {
       BottomUp: ${JSON.stringify(expertChecks.bottomUp)},
       EventLog: ${JSON.stringify(expertChecks.eventLog)},
       Search: ${JSON.stringify(expertChecks.search)},
+      Insights: ${JSON.stringify(stage5Mode)}
+        ? !!document.querySelector('#trace-insights-heading')
+        : false,
+      TraceComparison: ${JSON.stringify(stage5Mode)}
+        ? !!document.querySelector('.trace-comparison-panel')
+        : false,
     };
   })()`);
   await cdp.evaluate(`Array.from(document.querySelectorAll('button'))
@@ -961,7 +983,7 @@ async function runOne(cdp, eventCount, diffHash) {
   const selectionProtocolSamples = stateBeforeClose.protocolSamples['query-selection'] ?? [];
   const cancellationSamples = stateBeforeClose.protocolSamples['cancel-query'] ?? [];
   const artifact = {
-    schemaVersion: stage4Mode ? 4 : 3,
+    schemaVersion: browserStage,
     status: 'browser-benchmark-verified',
     codeRef: stateBeforeClose.codeRef,
     workingTreeDiffHash: diffHash,
@@ -1021,7 +1043,9 @@ async function runOne(cdp, eventCount, diffHash) {
       returnNavigation: returnNavigation.historyCleared && returnNavigation.focusReturned,
     },
     transfer: { workerUiBytes: stateBeforeClose.transferBytes },
+    truncation: stateBeforeClose.truncation,
     memory: {
+      pageHeapUsedBytes,
       workerPeakBytes: null,
       limitation: 'The browser does not expose per-Worker peak memory to page JavaScript',
     },
@@ -1040,7 +1064,11 @@ async function runOne(cdp, eventCount, diffHash) {
     consoleErrors: [...cdp.consoleErrors],
   };
   const suffix = eventCount === 1_000_000 ? '1000k' : `${eventCount / 1_000}k`;
-  const baselinePath = path.join(reportDir, `workbench-stage2-browser-${suffix}.json`);
+  const baselineStage = stage5Mode ? 'stage4' : 'stage2';
+  const baselinePath = path.join(
+    reportDir,
+    `workbench-${baselineStage}-browser-${suffix}.json`,
+  );
   if (fs.existsSync(baselinePath)) {
     const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
     const comparisons = {
@@ -1052,7 +1080,7 @@ async function runOne(cdp, eventCount, diffHash) {
         baseline.timings.selectionQuery.p95Ms,
       ],
     };
-    artifact.stage2Regression = Object.fromEntries(Object.entries(comparisons)
+    artifact[`${baselineStage}Regression`] = Object.fromEntries(Object.entries(comparisons)
       .map(([name, [current, previous]]) => [
         name,
         {
@@ -1161,29 +1189,47 @@ async function main() {
       await cdp.waitFor(
         `window.__STAGE3_PRODUCT_BENCHMARK__?.ready === true
           || !!window.__STAGE3_PRODUCT_BENCHMARK__?.error`,
-        'Stage 4 flag-off product benchmark',
+        `Stage ${browserStage} flag-off product benchmark`,
       );
-      flagOff = await cdp.evaluate(`(() => ({
-        crossSourceUiAbsent:
-          !document.querySelector('.trace-cross-source-panel')
-          && !document.querySelector('.trace-evidence-graph'),
-        noCrossSourceQueries: !Object.keys(
-          window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples
-        ).some(type => [
-          'query-sources', 'query-alignment', 'query-correlation',
-          'query-evidence-graph', 'add-source', 'replace-source', 'remove-source'
-        ].includes(type)),
-        error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
-      }))()`);
-      assert(flagOff.crossSourceUiAbsent, 'Stage 4 UI appeared with cross-source flag off');
-      assert(flagOff.noCrossSourceQueries, 'Cross-source query ran with its flag off');
-      assert(!flagOff.error, `Stage 4 flag-off benchmark failed: ${flagOff.error}`);
+      flagOff = stage5Mode
+        ? await cdp.evaluate(`(() => ({
+            stage5UiAbsent:
+              !document.querySelector('#trace-insights-heading')
+              && !document.querySelector('.trace-comparison-panel'),
+            noStage5Queries: !Object.keys(
+              window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples
+            ).some(type => [
+              'query-insights', 'add-comparison-baseline',
+              'remove-comparison-baseline', 'query-trace-comparison'
+            ].includes(type)),
+            error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
+          }))()`)
+        : await cdp.evaluate(`(() => ({
+            crossSourceUiAbsent:
+              !document.querySelector('.trace-cross-source-panel')
+              && !document.querySelector('.trace-evidence-graph'),
+            noCrossSourceQueries: !Object.keys(
+              window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples
+            ).some(type => [
+              'query-sources', 'query-alignment', 'query-correlation',
+              'query-evidence-graph', 'add-source', 'replace-source', 'remove-source'
+            ].includes(type)),
+            error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
+          }))()`);
+      if (stage5Mode) {
+        assert(flagOff.stage5UiAbsent, 'Stage 5 UI appeared with its flag off');
+        assert(flagOff.noStage5Queries, 'Stage 5 query ran with its flag off');
+      } else {
+        assert(flagOff.crossSourceUiAbsent, 'Stage 4 UI appeared with cross-source flag off');
+        assert(flagOff.noCrossSourceQueries, 'Cross-source query ran with its flag off');
+      }
+      assert(!flagOff.error, `Stage ${browserStage} flag-off benchmark failed: ${flagOff.error}`);
     }
     const uiSource = artifacts[0];
     fs.writeFileSync(
       path.join(reportDir, `workbench-${artifactStage}-ui-validation.json`),
       `${JSON.stringify({
-        schemaVersion: stage4Mode ? 4 : 3,
+        schemaVersion: browserStage,
         status: 'browser-benchmark-verified',
         codeRef: uiSource.codeRef,
         workingTreeDiffHash: diffHash,

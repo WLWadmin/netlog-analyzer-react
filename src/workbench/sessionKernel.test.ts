@@ -1,7 +1,21 @@
 import type { ChromiumTraceFile } from '../parsers/trace/types';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
+import { TextDecoder as NodeTextDecoder } from 'util';
 import { WORKBENCH_SCHEMA_VERSION } from './protocol';
 import { WorkbenchSessionKernel } from './sessionKernel';
+import { isWorkbenchResponse } from './spike/protocolGuards';
 import { MinimalTraceEngineAdapter } from './traceEngineAdapter';
+
+beforeAll(() => {
+  Object.defineProperty(global, 'ReadableStream', {
+    configurable: true,
+    value: NodeReadableStream,
+  });
+  Object.defineProperty(global, 'TextDecoder', {
+    configurable: true,
+    value: NodeTextDecoder,
+  });
+});
 
 const trace: ChromiumTraceFile = {
   traceEvents: [
@@ -80,12 +94,40 @@ async function createSession(subject: WorkbenchSessionKernel) {
   return response;
 }
 
+function enableStage5() {
+  process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+  process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+  process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+  process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+  process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+}
+
+async function addBaseline(
+  subject: WorkbenchSessionKernel,
+  session: { sessionId: string; sessionRevision: number },
+  input: ChromiumTraceFile,
+) {
+  return subject.dispatchSourceFile({
+    type: 'add-comparison-baseline',
+    schemaVersion: WORKBENCH_SCHEMA_VERSION,
+    requestId: `baseline-${session.sessionRevision}`,
+    sessionId: session.sessionId,
+    sessionRevision: session.sessionRevision,
+    sourceToken: `baseline-token-${session.sessionRevision}`,
+  }, new File(
+    [JSON.stringify(input)],
+    '/private/example-sensitive-name.trace',
+    { type: 'application/json' },
+  ));
+}
+
 describe('WorkbenchSessionKernel', () => {
   afterEach(() => {
     delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
     delete process.env.REACT_APP_ENABLE_TRACE_TIMELINE;
     delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
     delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
   });
 
   it('rejects a concurrent create request instead of building the index twice', async () => {
@@ -162,6 +204,23 @@ describe('WorkbenchSessionKernel', () => {
     expect(viewport.type).toBe('viewport-result');
     if (viewport.type !== 'viewport-result') return;
     expect(viewport.events.map(event => event.name)).toEqual(['RunTask', 'Layout']);
+    expect(isWorkbenchResponse(viewport)).toBe(true);
+    const sampledViewport = await subject.dispatch({
+      type: 'query-viewport',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'sampled-viewport',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: { startUs: 0, endUs: 12 },
+      limit: 1,
+      balanceByTrack: true,
+    });
+    expect(sampledViewport).toMatchObject({
+      type: 'viewport-result',
+      lod: { mode: 'sampled' },
+      truncation: { truncated: true },
+    });
+    expect(isWorkbenchResponse(sampledViewport)).toBe(true);
 
     const selection = await subject.dispatch({
       type: 'query-selection',
@@ -415,6 +474,229 @@ describe('WorkbenchSessionKernel', () => {
       error: { code: 'session-released' },
     });
     expect(subject.getResourceStats().state).toBe('released');
+  });
+
+  it('compares a local baseline with white-list summaries and removes it atomically', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const added = await addBaseline(subject, created, trace);
+
+    expect(added).toMatchObject({
+      type: 'comparison-baseline-result',
+      operation: 'added',
+      baselineAvailable: true,
+      sessionRevision: created.sessionRevision + 1,
+      eventCount: 2,
+    });
+    expect(JSON.stringify(added)).not.toMatch(
+      /example-sensitive-name|private|fingerprint|fileName|sourceToken/,
+    );
+    if (added.type !== 'comparison-baseline-result') return;
+    const compared = await subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'compare',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: true,
+    });
+    expect(compared).toMatchObject({
+      type: 'trace-comparison-result',
+      status: 'comparable',
+      regression: 'stable',
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          metric: 'matched-events',
+          current: 2,
+          baseline: 2,
+          deltaPercent: 0,
+        }),
+      ]),
+      evidenceIds: expect.arrayContaining([
+        expect.stringMatching(/^current:/),
+        expect.stringMatching(/^baseline:/),
+      ]),
+    });
+    const removed = await subject.dispatch({
+      type: 'remove-comparison-baseline',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'remove-baseline',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+    });
+    expect(removed).toMatchObject({
+      type: 'comparison-baseline-result',
+      operation: 'removed',
+      baselineAvailable: false,
+      sessionRevision: added.sessionRevision + 1,
+    });
+    if (removed.type !== 'comparison-baseline-result') return;
+    await expect(subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'compare-after-remove',
+      sessionId: removed.sessionId,
+      sessionRevision: removed.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: true,
+    })).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'unsupported-capability' },
+    });
+  });
+
+  it('releases a baseline adapter when indexing fails before commit', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const buildSessionData = jest.spyOn(
+      MinimalTraceEngineAdapter.prototype,
+      'buildSessionData',
+    ).mockRejectedValueOnce(new Error('synthetic baseline indexing failure'));
+    const release = jest.spyOn(MinimalTraceEngineAdapter.prototype, 'release');
+    try {
+      await expect(addBaseline(subject, created, trace)).resolves.toMatchObject({
+        type: 'structured-error',
+        error: { code: 'worker-failed', recoverable: true },
+      });
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      buildSessionData.mockRestore();
+      release.mockRestore();
+    }
+  });
+
+  it('keeps comparison operations disabled without changing the session revision', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    const subject = await kernel();
+    const created = await createSession(subject);
+
+    await expect(subject.dispatch({
+      type: 'remove-comparison-baseline',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'remove-disabled-baseline',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    })).resolves.toMatchObject({
+      type: 'structured-error',
+      sessionRevision: created.sessionRevision,
+      error: { code: 'unsupported-capability' },
+    });
+    await expect(subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'query-disabled-comparison',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: true,
+    })).resolves.toMatchObject({
+      type: 'structured-error',
+      sessionRevision: created.sessionRevision,
+      error: { code: 'unsupported-capability' },
+    });
+    await expect(subject.dispatch({
+      type: 'query-viewport',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'viewport-after-disabled-comparison',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      limit: 10,
+    })).resolves.toMatchObject({ type: 'viewport-result' });
+  });
+
+  it('requires same-scenario confirmation before permitting a comparison conclusion', async () => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const added = await addBaseline(subject, created, trace);
+    if (added.type !== 'comparison-baseline-result') {
+      throw new Error('baseline unavailable');
+    }
+
+    const compared = await subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'compare-without-scenario-confirmation',
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      range: created.session.range,
+      sameScenarioConfirmed: false,
+    });
+
+    expect(compared).toMatchObject({
+      type: 'trace-comparison-result',
+      status: 'sample-incomparable',
+      regression: 'unavailable',
+      limitations: expect.arrayContaining([
+        expect.stringContaining('尚未确认基线与当前 Trace 属于同一场景'),
+      ]),
+    });
+  });
+
+  it.each([
+    {
+      name: '校时不足',
+      status: 'alignment-insufficient',
+      baseline: trace,
+      range: { startUs: 0, endUs: 1_000_000 },
+    },
+    {
+      name: '能力不对等',
+      status: 'capability-mismatch',
+      baseline: {
+        traceEvents: trace.traceEvents.filter(event => event.name !== 'Layout'),
+      },
+      range: undefined,
+    },
+    {
+      name: '样本不可比',
+      status: 'sample-incomparable',
+      baseline: {
+        traceEvents: Array.from({ length: 6 }, (_, index) => (
+          trace.traceEvents
+            .filter(event => event.name !== 'Screenshot')
+            .map(event => ({
+              ...event,
+              ts: (typeof event.ts === 'number' ? event.ts : 0) + index * 20,
+            }))
+        )).flat(),
+      },
+      range: undefined,
+    },
+  ])('blocks regression conclusions when comparison is $name', async ({
+    status,
+    baseline,
+    range,
+  }) => {
+    enableStage5();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const added = await addBaseline(subject, created, baseline);
+    if (added.type !== 'comparison-baseline-result') {
+      throw new Error('baseline unavailable');
+    }
+    const compared = await subject.dispatch({
+      type: 'query-trace-comparison',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: `compare-${status}`,
+      sessionId: added.sessionId,
+      sessionRevision: added.sessionRevision,
+      range: range ?? created.session.range,
+      sameScenarioConfirmed: true,
+    });
+
+    expect(compared).toMatchObject({
+      type: 'trace-comparison-result',
+      status,
+      regression: 'unavailable',
+    });
   });
 
   it('increments revisions, rejects stale requests and releases all resources', async () => {

@@ -218,6 +218,10 @@ export class WorkbenchSpikeKernel {
       case 'query-alignment':
       case 'query-correlation':
       case 'query-evidence-graph':
+      case 'query-insights':
+      case 'add-comparison-baseline':
+      case 'remove-comparison-baseline':
+      case 'query-trace-comparison':
         return capabilityMissing(
           request.requestId,
           request,
@@ -477,6 +481,23 @@ export class WorkbenchSpikeKernel {
         sessionRevision: request.sessionRevision,
         range: request.range,
         events: page.map(event => event.dto),
+        lod: {
+          mode: hasMore && request.balanceByTrack ? 'sampled' : 'raw',
+          level: hasMore && request.balanceByTrack
+            ? Math.max(2, Math.ceil(matched.length / request.limit))
+            : 1,
+          sourceEventCount: matched.length,
+          renderedEventCount: page.length,
+          bucketUs: hasMore && request.balanceByTrack
+            ? Math.max(
+                1,
+                (request.range.endUs - request.range.startUs) / request.limit,
+              )
+            : 0,
+          explanation: hasMore && request.balanceByTrack
+            ? '当前密度超过绘制上限，按轨道确定性降采样；缩小范围可查看原始事件。'
+            : '当前范围直接绘制原始事件。',
+        },
         truncation: {
           truncated: hasMore,
           returnedCount: page.length,

@@ -112,23 +112,32 @@ describe('TimelineColumnarStore', () => {
       balanceByTrack: true,
     };
 
-    expect(store.query(query).events.map(event => event.trackId)).toEqual([
+    const syncResult = store.query(query);
+    expect(syncResult.events.map(event => event.trackId)).toEqual([
       'main',
       'main',
       'network',
       'rendering',
     ]);
-    expect((await store.queryAsync(query, {
+    expect(syncResult.lod).toMatchObject({
+      mode: 'sampled',
+      sourceEventCount: 12,
+      renderedEventCount: 4,
+      level: 3,
+    });
+    const asyncResult = await store.queryAsync(query, {
       isCancelled: () => false,
       timeoutMs: 1_000,
       now: () => 0,
       yieldControl: () => Promise.resolve(),
-    })).events.map(event => event.trackId)).toEqual([
+    });
+    expect(asyncResult.events.map(event => event.trackId)).toEqual([
       'main',
       'main',
       'network',
       'rendering',
     ]);
+    expect(asyncResult.lod).toEqual(syncResult.lod);
   });
 
   it('does not resolve malformed event IDs to source index zero', () => {

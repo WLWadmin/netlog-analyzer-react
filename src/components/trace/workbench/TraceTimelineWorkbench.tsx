@@ -10,10 +10,12 @@ import type {
   TraceDiagnosis,
 } from '../../../diagnosis/trace';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
+import type { WorkbenchInsight } from '../../../workbench/crossSourceProtocol';
 import type { WorkbenchEventDetailDto } from '../../../workbench/protocol';
 import {
   isTraceCrossSourceEnabled,
   isTraceExpertAnalysisEnabled,
+  isTraceStage5Enabled,
 } from '../../../workbench/featureFlag';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
 import { TIMELINE_TRACKS } from '../../../workbench/timelineTracks';
@@ -22,6 +24,8 @@ import TimelineCanvas from './TimelineCanvas';
 import ExpertAnalysisDrawer from './ExpertAnalysisDrawer';
 import CrossSourcePanel from './CrossSourcePanel';
 import CrossSourceEvidenceGraph from './CrossSourceEvidenceGraph';
+import InsightNavigator from './InsightNavigator';
+import TraceComparisonPanel from './TraceComparisonPanel';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
@@ -40,6 +44,17 @@ function focusedRange(detail: WorkbenchEventDetailDto) {
   return {
     startUs: detail.startUs - padding,
     endUs: detail.startUs + detail.durationUs + padding,
+  };
+}
+
+function insightRange(insight: WorkbenchInsight) {
+  const duration = Math.max(
+    insight.timeRange.endUs - insight.timeRange.startUs,
+    50_000,
+  );
+  return {
+    startUs: insight.timeRange.startUs - duration,
+    endUs: insight.timeRange.endUs + duration,
   };
 }
 
@@ -123,6 +138,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const crossSourceEnabled = isTraceCrossSourceEnabled();
+  const stage5Enabled = isTraceStage5Enabled();
   const returnFocus = useRef<Array<
     HTMLElement | { evidenceEntityId: string } | null
   >>([]);
@@ -222,6 +238,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
     )
   ));
   const events = clientSnapshot.viewport?.events ?? [];
+  const viewportQueueStats = client.getQueueStats();
   const stableEvent = events.find(event => event.id === interaction.selectedEventId);
   const hoveredEvent = events.find(event => event.id === interaction.hoveredEventId);
   const pageState = closing
@@ -420,6 +437,27 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
               })}
             </ul>
           )}
+          {stage5Enabled && (
+            <InsightNavigator
+              client={client}
+              store={store}
+              onNavigate={insight => {
+                returnFocus.current.push(
+                  document.activeElement instanceof HTMLElement
+                    ? document.activeElement
+                    : null,
+                );
+                store.navigateTo({
+                  viewport: insightRange(insight),
+                }, {
+                  drawerOpen,
+                  scrollTop: mainRef.current?.scrollTop ?? 0,
+                });
+                const evidenceEntityId = insight.evidenceNodeIds[0]?.replace(/^node:/, '');
+                if (evidenceEntityId) store.highlightEntity(evidenceEntityId);
+              }}
+            />
+          )}
         </aside>
 
         <main className="trace-timeline-main" ref={mainRef}>
@@ -484,8 +522,14 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             <p className="trace-result-note" role="status">
               已选择范围内返回 {events.length} 个事件，共匹配
               {' '}{clientSnapshot.viewport.truncation.totalMatched} 个。
+              {clientSnapshot.viewport.lod
+                ? ` ${clientSnapshot.viewport.lod.explanation}`
+                : ''}
               {clientSnapshot.viewport.truncation.truncated
                 ? '结果已按上限截断；请缩小范围继续检查。'
+                : ''}
+              {viewportQueueStats.droppedPendingRequestCount > 0
+                ? ` 已丢弃 ${viewportQueueStats.droppedPendingRequestCount} 个过期视口请求。`
                 : ''}
             </p>
           )}
@@ -646,6 +690,9 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
                   else store.highlightEntity(undefined);
                 }}
               />
+            )}
+            {stage5Enabled && (
+              <TraceComparisonPanel client={client} store={store} />
             )}
           </section>
 

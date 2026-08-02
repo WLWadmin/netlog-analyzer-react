@@ -45,6 +45,8 @@ describe('CrossSourceEvidenceGraph', () => {
           label: 'HAR 请求',
           sourceId: 'har:1',
           entityId: 'har:request:1',
+          facts: ['方法：GET'],
+          timeRange: { startUs: 10_000, endUs: 20_000 },
           evidenceIds: ['har:request:1'],
           limitations: [],
         }],
@@ -55,8 +57,12 @@ describe('CrossSourceEvidenceGraph', () => {
           kind: 'candidate-match' as const,
           label: '候选关联',
           confidence: 'medium' as const,
+          relationship: 'candidate-contribution' as const,
           matchedFields: ['safe-request-key'],
           conflictingFields: ['navigation'],
+          counterEvidence: ['时间重叠不能证明因果。'],
+          alternativeExplanations: ['主线程工作量也可能贡献耗时。'],
+          timeRange: { startUs: 10_000, endUs: 20_000 },
           limitations: ['导航不同，不能升级主因。'],
         }],
         limitations: ['时间校准不确定。'],
@@ -82,6 +88,10 @@ describe('CrossSourceEvidenceGraph', () => {
 
     expect(screen.getByText(/中置信候选/)).not.toBeNull();
     expect(screen.getByText(/冲突：navigation/)).not.toBeNull();
+    expect(screen.getByText(/事实：方法：GET/)).not.toBeNull();
+    expect(screen.getByText(/反证：时间重叠不能证明因果/)).not.toBeNull();
+    expect(screen.getByText(/替代解释：主线程工作量也可能贡献耗时/)).not.toBeNull();
+    expect(screen.getByText(/仅候选贡献，不是已确认根因/)).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'HAR 请求' }));
     expect(onNavigate).toHaveBeenCalledWith('har:request:1');
     expect(store.getSnapshot().highlightedEntityId).toBe('har:request:1');

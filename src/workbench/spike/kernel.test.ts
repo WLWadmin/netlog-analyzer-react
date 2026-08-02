@@ -151,6 +151,20 @@ describe('Workbench stage 0 protocol and query spike', () => {
       limit: '100',
     })).toBe(false);
     expect(isWorkbenchRequest({
+      ...viewportRequest({
+        sessionId: 'session',
+        sessionRevision: 1,
+      } as SessionCreatedResponse, 'inverted'),
+      range: { startUs: 10, endUs: 0 },
+    })).toBe(false);
+    expect(isWorkbenchRequest({
+      ...viewportRequest({
+        sessionId: 'session',
+        sessionRevision: 1,
+      } as SessionCreatedResponse, 'nested-extra'),
+      range: { startUs: 0, endUs: 10, rawUrl: 'https://private.invalid' },
+    })).toBe(false);
+    expect(isWorkbenchRequest({
       type: 'unbounded-query',
       schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
       requestId: 'unknown',
@@ -289,6 +303,50 @@ describe('Workbench stage 0 protocol and query spike', () => {
       truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
       rawEvents: [],
     })).toBe(false);
+    const baselineResponse = {
+      type: 'comparison-baseline-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'baseline',
+      sessionId: 'session',
+      sessionRevision: 2,
+      operation: 'added',
+      baselineAvailable: true,
+      sourceBytes: 100,
+      eventCount: 2,
+      limitations: [],
+    } as const;
+    expect(isWorkbenchResponse(baselineResponse)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...baselineResponse,
+      fileName: '/private/baseline.trace',
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...baselineResponse,
+      operation: 'removed',
+    })).toBe(false);
+    const comparisonResponse = {
+      type: 'trace-comparison-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'comparison',
+      sessionId: 'session',
+      sessionRevision: 2,
+      status: 'sample-incomparable',
+      range: { startUs: 0, endUs: 10 },
+      baselineRange: { startUs: 0, endUs: 10 },
+      regression: 'unavailable',
+      metrics: [],
+      evidenceIds: [],
+      limitations: [],
+    } as const;
+    expect(isWorkbenchResponse(comparisonResponse)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...comparisonResponse,
+      regression: 'regressed',
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...comparisonResponse,
+      rawEvents: [],
+    })).toBe(false);
   });
 
 
@@ -300,6 +358,7 @@ describe('Workbench stage 0 protocol and query spike', () => {
     expect(response.type).toBe('viewport-result');
     if (response.type !== 'viewport-result') return;
     expect(response.events.map(event => event.name)).toEqual(['long-task', 'child-task']);
+    expect(isWorkbenchResponse(response)).toBe(true);
   });
 
   it('exposes explicit truncation and continuation semantics', async () => {

@@ -124,8 +124,10 @@ const CrossSourcePanel: React.FC<{ client: TraceWorkbenchClient }> = ({ client }
         pending.sourceId,
       ));
       await refresh();
-    } catch {
-      setError('来源替换失败，已保留原稳定来源。');
+    } catch (reason) {
+      setError(reason instanceof Error
+        ? reason.message
+        : '来源替换失败，已保留原稳定来源。');
     } finally {
       setProgress('');
     }

@@ -8,6 +8,7 @@ export type {
   CapabilitiesResultResponse,
   BottomUpResultResponse,
   CallTreeResultResponse,
+  ComparisonBaselineResultResponse,
   CreateSessionRequest,
   EventDetailResultResponse,
   EvidenceResultResponse,
@@ -15,6 +16,7 @@ export type {
   FlameChartResultResponse,
   QueryBottomUpRequest,
   QueryCallTreeRequest,
+  QueryTraceComparisonRequest,
   QueryEventDetailRequest,
   QueryEvidenceRequest,
   QueryEventLogRequest,
@@ -32,6 +34,8 @@ export type {
   SelectionResultResponse,
   SearchResultResponse,
   StructuredErrorResponse,
+  TraceComparisonResultResponse,
+  TraceComparisonStatus,
   ViewportResultResponse,
   WorkbenchCapability,
   WorkbenchEventDetailDto,
@@ -49,6 +53,7 @@ export type {
   WorkbenchFlameFrameDto,
   WorkbenchListTruncation,
   WorkbenchTruncation,
+  WorkbenchViewportLod,
 } from './spike/protocol';
 
 export type {
@@ -67,4 +72,5 @@ export type {
   SourceDescriptor,
   SourceState,
   TimeAlignment,
+  WorkbenchInsight,
 } from './crossSourceProtocol';

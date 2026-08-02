@@ -3,6 +3,7 @@ import {
   isCrossSourceResponse,
 } from './crossSourceProtocolGuards';
 import { WORKBENCH_SCHEMA_VERSION } from './protocol';
+import { isWorkbenchResponse } from './spike/protocolGuards';
 
 const session = {
   schemaVersion: WORKBENCH_SCHEMA_VERSION,
@@ -25,6 +26,12 @@ describe('cross-source protocol guards', () => {
       range: { startUs: 0, endUs: 100 },
       selectedEntityId: 'trace:request:1',
       limit: 100,
+    })).toBe(true);
+    expect(isCrossSourceRequest({
+      ...session,
+      type: 'query-insights',
+      range: { startUs: 0, endUs: 100 },
+      limit: 20,
     })).toBe(true);
   });
 
@@ -121,5 +128,38 @@ describe('cross-source protocol guards', () => {
       }],
       truncation: { truncated: false, totalMatched: 0, returnedCount: 0 },
     })).toBe(false);
+    expect(isCrossSourceResponse({
+      ...session,
+      type: 'insights-result',
+      sourceRevision: 3,
+      range: { startUs: 0, endUs: 100 },
+      insights: [{
+        insightId: 'insight:1',
+        priority: 1,
+        phenomenon: 'Long task',
+        evidenceQuality: 'medium',
+        attributionLevel: 'observation',
+        candidateReasons: ['仅有 Trace 现象证据'],
+        limitations: ['不能证明根因'],
+        verificationSteps: ['补充对照 Trace'],
+        timeRange: { startUs: 10, endUs: 20 },
+        evidenceNodeIds: ['node:trace:timeline:1'],
+      }],
+      limitations: [],
+      truncation: { truncated: false, totalMatched: 1, returnedCount: 1 },
+    })).toBe(true);
+  });
+
+  it('accepts Insights through the aggregate Worker response guard', () => {
+    expect(isWorkbenchResponse({
+      ...session,
+      type: 'insights-result',
+      sourceRevision: 3,
+      range: { startUs: 0, endUs: 100 },
+      insights: [],
+      emptyReason: '当前选区没有可用 Insight。',
+      limitations: [],
+      truncation: { truncated: false, totalMatched: 0, returnedCount: 0 },
+    })).toBe(true);
   });
 });

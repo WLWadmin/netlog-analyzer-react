@@ -22,7 +22,9 @@ import type {
   EvidenceGraphNode,
   SourceDescriptor,
   TimeAlignment,
+  WorkbenchInsight,
 } from './crossSourceProtocol';
+import type { TimelineEvidenceEntity } from './timelineColumnarStore';
 
 interface SourceRecord {
   descriptor: SourceDescriptor;
@@ -99,6 +101,22 @@ function confidenceLabel(confidence: CorrelationCandidate['confidence']): string
       : confidence === 'low'
         ? '低置信'
         : '不可用';
+}
+
+function timeRange(
+  startUs: number | undefined,
+  durationUs: number | undefined,
+): { startUs: number; endUs: number } | undefined {
+  return startUs === undefined
+    ? undefined
+    : { startUs, endUs: startUs + Math.max(0, durationUs ?? 0) };
+}
+
+function rangesOverlap(
+  left: { startUs: number; endUs: number },
+  right: { startUs: number; endUs: number },
+): boolean {
+  return left.startUs <= right.endUs && left.endUs >= right.startUs;
 }
 
 function harFacts(sourceId: string, parsed: ReturnType<typeof parseHar>): CrossSourceRequestFact[] {
@@ -236,6 +254,7 @@ export class CrossSourceStore {
     traceSourceId: string,
     traceRequests: readonly TraceRequestFacts[],
     traceByteLength: number,
+    private readonly timelineEntities: readonly TimelineEvidenceEntity[] = [],
   ) {
     this.sources.set(traceSourceId, {
       descriptor: {
@@ -412,6 +431,129 @@ export class CrossSourceStore {
     };
   }
 
+  getInsights(
+    range: { startUs: number; endUs: number },
+    limit: number,
+  ): {
+    insights: WorkbenchInsight[];
+    totalMatched: number;
+    emptyReason?: string;
+    limitations: string[];
+  } {
+    const contributionsByTarget = new Map<string, EvidenceGraphEdge[]>();
+    for (const edge of this.edges) {
+      if (edge.relationship !== 'candidate-contribution') continue;
+      const edges = contributionsByTarget.get(edge.toNodeId) ?? [];
+      edges.push(edge);
+      contributionsByTarget.set(edge.toNodeId, edges);
+    }
+    const ranked: Array<{
+      item: TimelineEvidenceEntity;
+      evidenceNodeId: string;
+      contributionEdges: EvidenceGraphEdge[];
+      sortWeight: number;
+    }> = [];
+    let totalMatched = 0;
+    for (const item of this.timelineEntities) {
+      if (!rangesOverlap(range, {
+        startUs: item.startUs,
+        endUs: item.startUs + item.durationUs,
+      })) continue;
+      totalMatched += 1;
+      const evidenceNodeId = `node:${item.entityId}`;
+      const contributionEdges = contributionsByTarget.get(evidenceNodeId) ?? [];
+      const sortWeight = (
+        (item.kind === 'symptom' ? 1_000_000_000 : 0)
+        + item.durationUs
+        + contributionEdges.length * 100_000_000
+      );
+      const insertAt = ranked.findIndex(entry => (
+        sortWeight > entry.sortWeight
+        || (
+          sortWeight === entry.sortWeight
+          && item.entityId.localeCompare(entry.item.entityId) < 0
+        )
+      ));
+      if (insertAt >= 0) {
+        ranked.splice(insertAt, 0, {
+          item,
+          evidenceNodeId,
+          contributionEdges,
+          sortWeight,
+        });
+      } else if (ranked.length < limit) {
+        ranked.push({
+          item,
+          evidenceNodeId,
+          contributionEdges,
+          sortWeight,
+        });
+      }
+      if (ranked.length > limit) ranked.pop();
+    }
+    const insights = ranked.map(({
+      item,
+      evidenceNodeId,
+      contributionEdges,
+    }, index) => {
+        const evidenceQuality = contributionEdges.length > 0
+          ? 'high' as const
+          : item.evidenceIds.length > 0
+            ? 'medium' as const
+            : 'low' as const;
+        const attributionLevel = contributionEdges.length > 0
+          ? 'possible-contributor' as const
+          : evidenceQuality === 'low'
+            ? 'insufficient' as const
+            : 'observation' as const;
+        const candidateReasons = contributionEdges.length > 0
+          ? contributionEdges.map(edge => edge.label)
+          : ['当前仅有 Trace 现象证据，未建立合格的跨源贡献关系。'];
+        return {
+          insightId: `insight:${item.entityId}`,
+          priority: index + 1,
+          phenomenon: item.label,
+          evidenceQuality,
+          attributionLevel,
+          candidateReasons,
+          limitations: [
+            ...item.limitations,
+            ...contributionEdges.flatMap(edge => edge.limitations),
+          ],
+          verificationSteps: contributionEdges.length > 0
+            ? [
+                '沿证据路径复核请求匹配、校时锚点和连接阶段。',
+                '对照不包含该请求或主线程工作量不同的同场景 Trace。',
+              ]
+            : ['补充同场景 HAR/NetLog 或对照 Trace 后重新验证。'],
+          timeRange: {
+            startUs: item.startUs,
+            endUs: item.startUs + item.durationUs,
+          },
+          evidenceNodeIds: [
+            evidenceNodeId,
+            ...contributionEdges.map(edge => edge.fromNodeId),
+          ],
+        };
+      });
+    return {
+      insights,
+      totalMatched,
+      ...(totalMatched === 0
+        ? {
+            emptyReason: this.timelineEntities.length === 0
+              ? '当前 Trace 缺少可用于 Insights 的症状、长任务、渲染、帧或交互实体。'
+              : '当前选区没有可排序的 Insight，请扩大范围或清除选区。',
+          }
+        : {}),
+      limitations: [
+        ...(this.candidates.some(candidate => candidate.confidence !== 'high')
+          ? ['中低置信跨源关联仅作为候选展示，不参与原因升级。']
+          : []),
+      ],
+    };
+  }
+
   async addSource(
     kind: 'har' | 'netlog',
     file: File,
@@ -579,6 +721,34 @@ export class CrossSourceStore {
         label: item.label,
         sourceId: item.sourceId,
         entityId: item.entityId,
+        facts: [
+          ...(item.method ? [`方法：${item.method}`] : []),
+          ...(item.safeKey ? [`脱敏请求键：${item.safeKey}`] : []),
+        ],
+        ...(item.start?.unit === 'us'
+          ? {
+              timeRange: {
+                startUs: item.start.value,
+                endUs: item.start.value + (
+                  item.duration?.unit === 'us' ? item.duration.value : 0
+                ),
+              },
+            }
+          : {}),
+        evidenceIds: item.evidenceIds,
+        limitations: item.limitations,
+      })),
+      ...this.timelineEntities.map((item): EvidenceGraphNode => ({
+        nodeId: `node:${item.entityId}`,
+        kind: item.kind === 'symptom' ? 'symptom' : 'trace-event',
+        label: item.label,
+        sourceId: trace.descriptor.sourceId,
+        entityId: item.entityId,
+        facts: [`轨道：${item.trackId}`],
+        timeRange: {
+          startUs: item.startUs,
+          endUs: item.startUs + item.durationUs,
+        },
         evidenceIds: item.evidenceIds,
         limitations: item.limitations,
       })),
@@ -588,6 +758,11 @@ export class CrossSourceStore {
         label: `时间校准 · ${confidenceLabel(item.confidence)}`,
         entityId: item.alignmentId,
         confidence: item.confidence,
+        facts: [
+          `锚点：${item.anchorType}`,
+          `不确定性：${item.uncertaintyUs} μs`,
+          `样本数：${item.sampleCount}`,
+        ],
         evidenceIds: [],
         limitations: item.limitations,
       })),
@@ -599,6 +774,10 @@ export class CrossSourceStore {
         label: item.confidence === 'high' ? '高置信请求关联' : '候选请求关联',
         entityId: item.correlationId,
         confidence: item.confidence,
+        facts: [
+          `匹配：${item.matchedFields.join('、') || '无'}`,
+          `冲突：${item.conflictingFields.join('、') || '无'}`,
+        ],
         evidenceIds: item.evidenceIds,
         limitations: item.limitations,
       })),
@@ -646,13 +825,64 @@ export class CrossSourceStore {
           }]
         : [];
       return [...candidateEdges, ...alignmentEdge];
-    }).concat(result.connectionPaths.flatMap(path => path.phases.map(phase => ({
+    }).concat(this.candidates.flatMap(candidate => {
+      if (
+        candidate.confidence !== 'high'
+        || !candidate.allowsDiagnosisUpgrade
+        || candidate.conflictingFields.length > 0
+      ) return [];
+      const alignment = this.alignments.find(item => (
+        item.alignmentId === candidate.alignmentId
+      ));
+      if (!alignment || alignment.confidence !== 'high') return [];
+      const traceEntity = candidate.entityIds
+        .map(entityId => this.entities.find(item => item.entityId === entityId))
+        .find(entity => entity?.sourceId === trace.descriptor.sourceId);
+      const requestRange = traceEntity?.start?.unit === 'us'
+        ? timeRange(
+            traceEntity.start.value,
+            traceEntity.duration?.unit === 'us'
+              ? traceEntity.duration.value
+              : undefined,
+          )
+        : undefined;
+      if (!requestRange) return [];
+      return this.timelineEntities
+        .filter(item => rangesOverlap(requestRange, {
+          startUs: item.startUs,
+          endUs: item.startUs + item.durationUs,
+        }))
+        .map((item): EvidenceGraphEdge => ({
+          edgeId: `edge:contribution:${candidate.correlationId}:${item.entityId}`,
+          fromNodeId: `node:${candidate.correlationId}`,
+          toNodeId: `node:${item.entityId}`,
+          kind: 'supports',
+          label: '候选贡献关系',
+          confidence: 'high',
+          relationship: 'candidate-contribution',
+          matchedFields: candidate.matchedFields,
+          conflictingFields: [],
+          counterEvidence: ['时间重叠不能证明该请求导致了当前症状。'],
+          alternativeExplanations: [
+            '主线程工作量、渲染活动或其他并发请求也可能贡献耗时。',
+          ],
+          timeRange: {
+            startUs: Math.max(requestRange.startUs, item.startUs),
+            endUs: Math.min(requestRange.endUs, item.startUs + item.durationUs),
+          },
+          limitations: [
+            ...candidate.limitations,
+            '该边仅表示高质量关联支持下的候选贡献，不是 confirmed 根因。',
+          ],
+        }));
+    })).concat(result.connectionPaths.flatMap(path => path.phases.map(phase => ({
       edgeId: `edge:connection:${path.entityId}:${phase.phase}`,
       fromNodeId: `node:${path.entityId}`,
       toNodeId: `node:connection:${path.entityId}:${phase.phase}`,
       kind: 'connection-path' as const,
       label: 'NetLog 明确连接阶段',
       confidence: 'high' as const,
+      relationship: 'evidence-support' as const,
       matchedFields: [phase.phase],
       conflictingFields: [],
       limitations: [],

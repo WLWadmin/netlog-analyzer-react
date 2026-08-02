@@ -108,6 +108,8 @@ export interface EvidenceGraphNode {
   sourceId?: string;
   entityId?: string;
   confidence?: CorrelationConfidence;
+  facts?: string[];
+  timeRange?: { startUs: number; endUs: number };
   evidenceIds: string[];
   limitations: string[];
 }
@@ -119,9 +121,26 @@ export interface EvidenceGraphEdge {
   kind: EvidenceGraphEdgeKind;
   label: string;
   confidence: CorrelationConfidence;
+  relationship?: 'evidence-support' | 'candidate-contribution';
   matchedFields: string[];
   conflictingFields: string[];
+  counterEvidence?: string[];
+  alternativeExplanations?: string[];
+  timeRange?: { startUs: number; endUs: number };
   limitations: string[];
+}
+
+export interface WorkbenchInsight {
+  insightId: string;
+  priority: number;
+  phenomenon: string;
+  evidenceQuality: 'high' | 'medium' | 'low';
+  attributionLevel: 'possible-contributor' | 'observation' | 'insufficient';
+  candidateReasons: string[];
+  limitations: string[];
+  verificationSteps: string[];
+  timeRange: { startUs: number; endUs: number };
+  evidenceNodeIds: string[];
 }
 
 interface CrossSourceRequestBase {
@@ -159,6 +178,11 @@ export type CrossSourceRequest =
     range?: { startUs: number; endUs: number };
     selectedEntityId?: string;
     limit: number;
+  })
+  | (CrossSourceRequestBase & {
+    type: 'query-insights';
+    range: { startUs: number; endUs: number };
+    limit: number;
   });
 
 interface CrossSourceResponseBase {
@@ -195,6 +219,14 @@ export type CrossSourceResponse =
     type: 'evidence-graph-result';
     nodes: EvidenceGraphNode[];
     edges: EvidenceGraphEdge[];
+    limitations: string[];
+    truncation: { truncated: boolean; totalMatched: number; returnedCount: number };
+  })
+  | (CrossSourceResponseBase & {
+    type: 'insights-result';
+    range: { startUs: number; endUs: number };
+    insights: WorkbenchInsight[];
+    emptyReason?: string;
     limitations: string[];
     truncation: { truncated: boolean; totalMatched: number; returnedCount: number };
   });

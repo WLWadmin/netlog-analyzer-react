@@ -26,6 +26,7 @@ import {
   type CpuQueryInput,
 } from './cpuProfileStore';
 import type { TraceEngineAdapter, TraceEngineSessionData } from './traceEngineAdapter';
+import { MinimalTraceEngineAdapter } from './traceEngineAdapter';
 import {
   TimelineQueryCancelled,
   TimelineQueryTimeout,
@@ -34,7 +35,11 @@ import type {
   CrossSourceRequest,
 } from './crossSourceProtocol';
 import { CrossSourceStore } from './crossSourceStore';
-import { isTraceCrossSourceEnabled } from './featureFlag';
+import {
+  isTraceCrossSourceEnabled,
+  isTraceStage5Enabled,
+} from './featureFlag';
+import { readTraceFileForWorker } from '../parsers/trace/readTraceFile';
 
 interface QueryToken {
   cancelled: boolean;
@@ -87,6 +92,11 @@ function capabilityMissing(
   };
 }
 
+function deltaPercent(current: number, baseline: number): number | undefined {
+  if (baseline === 0) return current === 0 ? 0 : undefined;
+  return Number((((current - baseline) / baseline) * 100).toFixed(2));
+}
+
 export class WorkbenchSessionKernel {
   private descriptor?: WorkbenchSessionDescriptor;
   private sessionData?: TraceEngineSessionData;
@@ -94,6 +104,11 @@ export class WorkbenchSessionKernel {
   private revision = 0;
   private readonly activeQueries = new Map<string, QueryToken>();
   private crossSource?: CrossSourceStore;
+  private comparisonBaseline?: {
+    adapter: MinimalTraceEngineAdapter;
+    data: TraceEngineSessionData;
+    sourceBytes: number;
+  };
   private readonly now: () => number;
   private readonly yieldControl: () => Promise<void>;
   private readonly queryTimeoutMs: number;
@@ -147,6 +162,7 @@ export class WorkbenchSessionKernel {
         return this.releaseSession(request);
       case 'add-source':
       case 'replace-source':
+      case 'add-comparison-baseline':
         return structuredError(
           request.requestId,
           'worker-failed',
@@ -159,16 +175,27 @@ export class WorkbenchSessionKernel {
       case 'query-alignment':
       case 'query-correlation':
       case 'query-evidence-graph':
+      case 'query-insights':
         return this.dispatchCrossSource(request);
+      case 'remove-comparison-baseline':
+        return this.removeComparisonBaseline(request);
+      case 'query-trace-comparison':
+        return this.queryTraceComparison(request);
     }
   }
 
   async dispatchSourceFile(
-    request: Extract<CrossSourceRequest, { type: 'add-source' | 'replace-source' }>,
+    request: Extract<
+      WorkbenchRequest,
+      { type: 'add-source' | 'replace-source' | 'add-comparison-baseline' }
+    >,
     file: File,
   ): Promise<WorkbenchResponse> {
     const session = this.resolveSession(request);
     if ('type' in session) return session;
+    if (request.type === 'add-comparison-baseline') {
+      return this.addComparisonBaseline(request, file);
+    }
     if (!this.crossSource || !isTraceCrossSourceEnabled()) {
       return structuredError(
         request.requestId,
@@ -220,6 +247,91 @@ export class WorkbenchSessionKernel {
         request.requestId,
         'worker-failed',
         'Source parsing or indexing failed; stable sources were preserved',
+        true,
+        request,
+      );
+    }
+  }
+
+  private async addComparisonBaseline(
+    request: Extract<WorkbenchRequest, { type: 'add-comparison-baseline' }>,
+    file: File,
+  ): Promise<WorkbenchResponse> {
+    if (!isTraceStage5Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 5 Trace comparison is disabled',
+        true,
+        request,
+      );
+    }
+    let adapter: MinimalTraceEngineAdapter | undefined;
+    try {
+      const parsed = await readTraceFileForWorker(file, {
+        hint: 'trace',
+        isCancelled: () => this.state === 'released' || this.state === 'failed',
+        yieldControl: this.yieldControl,
+        onProgress: () => undefined,
+      });
+      if (parsed.kind !== 'trace') throw new Error('Baseline is not a Trace');
+      adapter = new MinimalTraceEngineAdapter(parsed.trace, {
+        encoding: parsed.intake.encoding,
+        jsonBytes: parsed.intake.jsonBytes,
+        skippedEventCount: parsed.skippedEventCount,
+        warnings: parsed.intake.warnings,
+      });
+      await adapter.analyze({
+        isCancelled: () => this.state === 'released' || this.state === 'failed',
+        yieldControl: this.yieldControl,
+        onProgress: () => undefined,
+      });
+      const data = await adapter.buildSessionData({
+        isCancelled: () => this.state === 'released' || this.state === 'failed',
+        yieldControl: this.yieldControl,
+        onProgress: () => undefined,
+      });
+      if (
+        !this.sessionData
+        || !this.descriptor
+        || this.state === 'released'
+        || this.state === 'failed'
+        || this.descriptor.sessionRevision !== request.sessionRevision
+      ) {
+        adapter.release();
+        adapter = undefined;
+        return structuredError(
+          request.requestId,
+          'session-released',
+          'Comparison baseline completed after the session changed',
+          false,
+          request,
+        );
+      }
+      this.comparisonBaseline?.adapter.release();
+      this.comparisonBaseline = { adapter, data, sourceBytes: file.size };
+      adapter = undefined;
+      this.bumpSourceRevision();
+      return {
+        type: 'comparison-baseline-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: this.descriptor.sessionId,
+        sessionRevision: this.descriptor.sessionRevision,
+        operation: 'added',
+        baselineAvailable: true,
+        sourceBytes: file.size,
+        eventCount: data.timeline.getStats().eventCount,
+        limitations: [
+          '基线仅保留在当前 Worker 会话内，不记录文件名、路径或标识值。',
+        ],
+      };
+    } catch {
+      adapter?.release();
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Baseline Trace parsing or indexing failed; existing baseline was preserved',
         true,
         request,
       );
@@ -360,6 +472,7 @@ export class WorkbenchSessionKernel {
         this.source.sourceId,
         this.adapter.getRequestFacts(),
         this.adapter.getMetadata().jsonBytes,
+        this.sessionData.timeline.getEvidenceEntities(),
       );
     }
     if (finalIndexProgress) {
@@ -456,6 +569,7 @@ export class WorkbenchSessionKernel {
         sessionRevision: request.sessionRevision,
         range: request.range,
         events: result.events,
+        lod: result.lod,
         truncation: result.truncation,
       };
     } catch (error) {
@@ -836,6 +950,15 @@ export class WorkbenchSessionKernel {
         request,
       );
     }
+    if (request.type === 'query-insights' && !isTraceStage5Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 5 Insights is disabled',
+        true,
+        request,
+      );
+    }
     const base = {
       schemaVersion: WORKBENCH_SCHEMA_VERSION,
       requestId: request.requestId,
@@ -888,6 +1011,27 @@ export class WorkbenchSessionKernel {
           truncated: result.totalMatched > result.candidates.length,
           totalMatched: result.totalMatched,
           returnedCount: result.candidates.length,
+        },
+      };
+    }
+    if (request.type === 'query-insights') {
+      const result = this.crossSource.getInsights(request.range, request.limit);
+      return {
+        ...base,
+        type: 'insights-result',
+        range: request.range,
+        insights: result.insights,
+        ...(result.emptyReason ? { emptyReason: result.emptyReason } : {}),
+        limitations: [
+          ...result.limitations,
+          ...session.missingCapabilities.map(item => (
+            `${item.capability} 能力缺失：${item.reason}`
+          )),
+        ],
+        truncation: {
+          truncated: result.totalMatched > result.insights.length,
+          totalMatched: result.totalMatched,
+          returnedCount: result.insights.length,
         },
       };
     }
@@ -1025,6 +1169,190 @@ export class WorkbenchSessionKernel {
     };
   }
 
+  private removeComparisonBaseline(
+    request: Extract<WorkbenchRequest, { type: 'remove-comparison-baseline' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage5Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 5 Trace comparison is disabled',
+        true,
+        request,
+      );
+    }
+    this.comparisonBaseline?.adapter.release();
+    this.comparisonBaseline = undefined;
+    this.bumpSourceRevision();
+    return {
+      type: 'comparison-baseline-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: this.descriptor!.sessionId,
+      sessionRevision: this.descriptor!.sessionRevision,
+      operation: 'removed',
+      baselineAvailable: false,
+      limitations: [],
+    };
+  }
+
+  private async queryTraceComparison(
+    request: Extract<WorkbenchRequest, { type: 'query-trace-comparison' }>,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage5Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 5 Trace comparison is disabled',
+        true,
+        request,
+      );
+    }
+    const baseline = this.comparisonBaseline;
+    if (!baseline) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'No local baseline Trace is loaded',
+        true,
+        request,
+      );
+    }
+    const currentRange = session.range;
+    const baselineCaptureRange = baseline.data.timeline.getRange();
+    const currentCaptureDuration = currentRange.endUs - currentRange.startUs;
+    const baselineCaptureDuration = (
+      baselineCaptureRange.endUs - baselineCaptureRange.startUs
+    );
+    let status: Extract<
+      WorkbenchResponse,
+      { type: 'trace-comparison-result' }
+    >['status'] = 'comparable';
+    const limitations: string[] = [
+      '时间范围按各 Trace 录制起点的相对偏移对齐，不代表跨设备绝对时钟校准。',
+    ];
+    if (!request.sameScenarioConfirmed) {
+      status = 'sample-incomparable';
+      limitations.push('尚未确认基线与当前 Trace 属于同一场景，禁止输出性能退化结论。');
+    }
+    if (currentCaptureDuration <= 0 || baselineCaptureDuration <= 0) {
+      status = 'alignment-insufficient';
+      limitations.push('至少一份 Trace 缺少可用录制时间范围。');
+    }
+    const offsetStart = request.range.startUs - currentRange.startUs;
+    const offsetEnd = request.range.endUs - currentRange.startUs;
+    const baselineRange = {
+      startUs: baselineCaptureRange.startUs + offsetStart,
+      endUs: baselineCaptureRange.startUs + offsetEnd,
+    };
+    if (
+      baselineRange.startUs < baselineCaptureRange.startUs
+      || baselineRange.endUs > baselineCaptureRange.endUs
+    ) {
+      status = 'alignment-insufficient';
+      limitations.push('所选范围超出基线 Trace 的可对齐录制窗口。');
+    }
+    const currentStats = this.sessionData!.timeline.getStats();
+    const baselineStats = baseline.data.timeline.getStats();
+    const relevantTracks = ['main', 'rendering', 'interactions', 'frames'] as const;
+    const unequalCapabilities = relevantTracks.filter(trackId => (
+      Boolean(currentStats.trackEventCounts[trackId])
+      !== Boolean(baselineStats.trackEventCounts[trackId])
+    ));
+    if (status === 'comparable' && unequalCapabilities.length > 0) {
+      status = 'capability-mismatch';
+      limitations.push(`能力不对等：${unequalCapabilities.join('、')}。`);
+    }
+    const durationRatio = Math.max(
+      currentCaptureDuration / Math.max(1, baselineCaptureDuration),
+      baselineCaptureDuration / Math.max(1, currentCaptureDuration),
+    );
+    const eventRatio = Math.max(
+      currentStats.eventCount / Math.max(1, baselineStats.eventCount),
+      baselineStats.eventCount / Math.max(1, currentStats.eventCount),
+    );
+    if (status === 'comparable' && (durationRatio > 2 || eventRatio > 4)) {
+      status = 'sample-incomparable';
+      limitations.push('录制时长或事件规模差异过大，禁止输出性能退化结论。');
+    }
+    const execution = {
+      isCancelled: () => false,
+      timeoutMs: this.queryTimeoutMs,
+      now: this.now,
+      yieldControl: this.yieldControl,
+      yieldInterval: this.queryYieldInterval,
+    };
+    const [currentSummary, baselineSummary] = await Promise.all([
+      this.sessionData!.timeline.summarizeSelection(request.range, execution),
+      baseline.data.timeline.summarizeSelection(baselineRange, execution),
+    ]);
+    type ComparisonMetric = Extract<
+      WorkbenchResponse,
+      { type: 'trace-comparison-result' }
+    >['metrics'][number]['metric'];
+    const metricValues: Array<[ComparisonMetric, number, number]> = [
+      ['matched-events', currentSummary.matchedCount, baselineSummary.matchedCount],
+      [
+        'warning-events',
+        currentSummary.statusCounts.warning ?? 0,
+        baselineSummary.statusCounts.warning ?? 0,
+      ],
+      ...relevantTracks.map((trackId): [ComparisonMetric, number, number] => ([
+        trackId,
+        currentSummary.trackCounts[trackId] ?? 0,
+        baselineSummary.trackCounts[trackId] ?? 0,
+      ])),
+    ];
+    const metrics = metricValues.map(([metric, current, baselineValue]) => {
+      const delta = deltaPercent(current, baselineValue);
+      return {
+        metric,
+        current,
+        baseline: baselineValue,
+        ...(delta === undefined ? {} : { deltaPercent: delta }),
+      };
+    });
+    const warningDelta = deltaPercent(
+      currentSummary.statusCounts.warning ?? 0,
+      baselineSummary.statusCounts.warning ?? 0,
+    );
+    const regression = status !== 'comparable' || warningDelta === undefined
+      ? 'unavailable' as const
+      : warningDelta > 10
+        ? 'regressed' as const
+        : warningDelta < -10
+          ? 'improved' as const
+          : 'stable' as const;
+    const currentEvidence = this.sessionData!.timeline.query({
+      startUs: request.range.startUs,
+      endUs: request.range.endUs,
+      limit: 3,
+    }).events.map(event => `current:${event.id}`);
+    const baselineEvidence = baseline.data.timeline.query({
+      startUs: baselineRange.startUs,
+      endUs: baselineRange.endUs,
+      limit: 3,
+    }).events.map(event => `baseline:${event.id}`);
+    return {
+      type: 'trace-comparison-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      status,
+      range: request.range,
+      baselineRange,
+      regression,
+      metrics,
+      evidenceIds: [...currentEvidence, ...baselineEvidence],
+      limitations,
+    };
+  }
+
   private cancelQuery(
     request: Extract<WorkbenchRequest, { type: 'cancel-query' }>,
   ): WorkbenchResponse {
@@ -1105,6 +1433,8 @@ export class WorkbenchSessionKernel {
     this.sessionData?.cpuProfile.release();
     this.crossSource?.release();
     this.crossSource = undefined;
+    this.comparisonBaseline?.adapter.release();
+    this.comparisonBaseline = undefined;
     this.sessionData = undefined;
     this.adapter.release();
   }

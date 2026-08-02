@@ -168,6 +168,70 @@ describe('CrossSourceStore lifecycle', () => {
     })).toMatchObject({ nodes: [], edges: [], totalMatched: 0 });
   });
 
+  it('links only eligible request correlations to overlapping Trace evidence as candidates', async () => {
+    const store = new CrossSourceStore(
+      'trace:1',
+      [traceRequest(1), traceRequest(2)],
+      1_000,
+      [{
+        entityId: 'trace:timeline:task',
+        kind: 'symptom',
+        label: 'Long task',
+        trackId: 'main',
+        startUs: 1_000_000,
+        durationUs: 100_000,
+        evidenceIds: ['trace:event:task'],
+        limitations: ['时间重叠不是因果证明。'],
+      }],
+    );
+    await store.addSource('har', harFile());
+
+    const graph = store.getEvidenceGraph(200);
+    const contribution = graph.edges.find(edge => (
+      edge.relationship === 'candidate-contribution'
+    ));
+    expect(contribution).toMatchObject({
+      label: '候选贡献关系',
+      confidence: 'high',
+      conflictingFields: [],
+      counterEvidence: [expect.stringContaining('不能证明')],
+      alternativeExplanations: [expect.stringContaining('其他并发请求')],
+      limitations: [expect.stringContaining('不是 confirmed 根因')],
+    });
+    expect(graph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entityId: 'trace:timeline:task',
+        kind: 'symptom',
+        facts: ['轨道：main'],
+      }),
+    ]));
+    expect(store.getInsights({
+      startUs: 1_000_000,
+      endUs: 1_100_000,
+    }, 10)).toMatchObject({
+      insights: [{
+        priority: 1,
+        phenomenon: 'Long task',
+        evidenceQuality: 'high',
+        attributionLevel: 'possible-contributor',
+        candidateReasons: ['候选贡献关系'],
+        verificationSteps: expect.arrayContaining([
+          expect.stringContaining('证据路径'),
+        ]),
+      }],
+      totalMatched: 1,
+    });
+  });
+
+  it('explains an empty Insights range without inventing a cause', () => {
+    const store = new CrossSourceStore('trace:1', [traceRequest(1)], 1_000, []);
+    expect(store.getInsights({ startUs: 0, endUs: 10 }, 10)).toMatchObject({
+      insights: [],
+      totalMatched: 0,
+      emptyReason: expect.stringContaining('缺少可用于 Insights'),
+    });
+  });
+
   it('requires explicit same-kind replacement and rejects invalid removals', async () => {
     const store = new CrossSourceStore('trace:1', [traceRequest(1)], 1_000);
     await store.addSource('har', harFile());
