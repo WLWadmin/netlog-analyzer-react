@@ -15,19 +15,6 @@ const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
 let adapter: MinimalTraceEngineAdapter | undefined;
 let kernel: WorkbenchSessionKernel | undefined;
 
-interface SyntheticTraceEvent {
-  ts: number;
-  dur: number;
-  cat: string;
-  name: string;
-  ph: 'X';
-  pid: number;
-  tid: number;
-  args?: {
-    snapshot: string;
-  };
-}
-
 function post(response: WorkbenchBenchmarkWorkerResponse): void {
   workerScope.postMessage(response);
 }
@@ -44,9 +31,46 @@ function sampleHash(bytes: Uint8Array): Promise<string> {
   ));
 }
 
-function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): SyntheticTraceEvent[] {
+function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): ChromiumTraceFile['traceEvents'] {
   const families = ['main-thread', 'network', 'rendering', 'interaction', 'frames'] as const;
   return Array.from({ length: eventCount }, (_, index) => {
+    if (index === 0) {
+      return {
+        ts: 0,
+        cat: 'cpu-profile',
+        name: 'Profile',
+        ph: 'P',
+        pid: 1,
+        tid: 10,
+        id: 'benchmark-profile',
+        args: { data: { startTime: 0 } },
+      };
+    }
+    if (index === 1) {
+      const sampleCount = Math.min(10_000, Math.max(1_000, eventCount / 100));
+      return {
+        ts: 1,
+        cat: 'cpu-profile',
+        name: 'ProfileChunk',
+        ph: 'P',
+        pid: 1,
+        tid: 99,
+        id: 'benchmark-profile',
+        args: { data: {
+          cpuProfile: {
+            nodes: [
+              { id: 1, callFrame: { functionName: '(root)' }, children: [2] },
+              { id: 2, callFrame: { functionName: 'benchmarkWork' }, children: [3] },
+              { id: 3, callFrame: { functionName: 'benchmarkLeaf' } },
+            ],
+            samples: Array.from({ length: sampleCount }, (_, sample) => (
+              sample % 4 === 0 ? 2 : 3
+            )),
+          },
+          timeDeltas: Array.from({ length: sampleCount }, () => 10),
+        } },
+      };
+    }
     const family = families[index % families.length];
     const screenshot = index % 1_000 === 0;
     return {
@@ -78,7 +102,7 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Synthet
   });
 }
 
-function corpusMetrics(events: SyntheticTraceEvent[]): {
+function corpusMetrics(events: ChromiumTraceFile['traceEvents']): {
   eventFamilyDistribution: Record<string, number>;
   screenshotEncodedBytes: number;
   screenshotDecodedBytes: number;
@@ -87,9 +111,11 @@ function corpusMetrics(events: SyntheticTraceEvent[]): {
   let screenshotEncodedBytes = 0;
   let screenshotDecodedBytes = 0;
   for (const event of events) {
-    eventFamilyDistribution[event.cat] = (eventFamilyDistribution[event.cat] ?? 0) + 1;
-    if (event.args?.snapshot) {
-      screenshotEncodedBytes += event.args.snapshot.length;
+    const category = typeof event.cat === 'string' ? event.cat : 'other';
+    eventFamilyDistribution[category] = (eventFamilyDistribution[category] ?? 0) + 1;
+    const args = event.args as { snapshot?: unknown } | undefined;
+    if (typeof args?.snapshot === 'string') {
+      screenshotEncodedBytes += args.snapshot.length;
       screenshotDecodedBytes += 64 * 64 * 4;
     }
   }

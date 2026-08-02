@@ -1,16 +1,29 @@
 import {
+  LatestCpuDispatcher,
+  LatestEventLogDispatcher,
   LatestSelectionDispatcher,
+  LatestSearchDispatcher,
   LatestViewportDispatcher,
 } from './clientState';
 import {
+  type BottomUpResultResponse,
+  type CallTreeResultResponse,
+  type EventLogResultResponse,
+  type FlameChartResultResponse,
   WORKBENCH_SCHEMA_VERSION,
   type EvidenceResultResponse,
   type EventDetailResultResponse,
   type QueryViewportRequest,
   type QuerySelectionRequest,
+  type QueryBottomUpRequest,
+  type QueryCallTreeRequest,
+  type QueryEventLogRequest,
+  type QueryFlameChartRequest,
+  type QuerySearchRequest,
   type ScreenshotIndexResultResponse,
   type ScreenshotResultResponse,
   type SelectionResultResponse,
+  type SearchResultResponse,
   type StructuredErrorResponse,
   type ViewportResultResponse,
   type WorkbenchRequest,
@@ -25,6 +38,11 @@ export interface TraceWorkbenchClientSnapshot {
   session?: WorkbenchSessionDescriptor;
   viewport?: ViewportResultResponse;
   selection?: SelectionResultResponse;
+  flameChart?: FlameChartResultResponse;
+  callTree?: CallTreeResultResponse;
+  bottomUp?: BottomUpResultResponse;
+  eventLog?: EventLogResultResponse;
+  search?: SearchResultResponse;
   eventDetail?: EventDetailResultResponse;
   evidence?: EvidenceResultResponse;
   screenshotIndex?: ScreenshotIndexResultResponse;
@@ -32,7 +50,15 @@ export interface TraceWorkbenchClientSnapshot {
   progress?: WorkbenchProgressResponse;
   lastError?: StructuredErrorResponse;
   queryErrors: Partial<Record<
-    'viewport' | 'selection' | 'event-detail' | 'evidence' | 'screenshot-index' | 'screenshot',
+    'viewport'
+    | 'selection'
+    | 'cpu'
+    | 'event-log'
+    | 'search'
+    | 'event-detail'
+    | 'evidence'
+    | 'screenshot-index'
+    | 'screenshot',
     StructuredErrorResponse
   >>;
   discardedResponseCount: number;
@@ -58,6 +84,9 @@ export class TraceWorkbenchClient {
   private closed = false;
   private readonly viewportDispatcher: LatestViewportDispatcher;
   private readonly selectionDispatcher: LatestSelectionDispatcher;
+  private readonly cpuDispatcher: LatestCpuDispatcher;
+  private readonly eventLogDispatcher: LatestEventLogDispatcher;
+  private readonly searchDispatcher: LatestSearchDispatcher;
 
   constructor(
     private readonly source: WorkbenchSourceRef,
@@ -69,6 +98,18 @@ export class TraceWorkbenchClient {
     );
     this.selectionDispatcher = new LatestSelectionDispatcher(
       request => this.executeSelection(request),
+      request => this.cancelActive(request),
+    );
+    this.cpuDispatcher = new LatestCpuDispatcher(
+      request => this.executeAnalysis(request),
+      request => this.cancelActive(request),
+    );
+    this.eventLogDispatcher = new LatestEventLogDispatcher(
+      request => this.executeAnalysis(request),
+      request => this.cancelActive(request),
+    );
+    this.searchDispatcher = new LatestSearchDispatcher(
+      request => this.executeAnalysis(request),
       request => this.cancelActive(request),
     );
   }
@@ -163,6 +204,79 @@ export class TraceWorkbenchClient {
     return this.selectionDispatcher.submit(request);
   }
 
+  queryFlameChart(
+    range: { startUs: number; endUs: number },
+    limit = 2_000,
+  ): Promise<WorkbenchResponse | undefined> {
+    return this.submitCpu({
+      type: 'query-flame-chart',
+      ...this.analysisRequest('flame', range, 'start-time', limit),
+    });
+  }
+
+  queryCallTree(
+    range: { startUs: number; endUs: number },
+    sort: QueryCallTreeRequest['sort'] = 'total-time',
+    limit = 500,
+  ): Promise<WorkbenchResponse | undefined> {
+    return this.submitCpu({
+      type: 'query-call-tree',
+      ...this.analysisRequest('call-tree', range, sort, limit),
+    });
+  }
+
+  queryBottomUp(
+    range: { startUs: number; endUs: number },
+    sort: QueryBottomUpRequest['sort'] = 'self-time',
+    limit = 500,
+  ): Promise<WorkbenchResponse | undefined> {
+    return this.submitCpu({
+      type: 'query-bottom-up',
+      ...this.analysisRequest('bottom-up', range, sort, limit),
+    });
+  }
+
+  queryEventLog(
+    range: { startUs: number; endUs: number },
+    filters?: QueryEventLogRequest['filters'],
+    continuation?: string,
+  ): Promise<WorkbenchResponse | undefined> {
+    const request: QueryEventLogRequest = {
+      type: 'query-event-log',
+      ...this.analysisRequest('event-log', range, 'start-time', 200),
+      ...(filters ? { filters } : {}),
+      ...(continuation ? { continuation } : {}),
+    };
+    this.latestRequestIds.set('event-log', request.requestId);
+    return this.eventLogDispatcher.submit(request);
+  }
+
+  querySearch(
+    range: { startUs: number; endUs: number },
+    query: string,
+    filters?: QuerySearchRequest['filters'],
+  ): Promise<WorkbenchResponse | undefined> {
+    const request: QuerySearchRequest = {
+      type: 'query-search',
+      ...this.analysisRequest('search', range, 'start-time', 200),
+      query,
+      ...(filters ? { filters } : {}),
+    };
+    this.latestRequestIds.set('search', request.requestId);
+    return this.searchDispatcher.submit(request);
+  }
+
+  clearSearch(): void {
+    this.latestRequestIds.set('search', this.nextRequestId('search-cleared'));
+    const queryErrors = { ...this.snapshot.queryErrors };
+    delete queryErrors.search;
+    this.update({
+      ...this.snapshot,
+      search: undefined,
+      queryErrors,
+    });
+  }
+
   async queryEventDetail(eventId: string): Promise<WorkbenchResponse> {
     const session = this.requireSession();
     return this.executeLatest('event-detail', {
@@ -255,6 +369,14 @@ export class TraceWorkbenchClient {
     return this.selectionDispatcher.getStats();
   }
 
+  getAnalysisQueueStats() {
+    return {
+      cpu: this.cpuDispatcher.getStats(),
+      eventLog: this.eventLogDispatcher.getStats(),
+      search: this.searchDispatcher.getStats(),
+    };
+  }
+
   handleProgress(progress: WorkbenchProgressResponse): void {
     if (
       this.closed
@@ -279,7 +401,29 @@ export class TraceWorkbenchClient {
     return response;
   }
 
-  private cancelActive(request: QueryViewportRequest | QuerySelectionRequest): void {
+  private async executeAnalysis(
+    request:
+      | QueryFlameChartRequest
+      | QueryCallTreeRequest
+      | QueryBottomUpRequest
+      | QueryEventLogRequest
+      | QuerySearchRequest,
+  ): Promise<WorkbenchResponse> {
+    const response = await this.transport.dispatch(request);
+    this.accept(response);
+    return response;
+  }
+
+  private cancelActive(
+    request:
+      | QueryViewportRequest
+      | QuerySelectionRequest
+      | QueryFlameChartRequest
+      | QueryCallTreeRequest
+      | QueryBottomUpRequest
+      | QueryEventLogRequest
+      | QuerySearchRequest,
+  ): void {
     void this.transport.dispatch({
       type: 'cancel-query',
       schemaVersion: WORKBENCH_SCHEMA_VERSION,
@@ -315,6 +459,14 @@ export class TraceWorkbenchClient {
       ? 'viewport'
       : response.type === 'selection-result'
         ? 'selection'
+        : response.type === 'flame-chart-result'
+          || response.type === 'call-tree-result'
+          || response.type === 'bottom-up-result'
+          ? 'cpu'
+          : response.type === 'event-log-result'
+            ? 'event-log'
+            : response.type === 'search-result'
+              ? 'search'
       : response.type === 'event-detail-result'
         ? 'event-detail'
         : response.type === 'evidence-result'
@@ -339,6 +491,16 @@ export class TraceWorkbenchClient {
       this.updateSuccess('viewport', { viewport: response });
     } else if (response.type === 'selection-result') {
       this.updateSuccess('selection', { selection: response });
+    } else if (response.type === 'flame-chart-result') {
+      this.updateSuccess('cpu', { flameChart: response });
+    } else if (response.type === 'call-tree-result') {
+      this.updateSuccess('cpu', { callTree: response });
+    } else if (response.type === 'bottom-up-result') {
+      this.updateSuccess('cpu', { bottomUp: response });
+    } else if (response.type === 'event-log-result') {
+      this.updateSuccess('event-log', { eventLog: response });
+    } else if (response.type === 'search-result') {
+      this.updateSuccess('search', { search: response });
     } else if (response.type === 'event-detail-result') {
       this.updateSuccess('event-detail', { eventDetail: response });
     } else if (response.type === 'evidence-result') {
@@ -347,12 +509,18 @@ export class TraceWorkbenchClient {
       this.updateSuccess('screenshot-index', { screenshotIndex: response });
     } else if (response.type === 'screenshot-result') {
       this.updateSuccess('screenshot', { screenshot: response });
-    } else if (response.type === 'structured-error') {
+    } else if (
+      response.type === 'structured-error'
+      || response.type === 'capability-missing'
+    ) {
       const errorChannel = [...this.latestRequestIds.entries()]
         .find(([, requestId]) => requestId === response.requestId)?.[0];
       if (
         errorChannel === 'viewport'
         || errorChannel === 'selection'
+        || errorChannel === 'cpu'
+        || errorChannel === 'event-log'
+        || errorChannel === 'search'
         || errorChannel === 'event-detail'
         || errorChannel === 'evidence'
         || errorChannel === 'screenshot-index'
@@ -362,11 +530,40 @@ export class TraceWorkbenchClient {
           ...this.snapshot,
           queryErrors: {
             ...this.snapshot.queryErrors,
-            [errorChannel]: response,
+            [errorChannel]: response.type === 'structured-error'
+              ? response
+              : {
+                  type: 'structured-error',
+                  schemaVersion: WORKBENCH_SCHEMA_VERSION,
+                  requestId: response.requestId,
+                  sessionId: response.sessionId,
+                  sessionRevision: response.sessionRevision,
+                  error: {
+                    code: 'unsupported-capability',
+                    message: response.reason,
+                    recoverable: true,
+                  },
+                },
           },
         });
       } else {
-        this.update({ ...this.snapshot, lastError: response });
+        this.update({
+          ...this.snapshot,
+          lastError: response.type === 'structured-error'
+            ? response
+            : {
+                type: 'structured-error',
+                schemaVersion: WORKBENCH_SCHEMA_VERSION,
+                requestId: response.requestId,
+                sessionId: response.sessionId,
+                sessionRevision: response.sessionRevision,
+                error: {
+                  code: 'unsupported-capability',
+                  message: response.reason,
+                  recoverable: true,
+                },
+              },
+        });
       }
     }
     return true;
@@ -377,6 +574,31 @@ export class TraceWorkbenchClient {
       throw new Error('Workbench session is not ready');
     }
     return this.snapshot.session;
+  }
+
+  private analysisRequest(
+    prefix: string,
+    range: { startUs: number; endUs: number },
+    sort: QueryFlameChartRequest['sort'],
+    limit: number,
+  ) {
+    const session = this.requireSession();
+    return {
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId(prefix),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      range,
+      sort,
+      limit,
+    } as const;
+  }
+
+  private submitCpu(
+    request: QueryFlameChartRequest | QueryCallTreeRequest | QueryBottomUpRequest,
+  ): Promise<WorkbenchResponse | undefined> {
+    this.latestRequestIds.set('cpu', request.requestId);
+    return this.cpuDispatcher.submit(request);
   }
 
   private failAndClose(lastError?: StructuredErrorResponse): void {

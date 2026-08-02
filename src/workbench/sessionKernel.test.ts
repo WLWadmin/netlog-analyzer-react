@@ -32,9 +32,12 @@ const trace: ChromiumTraceFile = {
   ],
 };
 
-async function kernel(options: ConstructorParameters<typeof WorkbenchSessionKernel>[2] = {}) {
+async function kernel(
+  options: ConstructorParameters<typeof WorkbenchSessionKernel>[2] = {},
+  input: ChromiumTraceFile = trace,
+) {
   const adapter = new MinimalTraceEngineAdapter(
-    { traceEvents: trace.traceEvents.map(event => ({ ...event })) },
+    { traceEvents: input.traceEvents.map(event => ({ ...event })) },
     {
       encoding: 'plain-json',
       jsonBytes: 100,
@@ -230,6 +233,62 @@ describe('WorkbenchSessionKernel', () => {
         bytes: new Uint8Array([1, 2, 3, 4]),
       },
     });
+  });
+
+  it('queries bounded CPU views through the versioned session protocol', async () => {
+    const subject = await kernel({}, {
+      traceEvents: [
+        {
+          name: 'Profile',
+          ts: 100,
+          pid: 1,
+          tid: 10,
+          id: 'p',
+          args: { data: { startTime: 100 } },
+        },
+        {
+          name: 'ProfileChunk',
+          ts: 110,
+          pid: 1,
+          tid: 99,
+          id: 'p',
+          args: { data: {
+            cpuProfile: {
+              nodes: [
+                { id: 1, callFrame: { functionName: '(root)' }, children: [2] },
+                { id: 2, callFrame: { functionName: 'work' } },
+              ],
+              samples: [2, 2],
+            },
+            timeDeltas: [10, 20],
+          } },
+        },
+      ],
+    });
+    const created = await createSession(subject);
+    const callTree = await subject.dispatch({
+      type: 'query-call-tree',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'call-tree',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: { startUs: 100, endUs: 130 },
+      sort: 'total-time',
+      limit: 10,
+    });
+
+    expect(callTree).toMatchObject({
+      type: 'call-tree-result',
+      capability: 'available',
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          functionName: 'work',
+          selfTimeUs: 30,
+          sampleHits: 2,
+        }),
+      ]),
+    });
+    expect(JSON.stringify(callTree)).not.toMatch(/timeDeltas|children|args/);
   });
 
   it('increments revisions, rejects stale requests and releases all resources', async () => {

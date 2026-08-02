@@ -34,6 +34,8 @@
     "workbench:stage1-evidence": "node scripts/build-workbench-stage1-evidence.js",
     "workbench:stage2-evidence": "node scripts/build-workbench-stage2-evidence.js",
     "workbench:stage2-browser": "node scripts/run-workbench-stage2-browser.js",
+    "workbench:stage3-evidence": "node scripts/build-workbench-stage3-evidence.js",
+    "workbench:stage3-browser": "node scripts/run-workbench-stage3-browser.js",
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"

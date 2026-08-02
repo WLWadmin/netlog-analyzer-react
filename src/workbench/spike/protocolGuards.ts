@@ -39,6 +39,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+): boolean {
+  return Object.keys(value).every(key => allowedKeys.includes(key));
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
@@ -103,6 +110,39 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         );
     case 'query-selection':
       return isSessionRef(value) && isRange(value.range);
+    case 'query-flame-chart':
+      return value.sort === 'start-time'
+        && hasOnlyKeys(value, [
+          'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+          'range', 'sort', 'limit', 'continuation',
+        ])
+        && isBoundedAnalysisRequest(value);
+    case 'query-call-tree':
+    case 'query-bottom-up':
+      return value.sort !== 'start-time'
+        && hasOnlyKeys(value, [
+          'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+          'range', 'sort', 'limit', 'continuation',
+        ])
+        && isBoundedAnalysisRequest(value);
+    case 'query-event-log':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'sort', 'limit', 'continuation', 'filters',
+      ])
+        && value.sort === 'start-time'
+        && isBoundedAnalysisRequest(value)
+        && isEventFilters(value.filters);
+    case 'query-search':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'sort', 'limit', 'continuation', 'query', 'filters',
+      ])
+        && value.sort === 'start-time'
+        && isBoundedAnalysisRequest(value)
+        && isNonEmptyString(value.query)
+        && value.query.length <= 256
+        && isEventFilters(value.filters);
     case 'query-event-detail':
       return isSessionRef(value) && isNonEmptyString(value.eventId);
     case 'query-capabilities':
@@ -128,9 +168,55 @@ function isRange(value: unknown): value is { startUs: number; endUs: number } {
     && isFiniteNumber(value.endUs);
 }
 
-function isTimelineEvent(value: unknown): boolean {
-  return isRecord(value)
-    && isNonEmptyString(value.id)
+function isAnalysisSort(value: unknown): boolean {
+  return value === 'start-time'
+    || value === 'self-time'
+    || value === 'total-time'
+    || value === 'sample-hits';
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.length <= 100
+    && value.every(item => isNonEmptyString(item) && item.length <= 256);
+}
+
+function isEventFilters(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  const allowed = new Set(['names', 'categories', 'trackIds', 'statuses']);
+  if (Object.keys(value).some(key => !allowed.has(key))) return false;
+  return (value.names === undefined || isStringArray(value.names))
+    && (value.categories === undefined || isStringArray(value.categories))
+    && (value.trackIds === undefined || isStringArray(value.trackIds))
+    && (
+      value.statuses === undefined
+      || (
+        Array.isArray(value.statuses)
+        && value.statuses.length <= 5
+        && value.statuses.every(status => (
+          status === 'normal'
+          || status === 'warning'
+          || status === 'error'
+          || status === 'incomplete'
+          || status === 'candidate'
+        ))
+      )
+    );
+}
+
+function isBoundedAnalysisRequest(value: Record<string, unknown>): boolean {
+  return isSessionRef(value)
+    && isRange(value.range)
+    && isAnalysisSort(value.sort)
+    && Number.isInteger(value.limit)
+    && Number(value.limit) > 0
+    && Number(value.limit) <= 10_000
+    && (value.continuation === undefined || isNonEmptyString(value.continuation));
+}
+
+function isTimelineEventShape(value: Record<string, unknown>): boolean {
+  return isNonEmptyString(value.id)
     && isNonEmptyString(value.trackId)
     && isFiniteNumber(value.startUs)
     && isFiniteNumber(value.durationUs)
@@ -147,13 +233,95 @@ function isTimelineEvent(value: unknown): boolean {
     );
 }
 
+function isTimelineEvent(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'id', 'trackId', 'startUs', 'durationUs', 'depth', 'category', 'name', 'status',
+    ])
+    && isTimelineEventShape(value);
+}
+
 function isEventDetail(value: unknown): boolean {
-  return isTimelineEvent(value)
-    && isRecord(value)
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'id', 'trackId', 'startUs', 'durationUs', 'depth', 'category', 'name', 'status',
+      'parentId', 'initiatorId', 'childIds', 'evidenceIds',
+    ])
+    && isTimelineEventShape(value)
     && (value.parentId === undefined || isNonEmptyString(value.parentId))
     && (value.initiatorId === undefined || isNonEmptyString(value.initiatorId))
+    && Array.isArray(value.childIds)
+    && value.childIds.every(isNonEmptyString)
     && Array.isArray(value.evidenceIds)
     && value.evidenceIds.every(isNonEmptyString);
+}
+
+function isListTruncation(value: unknown, returnedCount: number): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'truncated', 'returnedCount', 'totalMatched', 'continuation',
+    ])
+    && typeof value.truncated === 'boolean'
+    && isNonNegativeInteger(value.returnedCount)
+    && value.returnedCount === returnedCount
+    && isNonNegativeInteger(value.totalMatched)
+    && value.totalMatched >= returnedCount
+    && (
+      value.truncated
+        ? returnedCount > 0 && isNonEmptyString(value.continuation)
+        : value.continuation === undefined
+    );
+}
+
+function isAnalysisNode(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'id', 'nodeId', 'entityId', 'parentId', 'functionName', 'selfTimeUs',
+      'totalTimeUs', 'sampleHits', 'callCount', 'depth', 'evidenceIds',
+    ])
+    && isNonEmptyString(value.id)
+    && isNonNegativeInteger(value.nodeId)
+    && isNonEmptyString(value.entityId)
+    && (value.parentId === undefined || isNonEmptyString(value.parentId))
+    && isNonEmptyString(value.functionName)
+    && isFiniteNumber(value.selfTimeUs)
+    && value.selfTimeUs >= 0
+    && isFiniteNumber(value.totalTimeUs)
+    && value.totalTimeUs >= value.selfTimeUs
+    && isNonNegativeInteger(value.sampleHits)
+    && (value.callCount === undefined || isNonNegativeInteger(value.callCount))
+    && isNonNegativeInteger(value.depth)
+    && Array.isArray(value.evidenceIds)
+    && value.evidenceIds.every(isNonEmptyString);
+}
+
+function isFlameFrame(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, [
+      'id', 'nodeId', 'entityId', 'parentId', 'functionName', 'startUs',
+      'durationUs', 'depth', 'sampleHits', 'evidenceIds',
+    ])
+    && isNonEmptyString(value.id)
+    && isNonNegativeInteger(value.nodeId)
+    && isNonEmptyString(value.entityId)
+    && (value.parentId === undefined || isNonEmptyString(value.parentId))
+    && isNonEmptyString(value.functionName)
+    && isFiniteNumber(value.startUs)
+    && isFiniteNumber(value.durationUs)
+    && value.durationUs >= 0
+    && isNonNegativeInteger(value.depth)
+    && isNonNegativeInteger(value.sampleHits)
+    && Array.isArray(value.evidenceIds)
+    && value.evidenceIds.every(isNonEmptyString);
+}
+
+function hasCpuResultBase(value: Record<string, unknown>, returnedCount: number): boolean {
+  return isSessionRef(value)
+    && isRange(value.range)
+    && (value.capability === 'available' || value.capability === 'partial')
+    && Array.isArray(value.limitations)
+    && value.limitations.every(isNonEmptyString)
+    && isListTruncation(value.truncation, returnedCount);
 }
 
 function isTruncation(value: unknown, returnedEventCount: number): boolean {
@@ -263,6 +431,50 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
           value.truncation.reason === undefined
           || isNonEmptyString(value.truncation.reason)
         );
+    case 'flame-chart-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'capability', 'limitations', 'truncation', 'frames',
+      ])
+        && Array.isArray(value.frames)
+        && value.frames.every(isFlameFrame)
+        && hasCpuResultBase(value, value.frames.length);
+    case 'call-tree-result':
+    case 'bottom-up-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'capability', 'limitations', 'truncation', 'nodes',
+      ])
+        && Array.isArray(value.nodes)
+        && value.nodes.every(isAnalysisNode)
+        && hasCpuResultBase(value, value.nodes.length);
+    case 'event-log-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'events', 'truncation',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && Array.isArray(value.events)
+        && value.events.every(isTimelineEvent)
+        && isListTruncation(value.truncation, value.events.length);
+    case 'search-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'query', 'events', 'currentIndex', 'truncation',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && isNonEmptyString(value.query)
+        && Array.isArray(value.events)
+        && value.events.every(isTimelineEvent)
+        && isNonNegativeInteger(value.currentIndex)
+        && (
+          value.events.length === 0
+            ? value.currentIndex === 0
+            : value.currentIndex >= 1 && value.currentIndex <= value.events.length
+        )
+        && isListTruncation(value.truncation, value.events.length);
     case 'event-detail-result':
       return isSessionRef(value) && isEventDetail(value.detail);
     case 'query-cancelled':

@@ -66,6 +66,12 @@ function rule(id: TraceRuleId, evaluations: RuleEvaluation[]): TraceDiagnosisRul
 }
 
 describe('buildTraceDiagnosis', () => {
+  afterEach(() => {
+    delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
+    delete process.env.REACT_APP_ENABLE_TRACE_TIMELINE;
+    delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
+  });
+
   it('supports the fixed 13 rule IDs', () => {
     expect(RULE_IDS).toHaveLength(13);
   });
@@ -176,5 +182,29 @@ describe('buildTraceDiagnosis', () => {
     const result = buildTraceDiagnosis(context(), [rule('Q1', evaluations)]);
 
     expect(result.diagnoses.map(item => item.id)).toEqual(['a', 'b', 'z', 'low']);
+    expect(result.findings).toBeUndefined();
+  });
+
+  it('adds expert findings only when all three feature flags are enabled', () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    const item = diagnosis({ id: 'expert' });
+    const result = buildTraceDiagnosis(context(), [rule('Q1', [{
+      ruleId: 'Q1',
+      status: 'matched',
+      reason: 'Matched.',
+      diagnosis: item,
+    }])]);
+
+    expect(result.findings?.map(finding => finding.id)).toEqual([
+      'finding:expert',
+    ]);
+    expect(result.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        phenomenon: item.title,
+        attributionLevel: 'highly-correlated',
+      }),
+    ]));
   });
 });

@@ -1,5 +1,8 @@
 import { useState, useSyncExternalStore } from 'react';
-import type { TraceDiagnosis } from '../../diagnosis/trace';
+import type {
+  DiagnosisFinding,
+  TraceDiagnosis,
+} from '../../diagnosis/trace';
 import type {
   TraceWorkbenchClient,
   TraceWorkbenchClientSnapshot,
@@ -10,6 +13,7 @@ import TraceTimelineWorkbench from './workbench/TraceTimelineWorkbench';
 interface TraceWorkbenchInternalPanelProps {
   client?: TraceWorkbenchClient;
   diagnoses?: TraceDiagnosis[];
+  findings?: DiagnosisFinding[];
 }
 
 const STATUS_LABELS = {
@@ -24,6 +28,7 @@ const STATUS_LABELS = {
 const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = ({
   client,
   diagnoses = [],
+  findings = [],
 }) => {
   const [localError, setLocalError] = useState('');
   const fallback: TraceWorkbenchClientSnapshot = {
@@ -75,7 +80,13 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
   };
 
   if (client && snapshot.session && isTraceTimelineEnabled()) {
-    return <TraceTimelineWorkbench client={client} diagnoses={diagnoses} />;
+    return (
+      <TraceTimelineWorkbench
+        client={client}
+        diagnoses={diagnoses}
+        findings={findings}
+      />
+    );
   }
 
   return (

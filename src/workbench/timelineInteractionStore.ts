@@ -9,7 +9,10 @@ export interface TimelineInteractionSnapshot {
   cursorUs?: number;
   hoveredEventId?: string;
   selectedEventId?: string;
+  highlightedEntityId?: string;
   collapsedTrackIds: string[];
+  pinnedTrackIds: string[];
+  hiddenTrackIds: string[];
 }
 
 export interface TimelineHistoryEntry {
@@ -50,7 +53,12 @@ export class TimelineInteractionStore {
     const viewport = normalizeRange(initialViewport);
     if (!viewport) throw new Error('Timeline viewport must be finite');
     this.captureRange = viewport;
-    this.snapshot = { viewport, collapsedTrackIds: [] };
+    this.snapshot = {
+      viewport,
+      collapsedTrackIds: [],
+      pinnedTrackIds: [],
+      hiddenTrackIds: [],
+    };
   }
 
   getSnapshot = (): TimelineInteractionSnapshot => this.snapshot;
@@ -105,6 +113,11 @@ export class TimelineInteractionStore {
     this.update({ ...this.snapshot, selectedEventId });
   }
 
+  highlightEntity(highlightedEntityId: string | undefined): void {
+    if (highlightedEntityId === this.snapshot.highlightedEntityId) return;
+    this.update({ ...this.snapshot, highlightedEntityId });
+  }
+
   toggleTrack(trackId: string): void {
     const collapsed = new Set(this.snapshot.collapsedTrackIds);
     if (collapsed.has(trackId)) collapsed.delete(trackId);
@@ -113,6 +126,14 @@ export class TimelineInteractionStore {
       ...this.snapshot,
       collapsedTrackIds: [...collapsed].sort(),
     });
+  }
+
+  togglePinnedTrack(trackId: string): void {
+    this.toggleTrackSet('pinnedTrackIds', trackId);
+  }
+
+  toggleHiddenTrack(trackId: string): void {
+    this.toggleTrackSet('hiddenTrackIds', trackId);
   }
 
   navigateTo(target: {
@@ -161,5 +182,18 @@ export class TimelineInteractionStore {
   private update(snapshot: TimelineInteractionSnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
+  }
+
+  private toggleTrackSet(
+    key: 'pinnedTrackIds' | 'hiddenTrackIds',
+    trackId: string,
+  ): void {
+    const values = new Set(this.snapshot[key]);
+    if (values.has(trackId)) values.delete(trackId);
+    else values.add(trackId);
+    this.update({
+      ...this.snapshot,
+      [key]: [...values].sort(),
+    });
   }
 }

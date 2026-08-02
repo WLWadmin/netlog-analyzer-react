@@ -19,6 +19,7 @@ import type {
   TraceParserWarning,
 } from '../parsers/trace/types';
 import type { WorkbenchCapability } from './protocol';
+import { CpuProfileStore } from './cpuProfileStore';
 import { RawEvidenceStore } from './rawEvidenceStore';
 import {
   TimelineColumnarStore,
@@ -54,6 +55,7 @@ export interface TraceEngineOperationOptions {
 export interface TraceEngineSessionData {
   timeline: TimelineColumnarStore;
   evidence: RawEvidenceStore;
+  cpuProfile: CpuProfileStore;
 }
 
 export interface TraceEngineAdapter {
@@ -361,9 +363,16 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     const families = new Set(this.analysis?.intake.availableFamilies ?? []);
     const screenshots = this.trace.traceEvents.some(hasScreenshot);
     return ALL_CAPABILITIES.map(capability => {
+      const cpuStatus = capability === 'cpu-profile'
+        ? this.sessionData?.cpuProfile.getStatus()
+        : undefined;
       const available = capability === 'timeline-events'
         || capability === 'event-detail'
-        || (capability === 'cpu-profile' && families.has('cpu-profile'))
+        || (
+          capability === 'cpu-profile'
+          && families.has('cpu-profile')
+          && cpuStatus?.capability !== 'missing'
+        )
         || (capability === 'network' && families.has('network'))
         || (capability === 'rendering' && families.has('rendering'))
         || (capability === 'interactions' && families.has('interaction'))
@@ -374,7 +383,9 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
         : {
             capability,
             status: 'missing',
-            reason: `Trace does not provide ${capability}`,
+            reason: capability === 'cpu-profile' && cpuStatus
+              ? cpuStatus.limitations.join(', ')
+              : `Trace does not provide ${capability}`,
           };
     });
   }
@@ -419,6 +430,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     this.sessionData = {
       timeline: TimelineColumnarStore.build([...timelineEvents.values()]),
       evidence: new RawEvidenceStore(this.trace.traceEvents),
+      cpuProfile: CpuProfileStore.build(this.trace.traceEvents),
     };
     options.onProgress({
       phase: 'indexing-events',
@@ -432,6 +444,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
   release(): void {
     this.sessionData?.timeline.release();
     this.sessionData?.evidence.release();
+    this.sessionData?.cpuProfile.release();
     this.sessionData = undefined;
     this.analysis = undefined;
     this.trace.traceEvents.length = 0;

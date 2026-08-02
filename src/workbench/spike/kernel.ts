@@ -171,6 +171,23 @@ export class WorkbenchSpikeKernel {
           'timeline-events',
           'Selection aggregation is unavailable in the stage 0 kernel',
         );
+      case 'query-flame-chart':
+      case 'query-call-tree':
+      case 'query-bottom-up':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'cpu-profile',
+          'CPU analysis is unavailable in the stage 0 kernel',
+        );
+      case 'query-event-log':
+      case 'query-search':
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'timeline-events',
+          'Event search is unavailable in the stage 0 kernel',
+        );
       case 'query-event-detail':
         return this.queryEventDetail(request);
       case 'query-capabilities':
@@ -271,6 +288,7 @@ export class WorkbenchSpikeKernel {
           ...(event.initiatorSourceIndex === undefined
             ? {}
             : { initiatorId: eventId(event.initiatorSourceIndex) }),
+          childIds: [],
           evidenceIds: [...(event.evidenceIds ?? [])],
         },
       };

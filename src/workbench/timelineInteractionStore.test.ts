@@ -70,4 +70,22 @@ describe('TimelineInteractionStore', () => {
       cursorUs: 1_100,
     });
   });
+
+  it('owns pinned, hidden and collapsed tracks without changing the brush', () => {
+    const store = new TimelineInteractionStore({ startUs: 0, endUs: 100 });
+    store.setSelection({ startUs: 20, endUs: 40 });
+    store.togglePinnedTrack('main');
+    store.toggleHiddenTrack('network');
+    store.toggleTrack('rendering');
+
+    expect(store.getSnapshot()).toMatchObject({
+      selection: { startUs: 20, endUs: 40 },
+      pinnedTrackIds: ['main'],
+      hiddenTrackIds: ['network'],
+      collapsedTrackIds: ['rendering'],
+    });
+    store.toggleHiddenTrack('network');
+    expect(store.getSnapshot().hiddenTrackIds).toEqual([]);
+    expect(store.getSnapshot().selection).toEqual({ startUs: 20, endUs: 40 });
+  });
 });

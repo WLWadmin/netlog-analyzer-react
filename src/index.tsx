@@ -9,8 +9,18 @@ const runWorkbenchBenchmark = process.env.REACT_APP_ENABLE_WORKBENCH_BENCHMARK =
   && new URLSearchParams(window.location.search).get('workbench-benchmark') === '1';
 const runStage2ProductBenchmark = process.env.REACT_APP_ENABLE_WORKBENCH_BENCHMARK === '1'
   && new URLSearchParams(window.location.search).get('stage2-product-benchmark') === '1';
+const runStage3ProductBenchmark = process.env.REACT_APP_ENABLE_WORKBENCH_BENCHMARK === '1'
+  && new URLSearchParams(window.location.search).get('stage3-product-benchmark') === '1';
 
-if (runStage2ProductBenchmark) {
+if (runStage3ProductBenchmark) {
+  import('./benchmark/stage3ProductBenchmark').then(
+    ({ runStage3ProductBenchmark: run }) => run(),
+    () => {
+      const root = document.getElementById('root');
+      if (root) root.textContent = 'Stage 3 产品组件 benchmark 加载失败';
+    },
+  );
+} else if (runStage2ProductBenchmark) {
   import('./benchmark/stage2ProductBenchmark').then(
     ({ runStage2ProductBenchmark: run }) => run(),
     () => {

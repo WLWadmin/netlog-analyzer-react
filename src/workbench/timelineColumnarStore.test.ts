@@ -155,4 +155,38 @@ describe('TimelineColumnarStore', () => {
       released: true,
     });
   });
+
+  it('filters before applying Event Log and search limits', async () => {
+    const store = TimelineColumnarStore.build([
+      { ...events[0], sourceIndex: 0, trackId: 'network', name: 'hidden request', startUs: 0 },
+      { ...events[0], sourceIndex: 1, trackId: 'main', name: 'EvaluateScript', startUs: 1 },
+      { ...events[0], sourceIndex: 2, trackId: 'main', name: 'Layout callback', startUs: 2 },
+    ]);
+    const options = {
+      isCancelled: () => false,
+      timeoutMs: 1_000,
+      now: () => 0,
+      yieldControl: () => Promise.resolve(),
+    };
+    const eventLog = await store.queryEventLog({
+      range: { startUs: 0, endUs: 10 },
+      limit: 1,
+      filters: { trackIds: ['main'] },
+    }, options);
+
+    expect(eventLog.events.map(event => event.name)).toEqual(['EvaluateScript']);
+    expect(eventLog.truncation).toMatchObject({
+      truncated: true,
+      returnedCount: 1,
+      totalMatched: 2,
+    });
+    await expect(store.queryEventLog({
+      range: { startUs: 0, endUs: 10 },
+      limit: 10,
+      query: 'layout',
+      filters: { trackIds: ['main'] },
+    }, options)).resolves.toMatchObject({
+      events: [expect.objectContaining({ name: 'Layout callback' })],
+    });
+  });
 });

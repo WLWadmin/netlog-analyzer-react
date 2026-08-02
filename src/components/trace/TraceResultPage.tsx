@@ -115,6 +115,7 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
         <TraceWorkbenchInternalPanel
           client={workbenchClient}
           diagnoses={result.diagnosis.diagnoses}
+          findings={result.diagnosis.findings}
         />
       )}
 

@@ -99,6 +99,42 @@ describe('TraceWorkbenchClient', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces a missing CPU capability instead of leaving analysis views blank', async () => {
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: async request => {
+        if (request.type === 'create-session') return sessionResponse(request.requestId);
+        if (request.type === 'query-flame-chart') {
+          return {
+            type: 'capability-missing',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            capability: 'cpu-profile',
+            reason: '当前 Trace 未提供可用 CPU 采样。',
+          };
+        }
+        throw new Error('unexpected request');
+      },
+      close: jest.fn(),
+    });
+
+    await client.createSession();
+    await client.queryFlameChart({ startUs: 0, endUs: 100 });
+
+    expect(client.getSnapshot().queryErrors.cpu).toMatchObject({
+      error: {
+        code: 'unsupported-capability',
+        message: '当前 Trace 未提供可用 CPU 采样。',
+        recoverable: true,
+      },
+    });
+  });
+
   it('keeps stable viewport when a stale structured error arrives', async () => {
     let viewportCount = 0;
     const dispatch = jest.fn(async (request: WorkbenchRequest): Promise<WorkbenchResponse> => {

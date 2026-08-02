@@ -1,5 +1,7 @@
 import type { TraceContextFacts } from '../../parsers/trace/types';
+import { isTraceExpertAnalysisEnabled } from '../../workbench/featureFlag';
 import { sanitizeDiagnosisText } from '../shared/maskedExport';
+import { buildDiagnosisFindings } from './expertDiagnosis';
 import { TRACE_DIAGNOSIS_RULES } from './traceDiagnosisRules';
 import type {
   RuleEvaluation,
@@ -62,5 +64,12 @@ export function buildTraceDiagnosis(
       || left.ruleId.localeCompare(right.ruleId)
       || left.id.localeCompare(right.id));
 
-  return { diagnoses, evaluations };
+  const result: TraceDiagnosisResult = {
+    diagnoses,
+    evaluations,
+  };
+  if (isTraceExpertAnalysisEnabled()) {
+    result.findings = buildDiagnosisFindings(diagnoses);
+  }
+  return result;
 }

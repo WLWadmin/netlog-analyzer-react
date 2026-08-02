@@ -76,6 +76,7 @@ export interface WorkbenchTimelineEventDto {
 export interface WorkbenchEventDetailDto extends WorkbenchTimelineEventDto {
   parentId?: string;
   initiatorId?: string;
+  childIds: string[];
   evidenceIds: string[];
 }
 
@@ -125,6 +126,50 @@ export interface QuerySelectionRequest extends WorkbenchSessionRequestBase {
   };
 }
 
+export type WorkbenchAnalysisSort =
+  | 'start-time'
+  | 'self-time'
+  | 'total-time'
+  | 'sample-hits';
+
+interface WorkbenchBoundedAnalysisRequest extends WorkbenchSessionRequestBase {
+  range: {
+    startUs: number;
+    endUs: number;
+  };
+  sort: WorkbenchAnalysisSort;
+  limit: number;
+  continuation?: string;
+}
+
+export interface QueryFlameChartRequest extends WorkbenchBoundedAnalysisRequest {
+  type: 'query-flame-chart';
+}
+
+export interface QueryCallTreeRequest extends WorkbenchBoundedAnalysisRequest {
+  type: 'query-call-tree';
+}
+
+export interface QueryBottomUpRequest extends WorkbenchBoundedAnalysisRequest {
+  type: 'query-bottom-up';
+}
+
+export interface QueryEventLogRequest extends WorkbenchBoundedAnalysisRequest {
+  type: 'query-event-log';
+  filters?: {
+    names?: string[];
+    categories?: string[];
+    trackIds?: string[];
+    statuses?: Array<NonNullable<WorkbenchTimelineEventDto['status']>>;
+  };
+}
+
+export interface QuerySearchRequest extends WorkbenchBoundedAnalysisRequest {
+  type: 'query-search';
+  query: string;
+  filters?: QueryEventLogRequest['filters'];
+}
+
 export interface QueryEventDetailRequest extends WorkbenchSessionRequestBase {
   type: 'query-event-detail';
   eventId: string;
@@ -161,6 +206,11 @@ export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
   | QuerySelectionRequest
+  | QueryFlameChartRequest
+  | QueryCallTreeRequest
+  | QueryBottomUpRequest
+  | QueryEventLogRequest
+  | QuerySearchRequest
   | QueryEventDetailRequest
   | QueryCapabilitiesRequest
   | QueryEvidenceRequest
@@ -217,6 +267,78 @@ export interface SelectionResultResponse extends WorkbenchSessionResponseBase {
     totalMatched: number;
     reason?: string;
   };
+}
+
+export interface WorkbenchAnalysisNodeDto {
+  id: string;
+  nodeId: number;
+  entityId: string;
+  parentId?: string;
+  functionName: string;
+  selfTimeUs: number;
+  totalTimeUs: number;
+  sampleHits: number;
+  callCount?: number;
+  depth: number;
+  evidenceIds: string[];
+}
+
+export interface WorkbenchFlameFrameDto {
+  id: string;
+  nodeId: number;
+  entityId: string;
+  parentId?: string;
+  functionName: string;
+  startUs: number;
+  durationUs: number;
+  depth: number;
+  sampleHits: number;
+  evidenceIds: string[];
+}
+
+export interface WorkbenchListTruncation {
+  truncated: boolean;
+  returnedCount: number;
+  totalMatched: number;
+  continuation?: string;
+}
+
+interface WorkbenchCpuResultBase extends WorkbenchSessionResponseBase {
+  range: { startUs: number; endUs: number };
+  capability: 'available' | 'partial';
+  limitations: string[];
+  truncation: WorkbenchListTruncation;
+}
+
+export interface FlameChartResultResponse extends WorkbenchCpuResultBase {
+  type: 'flame-chart-result';
+  frames: WorkbenchFlameFrameDto[];
+}
+
+export interface CallTreeResultResponse extends WorkbenchCpuResultBase {
+  type: 'call-tree-result';
+  nodes: WorkbenchAnalysisNodeDto[];
+}
+
+export interface BottomUpResultResponse extends WorkbenchCpuResultBase {
+  type: 'bottom-up-result';
+  nodes: WorkbenchAnalysisNodeDto[];
+}
+
+export interface EventLogResultResponse extends WorkbenchSessionResponseBase {
+  type: 'event-log-result';
+  range: { startUs: number; endUs: number };
+  events: WorkbenchTimelineEventDto[];
+  truncation: WorkbenchListTruncation;
+}
+
+export interface SearchResultResponse extends WorkbenchSessionResponseBase {
+  type: 'search-result';
+  range: { startUs: number; endUs: number };
+  query: string;
+  events: WorkbenchTimelineEventDto[];
+  currentIndex: number;
+  truncation: WorkbenchListTruncation;
 }
 
 export interface EventDetailResultResponse extends WorkbenchSessionResponseBase {
@@ -303,6 +425,11 @@ export type WorkbenchResponse =
   | SessionCreatedResponse
   | ViewportResultResponse
   | SelectionResultResponse
+  | FlameChartResultResponse
+  | CallTreeResultResponse
+  | BottomUpResultResponse
+  | EventLogResultResponse
+  | SearchResultResponse
   | EventDetailResultResponse
   | QueryCancelledResponse
   | SessionReleasedResponse

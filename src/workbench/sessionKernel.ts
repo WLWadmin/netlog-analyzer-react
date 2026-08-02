@@ -3,6 +3,11 @@ import {
   type CapabilityMissingResponse,
   type CreateSessionRequest,
   type QueryEventDetailRequest,
+  type QueryFlameChartRequest,
+  type QueryCallTreeRequest,
+  type QueryBottomUpRequest,
+  type QueryEventLogRequest,
+  type QuerySearchRequest,
   type QuerySelectionRequest,
   type QueryViewportRequest,
   type StructuredErrorResponse,
@@ -15,6 +20,11 @@ import {
   type WorkbenchSessionState,
   type WorkbenchSourceRef,
 } from './protocol';
+import {
+  CpuQueryCancelled,
+  CpuQueryTimeout,
+  type CpuQueryInput,
+} from './cpuProfileStore';
 import type { TraceEngineAdapter, TraceEngineSessionData } from './traceEngineAdapter';
 import {
   TimelineQueryCancelled,
@@ -106,6 +116,15 @@ export class WorkbenchSessionKernel {
         return this.queryViewport(request, onProgress);
       case 'query-selection':
         return this.querySelection(request);
+      case 'query-flame-chart':
+        return this.queryCpu(request, 'flame');
+      case 'query-call-tree':
+        return this.queryCpu(request, 'call-tree');
+      case 'query-bottom-up':
+        return this.queryCpu(request, 'bottom-up');
+      case 'query-event-log':
+      case 'query-search':
+        return this.queryEventList(request);
       case 'query-event-detail':
         return this.queryEventDetail(request);
       case 'query-capabilities':
@@ -449,6 +468,221 @@ export class WorkbenchSessionKernel {
     }
   }
 
+  private async queryCpu(
+    request: QueryFlameChartRequest | QueryCallTreeRequest | QueryBottomUpRequest,
+    kind: 'flame' | 'call-tree' | 'bottom-up',
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!session.capabilities.includes('cpu-profile')) {
+      return capabilityMissing(
+        request.requestId,
+        request,
+        'cpu-profile',
+        '当前 Trace 未提供 CPU Profile，保留顶层任务但不生成调用栈。',
+      );
+    }
+    if (
+      !Number.isFinite(request.range.startUs)
+      || !Number.isFinite(request.range.endUs)
+      || request.range.startUs > request.range.endUs
+      || !Number.isInteger(request.limit)
+      || request.limit < 1
+    ) {
+      return structuredError(
+        request.requestId,
+        'invalid-range',
+        'CPU analysis range and limit are invalid',
+        true,
+        request,
+      );
+    }
+    const token: QueryToken = { cancelled: false };
+    this.activeQueries.set(request.requestId, token);
+    const input: CpuQueryInput = {
+      range: request.range,
+      sort: request.sort,
+      limit: request.limit,
+      continuation: request.continuation,
+    };
+    const execution = {
+      isCancelled: () => token.cancelled,
+      timeoutMs: this.queryTimeoutMs,
+      now: this.now,
+      yieldControl: this.yieldControl,
+      yieldInterval: this.queryYieldInterval,
+    };
+    try {
+      if (kind === 'flame') {
+        const result = await this.sessionData!.cpuProfile.queryFlameChart(input, execution);
+        if (result.capability === 'missing') {
+          return capabilityMissing(
+            request.requestId,
+            request,
+            'cpu-profile',
+            '当前 Trace 未提供可用 CPU 采样。',
+          );
+        }
+        const capability = result.capability;
+        return {
+          type: 'flame-chart-result',
+          schemaVersion: WORKBENCH_SCHEMA_VERSION,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          sessionRevision: request.sessionRevision,
+          range: result.range,
+          frames: result.frames,
+          truncation: result.truncation,
+          limitations: result.limitations,
+          capability,
+        };
+      }
+      const result = kind === 'call-tree'
+        ? await this.sessionData!.cpuProfile.queryCallTree(input, execution)
+        : await this.sessionData!.cpuProfile.queryBottomUp(input, execution);
+      if (result.capability === 'missing') {
+        return capabilityMissing(
+          request.requestId,
+          request,
+          'cpu-profile',
+          '当前 Trace 未提供可用 CPU 采样。',
+        );
+      }
+      const common = {
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        range: result.range,
+        nodes: result.nodes,
+        truncation: result.truncation,
+        limitations: result.limitations,
+        capability: result.capability,
+      };
+      return kind === 'call-tree'
+        ? { type: 'call-tree-result', ...common }
+        : { type: 'bottom-up-result', ...common };
+    } catch (error) {
+      if (error instanceof CpuQueryCancelled) {
+        return structuredError(
+          request.requestId,
+          'query-cancelled',
+          'CPU analysis query was cancelled',
+          true,
+          request,
+        );
+      }
+      if (error instanceof CpuQueryTimeout) {
+        return structuredError(
+          request.requestId,
+          'query-timeout',
+          'CPU analysis query timed out',
+          true,
+          request,
+        );
+      }
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'CPU analysis query failed',
+        true,
+        request,
+      );
+    } finally {
+      this.activeQueries.delete(request.requestId);
+    }
+  }
+
+  private async queryEventList(
+    request: QueryEventLogRequest | QuerySearchRequest,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (
+      !Number.isFinite(request.range.startUs)
+      || !Number.isFinite(request.range.endUs)
+      || request.range.startUs > request.range.endUs
+      || !Number.isInteger(request.limit)
+      || request.limit < 1
+    ) {
+      return structuredError(
+        request.requestId,
+        'invalid-range',
+        'Event list range and limit are invalid',
+        true,
+        request,
+      );
+    }
+    const token: QueryToken = { cancelled: false };
+    this.activeQueries.set(request.requestId, token);
+    try {
+      const result = await this.sessionData!.timeline.queryEventLog({
+        range: request.range,
+        limit: request.limit,
+        continuation: request.continuation,
+        filters: request.filters,
+        ...(request.type === 'query-search' ? { query: request.query } : {}),
+      }, {
+        isCancelled: () => token.cancelled,
+        timeoutMs: this.queryTimeoutMs,
+        now: this.now,
+        yieldControl: this.yieldControl,
+        yieldInterval: this.queryYieldInterval,
+      });
+      return request.type === 'query-search'
+        ? {
+            type: 'search-result',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            range: request.range,
+            query: request.query,
+            events: result.events,
+            currentIndex: result.events.length > 0 ? 1 : 0,
+            truncation: result.truncation,
+          }
+        : {
+            type: 'event-log-result',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            range: request.range,
+            events: result.events,
+            truncation: result.truncation,
+          };
+    } catch (error) {
+      if (error instanceof TimelineQueryCancelled) {
+        return structuredError(
+          request.requestId,
+          'query-cancelled',
+          'Event list query was cancelled',
+          true,
+          request,
+        );
+      }
+      if (error instanceof TimelineQueryTimeout) {
+        return structuredError(
+          request.requestId,
+          'query-timeout',
+          'Event list query timed out',
+          true,
+          request,
+        );
+      }
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Event list query failed',
+        true,
+        request,
+      );
+    } finally {
+      this.activeQueries.delete(request.requestId);
+    }
+  }
+
   private queryEventDetail(request: QueryEventDetailRequest): WorkbenchResponse {
     const session = this.resolveSession(request);
     if ('type' in session) return session;
@@ -491,6 +725,7 @@ export class WorkbenchSessionKernel {
         ...(event.initiatorSourceIndex === undefined
           ? {}
           : { initiatorId: `trace:timeline:${event.initiatorSourceIndex}` }),
+        childIds: this.sessionData!.timeline.childIds(request.eventId),
         evidenceIds: event.evidenceIds,
       },
     };
@@ -678,6 +913,7 @@ export class WorkbenchSessionKernel {
     this.activeQueries.clear();
     this.sessionData?.timeline.release();
     this.sessionData?.evidence.release();
+    this.sessionData?.cpuProfile.release();
     this.sessionData = undefined;
     this.adapter.release();
   }

@@ -1,5 +1,10 @@
 import type {
   EventDetailResultResponse,
+  QueryBottomUpRequest,
+  QueryCallTreeRequest,
+  QueryEventLogRequest,
+  QueryFlameChartRequest,
+  QuerySearchRequest,
   QuerySelectionRequest,
   QueryViewportRequest,
   StructuredErrorResponse,
@@ -101,7 +106,14 @@ export class WorkbenchSpikeClientState {
   }
 }
 
-type LatestQueryRequest = QueryViewportRequest | QuerySelectionRequest;
+type LatestQueryRequest =
+  | QueryViewportRequest
+  | QuerySelectionRequest
+  | QueryFlameChartRequest
+  | QueryCallTreeRequest
+  | QueryBottomUpRequest
+  | QueryEventLogRequest
+  | QuerySearchRequest;
 
 interface PendingQuery<TRequest extends LatestQueryRequest> {
   request: TRequest;
@@ -178,3 +190,14 @@ export class LatestViewportDispatcher
 
 export class LatestSelectionDispatcher
   extends LatestQueryDispatcher<QuerySelectionRequest> {}
+
+export class LatestCpuDispatcher
+  extends LatestQueryDispatcher<
+    QueryFlameChartRequest | QueryCallTreeRequest | QueryBottomUpRequest
+  > {}
+
+export class LatestEventLogDispatcher
+  extends LatestQueryDispatcher<QueryEventLogRequest> {}
+
+export class LatestSearchDispatcher
+  extends LatestQueryDispatcher<QuerySearchRequest> {}

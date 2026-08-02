@@ -161,6 +161,27 @@ describe('Workbench stage 0 protocol and query spike', () => {
       requestId: 'invalid-size',
       eventCount: 99,
     })).toBe(false);
+    expect(isWorkbenchRequest({
+      type: 'query-flame-chart',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'flame',
+      sessionId: 'session',
+      sessionRevision: 1,
+      range: { startUs: 0, endUs: 100 },
+      sort: 'start-time',
+      limit: 200,
+    })).toBe(true);
+    expect(isWorkbenchRequest({
+      type: 'query-search',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'search',
+      sessionId: 'session',
+      sessionRevision: 1,
+      range: { startUs: 0, endUs: 100 },
+      sort: 'start-time',
+      limit: '200',
+      query: 'Layout',
+    })).toBe(false);
   });
 
   it('rejects malformed Worker responses before client state sees them', () => {
@@ -215,7 +236,61 @@ describe('Workbench stage 0 protocol and query spike', () => {
         screenshotCount: 0,
       },
     })).toBe(false);
+    expect(isWorkbenchResponse({
+      type: 'call-tree-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'call-tree',
+      sessionId: 'session',
+      sessionRevision: 1,
+      range: { startUs: 0, endUs: 100 },
+      capability: 'available',
+      limitations: [],
+      nodes: [{
+        id: 'node-1',
+        nodeId: 1,
+        functionName: 'work',
+        selfTimeUs: 20,
+        totalTimeUs: 10,
+        sampleHits: 1,
+        depth: 0,
+        evidenceIds: ['trace:event:1'],
+      }],
+      truncation: { truncated: false, returnedCount: 1, totalMatched: 1 },
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      type: 'event-log-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'event-log',
+      sessionId: 'session',
+      sessionRevision: 1,
+      range: { startUs: 0, endUs: 100 },
+      events: [{
+        id: 'trace:timeline:1',
+        trackId: 'main',
+        startUs: 0,
+        durationUs: 10,
+        depth: 0,
+        category: 'main-thread',
+        name: 'RunTask',
+        args: { secret: '<REDACTED>' },
+      }],
+      truncation: { truncated: false, returnedCount: 1, totalMatched: 1 },
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      type: 'search-result',
+      schemaVersion: WORKBENCH_SPIKE_SCHEMA_VERSION,
+      requestId: 'search',
+      sessionId: 'session',
+      sessionRevision: 1,
+      range: { startUs: 0, endUs: 100 },
+      query: 'task',
+      events: [],
+      currentIndex: 0,
+      truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+      rawEvents: [],
+    })).toBe(false);
   });
+
 
   it('returns every event intersecting the viewport, including long events that start outside it', async () => {
     const kernel = new WorkbenchSpikeKernel({ resolveSource: () => source() });

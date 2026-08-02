@@ -4,6 +4,15 @@ export {
   selectTraceDiagnoses,
 } from './selectTraceDiagnoses';
 export type { SelectedTraceDiagnoses } from './selectTraceDiagnoses';
+export {
+  assessActivityContribution,
+  buildDiagnosisFindings,
+  classifyScriptActivity,
+} from './expertDiagnosis';
+export type {
+  DiagnosisFinding,
+  ScriptActivityClassification,
+} from './expertDiagnosis';
 export { scoreTraceDiagnosis } from './traceScoring';
 export {
   TRACE_RULE_THRESHOLDS,

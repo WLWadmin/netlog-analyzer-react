@@ -5,17 +5,23 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import type { TraceDiagnosis } from '../../../diagnosis/trace';
+import type {
+  DiagnosisFinding,
+  TraceDiagnosis,
+} from '../../../diagnosis/trace';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
 import type { WorkbenchEventDetailDto } from '../../../workbench/protocol';
+import { isTraceExpertAnalysisEnabled } from '../../../workbench/featureFlag';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
 import { TIMELINE_TRACKS } from '../../../workbench/timelineTracks';
 import ScreenshotFilmstrip from './ScreenshotFilmstrip';
 import TimelineCanvas from './TimelineCanvas';
+import ExpertAnalysisDrawer from './ExpertAnalysisDrawer';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
   diagnoses: TraceDiagnosis[];
+  findings?: DiagnosisFinding[];
 }
 
 function timelineIdFromEvidence(evidenceId: string): string | undefined {
@@ -42,6 +48,31 @@ const PAGE_STATE_LABELS: Record<string, string> = {
   released: '资源已释放',
 };
 
+const DIAGNOSIS_CONFIDENCE_LABELS: Record<TraceDiagnosis['confidence'], string> = {
+  confirmed: '已确认',
+  high: '高置信',
+  medium: '中等置信',
+  observation: '观察项',
+};
+
+const DIAGNOSIS_CATEGORY_LABELS: Record<TraceDiagnosis['category'], string> = {
+  quality: '采集质量',
+  network: '网络',
+  'main-thread': '主线程',
+  interaction: '交互',
+  rendering: '渲染',
+  loading: '加载',
+  security: '安全',
+};
+
+const ATTRIBUTION_LABELS: Record<DiagnosisFinding['attributionLevel'], string> = {
+  confirmed: '已确认归因',
+  'highly-correlated': '高度相关',
+  'possible-contributor': '可能贡献',
+  observation: '观察项',
+  insufficient: '证据不足',
+};
+
 const CAPABILITY_LABELS: Record<string, string> = {
   'cpu-profile': 'CPU 调用栈',
   network: '网络',
@@ -54,6 +85,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
 const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   client,
   diagnoses,
+  findings = [],
 }) => {
   const clientSnapshot = useSyncExternalStore(
     client.subscribe.bind(client),
@@ -66,6 +98,10 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const store = useMemo(
     () => new TimelineInteractionStore(session.range),
     [session.range],
+  );
+  const findingsById = useMemo(
+    () => new Map(findings.map(finding => [finding.id, finding])),
+    [findings],
   );
   const interaction = useSyncExternalStore(
     store.subscribe,
@@ -80,6 +116,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [selectionError, setSelectionError] = useState('');
   const [evidenceError, setEvidenceError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const returnFocus = useRef<Array<HTMLElement | null>>([]);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -334,18 +371,27 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             <p>当前没有可定位诊断。可直接检查时间轴事件。</p>
           ) : (
             <ul>
-              {diagnoses.slice(0, 8).map(diagnosis => (
-                <li key={diagnosis.id}>
-                  <button
-                    type="button"
-                    aria-label={`定位诊断：${diagnosis.title}`}
-                    onClick={() => navigateDiagnosis(diagnosis)}
-                  >
-                    <strong>{diagnosis.title}</strong>
-                    <span>{diagnosis.confidence} · {diagnosis.category}</span>
-                  </button>
-                </li>
-              ))}
+              {diagnoses.slice(0, 8).map(diagnosis => {
+                const finding = findingsById.get(`finding:${diagnosis.id}`);
+                return (
+                  <li key={diagnosis.id}>
+                    <button
+                      type="button"
+                      aria-label={`定位诊断：${diagnosis.title}`}
+                      onClick={() => navigateDiagnosis(diagnosis)}
+                    >
+                      <strong>{diagnosis.title}</strong>
+                      <span>
+                        {DIAGNOSIS_CONFIDENCE_LABELS[diagnosis.confidence]}
+                        {' · '}{DIAGNOSIS_CATEGORY_LABELS[diagnosis.category]}
+                        {finding
+                          ? ` · ${ATTRIBUTION_LABELS[finding.attributionLevel]}`
+                          : ''}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </aside>
@@ -452,8 +498,8 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             id="trace-analysis-drawer"
             className="trace-analysis-drawer"
             aria-labelledby="trace-analysis-drawer-heading"
-            aria-hidden={!drawerOpen && !interaction.selection}
-            hidden={!drawerOpen && !interaction.selection}
+            aria-hidden={!expertAnalysisEnabled && !drawerOpen && !interaction.selection}
+            hidden={!expertAnalysisEnabled && !drawerOpen && !interaction.selection}
           >
             <div>
               <h3 id="trace-analysis-drawer-heading">分析详情</h3>
@@ -477,7 +523,41 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
                   </div>
                   <div>
                     <dt>发起事件</dt>
-                    <dd>{clientSnapshot.eventDetail.detail.initiatorId ?? '未提供'}</dd>
+                    <dd>
+                      {clientSnapshot.eventDetail.detail.initiatorId ? (
+                        <button
+                          type="button"
+                          onClick={() => openDetail(clientSnapshot.eventDetail!.detail.initiatorId!)}
+                        >
+                          跳转发起事件
+                        </button>
+                      ) : '当前 Trace 未提供'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>父事件</dt>
+                    <dd>
+                      {clientSnapshot.eventDetail.detail.parentId ? (
+                        <button
+                          type="button"
+                          onClick={() => openDetail(clientSnapshot.eventDetail!.detail.parentId!)}
+                        >
+                          跳转父事件
+                        </button>
+                      ) : '当前 Trace 未提供'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>子事件</dt>
+                    <dd>
+                      {clientSnapshot.eventDetail.detail.childIds.length > 0
+                        ? clientSnapshot.eventDetail.detail.childIds.slice(0, 5).map(childId => (
+                            <button type="button" key={childId} onClick={() => openDetail(childId)}>
+                              跳转子事件
+                            </button>
+                          ))
+                        : '当前 Trace 未提供'}
+                    </dd>
                   </div>
                 </dl>
                 <button type="button" onClick={queryEvidence}>查看原始证据白名单详情</button>
@@ -512,6 +592,17 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             {detailError && <p className="trace-export-error" role="alert">{detailError}</p>}
             {selectionError && <p className="trace-export-error" role="alert">{selectionError}</p>}
             {evidenceError && <p className="trace-export-error" role="alert">{evidenceError}</p>}
+            {expertAnalysisEnabled && (
+              <ExpertAnalysisDrawer
+                client={client}
+                store={store}
+                onOpenEvent={openDetail}
+                onEscape={() => {
+                  if (store.hasHistory()) restorePrevious();
+                  else store.highlightEntity(undefined);
+                }}
+              />
+            )}
           </section>
 
           <section className="trace-timeline-narrow-list" aria-labelledby="trace-narrow-list-heading">

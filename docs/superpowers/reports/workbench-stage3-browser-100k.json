@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 3,
+  "status": "browser-benchmark-verified",
+  "codeRef": "62d5ea87bb18615e590c23f35af377a87cfceb08+stage3-working-tree",
+  "workingTreeDiffHash": "205954a73d7504ea5d3ed6e112267627101abf23ce9b9b65303ad82196203c36",
+  "runner": {
+    "kind": "repository-cdp-product-components",
+    "command": "node scripts/run-workbench-stage3-browser.js",
+    "playwright": false,
+    "componentMounts": {
+      "TraceTimelineWorkbench": true,
+      "TimelineCanvas": true,
+      "ScreenshotFilmstrip": true,
+      "TimelineInteractionStore": true,
+      "FlameChartCanvas": true,
+      "ExpertAnalysisDrawer": true,
+      "CallTree": true,
+      "BottomUp": true,
+      "EventLog": true,
+      "Search": true
+    }
+  },
+  "environment": {
+    "browserUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+    "operatingSystem": "darwin",
+    "cpuLogicalCores": 10,
+    "deviceMemoryGiB": 16,
+    "dpr": 1
+  },
+  "corpus": {
+    "sourceBytes": 8578454,
+    "jsonBytes": 8578454,
+    "eventCount": 100000,
+    "eventFamilyDistribution": {
+      "cpu-profile": 19902,
+      "rendering": 20000,
+      "interaction": 20000,
+      "frames": 20000,
+      "network": 19999,
+      "screenshot": 99
+    },
+    "screenshotEncodedBytes": 4752,
+    "screenshotDecodedBytes": 1622016,
+    "fileReadMs": 2.699999988079071,
+    "jsonParseMs": 15.900000035762787,
+    "indexBuildMs": 388.89999997615814,
+    "sampleHash": "b54923466283c8c60a544882034be2ed2a815e4005826694a22d2d926dd1d832"
+  },
+  "runs": {
+    "warmupCount": 5,
+    "validRunCount": 10
+  },
+  "timings": {
+    "viewportQuery": {
+      "samplesMs": [
+        2.3,
+        2.2,
+        2,
+        1.9,
+        1.8,
+        1.5,
+        1.4,
+        1.3,
+        1.2,
+        2
+      ],
+      "p50Ms": 1.8,
+      "p95Ms": 2.3
+    },
+    "selectionQuery": {
+      "samplesMs": [
+        13.9,
+        16.6,
+        17.8,
+        16.2,
+        15.6,
+        16.3,
+        17.5,
+        15.7,
+        16.2,
+        14.3
+      ],
+      "p50Ms": 16.2,
+      "p95Ms": 17.8
+    },
+    "canvasDraw": {
+      "samplesMs": [
+        30.2,
+        31,
+        32.4,
+        30.5,
+        31.1,
+        30,
+        30.9,
+        32.8,
+        31.7,
+        32.7
+      ],
+      "p50Ms": 31,
+      "p95Ms": 32.8
+    },
+    "zoom": {
+      "samplesMs": [
+        16.2,
+        17.9,
+        16,
+        15.9,
+        16.2,
+        14.5,
+        16.2,
+        17.8,
+        14.2,
+        14.7
+      ],
+      "p50Ms": 16,
+      "p95Ms": 17.9
+    },
+    "pan": {
+      "samplesMs": [
+        14.1,
+        16,
+        14.4,
+        17.7,
+        15.9,
+        17.6,
+        14.1,
+        16.2,
+        17.8,
+        17
+      ],
+      "p50Ms": 16,
+      "p95Ms": 17.8
+    },
+    "hover": {
+      "samplesMs": [
+        26.093,
+        29.101,
+        28.849,
+        30.446,
+        28.071,
+        29.103,
+        26.176,
+        28.491,
+        25.3,
+        29.45
+      ],
+      "p50Ms": 28.491,
+      "p95Ms": 30.446
+    },
+    "flameChartQuery": {
+      "samplesMs": [
+        2,
+        1.2,
+        1,
+        1.4,
+        1.8,
+        2,
+        1.7,
+        1.7,
+        2.1,
+        1.9
+      ],
+      "p50Ms": 1.7,
+      "p95Ms": 2.1
+    },
+    "callTreeQuery": {
+      "samplesMs": [
+        1.8,
+        0.9,
+        1.1,
+        0.9,
+        1,
+        0.9,
+        1.7,
+        1.5,
+        1.6,
+        1.4
+      ],
+      "p50Ms": 1.1,
+      "p95Ms": 1.8
+    },
+    "bottomUpQuery": {
+      "samplesMs": [
+        1.6,
+        1.3,
+        1.4,
+        0.8,
+        0.7,
+        1.3,
+        1.6,
+        1.2,
+        0.9,
+        1.7
+      ],
+      "p50Ms": 1.3,
+      "p95Ms": 1.7
+    },
+    "eventLogQuery": {
+      "samplesMs": [
+        3.2,
+        3.2,
+        2,
+        1.6,
+        2.9,
+        2.1,
+        3.1,
+        2.5,
+        2.2,
+        3.2
+      ],
+      "p50Ms": 2.5,
+      "p95Ms": 3.2
+    },
+    "searchQuery": {
+      "samplesMs": [
+        0.4,
+        0.3,
+        0.2,
+        0.2,
+        0.2,
+        0.3,
+        0.6,
+        0.4,
+        0.3,
+        0.4
+      ],
+      "p50Ms": 0.3,
+      "p95Ms": 0.6
+    },
+    "flameChartInteraction": {
+      "samplesMs": [
+        16.8,
+        17.2,
+        17.2,
+        16.6,
+        15.8,
+        15.3,
+        15.6,
+        18.1,
+        16.4,
+        18.7
+      ],
+      "p50Ms": 16.6,
+      "p95Ms": 18.7
+    },
+    "callTreeInteraction": {
+      "samplesMs": [
+        16.7,
+        18.2,
+        16.7,
+        16.5,
+        16.8,
+        15.2,
+        16.7,
+        15.6,
+        18.3,
+        17.5
+      ],
+      "p50Ms": 16.7,
+      "p95Ms": 18.3
+    },
+    "bottomUpInteraction": {
+      "samplesMs": [
+        16.5,
+        15.1,
+        15.6,
+        17,
+        16.9,
+        16.8,
+        16.8,
+        16,
+        16.8,
+        16.9
+      ],
+      "p50Ms": 16.8,
+      "p95Ms": 17
+    },
+    "eventLogInteraction": {
+      "samplesMs": [
+        15.5,
+        17,
+        18.3,
+        16,
+        16.1,
+        16.8,
+        16.8,
+        16.8,
+        15.4,
+        15.3
+      ],
+      "p50Ms": 16.1,
+      "p95Ms": 18.3
+    },
+    "searchInteraction": {
+      "samplesMs": [
+        14.1,
+        15.1,
+        13.2,
+        16.3,
+        15.8,
+        14.2,
+        12.1,
+        14.1,
+        15.4,
+        15.2
+      ],
+      "p50Ms": 14.2,
+      "p95Ms": 16.3
+    },
+    "cancellationResponse": {
+      "samplesMs": [
+        1.2,
+        1.3,
+        1.3,
+        1.2,
+        1.2,
+        1.1,
+        1,
+        1.2,
+        1.4,
+        2.2
+      ],
+      "p50Ms": 1.2,
+      "p95Ms": 2.2
+    }
+  },
+  "interactions": {
+    "hoverVerified": true,
+    "brushSelectionVerified": true,
+    "detailOpenedByCanvas": true,
+    "returnButtonVisible": true,
+    "filmstripOpened": true,
+    "filmstripDialogClosed": true,
+    "flameChart": true,
+    "callTree": true,
+    "bottomUp": true,
+    "eventLog": true,
+    "search": true,
+    "virtualized": true,
+    "diagnosisNavigation": true
+  },
+  "responsive": {
+    "900": {
+      "canvas": false,
+      "insight": false,
+      "narrow": true,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1100": {
+      "canvas": true,
+      "insight": false,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    },
+    "1280": {
+      "canvas": true,
+      "insight": true,
+      "narrow": false,
+      "horizontalOverflow": false,
+      "passed": true
+    }
+  },
+  "themes": {
+    "lightApplied": true,
+    "darkApplied": true,
+    "distinct": true,
+    "zoom200": true,
+    "reducedMotion": true
+  },
+  "accessibility": {
+    "equivalentEventText": true,
+    "dialogEscape": true,
+    "returnNavigation": true
+  },
+  "transfer": {
+    "workerUiBytes": 8712939
+  },
+  "memory": {
+    "workerPeakBytes": null,
+    "limitation": "The browser does not expose per-Worker peak memory to page JavaScript"
+  },
+  "queue": {
+    "viewport": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 15,
+      "droppedPendingRequestCount": 5
+    },
+    "selection": {
+      "maxQueueDepth": 2,
+      "cancelledRequestCount": 1,
+      "droppedPendingRequestCount": 18
+    },
+    "analysis": {
+      "cpu": {
+        "maxQueueDepth": 2,
+        "cancelledRequestCount": 1,
+        "droppedPendingRequestCount": 0
+      },
+      "eventLog": {
+        "maxQueueDepth": 1,
+        "cancelledRequestCount": 0,
+        "droppedPendingRequestCount": 0
+      },
+      "search": {
+        "maxQueueDepth": 1,
+        "cancelledRequestCount": 0,
+        "droppedPendingRequestCount": 0
+      }
+    }
+  },
+  "resources": {
+    "blobUrlsCreated": 1,
+    "blobUrlsRevoked": 1,
+    "sessionClosed": true,
+    "canvasRemoved": true
+  },
+  "safety": {
+    "maxJsonBytes": 134217728,
+    "limitRaised": false,
+    "rawTraceEventsReturnedToUi": false
+  },
+  "consoleErrors": [],
+  "stage2Regression": {
+    "zoom": {
+      "currentP95Ms": 17.9,
+      "baselineP95Ms": 32.7,
+      "regressionRatio": -0.452599388379205
+    },
+    "pan": {
+      "currentP95Ms": 17.8,
+      "baselineP95Ms": 33.9,
+      "regressionRatio": -0.4749262536873156
+    },
+    "hover": {
+      "currentP95Ms": 30.446,
+      "baselineP95Ms": 65.655,
+      "regressionRatio": -0.5362729418932298
+    },
+    "selection": {
+      "currentP95Ms": 17.8,
+      "baselineP95Ms": 34.6,
+      "regressionRatio": -0.48554913294797686
+    }
+  }
+}

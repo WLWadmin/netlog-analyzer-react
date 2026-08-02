@@ -60,9 +60,20 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     store.getSnapshot,
   );
   const renderedViewport = displayedViewport ?? snapshot.viewport;
-  const activeTracks = useMemo(() => tracks.filter(
-    track => !snapshot.collapsedTrackIds.includes(track.id),
-  ), [snapshot.collapsedTrackIds, tracks]);
+  const activeTracks = useMemo(() => tracks
+    .filter(track => (
+      !snapshot.collapsedTrackIds.includes(track.id)
+      && !snapshot.hiddenTrackIds.includes(track.id)
+    ))
+    .sort((left, right) => (
+      Number(snapshot.pinnedTrackIds.includes(right.id))
+      - Number(snapshot.pinnedTrackIds.includes(left.id))
+    )), [
+    snapshot.collapsedTrackIds,
+    snapshot.hiddenTrackIds,
+    snapshot.pinnedTrackIds,
+    tracks,
+  ]);
   const activeTrackIds = useMemo(
     () => new Set(activeTracks.map(track => track.id)),
     [activeTracks],
@@ -293,15 +304,32 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       </div>
       <div className="trace-timeline-track-toggles" aria-label="轨道折叠控制">
         {tracks.map(track => (
-          <button
-            type="button"
-            key={track.id}
-            aria-expanded={!snapshot.collapsedTrackIds.includes(track.id)}
-            aria-label={`${snapshot.collapsedTrackIds.includes(track.id) ? '展开' : '折叠'} ${track.label}`}
-            onClick={() => store.toggleTrack(track.id)}
-          >
-            {track.label}
-          </button>
+          <span key={track.id}>
+            <button
+              type="button"
+              aria-pressed={snapshot.pinnedTrackIds.includes(track.id)}
+              aria-label={`${snapshot.pinnedTrackIds.includes(track.id) ? '取消固定' : '固定'} ${track.label}`}
+              onClick={() => store.togglePinnedTrack(track.id)}
+            >
+              固定
+            </button>
+            <button
+              type="button"
+              aria-pressed={snapshot.hiddenTrackIds.includes(track.id)}
+              aria-label={`${snapshot.hiddenTrackIds.includes(track.id) ? '显示' : '隐藏'} ${track.label}`}
+              onClick={() => store.toggleHiddenTrack(track.id)}
+            >
+              {snapshot.hiddenTrackIds.includes(track.id) ? '显示' : '隐藏'}
+            </button>
+            <button
+              type="button"
+              aria-expanded={!snapshot.collapsedTrackIds.includes(track.id)}
+              aria-label={`${snapshot.collapsedTrackIds.includes(track.id) ? '展开' : '折叠'} ${track.label}`}
+              onClick={() => store.toggleTrack(track.id)}
+            >
+              {track.label}
+            </button>
+          </span>
         ))}
       </div>
       <canvas

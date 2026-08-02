@@ -154,6 +154,7 @@ async function createClient(
           depth: 0,
           category: 'rendering',
           name: 'Layout',
+          childIds: [],
           evidenceIds: ['trace:event:2'],
         },
       };

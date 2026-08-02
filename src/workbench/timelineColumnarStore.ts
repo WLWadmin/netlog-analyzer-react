@@ -78,6 +78,31 @@ export interface TimelineSelectionSummary {
   };
 }
 
+export interface TimelineEventFilters {
+  names?: string[];
+  categories?: string[];
+  trackIds?: string[];
+  statuses?: Array<NonNullable<WorkbenchTimelineEventDto['status']>>;
+}
+
+export interface TimelineEventLogQuery {
+  range: { startUs: number; endUs: number };
+  limit: number;
+  continuation?: string;
+  query?: string;
+  filters?: TimelineEventFilters;
+}
+
+export interface TimelineEventLogResult {
+  events: WorkbenchTimelineEventDto[];
+  truncation: {
+    truncated: boolean;
+    returnedCount: number;
+    totalMatched: number;
+    continuation?: string;
+  };
+}
+
 export class TimelineQueryCancelled extends Error {
   constructor() {
     super('Timeline query cancelled');
@@ -157,6 +182,7 @@ export class TimelineColumnarStore {
     private readonly threadIndex: Map<string, number[]>,
     private readonly frameIndex: Map<string, number[]>,
     private readonly navigationIndex: Map<string, number[]>,
+    private readonly childSourceIndex: Map<number, number[]>,
   ) {}
 
   static build(inputs: TimelineStoreEventInput[]): TimelineColumnarStore {
@@ -177,6 +203,7 @@ export class TimelineColumnarStore {
     const threadIndex = new Map<string, number[]>();
     const frameIndex = new Map<string, number[]>();
     const navigationIndex = new Map<string, number[]>();
+    const childSourceIndex = new Map<number, number[]>();
     let maxEndUs = Number.NEGATIVE_INFINITY;
 
     const addIndex = <T>(index: Map<T, number[]>, key: T, position: number) => {
@@ -197,6 +224,11 @@ export class TimelineColumnarStore {
       categoryIndexes[position] = intern(strings, input.category);
       depths[position] = Math.max(0, Math.min(65_535, input.depth));
       inputsBySourceIndex.set(input.sourceIndex, input);
+      if (input.parentSourceIndex !== undefined) {
+        const children = childSourceIndex.get(input.parentSourceIndex) ?? [];
+        children.push(input.sourceIndex);
+        childSourceIndex.set(input.parentSourceIndex, children);
+      }
       if (input.processId !== undefined) addIndex(processIndex, input.processId, position);
       if (input.processId !== undefined && input.threadId !== undefined) {
         addIndex(threadIndex, `${input.processId}:${input.threadId}`, position);
@@ -220,6 +252,7 @@ export class TimelineColumnarStore {
       threadIndex,
       frameIndex,
       navigationIndex,
+      childSourceIndex,
     );
   }
 
@@ -420,9 +453,111 @@ export class TimelineColumnarStore {
     };
   }
 
+  async queryEventLog(
+    query: TimelineEventLogQuery,
+    options: {
+      isCancelled(): boolean;
+      timeoutMs: number;
+      now(): number;
+      yieldControl(): Promise<void>;
+      yieldInterval?: number;
+    },
+  ): Promise<TimelineEventLogResult> {
+    if (
+      this.released
+      || !Number.isFinite(query.range.startUs)
+      || !Number.isFinite(query.range.endUs)
+      || query.range.startUs > query.range.endUs
+      || !Number.isInteger(query.limit)
+      || query.limit < 1
+    ) {
+      return {
+        events: [],
+        truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+      };
+    }
+    const firstCandidate = lowerBound(this.prefixMaxEndUs, query.range.startUs);
+    const lastCandidate = upperBound(this.startUs, query.range.endUs);
+    const continuationSourceIndex = query.continuation
+      ? sourceIndexFromEventId(query.continuation)
+      : undefined;
+    const normalizedQuery = query.query?.trim().toLowerCase();
+    const names = query.filters?.names ? new Set(query.filters.names) : undefined;
+    const categories = query.filters?.categories
+      ? new Set(query.filters.categories)
+      : undefined;
+    const trackIds = query.filters?.trackIds
+      ? new Set(query.filters.trackIds)
+      : undefined;
+    const statuses = query.filters?.statuses
+      ? new Set(query.filters.statuses)
+      : undefined;
+    const startedAt = options.now();
+    const yieldInterval = options.yieldInterval ?? 2_048;
+    const events: WorkbenchTimelineEventDto[] = [];
+    let totalMatched = 0;
+    let eligibleMatched = 0;
+    let pastContinuation = continuationSourceIndex === undefined;
+    for (let position = firstCandidate; position < lastCandidate; position += 1) {
+      if (options.isCancelled()) throw new TimelineQueryCancelled();
+      if (options.now() - startedAt > options.timeoutMs) throw new TimelineQueryTimeout();
+      const sourceIndex = this.sourceIndexes[position];
+      const input = this.inputsBySourceIndex.get(sourceIndex);
+      const trackId = this.strings.values[this.trackIndexes[position]];
+      const name = this.strings.values[this.nameIndexes[position]];
+      const category = this.strings.values[this.categoryIndexes[position]];
+      const status = input?.status;
+      const intersects = this.startUs[position] + this.durationUs[position]
+        >= query.range.startUs;
+      const matches = intersects
+        && (!names || names.has(name))
+        && (!categories || categories.has(category))
+        && (!trackIds || trackIds.has(trackId))
+        && (!statuses || (status !== undefined && statuses.has(status)))
+        && (
+          !normalizedQuery
+          || name.toLowerCase().includes(normalizedQuery)
+          || category.toLowerCase().includes(normalizedQuery)
+          || trackId.toLowerCase().includes(normalizedQuery)
+        );
+      if (matches) {
+        totalMatched += 1;
+        if (!pastContinuation && sourceIndex === continuationSourceIndex) {
+          pastContinuation = true;
+        } else if (pastContinuation) {
+          eligibleMatched += 1;
+          if (events.length < query.limit) {
+            events.push(this.dtoAt(position));
+          }
+        }
+      }
+      if ((position - firstCandidate + 1) % yieldInterval === 0) {
+        await options.yieldControl();
+      }
+    }
+    const truncated = events.length > 0 && events.length < eligibleMatched;
+    return {
+      events,
+      truncation: {
+        truncated,
+        returnedCount: events.length,
+        totalMatched,
+        ...(truncated ? { continuation: events[events.length - 1].id } : {}),
+      },
+    };
+  }
+
   getInput(eventIdValue: string): TimelineStoreEventInput | undefined {
     const sourceIndex = sourceIndexFromEventId(eventIdValue);
     return sourceIndex === undefined ? undefined : this.inputsBySourceIndex.get(sourceIndex);
+  }
+
+  childIds(eventIdValue: string): string[] {
+    const sourceIndex = sourceIndexFromEventId(eventIdValue);
+    if (sourceIndex === undefined) return [];
+    return (this.childSourceIndex.get(sourceIndex) ?? [])
+      .sort((left, right) => left - right)
+      .map(eventId);
   }
 
   eventsByProcess(processId: number): WorkbenchTimelineEventDto[] {
@@ -484,6 +619,7 @@ export class TimelineColumnarStore {
     this.threadIndex.clear();
     this.frameIndex.clear();
     this.navigationIndex.clear();
+    this.childSourceIndex.clear();
     this.released = true;
   }
 

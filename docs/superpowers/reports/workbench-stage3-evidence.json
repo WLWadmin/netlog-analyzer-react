@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-08-02",
+  "baseRef": "62d5ea87bb18615e590c23f35af377a87cfceb08",
+  "designSource": {
+    "integratedInWorkingTree": true,
+    "path": "docs/superpowers/specs/2026-07-31-offline-performance-workbench-design.md"
+  },
+  "allowedStates": [
+    "implemented",
+    "automated-verified",
+    "browser-benchmark-verified",
+    "synthetic-corpus-verified",
+    "real-sample-blocked",
+    "stage4-blocked",
+    "stage6-blocked",
+    "release-accepted"
+  ],
+  "releaseAccepted": false,
+  "realSampleGate": {
+    "state": "real-sample-blocked",
+    "reason": "TRACE_SAMPLE_MANIFEST_PATH is not configured"
+  },
+  "workerMemoryGate": {
+    "measured": false,
+    "reason": "Page JavaScript does not expose a separate per-Worker peak"
+  },
+  "precision": {
+    "state": "synthetic-corpus-verified",
+    "source": "src/diagnosis/trace/expertDiagnosis.test.ts",
+    "truePositives": 1,
+    "falsePositives": 0,
+    "reviewedHighConfidenceFindings": 1,
+    "precision": 1,
+    "limitation": "One positive and one negative synthetic extension-activity case only; denominator is insufficient for release precision"
+  },
+  "batches": [
+    {
+      "batchId": "BATCH-20",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/workbench/spike/protocol.ts", "src/workbench/featureFlag.ts"],
+      "testEvidence": ["src/workbench/spike/kernel.test.ts", "src/workbench/featureFlag.test.ts"],
+      "limitations": ["The synchronized V5 design is present in the working tree but is not committed by this task"]
+    },
+    {
+      "batchId": "BATCH-21",
+      "states": ["implemented", "automated-verified", "synthetic-corpus-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/workbench/cpuProfileStore.ts"],
+      "testEvidence": ["src/workbench/cpuProfileStore.test.ts", "src/workbench/sessionKernel.test.ts"],
+      "limitations": ["Real external CPU Profile shapes remain blocked"]
+    },
+    {
+      "batchId": "BATCH-22",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/components/trace/workbench/FlameChartCanvas.tsx"],
+      "testEvidence": ["src/components/trace/workbench/FlameChartCanvas.test.tsx"],
+      "limitations": ["Only synthetic CPU profiles have browser evidence; real external profiles remain blocked"]
+    },
+    {
+      "batchId": "BATCH-23",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/components/trace/workbench/ExpertAnalysisDrawer.tsx"],
+      "testEvidence": ["src/workbench/cpuProfileStore.test.ts"],
+      "limitations": ["Virtualization is a repository-local bounded window, without a new dependency"]
+    },
+    {
+      "batchId": "BATCH-24",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/workbench/timelineColumnarStore.ts", "src/workbench/timelineInteractionStore.ts"],
+      "testEvidence": ["src/workbench/timelineColumnarStore.test.ts", "src/workbench/timelineInteractionStore.test.ts"],
+      "limitations": ["Search covers projected names, categories and tracks; raw args are intentionally unavailable"]
+    },
+    {
+      "batchId": "BATCH-25",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/workbench/sessionKernel.ts", "src/components/trace/workbench/TraceTimelineWorkbench.tsx"],
+      "testEvidence": ["src/workbench/sessionKernel.test.ts", "src/components/trace/workbench/TraceTimelineWorkbench.test.tsx"],
+      "limitations": ["Missing relationship evidence is not inferred from temporal proximity"]
+    },
+    {
+      "batchId": "BATCH-26",
+      "states": ["implemented", "automated-verified", "synthetic-corpus-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/diagnosis/trace/expertDiagnosis.ts"],
+      "testEvidence": ["src/diagnosis/trace/expertDiagnosis.test.ts"],
+      "limitations": ["No trusted page origin degrades classification to unknown; extension IDs are not returned"]
+    },
+    {
+      "batchId": "BATCH-27",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "synthetic-corpus-verified", "real-sample-blocked"],
+      "codeEvidence": ["src/diagnosis/trace/expertDiagnosis.ts", "src/diagnosis/trace/selectTraceDiagnoses.ts"],
+      "testEvidence": ["src/diagnosis/trace/expertDiagnosis.test.ts", "src/diagnosis/trace/selectTraceDiagnoses.test.ts"],
+      "limitations": ["Trace-only overlap never upgrades a finding to confirmed; cross-source causes remain unavailable"]
+    },
+    {
+      "batchId": "BATCH-28",
+      "states": ["implemented", "automated-verified", "browser-benchmark-verified", "real-sample-blocked", "stage4-blocked", "stage6-blocked"],
+      "codeEvidence": ["scripts/run-workbench-stage3-browser.js", "scripts/build-workbench-stage3-evidence.js"],
+      "testEvidence": ["docs/superpowers/reports/workbench-stage3-expert-tasks.json"],
+      "limitations": ["Production component CDP verification passed; 12/12 expert tasks are not closed"]
+    }
+  ]
+}

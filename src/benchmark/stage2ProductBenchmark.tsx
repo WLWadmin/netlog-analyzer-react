@@ -22,6 +22,7 @@ export interface Stage2ProductBenchmarkState {
   queue: {
     viewport: ReturnType<TraceWorkbenchClient['getQueueStats']>;
     selection: ReturnType<TraceWorkbenchClient['getSelectionQueueStats']>;
+    analysis: ReturnType<TraceWorkbenchClient['getAnalysisQueueStats']>;
   };
   sessionClosed: boolean;
   error?: string;
@@ -72,6 +73,23 @@ export async function runStage2ProductBenchmark(): Promise<void> {
         cancelledRequestCount: 0,
         droppedPendingRequestCount: 0,
       },
+      analysis: {
+        cpu: {
+          maxQueueDepth: 0,
+          cancelledRequestCount: 0,
+          droppedPendingRequestCount: 0,
+        },
+        eventLog: {
+          maxQueueDepth: 0,
+          cancelledRequestCount: 0,
+          droppedPendingRequestCount: 0,
+        },
+        search: {
+          maxQueueDepth: 0,
+          cancelledRequestCount: 0,
+          droppedPendingRequestCount: 0,
+        },
+      },
     },
     sessionClosed: false,
   };
@@ -101,9 +119,27 @@ export async function runStage2ProductBenchmark(): Promise<void> {
       },
     };
     const client = new TraceWorkbenchClient(preparation.value.source, transport);
+    const diagnoses = process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS === '1'
+      ? [{
+          id: 'benchmark-long-task',
+          ruleId: 'M1' as const,
+          category: 'main-thread' as const,
+          severity: 'warning' as const,
+          score: 60,
+          title: '合成长任务症状',
+          conclusion: '用于验证诊断导航的合成症状。',
+          confidence: 'medium' as const,
+          evidenceIds: ['trace:event:2'],
+          counterEvidence: [],
+          advice: ['检查合成调用栈。'],
+          factIds: ['benchmark:task'],
+          limitations: ['仅用于合成浏览器验证。'],
+        }]
+      : [];
     const queueTimer = window.setInterval(() => {
       state.queue.viewport = client.getQueueStats();
       state.queue.selection = client.getSelectionQueueStats();
+      state.queue.analysis = client.getAnalysisQueueStats();
       if (state.sessionClosed) window.clearInterval(queueTimer);
     }, 50);
     const indexStartedAt = performance.now();
@@ -111,7 +147,7 @@ export async function runStage2ProductBenchmark(): Promise<void> {
     state.corpus.indexBuildMs = performance.now() - indexStartedAt;
     ReactDOM.createRoot(rootElement).render(
       <ThemeProvider>
-        <TraceTimelineWorkbench client={client} diagnoses={[]} />
+        <TraceTimelineWorkbench client={client} diagnoses={diagnoses} />
       </ThemeProvider>,
     );
     requestAnimationFrame(() => {
