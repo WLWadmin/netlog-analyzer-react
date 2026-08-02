@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "reviewDate": "2026-08-02",
   "reviewer": "TRAE",
-  "baseRef": "ed2fd9e9d85c550aeab90102665f678c6cb91ea4",
+  "baseRef": "6ca3c5fc25233750a10ce92c1630781ccdc935ef",
   "allowedCriterionStatuses": [
     "implemented-verified",
     "implemented-unverified",
@@ -91,6 +91,48 @@
         "skippedSuites": 3,
         "passedTests": 1013,
         "skippedTests": 11
+      },
+      "diffCheck": "passed"
+    }
+  },
+  "stage6Round3": {
+    "releaseAccepted": false,
+    "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
+    "browserVerification": {
+      "state": "not-run",
+      "reason": "浏览器 benchmark 与六档 feature flag 构建按计划延后到 Batch 49–50。"
+    },
+    "batches": [
+      {
+        "batchId": 47,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["仅支持 1–8 个 AND 条件及 name/category/trackId/status/durationUs 白名单字段；不支持 SQL、正则、OR、嵌套表达式或用户代码；结果与证据引用最多 2000 项，证据截断会作为可见限制返回。"]
+      },
+      {
+        "batchId": 48,
+        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "limitations": ["插件是当前会话内的声明式临时轨道规则，只接收白名单投影；不执行源码、不访问网络、文件、存储、截图、evidence payload 或原始事件；投影与证据引用共享 2000 项预算并显示截断限制，切换会话 client 时清除旧 overlay。"]
+      }
+    ],
+    "reviewFixes": [
+      "自定义查询和插件在证据引用达到 2000 项上限时返回可见截断限制。",
+      "两个面板展示 Worker 返回的 limitations；查询条件变化时清除旧结果。",
+      "Track Plugin 面板在 Workbench client 切换时清除会话级 overlay。"
+    ],
+    "validation": {
+      "targetedJest": {
+        "state": "passed",
+        "passedSuites": 11,
+        "passedTests": 111,
+        "scope": "protocol/guards, timelineColumnarStore, sessionKernel, client, timelineTracks, featureFlag, TimelineCanvas, CustomQueryPanel, TrackPluginPanel, TraceTimelineWorkbench, capabilityAudit"
+      },
+      "targetedEslint": {
+        "state": "passed",
+        "checkedFiles": 21
+      },
+      "fullJest": {
+        "state": "not-run",
+        "reason": "Round 2 的全量 Jest 通过记录早于 Batch 47–48 当前源码；本轮按冻结策略仅执行定向测试，最终综合验证延后到 Batch 49–50。"
       },
       "diffCheck": "passed"
     }
@@ -518,11 +560,11 @@
         {
           "criterionId": "NAV-03-DECLARATIVE-QUERY",
           "points": 1,
-          "status": "absent",
-          "codeEvidence": [],
-          "testEvidence": [],
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineColumnarStore.ts", "src/workbench/sessionKernel.ts", "src/workbench/client.ts", "src/components/trace/workbench/CustomQueryPanel.tsx"],
+          "testEvidence": ["src/workbench/timelineColumnarStore.test.ts", "src/workbench/sessionKernel.test.ts", "src/workbench/client.test.ts", "src/components/trace/workbench/CustomQueryPanel.test.tsx", "src/workbench/stage6Protocol.test.ts"],
           "sampleEvidence": [],
-          "limitations": ["Stage 6 声明式自定义查询尚未实现。"]
+          "limitations": ["仅支持白名单字段和 1–8 个 AND 条件；不支持 SQL、正则、OR、嵌套表达式或用户函数；结果和证据引用最多 2000 项且截断限制可见，匹配数量不构成性能结论。"]
         }
       ]
     },
@@ -662,11 +704,11 @@
         {
           "criterionId": "SAFE-04-TRACK-PLUGIN-PROJECTION",
           "points": 1,
-          "status": "designed",
-          "codeEvidence": ["src/workbench/spike/protocol.ts"],
-          "testEvidence": ["src/workbench/stage6Protocol.test.ts"],
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/spike/protocol.ts", "src/workbench/sessionKernel.ts", "src/components/trace/workbench/TrackPluginPanel.tsx", "src/components/trace/workbench/TimelineCanvas.tsx"],
+          "testEvidence": ["src/workbench/stage6Protocol.test.ts", "src/workbench/sessionKernel.test.ts", "src/workbench/client.test.ts", "src/components/trace/workbench/TrackPluginPanel.test.tsx", "src/components/trace/workbench/TimelineCanvas.test.tsx"],
           "sampleEvidence": [],
-          "limitations": ["仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。"]
+          "limitations": ["插件仅为当前会话内声明式规则，只接收白名单投影；不执行用户代码，不访问 evidence payload、截图、原始事件、网络、文件或持久化存储；投影与证据引用共享 2000 项预算且截断限制可见，切换会话 client 时清除旧 overlay。"]
         }
       ]
     },
@@ -707,11 +749,11 @@
         {
           "criterionId": "DETAIL-02-CUSTOM-QUERY",
           "points": 1,
-          "status": "absent",
-          "codeEvidence": [],
-          "testEvidence": [],
+          "status": "implemented-verified",
+          "codeEvidence": ["src/workbench/timelineColumnarStore.ts", "src/components/trace/workbench/CustomQueryPanel.tsx"],
+          "testEvidence": ["src/workbench/timelineColumnarStore.test.ts", "src/components/trace/workbench/CustomQueryPanel.test.tsx", "src/workbench/stage6Protocol.test.ts"],
           "sampleEvidence": [],
-          "limitations": ["Stage 6 声明式自定义查询尚未实现。"]
+          "limitations": ["查询仅返回 WorkbenchTimelineEventDto 白名单投影，并按当前选区或视口执行；结果、证据引用、continuation 和截断状态有界且限制可见；修改条件会清除旧结果。"]
         }
       ]
     }

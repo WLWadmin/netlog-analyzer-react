@@ -5,6 +5,7 @@ import { WORKBENCH_SCHEMA_VERSION } from './protocol';
 import { WorkbenchSessionKernel } from './sessionKernel';
 import { isWorkbenchResponse } from './spike/protocolGuards';
 import { MinimalTraceEngineAdapter } from './traceEngineAdapter';
+import type { TimelineColumnarStore } from './timelineColumnarStore';
 
 beforeAll(() => {
   Object.defineProperty(global, 'ReadableStream', {
@@ -932,8 +933,6 @@ describe('WorkbenchSessionKernel', () => {
       'animation-composition',
       'memory-trend',
       'gpu-raster',
-      'custom-query',
-      'track-plugin',
     ] as const;
 
     const blocked = await subject.dispatch({
@@ -1175,6 +1174,367 @@ describe('WorkbenchSessionKernel', () => {
     expect(JSON.stringify(response)).not.toMatch(
       /utilization|hardware bottleneck|driver root cause|rawTrace/i,
     );
+  });
+
+  it('runs a bounded declarative query only when Stage 6 is enabled', async () => {
+    const disabled = await kernel();
+    const disabledSession = await createSession(disabled);
+    const request = {
+      type: 'query-custom-events' as const,
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'custom-query',
+      sessionId: disabledSession.sessionId,
+      sessionRevision: disabledSession.sessionRevision,
+      range: { startUs: -100, endUs: 30 },
+      query: {
+        clauses: [
+          { field: 'durationUs' as const, operator: 'gte' as const, value: 5 },
+          { field: 'category' as const, operator: 'contains' as const, value: 'render' },
+        ],
+      },
+      limit: 2_000,
+    };
+
+    await expect(disabled.dispatch(request)).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'unsupported-capability' },
+    });
+
+    enableStage6();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const response = await subject.dispatch({
+      ...request,
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    });
+
+    expect(response).toMatchObject({
+      type: 'custom-query-result',
+      events: [{
+        id: 'trace:timeline:1',
+        name: 'Layout',
+      }],
+      evidenceIds: ['trace:event:1'],
+      truncation: {
+        truncated: false,
+        returnedCount: 1,
+        totalMatched: 1,
+      },
+    });
+    expect(JSON.stringify(response)).not.toMatch(/args|secret|rawTrace/i);
+  });
+
+  it('makes custom-query and plugin evidence truncation visible', async () => {
+    enableStage6();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const timeline = (
+      subject as unknown as {
+        sessionData?: { timeline: TimelineColumnarStore };
+      }
+    ).sessionData?.timeline;
+    if (!timeline) throw new Error('timeline unavailable');
+    const originalGetInput = timeline.getInput.bind(timeline);
+    const denseEvidenceIds = Array.from(
+      { length: 2_001 },
+      (_, index) => `trace:event:${index}`,
+    );
+    jest.spyOn(timeline, 'getInput').mockImplementation(eventId => {
+      const input = originalGetInput(eventId);
+      return input ? { ...input, evidenceIds: denseEvidenceIds } : undefined;
+    });
+
+    const custom = await subject.dispatch({
+      type: 'query-custom-events',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'custom-dense-evidence',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      query: {
+        clauses: [{ field: 'name', operator: 'equals', value: 'Layout' }],
+      },
+      limit: 1,
+    });
+    expect(custom).toMatchObject({
+      type: 'custom-query-result',
+      limitations: expect.arrayContaining([
+        expect.stringMatching(/证据引用.*2000.*截断/),
+      ]),
+    });
+    if (custom.type !== 'custom-query-result') return;
+    expect(custom.evidenceIds).toHaveLength(2_000);
+
+    const plugin = await subject.dispatch({
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'plugin-dense-evidence',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      manifest: {
+        pluginId: 'dense-evidence',
+        label: 'Dense Evidence',
+        query: {
+          clauses: [{ field: 'name', operator: 'equals', value: 'Layout' }],
+        },
+        maxEvents: 1,
+      },
+    });
+    expect(plugin).toMatchObject({
+      type: 'track-plugin-result',
+      limitations: expect.arrayContaining([
+        expect.stringMatching(/证据引用.*2000.*截断/),
+      ]),
+    });
+    if (plugin.type !== 'track-plugin-result' || plugin.operation === 'removed') return;
+    expect(plugin.projectedEvents[0].evidenceIds).toHaveLength(2_000);
+  });
+
+  it('times out declarative queries without damaging the session', async () => {
+    enableStage6();
+    let now = 0;
+    const subject = await kernel({
+      queryYieldInterval: 1,
+      queryTimeoutMs: 1,
+      now: () => ++now,
+    });
+    const created = await createSession(subject);
+    const timedOut = await subject.dispatch({
+      type: 'query-custom-events',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'custom-timeout',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      query: {
+        clauses: [{ field: 'name', operator: 'contains', value: 'a' }],
+      },
+      limit: 100,
+    });
+
+    expect(timedOut).toMatchObject({
+      type: 'structured-error',
+      error: { code: 'query-timeout', recoverable: true },
+    });
+    expect(subject.getResourceStats()).toMatchObject({
+      state: 'degraded',
+      eventCount: 2,
+      activeQueryCount: 0,
+    });
+  });
+
+  it('cancels only the targeted declarative query', async () => {
+    enableStage6();
+    let resume: (() => void) | undefined;
+    let blockQuery = false;
+    const subject = await kernel({
+      queryYieldInterval: 1,
+      yieldControl: () => blockQuery
+        ? new Promise(resolve => {
+            resume = resolve;
+          })
+        : Promise.resolve(),
+    });
+    const created = await createSession(subject);
+    blockQuery = true;
+    const pending = subject.dispatch({
+      type: 'query-custom-events',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'slow-custom-query',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      query: {
+        clauses: [{ field: 'name', operator: 'contains', value: 'a' }],
+      },
+      limit: 100,
+    });
+    await Promise.resolve();
+    await subject.dispatch({
+      type: 'cancel-query',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'cancel-custom-query',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      targetRequestId: 'slow-custom-query',
+    });
+    resume?.();
+
+    await expect(pending).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'query-cancelled', recoverable: true },
+    });
+    expect(subject.getResourceStats()).toMatchObject({
+      state: 'degraded',
+      eventCount: 2,
+      activeQueryCount: 0,
+    });
+  });
+
+  it('installs, refreshes and removes a session-local projected track', async () => {
+    enableStage6();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    const installed = await subject.dispatch({
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'install-layout-watch',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      manifest: {
+        pluginId: 'layout-watch',
+        label: 'Layout Watch',
+        query: {
+          clauses: [{ field: 'name', operator: 'equals', value: 'Layout' }],
+        },
+        maxEvents: 100,
+      },
+    });
+
+    expect(installed).toMatchObject({
+      type: 'track-plugin-result',
+      operation: 'installed',
+      plugin: {
+        pluginId: 'layout-watch',
+        trackId: 'plugin:layout-watch',
+      },
+      projectedEvents: [{
+        eventId: 'plugin:layout-watch:trace:timeline:1',
+        sourceEventId: 'trace:timeline:1',
+        evidenceIds: ['trace:event:1'],
+        trackId: 'plugin:layout-watch',
+        name: 'Layout',
+      }],
+    });
+    expect(isWorkbenchResponse(installed)).toBe(true);
+    expect(JSON.stringify(installed)).not.toMatch(
+      /args|secret|rawEvent|snapshot|headers|url/i,
+    );
+
+    await expect(subject.dispatch({
+      type: 'query-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'refresh-layout-watch',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      pluginId: 'layout-watch',
+    })).resolves.toMatchObject({
+      type: 'track-plugin-result',
+      operation: 'refreshed',
+      projectedEvents: [expect.objectContaining({ name: 'Layout' })],
+    });
+
+    await expect(subject.dispatch({
+      type: 'remove-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'remove-layout-watch',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      pluginId: 'layout-watch',
+    })).resolves.toMatchObject({
+      type: 'track-plugin-result',
+      operation: 'removed',
+      pluginId: 'layout-watch',
+    });
+    await expect(subject.dispatch({
+      type: 'query-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'refresh-removed-layout-watch',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      pluginId: 'layout-watch',
+    })).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'unsupported-capability' },
+    });
+  });
+
+  it('does not leak track plugins into another session', async () => {
+    enableStage6();
+    const first = await kernel();
+    const firstSession = await createSession(first);
+    await first.dispatch({
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'install-session-only',
+      sessionId: firstSession.sessionId,
+      sessionRevision: firstSession.sessionRevision,
+      range: firstSession.session.range,
+      manifest: {
+        pluginId: 'session-only',
+        label: 'Session Only',
+        query: {
+          clauses: [{ field: 'name', operator: 'contains', value: 'Task' }],
+        },
+        maxEvents: 10,
+      },
+    });
+
+    const second = await kernel();
+    const secondSession = await createSession(second);
+    await expect(second.dispatch({
+      type: 'query-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'query-session-only',
+      sessionId: secondSession.sessionId,
+      sessionRevision: secondSession.sessionRevision,
+      range: secondSession.session.range,
+      pluginId: 'session-only',
+    })).resolves.toMatchObject({
+      type: 'structured-error',
+      error: { code: 'unsupported-capability' },
+    });
+  });
+
+  it('keeps session plugins when the comparison baseline is removed', async () => {
+    enableStage6();
+    const subject = await kernel();
+    const created = await createSession(subject);
+    await subject.dispatch({
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'install-before-baseline-remove',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+      range: created.session.range,
+      manifest: {
+        pluginId: 'layout-watch',
+        label: 'Layout Watch',
+        query: {
+          clauses: [{ field: 'name', operator: 'equals', value: 'Layout' }],
+        },
+        maxEvents: 10,
+      },
+    });
+    const removed = await subject.dispatch({
+      type: 'remove-comparison-baseline',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'remove-unset-baseline',
+      sessionId: created.sessionId,
+      sessionRevision: created.sessionRevision,
+    });
+    if (removed.type !== 'comparison-baseline-result') {
+      throw new Error('comparison removal failed');
+    }
+
+    await expect(subject.dispatch({
+      type: 'query-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'refresh-after-baseline-remove',
+      sessionId: removed.sessionId,
+      sessionRevision: removed.sessionRevision,
+      range: created.session.range,
+      pluginId: 'layout-watch',
+    })).resolves.toMatchObject({
+      type: 'track-plugin-result',
+      operation: 'refreshed',
+      projectedEvents: [expect.objectContaining({ name: 'Layout' })],
+    });
   });
 
   it('releases indexes and evidence when the Worker fails', async () => {

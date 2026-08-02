@@ -198,4 +198,108 @@ describe('TimelineColumnarStore', () => {
       events: [expect.objectContaining({ name: 'Layout callback' })],
     });
   });
+
+  it('runs bounded declarative AND queries over the range index', async () => {
+    const store = TimelineColumnarStore.build([
+      {
+        ...events[0],
+        sourceIndex: 0,
+        trackId: 'rendering',
+        category: 'rendering',
+        name: 'Layout',
+        startUs: -10,
+        durationUs: 20,
+        status: 'warning' as const,
+      },
+      {
+        ...events[0],
+        sourceIndex: 1,
+        trackId: 'rendering',
+        category: 'rendering',
+        name: 'Layout callback',
+        startUs: 10,
+        durationUs: 4,
+        status: 'warning' as const,
+      },
+      {
+        ...events[0],
+        sourceIndex: 2,
+        trackId: 'main',
+        category: 'script',
+        name: 'Layout',
+        startUs: 20,
+        durationUs: 30,
+        status: 'normal' as const,
+      },
+    ]);
+    const options = {
+      isCancelled: () => false,
+      timeoutMs: 1_000,
+      now: () => 0,
+      yieldControl: () => Promise.resolve(),
+    };
+    const result = await store.queryCustomEvents({
+      range: { startUs: 0, endUs: 30 },
+      query: {
+        clauses: [
+          { field: 'name', operator: 'contains', value: 'Layout' },
+          { field: 'trackId', operator: 'equals', value: 'rendering' },
+          { field: 'status', operator: 'equals', value: 'warning' },
+          { field: 'durationUs', operator: 'gte', value: 5 },
+        ],
+      },
+      limit: 1,
+    }, options);
+
+    expect(result.events.map(event => event.id)).toEqual(['trace:timeline:0']);
+    expect(result.truncation).toEqual({
+      truncated: false,
+      returnedCount: 1,
+      totalMatched: 1,
+    });
+  });
+
+  it('bounds declarative query results and continues deterministically', async () => {
+    const store = TimelineColumnarStore.build(Array.from(
+      { length: 2_001 },
+      (_, index) => ({
+        ...events[0],
+        sourceIndex: index,
+        startUs: index,
+        durationUs: 1,
+        name: `task-${index}`,
+      }),
+    ));
+    const options = {
+      isCancelled: () => false,
+      timeoutMs: 1_000,
+      now: () => 0,
+      yieldControl: () => Promise.resolve(),
+    };
+    const first = await store.queryCustomEvents({
+      range: { startUs: 0, endUs: 3_000 },
+      query: {
+        clauses: [{ field: 'name', operator: 'contains', value: 'task-' }],
+      },
+      limit: 2_000,
+    }, options);
+
+    expect(first.events).toHaveLength(2_000);
+    expect(first.truncation).toMatchObject({
+      truncated: true,
+      returnedCount: 2_000,
+      totalMatched: 2_001,
+      continuation: 'trace:timeline:1999',
+    });
+    await expect(store.queryCustomEvents({
+      range: { startUs: 0, endUs: 3_000 },
+      query: {
+        clauses: [{ field: 'name', operator: 'contains', value: 'task-' }],
+      },
+      limit: 2_000,
+      continuation: first.truncation.continuation,
+    }, options)).resolves.toMatchObject({
+      events: [expect.objectContaining({ id: 'trace:timeline:2000' })],
+    });
+  });
 });

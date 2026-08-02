@@ -1,16 +1,17 @@
 # Performance Workbench 能力证据表
 
-- 基础代码 ref：`ed2fd9e9d85c550aeab90102665f678c6cb91ea4`
+- 基础代码 ref：`6ca3c5fc25233750a10ce92c1630781ccdc935ef`
 - 复核人：TRAE
 - 复核日期：2026-08-02
-- 自动计分：82 / 100
+- 自动计分：85 / 100
 - 发布验收：未接受
 - 外部门禁：`real-sample-blocked`、`worker-peak-memory-unmeasured`
 - Stage 6 第一轮：Batch 41 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 42 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 43 `implemented`/`automated-verified`/`real-sample-blocked`
 - Stage 6 第二轮：Batch 44 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 45 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 46 `audited`/`automated-verified`/`real-sample-blocked`
+- Stage 6 第三轮：Batch 47 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 48 `implemented`/`automated-verified`/`real-sample-blocked`
 - Stage 6 开关：`REACT_APP_ENABLE_TRACE_STAGE6=1`（仍依赖前五档 Workbench 开关）
-- 浏览器验证：第一轮 `not-run`，第二轮 `not-run`
-- 状态计数：implemented-verified=28，implemented-unverified=12，designed=1，absent=3
+- 浏览器验证：第一轮 `not-run`，第二轮 `not-run`，第三轮 `not-run`
+- 状态计数：implemented-verified=31，implemented-unverified=12，designed=0，absent=1
 - 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。
 
 ## 域汇总
@@ -22,10 +23,10 @@
 | 网络瀑布 | 7 | 10 | NET-01-REAL-REQUEST-SHAPES: 仓库外真实请求样本门禁未通过。<br>NET-02-CONNECTION-PHASES: 离线 Trace 尚未提供完整 DNS/TCP/TLS/代理阶段瀑布。 |
 | 渲染、帧与交互 | 8 | 10 | RFI-01-REAL-RENDERING-SAMPLE: 真实渲染故障样本仍为 real-sample-blocked。<br>RFI-03-REAL-SCREENSHOT-TRACE: 仓库外真实截图 Trace 未验证。 |
 | Call Tree、Bottom-up、Event Log | 8 | 10 | AGG-01-BROWSER-WORKFLOW: master 无可提交的 Stage 5 浏览器工作流 artifact。<br>AGG-01-REAL-PROFILE-WORKFLOW: 真实 CPU Profile 工作流仍为 real-sample-blocked。 |
-| 导航、选区与查询 | 8 | 10 | NAV-04-BROWSER-SESSION: 缺少 master 内可提交的浏览器会话 artifact。<br>NAV-03-DECLARATIVE-QUERY: Stage 6 声明式自定义查询尚未实现。 |
+| 导航、选区与查询 | 9 | 10 | NAV-04-BROWSER-SESSION: 缺少 master 内可提交的浏览器会话 artifact。 |
 | 自动诊断与证据 | 7 | 10 | DIA-01-REAL-PRECISION: 真实故障样本精确率门禁未通过。<br>DIA-02-REAL-CROSS-SOURCE: 真实 Trace/HAR/NetLog 配对仍为 real-sample-blocked。 |
-| 稳定性、隐私与离线能力 | 8 | 10 | SAFE-02-WORKER-PEAK-MEMORY: 页面 JavaScript 无法测量独立 Worker 峰值内存。<br>SAFE-04-TRACK-PLUGIN-PROJECTION: 仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。 |
-| 事件详情、搜索与过滤 | 4 | 5 | DETAIL-02-CUSTOM-QUERY: Stage 6 声明式自定义查询尚未实现。 |
+| 稳定性、隐私与离线能力 | 9 | 10 | SAFE-02-WORKER-PEAK-MEMORY: 页面 JavaScript 无法测量独立 Worker 峰值内存。 |
+| 事件详情、搜索与过滤 | 5 | 5 | 无 |
 
 ## Criteria 明细
 
@@ -61,7 +62,7 @@
 | NAV-04-SESSION-LIFECYCLE | 导航、选区与查询 | 4 | `implemented-verified` | `src/workbench/client.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/workers/traceWorkerTask.ts` | `src/workbench/client.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workers/traceWorkerClient.test.ts`<br>`SYNTH-WB-CONTRACT` | 能力仍位于内部 feature flag 后。 |
 | NAV-04-BROWSER-SESSION | 导航、选区与查询 | 1 | `implemented-unverified` | `src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/components/trace/workbench/TraceTimelineWorkbench.test.tsx` | 缺少 master 内可提交的浏览器会话 artifact。 |
 | NAV-03-HISTORY-FOCUS | 导航、选区与查询 | 2 | `implemented-verified` | `src/workbench/timelineInteractionStore.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/timelineInteractionStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`SYNTH-WB-CONTRACT` | 页面刷新后不恢复本地文件。 |
-| NAV-03-DECLARATIVE-QUERY | 导航、选区与查询 | 1 | `absent` | 无 | 无 | Stage 6 声明式自定义查询尚未实现。 |
+| NAV-03-DECLARATIVE-QUERY | 导航、选区与查询 | 1 | `implemented-verified` | `src/workbench/timelineColumnarStore.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/workbench/client.ts`<br>`src/components/trace/workbench/CustomQueryPanel.tsx` | `src/workbench/timelineColumnarStore.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/client.test.ts`<br>`src/components/trace/workbench/CustomQueryPanel.test.tsx`<br>`src/workbench/stage6Protocol.test.ts` | 仅支持白名单字段和 1–8 个 AND 条件；不支持 SQL、正则、OR、嵌套表达式或用户函数；结果和证据引用最多 2000 项且截断限制可见，匹配数量不构成性能结论。 |
 | DIA-01-DETERMINISTIC-RULES | 自动诊断与证据 | 6 | `implemented-verified` | `src/diagnosis/trace/traceDiagnosisRules.ts`<br>`src/diagnosis/trace/selectTraceDiagnoses.ts` | `src/diagnosis/trace/traceGoldenCorpus.test.ts`<br>`src/diagnosis/trace/selectTraceDiagnoses.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 合成 corpus 只证明规则边界。 |
 | DIA-01-REAL-PRECISION | 自动诊断与证据 | 2 | `implemented-unverified` | `src/diagnosis/trace/traceDiagnosisRules.ts` | 无 | 真实故障样本精确率门禁未通过。 |
 | DIA-02-COMPETING-CAUSES | 自动诊断与证据 | 1 | `implemented-verified` | `src/diagnosis/trace/expertDiagnosis.ts` | `src/diagnosis/trace/expertDiagnosis.test.ts`<br>`SYNTH-EXTENSION-POSITIVE-NEGATIVE` | 时间重叠只允许 possible-contributor。 |
@@ -71,9 +72,9 @@
 | SAFE-02-WORKER-PEAK-MEMORY | 稳定性、隐私与离线能力 | 1 | `implemented-unverified` | `src/benchmark/workbenchBrowserBenchmark.ts` | 无 | 页面 JavaScript 无法测量独立 Worker 峰值内存。 |
 | SAFE-03-PROGRESS | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | `src/upload/analysisProgress.ts`<br>`src/workbench/sessionKernel.ts` | `src/upload/analysisProgress.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`SYNTH-PROGRESS` | 进度不推导发布验收状态。 |
 | SAFE-04-EXPORT-PROJECTION | 稳定性、隐私与离线能力 | 2 | `implemented-verified` | `src/parsers/trace/exportTraceReport.ts` | `src/parsers/trace/exportTraceReport.test.ts`<br>`TRACE-GOLDEN-CORPUS` | 截图不在默认导出内。 |
-| SAFE-04-TRACK-PLUGIN-PROJECTION | 稳定性、隐私与离线能力 | 1 | `designed` | `src/workbench/spike/protocol.ts` | `src/workbench/stage6Protocol.test.ts` | 仅冻结脱敏投影 DTO；受控插件执行尚未实现，因此不计分。 |
+| SAFE-04-TRACK-PLUGIN-PROJECTION | 稳定性、隐私与离线能力 | 1 | `implemented-verified` | `src/workbench/spike/protocol.ts`<br>`src/workbench/sessionKernel.ts`<br>`src/components/trace/workbench/TrackPluginPanel.tsx`<br>`src/components/trace/workbench/TimelineCanvas.tsx` | `src/workbench/stage6Protocol.test.ts`<br>`src/workbench/sessionKernel.test.ts`<br>`src/workbench/client.test.ts`<br>`src/components/trace/workbench/TrackPluginPanel.test.tsx`<br>`src/components/trace/workbench/TimelineCanvas.test.tsx` | 插件仅为当前会话内声明式规则，只接收白名单投影；不执行用户代码，不访问 evidence payload、截图、原始事件、网络、文件或持久化存储；投影与证据引用共享 2000 项预算且截断限制可见，切换会话 client 时清除旧 overlay。 |
 | DETAIL-01-EVIDENCE-DETAIL | 事件详情、搜索与过滤 | 2 | `implemented-verified` | `src/workbench/rawEvidenceStore.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.tsx` | `src/workbench/rawEvidenceStore.test.ts`<br>`src/components/trace/workbench/TraceTimelineWorkbench.test.tsx`<br>`SYNTH-WB-CONTRACT` | UI 不接收 args、请求头或完整 URL 参数。 |
 | DETAIL-02-SEARCH-FILTER | 事件详情、搜索与过滤 | 2 | `implemented-verified` | `src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.tsx` | `src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/ExpertAnalysisDrawer.test.tsx`<br>`SYNTH-WB-CONTRACT` | 搜索只匹配白名单名称、分类、轨道和状态。 |
-| DETAIL-02-CUSTOM-QUERY | 事件详情、搜索与过滤 | 1 | `absent` | 无 | 无 | Stage 6 声明式自定义查询尚未实现。 |
+| DETAIL-02-CUSTOM-QUERY | 事件详情、搜索与过滤 | 1 | `implemented-verified` | `src/workbench/timelineColumnarStore.ts`<br>`src/components/trace/workbench/CustomQueryPanel.tsx` | `src/workbench/timelineColumnarStore.test.ts`<br>`src/components/trace/workbench/CustomQueryPanel.test.tsx`<br>`src/workbench/stage6Protocol.test.ts` | 查询仅返回 WorkbenchTimelineEventDto 白名单投影，并按当前选区或视口执行；结果、证据引用、continuation 和截断状态有界且限制可见；修改条件会清除旧结果。 |
 
 该汇总由 `node scripts/build-workbench-stage0-evidence.js` 从 JSON 明细生成，不手写总体完成度。

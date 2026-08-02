@@ -532,4 +532,184 @@ describe('TraceWorkbenchClient', () => {
     await expect(first).rejects.toThrow('response is stale');
     expect(client.getSnapshot().discardedResponseCount).toBe(1);
   });
+
+  it('uses an independent latest-request channel for declarative queries', async () => {
+    const requests: Array<Extract<
+      WorkbenchRequest,
+      { type: 'query-custom-events' }
+    >> = [];
+    const resolvers: Array<(response: WorkbenchResponse) => void> = [];
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => {
+        if (request.type === 'create-session') {
+          return Promise.resolve(sessionResponse(request.requestId));
+        }
+        if (request.type === 'cancel-query') {
+          return Promise.resolve({
+            type: 'query-cancelled',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            targetRequestId: request.targetRequestId,
+          });
+        }
+        if (request.type !== 'query-custom-events') {
+          throw new Error('unexpected request');
+        }
+        requests.push(request);
+        return new Promise(resolve => resolvers.push(resolve));
+      },
+      close: jest.fn(),
+    });
+    await client.createSession();
+    const query = {
+      clauses: [{ field: 'name' as const, operator: 'contains' as const, value: 'Task' }],
+    };
+    const first = client.queryCustomEvents({ startUs: 0, endUs: 10 }, query);
+    const latest = client.queryCustomEvents({ startUs: 20, endUs: 30 }, query);
+    await Promise.resolve();
+    const response = (
+      request: typeof requests[number],
+    ): WorkbenchResponse => ({
+      type: 'custom-query-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      range: request.range,
+      events: [],
+      evidenceIds: [],
+      limitations: ['匹配数量不表示性能问题或根因。'],
+      truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+    });
+
+    resolvers[0](response(requests[0]));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (requests.length === 2) break;
+      await Promise.resolve();
+    }
+    resolvers[1](response(requests[1]));
+    await Promise.all([first, latest]);
+
+    expect(client.getSnapshot().customQuery?.range).toEqual({
+      startUs: 20,
+      endUs: 30,
+    });
+    expect(client.getSnapshot().discardedResponseCount).toBe(1);
+  });
+
+  it('discards stale projected track responses on the per-plugin channel', async () => {
+    const requests: Array<Extract<
+      WorkbenchRequest,
+      { type: 'query-track-plugin' }
+    >> = [];
+    const resolvers: Array<(response: WorkbenchResponse) => void> = [];
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => {
+        if (request.type === 'create-session') {
+          return Promise.resolve(sessionResponse(request.requestId));
+        }
+        if (request.type === 'cancel-query') {
+          return Promise.resolve({
+            type: 'query-cancelled',
+            schemaVersion: WORKBENCH_SCHEMA_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            sessionRevision: request.sessionRevision,
+            targetRequestId: request.targetRequestId,
+          });
+        }
+        if (request.type !== 'query-track-plugin') {
+          throw new Error('unexpected request');
+        }
+        requests.push(request);
+        return new Promise(resolve => resolvers.push(resolve));
+      },
+      close: jest.fn(),
+    });
+    await client.createSession();
+    const first = client.queryTrackPlugin(
+      'layout-watch',
+      { startUs: 0, endUs: 10 },
+    );
+    const latest = client.queryTrackPlugin(
+      'layout-watch',
+      { startUs: 20, endUs: 30 },
+    );
+    const response = (
+      request: typeof requests[number],
+    ): WorkbenchResponse => ({
+      type: 'track-plugin-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      sessionRevision: request.sessionRevision,
+      operation: 'refreshed',
+      plugin: {
+        pluginId: 'layout-watch',
+        label: 'Layout Watch',
+        trackId: 'plugin:layout-watch',
+      },
+      range: request.range,
+      projectedEvents: [],
+      evidenceIds: [],
+      limitations: [],
+      truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+    });
+
+    resolvers[0](response(requests[0]));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (requests.length === 2) break;
+      await Promise.resolve();
+    }
+    resolvers[1](response(requests[1]));
+    await Promise.all([first, latest]);
+
+    expect(client.getSnapshot().discardedResponseCount).toBe(1);
+  });
+
+  it('keeps a track plugin query error local to the plugin panel', async () => {
+    const client = new TraceWorkbenchClient({
+      sourceId: 'source',
+      parserId: 'trace',
+      fingerprint: 'trace:1:1',
+    }, {
+      dispatch: request => {
+        if (request.type === 'create-session') {
+          return Promise.resolve(sessionResponse(request.requestId));
+        }
+        if (request.type !== 'query-track-plugin') {
+          throw new Error('unexpected request');
+        }
+        return Promise.resolve({
+          type: 'structured-error',
+          schemaVersion: WORKBENCH_SCHEMA_VERSION,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          sessionRevision: request.sessionRevision,
+          error: {
+            code: 'query-timeout',
+            message: 'plugin query timed out',
+            recoverable: true,
+          },
+        });
+      },
+      close: jest.fn(),
+    });
+    await client.createSession();
+
+    await client.queryTrackPlugin('layout-watch', { startUs: 0, endUs: 10 });
+
+    expect(client.getSnapshot().lastError).toBeUndefined();
+    expect(client.getSnapshot().queryErrors).toEqual({});
+  });
 });

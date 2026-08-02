@@ -1,13 +1,17 @@
 import type {
   EventDetailResultResponse,
+  InstallTrackPluginRequest,
   QueryBottomUpRequest,
   QueryCallTreeRequest,
+  QueryCustomEventsRequest,
   QueryEventLogRequest,
   QueryFlameChartRequest,
   QuerySearchRequest,
+  QueryTrackPluginRequest,
   QuerySelectionRequest,
   QueryViewportRequest,
   StructuredErrorResponse,
+  RemoveTrackPluginRequest,
   ViewportResultResponse,
   WorkbenchResponse,
   WorkbenchSessionDescriptor,
@@ -113,7 +117,11 @@ type LatestQueryRequest =
   | QueryCallTreeRequest
   | QueryBottomUpRequest
   | QueryEventLogRequest
-  | QuerySearchRequest;
+  | QuerySearchRequest
+  | QueryCustomEventsRequest
+  | InstallTrackPluginRequest
+  | QueryTrackPluginRequest
+  | RemoveTrackPluginRequest;
 
 interface PendingQuery<TRequest extends LatestQueryRequest> {
   request: TRequest;
@@ -201,3 +209,11 @@ export class LatestEventLogDispatcher
 
 export class LatestSearchDispatcher
   extends LatestQueryDispatcher<QuerySearchRequest> {}
+
+export class LatestCustomQueryDispatcher
+  extends LatestQueryDispatcher<QueryCustomEventsRequest> {}
+
+export class LatestTrackPluginDispatcher
+  extends LatestQueryDispatcher<
+    InstallTrackPluginRequest | QueryTrackPluginRequest | RemoveTrackPluginRequest
+  > {}

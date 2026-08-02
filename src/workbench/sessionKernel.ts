@@ -3,6 +3,7 @@ import {
   type CapabilityMissingResponse,
   type CreateSessionRequest,
   type QueryEventDetailRequest,
+  type QueryCustomEventsRequest,
   type QueryFlameChartRequest,
   type QueryCallTreeRequest,
   type QueryBottomUpRequest,
@@ -19,6 +20,7 @@ import {
   type WorkbenchSessionRef,
   type WorkbenchSessionState,
   type WorkbenchSourceRef,
+  type WorkbenchTrackPluginManifest,
 } from './protocol';
 import {
   CpuQueryCancelled,
@@ -110,6 +112,7 @@ export class WorkbenchSessionKernel {
     data: TraceEngineSessionData;
     sourceBytes: number;
   };
+  private readonly trackPlugins = new Map<string, WorkbenchTrackPluginManifest>();
   private readonly now: () => number;
   private readonly yieldControl: () => Promise<void>;
   private readonly queryTimeoutMs: number;
@@ -184,6 +187,14 @@ export class WorkbenchSessionKernel {
         return this.queryTraceComparison(request);
       case 'query-advanced-analysis':
         return this.queryAdvancedAnalysis(request);
+      case 'query-custom-events':
+        return this.queryCustomEvents(request);
+      case 'install-track-plugin':
+        return this.installTrackPlugin(request);
+      case 'query-track-plugin':
+        return this.queryTrackPlugin(request);
+      case 'remove-track-plugin':
+        return this.removeTrackPlugin(request);
     }
   }
 
@@ -1146,36 +1157,289 @@ export class WorkbenchSessionKernel {
         ...analysis,
       };
     }
-    const result = (() => {
-      switch (request.capability) {
-        case 'custom-query':
-          return {
-            kind: 'custom-query' as const,
-            supportedFields: [],
-            supportedOperators: [],
-          };
-        case 'track-plugin':
-          return {
-            kind: 'track-plugin' as const,
-            projectedEvents: [],
-            maxEvents: 0,
-          };
+    return structuredError(
+      request.requestId,
+      'unsupported-capability',
+      'Stage 6 advanced analysis is unavailable',
+      true,
+      request,
+    );
+  }
+
+  private async queryCustomEvents(
+    request: QueryCustomEventsRequest,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage6Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 6 declarative queries are disabled',
+        true,
+        request,
+      );
+    }
+    const token: QueryToken = { cancelled: false };
+    this.activeQueries.set(request.requestId, token);
+    try {
+      const result = await this.sessionData!.timeline.queryCustomEvents({
+        range: request.range,
+        query: request.query,
+        limit: request.limit,
+        continuation: request.continuation,
+      }, {
+        isCancelled: () => token.cancelled,
+        timeoutMs: this.queryTimeoutMs,
+        now: this.now,
+        yieldControl: this.yieldControl,
+        yieldInterval: this.queryYieldInterval,
+      });
+      const currentSession = this.resolveSession(request);
+      if ('type' in currentSession) return currentSession;
+      const matchingEvidenceIds = [...new Set(result.events.flatMap(event => (
+        this.sessionData!.timeline.getInput(event.id)?.evidenceIds ?? []
+      )))];
+      const evidenceIds = matchingEvidenceIds.slice(0, 2_000);
+      return {
+        type: 'custom-query-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        range: request.range,
+        events: result.events,
+        evidenceIds,
+        limitations: [
+          '仅返回白名单时间轴投影；匹配数量不表示性能问题或根因。',
+          ...(result.truncation.truncated
+            ? ['结果已截断；请使用 continuation 或缩小时间范围。']
+            : []),
+          ...(matchingEvidenceIds.length > evidenceIds.length
+            ? ['证据引用已按 2000 项上限截断；请缩小时间范围继续检查。']
+            : []),
+        ],
+        truncation: result.truncation,
+      };
+    } catch (error) {
+      if (error instanceof TimelineQueryCancelled) {
+        return structuredError(
+          request.requestId,
+          'query-cancelled',
+          'Declarative query was cancelled',
+          true,
+          request,
+        );
       }
-    })();
+      if (error instanceof TimelineQueryTimeout) {
+        return structuredError(
+          request.requestId,
+          'query-timeout',
+          'Declarative query timed out',
+          true,
+          request,
+        );
+      }
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Declarative query failed',
+        true,
+        request,
+      );
+    } finally {
+      this.activeQueries.delete(request.requestId);
+    }
+  }
+
+  private async installTrackPlugin(
+    request: Extract<WorkbenchRequest, { type: 'install-track-plugin' }>,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage6Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 6 track plugins are disabled',
+        true,
+        request,
+      );
+    }
+    if (this.trackPlugins.has(request.manifest.pluginId)) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'A track plugin with this ID already exists in the session',
+        true,
+        request,
+      );
+    }
+    const response = await this.executeTrackPlugin(
+      request,
+      request.manifest,
+      'installed',
+    );
+    if (response.type === 'track-plugin-result') {
+      const currentSession = this.resolveSession(request);
+      if ('type' in currentSession) return currentSession;
+      this.trackPlugins.set(request.manifest.pluginId, request.manifest);
+    }
+    return response;
+  }
+
+  private async queryTrackPlugin(
+    request: Extract<WorkbenchRequest, { type: 'query-track-plugin' }>,
+  ): Promise<WorkbenchResponse> {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage6Enabled()) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Stage 6 track plugins are disabled',
+        true,
+        request,
+      );
+    }
+    const manifest = this.trackPlugins.get(request.pluginId);
+    if (!manifest) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Track plugin is not installed in this session',
+        true,
+        request,
+      );
+    }
+    return this.executeTrackPlugin(request, manifest, 'refreshed');
+  }
+
+  private removeTrackPlugin(
+    request: Extract<WorkbenchRequest, { type: 'remove-track-plugin' }>,
+  ): WorkbenchResponse {
+    const session = this.resolveSession(request);
+    if ('type' in session) return session;
+    if (!isTraceStage6Enabled() || !this.trackPlugins.delete(request.pluginId)) {
+      return structuredError(
+        request.requestId,
+        'unsupported-capability',
+        'Track plugin is not installed in this session',
+        true,
+        request,
+      );
+    }
     return {
-      type: 'advanced-analysis-result',
+      type: 'track-plugin-result',
       schemaVersion: WORKBENCH_SCHEMA_VERSION,
       requestId: request.requestId,
       sessionId: request.sessionId,
       sessionRevision: request.sessionRevision,
-      capability: request.capability,
-      status: 'unavailable',
-      evidenceIds: [],
-      limitations: [
-        `Trace does not provide verified ${request.capability} analysis evidence`,
-      ],
-      result,
+      operation: 'removed',
+      pluginId: request.pluginId,
     };
+  }
+
+  private async executeTrackPlugin(
+    request: Extract<
+      WorkbenchRequest,
+      { type: 'install-track-plugin' | 'query-track-plugin' }
+    >,
+    manifest: WorkbenchTrackPluginManifest,
+    operation: 'installed' | 'refreshed',
+  ): Promise<WorkbenchResponse> {
+    const token: QueryToken = { cancelled: false };
+    this.activeQueries.set(request.requestId, token);
+    try {
+      const result = await this.sessionData!.timeline.queryCustomEvents({
+        range: request.range,
+        query: manifest.query,
+        limit: manifest.maxEvents,
+      }, {
+        isCancelled: () => token.cancelled,
+        timeoutMs: this.queryTimeoutMs,
+        now: this.now,
+        yieldControl: this.yieldControl,
+        yieldInterval: this.queryYieldInterval,
+      });
+      const currentSession = this.resolveSession(request);
+      if ('type' in currentSession) return currentSession;
+      let remainingEvidence = 2_000;
+      let evidenceTruncated = false;
+      const projectedEvents = result.events.map(event => {
+        const sourceEvidenceIds = (
+          this.sessionData!.timeline.getInput(event.id)?.evidenceIds ?? []
+        );
+        const evidenceIds = sourceEvidenceIds.slice(0, remainingEvidence);
+        evidenceTruncated ||= sourceEvidenceIds.length > evidenceIds.length;
+        remainingEvidence -= evidenceIds.length;
+        return {
+          eventId: `plugin:${manifest.pluginId}:${event.id}`,
+          sourceEventId: event.id,
+          evidenceIds,
+          trackId: `plugin:${manifest.pluginId}`,
+          category: event.category,
+          name: event.name,
+          startUs: event.startUs,
+          durationUs: event.durationUs,
+          ...(event.status ? { status: event.status } : {}),
+        };
+      });
+      return {
+        type: 'track-plugin-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        sessionRevision: request.sessionRevision,
+        operation,
+        plugin: {
+          pluginId: manifest.pluginId,
+          label: manifest.label,
+          trackId: `plugin:${manifest.pluginId}`,
+        },
+        range: request.range,
+        projectedEvents,
+        evidenceIds: [],
+        limitations: [
+          '插件仅接收白名单投影，不能读取 evidence payload、截图或原始事件。',
+          ...(result.truncation.truncated
+            ? ['插件结果已截断；请缩小时间范围。']
+            : []),
+          ...(evidenceTruncated
+            ? ['插件证据引用已按 2000 项上限截断；请缩小时间范围继续检查。']
+            : []),
+        ],
+        truncation: result.truncation,
+      };
+    } catch (error) {
+      if (error instanceof TimelineQueryCancelled) {
+        return structuredError(
+          request.requestId,
+          'query-cancelled',
+          'Track plugin query was cancelled',
+          true,
+          request,
+        );
+      }
+      if (error instanceof TimelineQueryTimeout) {
+        return structuredError(
+          request.requestId,
+          'query-timeout',
+          'Track plugin query timed out',
+          true,
+          request,
+        );
+      }
+      return structuredError(
+        request.requestId,
+        'worker-failed',
+        'Track plugin query failed',
+        true,
+        request,
+      );
+    } finally {
+      this.activeQueries.delete(request.requestId);
+    }
   }
 
   private queryEvidence(
@@ -1533,6 +1797,7 @@ export class WorkbenchSessionKernel {
     this.crossSource = undefined;
     this.comparisonBaseline?.adapter.release();
     this.comparisonBaseline = undefined;
+    this.trackPlugins.clear();
     this.sessionData = undefined;
     this.adapter.release();
   }

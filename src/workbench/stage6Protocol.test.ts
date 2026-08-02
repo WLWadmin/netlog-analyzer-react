@@ -39,14 +39,12 @@ describe('Stage 6 advanced analysis protocol', () => {
     })).toBe(true);
   });
 
-  it('accepts the six bounded capabilities and rejects extra request data', () => {
+  it('accepts direct bounded analyses and rejects extra request data', () => {
     const capabilities: QueryAdvancedAnalysisRequest['capability'][] = [
       'layout-shifts',
       'animation-composition',
       'memory-trend',
       'gpu-raster',
-      'custom-query',
-      'track-plugin',
     ];
 
     for (const capability of capabilities) {
@@ -64,6 +62,21 @@ describe('Stage 6 advanced analysis protocol', () => {
         rawTrace: [],
       })).toBe(false);
     }
+    expect(isWorkbenchResponse({
+      type: 'advanced-analysis-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'legacy-custom-query',
+      ...session,
+      capability: 'custom-query',
+      status: 'unavailable',
+      evidenceIds: [],
+      limitations: [],
+      result: {
+        kind: 'custom-query',
+        supportedFields: [],
+        supportedOperators: [],
+      },
+    })).toBe(false);
   });
 
   it('allows explicit unavailable and insufficient results without raw evidence', () => {
@@ -90,7 +103,8 @@ describe('Stage 6 advanced analysis protocol', () => {
 
   it('limits plugin input to a redacted projected event DTO', () => {
     const projected: WorkbenchProjectedPluginEventDto = {
-      eventId: 'trace:timeline:1',
+      eventId: 'plugin:layout-watch:trace:timeline:1',
+      sourceEventId: 'trace:timeline:1',
       evidenceIds: ['trace:event:1'],
       trackId: 'rendering',
       category: 'rendering',
@@ -106,6 +120,7 @@ describe('Stage 6 advanced analysis protocol', () => {
       'eventId',
       'evidenceIds',
       'name',
+      'sourceEventId',
       'startUs',
       'status',
       'trackId',
@@ -227,6 +242,180 @@ describe('Stage 6 advanced analysis protocol', () => {
           intervalCount: 0,
         },
       },
+    })).toBe(false);
+  });
+
+  it('accepts only valid declarative query clauses and rejects executable or raw fields', () => {
+    const request = {
+      type: 'query-custom-events',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'custom-query',
+      ...session,
+      range: { startUs: 0, endUs: 1_000 },
+      query: {
+        clauses: [
+          { field: 'name', operator: 'contains', value: 'Layout' },
+          { field: 'durationUs', operator: 'gte', value: 5 },
+          { field: 'status', operator: 'equals', value: 'warning' },
+        ],
+      },
+      limit: 200,
+    };
+
+    expect(isWorkbenchRequest(request)).toBe(true);
+    expect(isWorkbenchRequest({
+      ...request,
+      query: {
+        clauses: [{ field: 'status', operator: 'contains', value: 'warn' }],
+      },
+    })).toBe(false);
+    expect(isWorkbenchRequest({
+      ...request,
+      query: {
+        clauses: [{ field: 'durationUs', operator: 'gte', value: Infinity }],
+      },
+    })).toBe(false);
+    expect(isWorkbenchRequest({
+      ...request,
+      continuation: 'not-a-timeline-event',
+    })).toBe(false);
+    for (const forbidden of ['rawTrace', 'args', 'code', 'url']) {
+      expect(isWorkbenchRequest({ ...request, [forbidden]: {} })).toBe(false);
+    }
+  });
+
+  it('accepts bounded custom query results without raw event data', () => {
+    const response = {
+      type: 'custom-query-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'custom-query',
+      ...session,
+      range: { startUs: 0, endUs: 1_000 },
+      events: [{
+        id: 'trace:timeline:1',
+        trackId: 'rendering',
+        startUs: 10,
+        durationUs: 5,
+        depth: 0,
+        category: 'rendering',
+        name: 'Layout',
+        status: 'warning',
+      }],
+      evidenceIds: ['trace:event:1'],
+      limitations: ['匹配数量不表示性能问题或根因。'],
+      truncation: {
+        truncated: false,
+        returnedCount: 1,
+        totalMatched: 1,
+      },
+    };
+
+    expect(isWorkbenchResponse(response)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...response,
+      events: [{ ...response.events[0], args: { secret: true } }],
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...response,
+      evidenceIds: Array.from({ length: 2_001 }, (_, index) => `trace:event:${index}`),
+    })).toBe(false);
+  });
+
+  it('accepts only declarative track plugin manifests', () => {
+    const request = {
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'install-plugin',
+      ...session,
+      range: { startUs: 0, endUs: 1_000 },
+      manifest: {
+        pluginId: 'layout-watch',
+        label: 'Layout Watch',
+        query: {
+          clauses: [{ field: 'name', operator: 'equals', value: 'Layout' }],
+        },
+        maxEvents: 200,
+      },
+    };
+
+    expect(isWorkbenchRequest(request)).toBe(true);
+    for (const forbidden of [
+      'code',
+      'source',
+      'script',
+      'moduleUrl',
+      'networkUrl',
+      'args',
+      'rawEvent',
+    ]) {
+      expect(isWorkbenchRequest({
+        ...request,
+        manifest: { ...request.manifest, [forbidden]: 'forbidden' },
+      })).toBe(false);
+    }
+    expect(isWorkbenchRequest({
+      ...request,
+      manifest: { ...request.manifest, pluginId: 'Invalid_Plugin' },
+    })).toBe(false);
+    expect(isWorkbenchRequest({
+      ...request,
+      manifest: { ...request.manifest, maxEvents: 2_001 },
+    })).toBe(false);
+  });
+
+  it('accepts bounded plugin projections and rejects raw or colliding shapes', () => {
+    const response = {
+      type: 'track-plugin-result',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: 'install-plugin',
+      ...session,
+      operation: 'installed',
+      plugin: {
+        pluginId: 'layout-watch',
+        label: 'Layout Watch',
+        trackId: 'plugin:layout-watch',
+      },
+      range: { startUs: 0, endUs: 1_000 },
+      projectedEvents: [{
+        eventId: 'plugin:layout-watch:trace:timeline:1',
+        sourceEventId: 'trace:timeline:1',
+        evidenceIds: ['trace:event:1'],
+        trackId: 'plugin:layout-watch',
+        category: 'rendering',
+        name: 'Layout',
+        startUs: 10,
+        durationUs: 5,
+      }],
+      evidenceIds: ['trace:event:1'],
+      limitations: ['插件只能读取白名单投影。'],
+      truncation: {
+        truncated: false,
+        returnedCount: 1,
+        totalMatched: 1,
+      },
+    };
+
+    expect(isWorkbenchResponse(response)).toBe(true);
+    expect(isWorkbenchResponse({
+      ...response,
+      projectedEvents: [{
+        ...response.projectedEvents[0],
+        eventId: response.projectedEvents[0].sourceEventId,
+      }],
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...response,
+      projectedEvents: [{
+        ...response.projectedEvents[0],
+        rawEvent: { args: { secret: true } },
+      }],
+    })).toBe(false);
+    expect(isWorkbenchResponse({
+      ...response,
+      evidenceIds: Array.from(
+        { length: 2_000 },
+        (_, index) => `trace:event:${index}`,
+      ),
     })).toBe(false);
   });
 });

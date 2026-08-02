@@ -19,7 +19,10 @@ import {
   isTraceStage6Enabled,
 } from '../../../workbench/featureFlag';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
-import { TIMELINE_TRACKS } from '../../../workbench/timelineTracks';
+import {
+  isCoreTimelineTrackId,
+  TIMELINE_TRACKS,
+} from '../../../workbench/timelineTracks';
 import ScreenshotFilmstrip from './ScreenshotFilmstrip';
 import TimelineCanvas from './TimelineCanvas';
 import ExpertAnalysisDrawer from './ExpertAnalysisDrawer';
@@ -31,6 +34,10 @@ import LayoutShiftPanel from './LayoutShiftPanel';
 import AnimationCompositionPanel from './AnimationCompositionPanel';
 import MemoryTrendPanel from './MemoryTrendPanel';
 import GpuRasterPanel from './GpuRasterPanel';
+import CustomQueryPanel from './CustomQueryPanel';
+import TrackPluginPanel, {
+  type TrackPluginOverlay,
+} from './TrackPluginPanel';
 
 interface TraceTimelineWorkbenchProps {
   client: TraceWorkbenchClient;
@@ -141,6 +148,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [selectionError, setSelectionError] = useState('');
   const [evidenceError, setEvidenceError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [pluginOverlays, setPluginOverlays] = useState<TrackPluginOverlay[]>([]);
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const crossSourceEnabled = isTraceCrossSourceEnabled();
   const stage5Enabled = isTraceStage5Enabled();
@@ -250,14 +258,46 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
     };
   }, [client, store]);
 
-  const availableTracks = TIMELINE_TRACKS.filter(track => (
-    (session.trackEventCounts[track.id] ?? 0) > 0
-    && (
-      track.capability === 'timeline-events'
-      || session.capabilities.includes(track.capability)
-    )
-  ));
-  const events = clientSnapshot.viewport?.events ?? [];
+  const coreTracks = TIMELINE_TRACKS.filter(track => {
+    if (!isCoreTimelineTrackId(track.id)) return false;
+    return (session.trackEventCounts[track.id] ?? 0) > 0
+      && (
+        track.capability === 'timeline-events'
+        || session.capabilities.includes(track.capability)
+      );
+  });
+  const visiblePluginOverlays = pluginOverlays.filter(overlay => overlay.visible);
+  const availableTracks = [
+    ...coreTracks,
+    ...visiblePluginOverlays.map(overlay => ({
+      id: overlay.trackId,
+      label: overlay.label,
+      capability: 'timeline-events' as const,
+      description: '当前会话内的声明式白名单投影',
+      matches: () => false,
+      displayOrder: 200,
+    })),
+  ];
+  const coreEvents = clientSnapshot.viewport?.events ?? [];
+  const pluginSourceEventIds = new Map(
+    visiblePluginOverlays.flatMap(overlay => overlay.events.map(event => [
+      event.eventId,
+      event.sourceEventId,
+    ] as const)),
+  );
+  const events = [
+    ...coreEvents,
+    ...visiblePluginOverlays.flatMap(overlay => overlay.events.map(event => ({
+      id: event.eventId,
+      trackId: event.trackId,
+      startUs: event.startUs,
+      durationUs: event.durationUs,
+      depth: 0,
+      category: event.category,
+      name: event.name,
+      ...(event.status ? { status: event.status } : {}),
+    }))),
+  ];
   const viewportQueueStats = client.getQueueStats();
   const stableEvent = events.find(event => event.id === interaction.selectedEventId);
   const hoveredEvent = events.find(event => event.id === interaction.hoveredEventId);
@@ -317,6 +357,9 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
       setDetailError('事件详情查询失败，Timeline 当前范围保持不变。');
     }
   };
+  const openTimelineDetail = (eventId: string) => openDetail(
+    pluginSourceEventIds.get(eventId) ?? eventId,
+  );
 
   const navigateDiagnosis = async (diagnosis: TraceDiagnosis) => {
     const eventId = diagnosis.evidenceIds
@@ -543,6 +586,17 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
                 range={advancedRange}
                 onFocusRange={focusAdvancedRange}
               />
+              <CustomQueryPanel
+                client={client}
+                range={advancedRange}
+                onFocusRange={focusAdvancedRange}
+                onOpenEvent={openDetail}
+              />
+              <TrackPluginPanel
+                client={client}
+                range={advancedRange}
+                onOverlaysChange={setPluginOverlays}
+              />
             </>
           )}
 
@@ -552,7 +606,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
               store={store}
               tracks={availableTracks}
               displayedViewport={clientSnapshot.viewport?.range}
-              onOpenDetail={openDetail}
+              onOpenDetail={openTimelineDetail}
               onEscape={() => {
                 if (store.hasHistory()) restorePrevious();
                 else {
@@ -747,7 +801,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             <ol>
               {events.slice(0, 100).map(event => (
                 <li key={event.id}>
-                  <button type="button" onClick={() => openDetail(event.id)}>
+                  <button type="button" onClick={() => openTimelineDetail(event.id)}>
                     {event.name} · {(event.startUs / 1_000).toFixed(2)} ms
                   </button>
                 </li>

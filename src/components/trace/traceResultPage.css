@@ -622,6 +622,7 @@
 
 .trace-workbench-limitations,
 .trace-filmstrip,
+.trace-advanced-panel,
 .trace-timeline-viewport,
 .trace-analysis-drawer,
 .trace-workbench-empty {
@@ -636,6 +637,70 @@
   color: var(--timeline-ink);
   font-size: 14px;
   margin: 0 0 8px;
+}
+
+.trace-advanced-panel {
+  background: var(--timeline-surface);
+  border: 1px solid var(--timeline-grid);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.trace-advanced-panel h3 {
+  color: var(--timeline-ink);
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.trace-advanced-panel p,
+.trace-advanced-panel li {
+  color: var(--timeline-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.trace-custom-query-clauses > div,
+.trace-plugin-form,
+.trace-advanced-actions,
+.trace-advanced-panel li {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trace-custom-query-clauses > div + div {
+  margin-top: 8px;
+}
+
+.trace-advanced-panel label {
+  color: var(--timeline-muted);
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.trace-advanced-panel input,
+.trace-advanced-panel select,
+.trace-advanced-panel button {
+  background: var(--timeline-surface);
+  border: 1px solid var(--timeline-grid);
+  border-radius: 6px;
+  color: var(--timeline-ink);
+  min-height: 40px;
+  padding: 7px 10px;
+}
+
+.trace-advanced-panel button:focus-visible,
+.trace-advanced-panel input:focus-visible,
+.trace-advanced-panel select:focus-visible {
+  outline: 3px solid var(--timeline-selection);
+  outline-offset: 3px;
+}
+
+.trace-advanced-actions {
+  margin-top: 10px;
 }
 
 .trace-workbench-limitations li {

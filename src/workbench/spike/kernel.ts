@@ -229,6 +229,10 @@ export class WorkbenchSpikeKernel {
           'Cross-source analysis is unavailable in the stage 0 kernel',
         );
       case 'query-advanced-analysis':
+      case 'query-custom-events':
+      case 'install-track-plugin':
+      case 'query-track-plugin':
+      case 'remove-track-plugin':
         return sessionError(
           request.requestId,
           'unsupported-capability',

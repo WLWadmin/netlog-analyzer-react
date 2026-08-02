@@ -1,7 +1,9 @@
 export {
   LatestCpuDispatcher,
+  LatestCustomQueryDispatcher,
   LatestEventLogDispatcher,
   LatestSearchDispatcher,
+  LatestTrackPluginDispatcher,
   LatestViewportDispatcher,
   LatestSelectionDispatcher,
   WorkbenchSpikeClientState as WorkbenchClientState,

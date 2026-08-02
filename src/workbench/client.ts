@@ -1,20 +1,24 @@
 import {
   LatestCpuDispatcher,
+  LatestCustomQueryDispatcher,
   LatestEventLogDispatcher,
   LatestSelectionDispatcher,
   LatestSearchDispatcher,
+  LatestTrackPluginDispatcher,
   LatestViewportDispatcher,
 } from './clientState';
 import {
   type AdvancedAnalysisResultResponse,
   type BottomUpResultResponse,
   type CallTreeResultResponse,
+  type CustomQueryResultResponse,
   type EventLogResultResponse,
   type FlameChartResultResponse,
   WORKBENCH_SCHEMA_VERSION,
   type EvidenceResultResponse,
   type EventDetailResultResponse,
   type QueryAdvancedAnalysisRequest,
+  type QueryCustomEventsRequest,
   type QueryViewportRequest,
   type QuerySelectionRequest,
   type QueryBottomUpRequest,
@@ -22,6 +26,9 @@ import {
   type QueryEventLogRequest,
   type QueryFlameChartRequest,
   type QuerySearchRequest,
+  type QueryTrackPluginRequest,
+  type InstallTrackPluginRequest,
+  type RemoveTrackPluginRequest,
   type ScreenshotIndexResultResponse,
   type ScreenshotResultResponse,
   type SelectionResultResponse,
@@ -30,6 +37,8 @@ import {
   type ViewportResultResponse,
   type WorkbenchRequest,
   type WorkbenchProgressResponse,
+  type WorkbenchCustomQuery,
+  type WorkbenchTrackPluginManifest,
   type WorkbenchResponse,
   type WorkbenchSessionDescriptor,
   type WorkbenchSourceRef,
@@ -49,6 +58,7 @@ export interface TraceWorkbenchClientSnapshot {
   bottomUp?: BottomUpResultResponse;
   eventLog?: EventLogResultResponse;
   search?: SearchResultResponse;
+  customQuery?: CustomQueryResultResponse;
   sources?: Extract<CrossSourceResponse, { type: 'sources-result' | 'source-change-result' }>;
   alignments?: Extract<CrossSourceResponse, { type: 'alignment-result' }>;
   correlations?: Extract<CrossSourceResponse, { type: 'correlation-result' }>;
@@ -68,6 +78,7 @@ export interface TraceWorkbenchClientSnapshot {
     | 'cpu'
     | 'event-log'
     | 'search'
+    | 'custom-query'
     | 'cross-source'
     | 'insights'
     | 'comparison'
@@ -127,6 +138,11 @@ export class TraceWorkbenchClient {
   private readonly cpuDispatcher: LatestCpuDispatcher;
   private readonly eventLogDispatcher: LatestEventLogDispatcher;
   private readonly searchDispatcher: LatestSearchDispatcher;
+  private readonly customQueryDispatcher: LatestCustomQueryDispatcher;
+  private readonly trackPluginDispatchers = new Map<
+    string,
+    LatestTrackPluginDispatcher
+  >();
 
   constructor(
     private readonly source: WorkbenchSourceRef,
@@ -149,6 +165,10 @@ export class TraceWorkbenchClient {
       request => this.cancelActive(request),
     );
     this.searchDispatcher = new LatestSearchDispatcher(
+      request => this.executeAnalysis(request),
+      request => this.cancelActive(request),
+    );
+    this.customQueryDispatcher = new LatestCustomQueryDispatcher(
       request => this.executeAnalysis(request),
       request => this.cancelActive(request),
     );
@@ -315,6 +335,88 @@ export class TraceWorkbenchClient {
       search: undefined,
       queryErrors,
     });
+  }
+
+  queryCustomEvents(
+    range: { startUs: number; endUs: number },
+    query: WorkbenchCustomQuery,
+    limit = 2_000,
+    continuation?: string,
+  ): Promise<WorkbenchResponse | undefined> {
+    const session = this.requireSession();
+    const request: QueryCustomEventsRequest = {
+      type: 'query-custom-events',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId('custom-query'),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      range,
+      query,
+      limit,
+      ...(continuation ? { continuation } : {}),
+    };
+    this.latestRequestIds.set('custom-query', request.requestId);
+    return this.customQueryDispatcher.submit(request);
+  }
+
+  installTrackPlugin(
+    range: { startUs: number; endUs: number },
+    manifest: WorkbenchTrackPluginManifest,
+  ): Promise<WorkbenchResponse | undefined> {
+    const session = this.requireSession();
+    const request: InstallTrackPluginRequest = {
+      type: 'install-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId(`install-plugin-${manifest.pluginId}`),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      range,
+      manifest,
+    };
+    return this.submitTrackPlugin(manifest.pluginId, request);
+  }
+
+  queryTrackPlugin(
+    pluginId: string,
+    range: { startUs: number; endUs: number },
+  ): Promise<WorkbenchResponse | undefined> {
+    const session = this.requireSession();
+    const request: QueryTrackPluginRequest = {
+      type: 'query-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId(`query-plugin-${pluginId}`),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      range,
+      pluginId,
+    };
+    return this.submitTrackPlugin(pluginId, request);
+  }
+
+  async removeTrackPlugin(
+    pluginId: string,
+  ): Promise<WorkbenchResponse | undefined> {
+    const session = this.requireSession();
+    const request: RemoveTrackPluginRequest = {
+      type: 'remove-track-plugin',
+      schemaVersion: WORKBENCH_SCHEMA_VERSION,
+      requestId: this.nextRequestId(`remove-plugin-${pluginId}`),
+      sessionId: session.sessionId,
+      sessionRevision: session.sessionRevision,
+      pluginId,
+    };
+    const response = await this.submitTrackPlugin(pluginId, request);
+    if (
+      response?.type === 'track-plugin-result'
+      && response.operation === 'removed'
+    ) {
+      const channel = `track-plugin:${pluginId}`;
+      if (this.latestRequestIds.get(channel) === request.requestId) {
+        this.latestRequestIds.delete(channel);
+        this.trackPluginDispatchers.delete(pluginId);
+      }
+    }
+    return response;
   }
 
   async queryAdvancedAnalysis(
@@ -531,6 +633,7 @@ export class TraceWorkbenchClient {
       }
     } finally {
       this.latestRequestIds.clear();
+      this.trackPluginDispatchers.clear();
       this.pendingCreateRequestId = undefined;
       this.transport.close();
       this.update({
@@ -545,6 +648,7 @@ export class TraceWorkbenchClient {
     if (this.closed) return;
     this.closed = true;
     this.latestRequestIds.clear();
+    this.trackPluginDispatchers.clear();
     this.pendingCreateRequestId = undefined;
     this.update({
       ...this.snapshot,
@@ -598,7 +702,11 @@ export class TraceWorkbenchClient {
       | QueryCallTreeRequest
       | QueryBottomUpRequest
       | QueryEventLogRequest
-      | QuerySearchRequest,
+      | QuerySearchRequest
+      | QueryCustomEventsRequest
+      | InstallTrackPluginRequest
+      | QueryTrackPluginRequest
+      | RemoveTrackPluginRequest,
   ): Promise<WorkbenchResponse> {
     const response = await this.transport.dispatch(request);
     this.accept(response);
@@ -613,7 +721,11 @@ export class TraceWorkbenchClient {
       | QueryCallTreeRequest
       | QueryBottomUpRequest
       | QueryEventLogRequest
-      | QuerySearchRequest,
+      | QuerySearchRequest
+      | QueryCustomEventsRequest
+      | InstallTrackPluginRequest
+      | QueryTrackPluginRequest
+      | RemoveTrackPluginRequest,
   ): void {
     void this.transport.dispatch({
       type: 'cancel-query',
@@ -690,6 +802,12 @@ export class TraceWorkbenchClient {
             ? 'event-log'
             : response.type === 'search-result'
               ? 'search'
+              : response.type === 'custom-query-result'
+                ? 'custom-query'
+                : response.type === 'track-plugin-result'
+                  ? response.operation === 'removed'
+                    ? `track-plugin:${response.pluginId}`
+                    : `track-plugin:${response.plugin.pluginId}`
               : response.type === 'sources-result'
                 || response.type === 'source-change-result'
                 || response.type === 'alignment-result'
@@ -735,6 +853,8 @@ export class TraceWorkbenchClient {
       this.updateSuccess('event-log', { eventLog: response });
     } else if (response.type === 'search-result') {
       this.updateSuccess('search', { search: response });
+    } else if (response.type === 'custom-query-result') {
+      this.updateSuccess('custom-query', { customQuery: response });
     } else if (response.type === 'sources-result' || response.type === 'source-change-result') {
       this.updateSuccess('cross-source', { sources: response });
     } else if (response.type === 'alignment-result') {
@@ -772,6 +892,7 @@ export class TraceWorkbenchClient {
         || errorChannel === 'cpu'
         || errorChannel === 'event-log'
         || errorChannel === 'search'
+        || errorChannel === 'custom-query'
         || errorChannel === 'cross-source'
         || errorChannel === 'insights'
         || errorChannel === 'comparison'
@@ -800,6 +921,8 @@ export class TraceWorkbenchClient {
                 },
           },
         });
+      } else if (errorChannel?.startsWith('track-plugin:')) {
+        // The panel owns plugin failures; the stable Workbench remains usable.
       } else {
         this.update({
           ...this.snapshot,
@@ -855,6 +978,37 @@ export class TraceWorkbenchClient {
     return this.cpuDispatcher.submit(request);
   }
 
+  private submitTrackPlugin(
+    pluginId: string,
+    request:
+      | InstallTrackPluginRequest
+      | QueryTrackPluginRequest
+      | RemoveTrackPluginRequest,
+  ): Promise<WorkbenchResponse | undefined> {
+    const channel = `track-plugin:${pluginId}`;
+    let dispatcher = this.trackPluginDispatchers.get(pluginId);
+    if (!dispatcher) {
+      dispatcher = new LatestTrackPluginDispatcher(
+        entry => this.executeTrackPlugin(entry),
+        entry => this.cancelActive(entry),
+      );
+      this.trackPluginDispatchers.set(pluginId, dispatcher);
+    }
+    this.latestRequestIds.set(channel, request.requestId);
+    return dispatcher.submit(request);
+  }
+
+  private async executeTrackPlugin(
+    request:
+      | InstallTrackPluginRequest
+      | QueryTrackPluginRequest
+      | RemoveTrackPluginRequest,
+  ): Promise<WorkbenchResponse> {
+    const response = await this.transport.dispatch(request);
+    this.accept(response);
+    return response;
+  }
+
   private async changeSource(
     file: File,
     kind: 'har' | 'netlog',
@@ -907,6 +1061,7 @@ export class TraceWorkbenchClient {
     if (!this.closed) {
       this.closed = true;
       this.latestRequestIds.clear();
+      this.trackPluginDispatchers.clear();
       this.pendingCreateRequestId = undefined;
       this.transport.close();
     }

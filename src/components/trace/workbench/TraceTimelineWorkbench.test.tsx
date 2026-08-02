@@ -333,4 +333,21 @@ describe('TraceTimelineWorkbench', () => {
 
     expect(await screen.findByText(/不会自动回退到主线程解析/)).not.toBeNull();
   });
+
+  it('does not render or request Stage 6 query and plugin UI when the flag is off', async () => {
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
+    const { client, dispatch } = await createClient();
+    render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
+
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    expect(screen.queryByText('声明式自定义查询')).toBeNull();
+    expect(screen.queryByText('受控临时轨道')).toBeNull();
+    expect(dispatch.mock.calls.map(([request]) => request.type)).not.toEqual(
+      expect.arrayContaining([
+        'query-custom-events',
+        'install-track-plugin',
+        'query-track-plugin',
+      ]),
+    );
+  });
 });

@@ -255,4 +255,47 @@ describe('TimelineCanvas', () => {
     expect(fillRect.mock.calls.length).toBeGreaterThan(2);
     expect(rect).not.toHaveBeenCalled();
   });
+
+  it('renders a session overlay track through generic track props', () => {
+    const fillText = jest.fn();
+    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      strokeRect: jest.fn(),
+      fillText,
+      setTransform: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      set fillStyle(_value: string | CanvasGradient | CanvasPattern) {},
+      set strokeStyle(_value: string | CanvasGradient | CanvasPattern) {},
+      set lineWidth(_value: number) {},
+      set font(_value: string) {},
+    } as unknown as CanvasRenderingContext2D);
+    const store = new TimelineInteractionStore({ startUs: 0, endUs: 1_000 });
+    render(
+      <TimelineCanvas
+        events={[{
+          ...events[0],
+          id: 'plugin:layout-watch:trace:timeline:1',
+          trackId: 'plugin:layout-watch',
+          name: 'Layout',
+        }]}
+        tracks={[{
+          id: 'plugin:layout-watch',
+          label: 'Layout Watch',
+          capability: 'timeline-events',
+          description: '会话级声明式投影',
+          matches: () => false,
+        }]}
+        onEscape={jest.fn()}
+        onOpenDetail={jest.fn()}
+        store={store}
+      />,
+    );
+
+    expect(fillText).toHaveBeenCalledWith('Layout Watch', 12, 75);
+    expect(screen.getByRole('button', { name: '折叠 Layout Watch' })).not.toBeNull();
+  });
 });

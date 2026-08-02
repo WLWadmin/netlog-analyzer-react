@@ -21,9 +21,7 @@ export type AdvancedWorkbenchCapability =
   | 'layout-shifts'
   | 'animation-composition'
   | 'memory-trend'
-  | 'gpu-raster'
-  | 'custom-query'
-  | 'track-plugin';
+  | 'gpu-raster';
 
 export type WorkbenchSessionState =
   | 'creating'
@@ -253,6 +251,63 @@ export interface QueryAdvancedAnalysisRequest extends WorkbenchSessionRequestBas
   range: { startUs: number; endUs: number };
 }
 
+export type WorkbenchTimelineStatus = NonNullable<
+  WorkbenchTimelineEventDto['status']
+>;
+
+export type WorkbenchCustomQueryClause =
+  | {
+    field: 'name' | 'category' | 'trackId';
+    operator: 'equals' | 'contains';
+    value: string;
+  }
+  | {
+    field: 'status';
+    operator: 'equals';
+    value: WorkbenchTimelineStatus;
+  }
+  | {
+    field: 'durationUs';
+    operator: 'equals' | 'gte' | 'lte';
+    value: number;
+  };
+
+export interface WorkbenchCustomQuery {
+  clauses: WorkbenchCustomQueryClause[];
+}
+
+export interface QueryCustomEventsRequest extends WorkbenchSessionRequestBase {
+  type: 'query-custom-events';
+  range: { startUs: number; endUs: number };
+  query: WorkbenchCustomQuery;
+  limit: number;
+  continuation?: string;
+}
+
+export interface WorkbenchTrackPluginManifest {
+  pluginId: string;
+  label: string;
+  query: WorkbenchCustomQuery;
+  maxEvents: number;
+}
+
+export interface InstallTrackPluginRequest extends WorkbenchSessionRequestBase {
+  type: 'install-track-plugin';
+  range: { startUs: number; endUs: number };
+  manifest: WorkbenchTrackPluginManifest;
+}
+
+export interface QueryTrackPluginRequest extends WorkbenchSessionRequestBase {
+  type: 'query-track-plugin';
+  range: { startUs: number; endUs: number };
+  pluginId: string;
+}
+
+export interface RemoveTrackPluginRequest extends WorkbenchSessionRequestBase {
+  type: 'remove-track-plugin';
+  pluginId: string;
+}
+
 export type WorkbenchRequest =
   | CreateSessionRequest
   | QueryViewportRequest
@@ -273,6 +328,10 @@ export type WorkbenchRequest =
   | RemoveComparisonBaselineRequest
   | QueryTraceComparisonRequest
   | QueryAdvancedAnalysisRequest
+  | QueryCustomEventsRequest
+  | InstallTrackPluginRequest
+  | QueryTrackPluginRequest
+  | RemoveTrackPluginRequest
   | CrossSourceRequest;
 
 interface WorkbenchResponseBase {
@@ -398,6 +457,15 @@ export interface SearchResultResponse extends WorkbenchSessionResponseBase {
   truncation: WorkbenchListTruncation;
 }
 
+export interface CustomQueryResultResponse extends WorkbenchSessionResponseBase {
+  type: 'custom-query-result';
+  range: { startUs: number; endUs: number };
+  events: WorkbenchTimelineEventDto[];
+  evidenceIds: string[];
+  limitations: string[];
+  truncation: WorkbenchListTruncation;
+}
+
 export interface EventDetailResultResponse extends WorkbenchSessionResponseBase {
   type: 'event-detail-result';
   detail: WorkbenchEventDetailDto;
@@ -493,6 +561,7 @@ export interface TraceComparisonResultResponse extends WorkbenchSessionResponseB
 
 export interface WorkbenchProjectedPluginEventDto {
   eventId: string;
+  sourceEventId: string;
   evidenceIds: string[];
   trackId: string;
   category: string;
@@ -501,6 +570,31 @@ export interface WorkbenchProjectedPluginEventDto {
   durationUs: number;
   status?: NonNullable<WorkbenchTimelineEventDto['status']>;
 }
+
+export interface TrackPluginUpdatedResponse extends WorkbenchSessionResponseBase {
+  type: 'track-plugin-result';
+  operation: 'installed' | 'refreshed';
+  plugin: {
+    pluginId: string;
+    label: string;
+    trackId: `plugin:${string}`;
+  };
+  range: { startUs: number; endUs: number };
+  projectedEvents: WorkbenchProjectedPluginEventDto[];
+  evidenceIds: string[];
+  limitations: string[];
+  truncation: WorkbenchListTruncation;
+}
+
+export interface TrackPluginRemovedResponse extends WorkbenchSessionResponseBase {
+  type: 'track-plugin-result';
+  operation: 'removed';
+  pluginId: string;
+}
+
+export type TrackPluginResultResponse =
+  | TrackPluginUpdatedResponse
+  | TrackPluginRemovedResponse;
 
 export interface LayoutShiftAnalysisDto {
   kind: 'layout-shifts';
@@ -571,25 +665,11 @@ export interface GpuRasterAnalysisDto {
   };
 }
 
-export interface CustomQueryCapabilityDto {
-  kind: 'custom-query';
-  supportedFields: string[];
-  supportedOperators: string[];
-}
-
-export interface TrackPluginCapabilityDto {
-  kind: 'track-plugin';
-  projectedEvents: WorkbenchProjectedPluginEventDto[];
-  maxEvents: number;
-}
-
 export type AdvancedAnalysisDto =
   | LayoutShiftAnalysisDto
   | AnimationCompositionAnalysisDto
   | MemoryTrendAnalysisDto
-  | GpuRasterAnalysisDto
-  | CustomQueryCapabilityDto
-  | TrackPluginCapabilityDto;
+  | GpuRasterAnalysisDto;
 
 export interface AdvancedAnalysisResultResponse extends WorkbenchSessionResponseBase {
   type: 'advanced-analysis-result';
@@ -628,6 +708,7 @@ export type WorkbenchResponse =
   | BottomUpResultResponse
   | EventLogResultResponse
   | SearchResultResponse
+  | CustomQueryResultResponse
   | EventDetailResultResponse
   | QueryCancelledResponse
   | SessionReleasedResponse
@@ -638,6 +719,7 @@ export type WorkbenchResponse =
   | ComparisonBaselineResultResponse
   | TraceComparisonResultResponse
   | AdvancedAnalysisResultResponse
+  | TrackPluginResultResponse
   | CapabilityMissingResponse
   | StructuredErrorResponse
   | CrossSourceResponse;

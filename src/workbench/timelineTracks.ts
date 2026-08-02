@@ -1,6 +1,6 @@
 import type { WorkbenchCapability } from './protocol';
 
-export type TimelineTrackId =
+export type CoreTimelineTrackId =
   | 'layout-shifts'
   | 'animations'
   | 'gpu-raster'
@@ -10,6 +10,8 @@ export type TimelineTrackId =
   | 'rendering'
   | 'interactions'
   | 'frames';
+
+export type TimelineTrackId = CoreTimelineTrackId | `plugin:${string}`;
 
 export interface TimelineTrackDefinition {
   id: TimelineTrackId;
@@ -142,18 +144,27 @@ export const TIMELINE_TRACK_REGISTRY = new TimelineTrackRegistry([
 
 export const TIMELINE_TRACKS = TIMELINE_TRACK_REGISTRY.list();
 
+export function isCoreTimelineTrackId(
+  trackId: TimelineTrackId,
+): trackId is CoreTimelineTrackId {
+  return !trackId.startsWith('plugin:');
+}
+
 export function classifyTimelineTrack(
   name: string,
   category: string,
-): TimelineTrackId | undefined {
+): CoreTimelineTrackId | undefined {
   if (name === 'Screenshot' || category === 'screenshot') return undefined;
-  return TIMELINE_TRACK_REGISTRY.classify(name, category);
+  const classified = TIMELINE_TRACK_REGISTRY.classify(name, category);
+  return classified && isCoreTimelineTrackId(classified)
+    ? classified
+    : undefined;
 }
 
 export function classifyCoreTimelineTrack(
   name: string,
   category: string,
-): TimelineTrackId | undefined {
+): CoreTimelineTrackId | undefined {
   if (name === 'Screenshot' || category === 'screenshot') return undefined;
   if (MILESTONE_NAMES.test(name)) return 'milestones';
   if (INTERACTION_NAMES.test(name) || category === 'interaction') return 'interactions';

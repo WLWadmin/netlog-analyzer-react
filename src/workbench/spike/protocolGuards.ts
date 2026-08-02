@@ -45,9 +45,14 @@ const ADVANCED_CAPABILITIES: AdvancedWorkbenchCapability[] = [
   'animation-composition',
   'memory-trend',
   'gpu-raster',
-  'custom-query',
-  'track-plugin',
 ];
+const TIMELINE_STATUSES = [
+  'normal',
+  'warning',
+  'error',
+  'incomplete',
+  'candidate',
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -90,6 +95,68 @@ function isErrorCode(value: unknown): value is WorkbenchQueryErrorCode {
 function isAdvancedCapability(value: unknown): value is AdvancedWorkbenchCapability {
   return typeof value === 'string'
     && ADVANCED_CAPABILITIES.includes(value as AdvancedWorkbenchCapability);
+}
+
+function isTimelineStatus(value: unknown): boolean {
+  return typeof value === 'string'
+    && TIMELINE_STATUSES.includes(value as typeof TIMELINE_STATUSES[number]);
+}
+
+function isCustomQuery(value: unknown): boolean {
+  if (
+    !isRecord(value)
+    || !hasOnlyKeys(value, ['clauses'])
+    || !Array.isArray(value.clauses)
+    || value.clauses.length < 1
+    || value.clauses.length > 8
+  ) {
+    return false;
+  }
+  return value.clauses.every(clause => {
+    if (
+      !isRecord(clause)
+      || !hasOnlyKeys(clause, ['field', 'operator', 'value'])
+    ) {
+      return false;
+    }
+    if (
+      clause.field === 'name'
+      || clause.field === 'category'
+      || clause.field === 'trackId'
+    ) {
+      return (clause.operator === 'equals' || clause.operator === 'contains')
+        && isNonEmptyString(clause.value)
+        && clause.value.length <= 128;
+    }
+    if (clause.field === 'status') {
+      return clause.operator === 'equals' && isTimelineStatus(clause.value);
+    }
+    return clause.field === 'durationUs'
+      && (
+        clause.operator === 'equals'
+        || clause.operator === 'gte'
+        || clause.operator === 'lte'
+      )
+      && isFiniteNumber(clause.value)
+      && clause.value >= 0;
+  });
+}
+
+function isPluginId(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[a-z0-9][a-z0-9-]{0,47}$/.test(value);
+}
+
+function isTrackPluginManifest(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, ['pluginId', 'label', 'query', 'maxEvents'])
+    && isPluginId(value.pluginId)
+    && isNonEmptyString(value.label)
+    && value.label.length <= 60
+    && isCustomQuery(value.query)
+    && Number.isInteger(value.maxEvents)
+    && Number(value.maxEvents) >= 1
+    && Number(value.maxEvents) <= 2_000;
 }
 
 function hasBase(value: Record<string, unknown>): boolean {
@@ -204,6 +271,47 @@ export function isWorkbenchRequest(value: unknown): value is WorkbenchRequest {
         && isSessionRef(value)
         && isAdvancedCapability(value.capability)
         && isRange(value.range);
+    case 'query-custom-events':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'query', 'limit', 'continuation',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && isCustomQuery(value.query)
+        && Number.isInteger(value.limit)
+        && Number(value.limit) >= 1
+        && Number(value.limit) <= 2_000
+        && (
+          value.continuation === undefined
+          || (
+            isNonEmptyString(value.continuation)
+            && /^trace:timeline:(0|[1-9]\d*)$/.test(value.continuation)
+          )
+        );
+    case 'install-track-plugin':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'manifest',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && isTrackPluginManifest(value.manifest);
+    case 'query-track-plugin':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'pluginId',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && isPluginId(value.pluginId);
+    case 'remove-track-plugin':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'pluginId',
+      ])
+        && isSessionRef(value)
+        && isPluginId(value.pluginId);
     case 'add-source':
     case 'replace-source':
     case 'remove-source':
@@ -325,7 +433,7 @@ function isComparisonMetric(value: unknown): boolean {
     && (value.deltaPercent === undefined || isFiniteNumber(value.deltaPercent));
 }
 
-function isEvidenceIds(value: unknown): boolean {
+function isEvidenceIds(value: unknown): value is string[] {
   return Array.isArray(value)
     && value.length <= 10_000
     && value.every(isNonEmptyString);
@@ -454,37 +562,6 @@ function isAdvancedAnalysisResult(
         && value.summary.totalDurationUs >= 0
         && isFiniteNumber(value.summary.maxDurationUs)
         && value.summary.maxDurationUs >= 0;
-    case 'custom-query':
-      return hasOnlyKeys(value, [
-        'kind', 'supportedFields', 'supportedOperators',
-      ])
-        && isStringArray(value.supportedFields)
-        && isStringArray(value.supportedOperators);
-    case 'track-plugin':
-      return hasOnlyKeys(value, ['kind', 'projectedEvents', 'maxEvents'])
-        && isNonNegativeInteger(value.maxEvents)
-        && Array.isArray(value.projectedEvents)
-        && value.projectedEvents.length <= value.maxEvents
-        && value.projectedEvents.every(event => (
-          isRecord(event)
-          && hasOnlyKeys(event, [
-            'eventId', 'evidenceIds', 'trackId', 'category', 'name',
-            'startUs', 'durationUs', 'status',
-          ])
-          && isNonEmptyString(event.eventId)
-          && isEvidenceIds(event.evidenceIds)
-          && isNonEmptyString(event.trackId)
-          && isNonEmptyString(event.category)
-          && isNonEmptyString(event.name)
-          && isFiniteNumber(event.startUs)
-          && isFiniteNumber(event.durationUs)
-          && event.durationUs >= 0
-          && (
-            event.status === undefined
-            || ['normal', 'warning', 'error', 'incomplete', 'candidate']
-              .includes(String(event.status))
-          )
-        ));
     default:
       return false;
   }
@@ -728,6 +805,20 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
             : value.currentIndex >= 1 && value.currentIndex <= value.events.length
         )
         && isListTruncation(value.truncation, value.events.length);
+    case 'custom-query-result':
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'range', 'events', 'evidenceIds', 'limitations', 'truncation',
+      ])
+        && isSessionRef(value)
+        && isRange(value.range)
+        && Array.isArray(value.events)
+        && value.events.length <= 2_000
+        && value.events.every(isTimelineEvent)
+        && isEvidenceIds(value.evidenceIds)
+        && value.evidenceIds.length <= 2_000
+        && isStringArray(value.limitations)
+        && isListTruncation(value.truncation, value.events.length);
     case 'event-detail-result':
       return isSessionRef(value) && isEventDetail(value.detail);
     case 'query-cancelled':
@@ -832,6 +923,74 @@ export function isWorkbenchResponse(value: unknown): value is WorkbenchResponse 
         && isEvidenceIds(value.evidenceIds)
         && isStringArray(value.limitations)
         && isAdvancedAnalysisResult(value.capability, value.result);
+    case 'track-plugin-result': {
+      if (
+        !isSessionRef(value)
+        || (
+          value.operation !== 'installed'
+          && value.operation !== 'refreshed'
+          && value.operation !== 'removed'
+        )
+      ) {
+        return false;
+      }
+      if (value.operation === 'removed') {
+        return hasOnlyKeys(value, [
+          'type', 'schemaVersion', 'requestId', 'sessionId',
+          'sessionRevision', 'operation', 'pluginId',
+        ]) && isPluginId(value.pluginId);
+      }
+      const plugin = value.plugin;
+      return hasOnlyKeys(value, [
+        'type', 'schemaVersion', 'requestId', 'sessionId', 'sessionRevision',
+        'operation', 'plugin', 'range', 'projectedEvents', 'evidenceIds',
+        'limitations', 'truncation',
+      ])
+        && isRecord(plugin)
+        && hasOnlyKeys(plugin, ['pluginId', 'label', 'trackId'])
+        && isPluginId(plugin.pluginId)
+        && isNonEmptyString(plugin.label)
+        && plugin.label.length <= 60
+        && plugin.trackId === `plugin:${plugin.pluginId}`
+        && isRange(value.range)
+        && Array.isArray(value.projectedEvents)
+        && value.projectedEvents.length <= 2_000
+        && value.projectedEvents.every(event => (
+          isRecord(event)
+          && hasOnlyKeys(event, [
+            'eventId', 'sourceEventId', 'evidenceIds', 'trackId',
+            'category', 'name', 'startUs', 'durationUs', 'status',
+          ])
+          && isNonEmptyString(event.eventId)
+          && isNonEmptyString(event.sourceEventId)
+          && /^trace:timeline:(0|[1-9]\d*)$/.test(event.sourceEventId)
+          && event.eventId === (
+            `plugin:${plugin.pluginId}:${event.sourceEventId}`
+          )
+          && isEvidenceIds(event.evidenceIds)
+          && event.evidenceIds.length <= 2_000
+          && event.trackId === plugin.trackId
+          && isNonEmptyString(event.category)
+          && isNonEmptyString(event.name)
+          && isFiniteNumber(event.startUs)
+          && isFiniteNumber(event.durationUs)
+          && event.durationUs >= 0
+          && (event.status === undefined || isTimelineStatus(event.status))
+        ))
+        && isEvidenceIds(value.evidenceIds)
+        && (
+          value.evidenceIds.length
+          + value.projectedEvents.reduce(
+            (sum, event) => sum + event.evidenceIds.length,
+            0,
+          )
+        ) <= 2_000
+        && isStringArray(value.limitations)
+        && isListTruncation(
+          value.truncation,
+          value.projectedEvents.length,
+        );
+    }
     case 'capability-missing':
       return isSessionRef(value)
         && isCapability(value.capability)

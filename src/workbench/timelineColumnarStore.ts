@@ -1,4 +1,5 @@
 import type {
+  WorkbenchCustomQuery,
   WorkbenchTimelineEventDto,
   WorkbenchTruncation,
   WorkbenchViewportLod,
@@ -103,6 +104,13 @@ export interface TimelineEventLogResult {
     totalMatched: number;
     continuation?: string;
   };
+}
+
+export interface TimelineCustomEventQuery {
+  range: { startUs: number; endUs: number };
+  query: WorkbenchCustomQuery;
+  limit: number;
+  continuation?: string;
 }
 
 export interface TimelineEvidenceEntity {
@@ -584,6 +592,74 @@ export class TimelineColumnarStore {
     };
   }
 
+  async queryCustomEvents(
+    query: TimelineCustomEventQuery,
+    options: {
+      isCancelled(): boolean;
+      timeoutMs: number;
+      now(): number;
+      yieldControl(): Promise<void>;
+      yieldInterval?: number;
+    },
+  ): Promise<TimelineEventLogResult> {
+    if (
+      this.released
+      || !Number.isFinite(query.range.startUs)
+      || !Number.isFinite(query.range.endUs)
+      || query.range.startUs > query.range.endUs
+      || !Number.isInteger(query.limit)
+      || query.limit < 1
+      || query.limit > 2_000
+    ) {
+      return {
+        events: [],
+        truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+      };
+    }
+    const firstCandidate = lowerBound(this.prefixMaxEndUs, query.range.startUs);
+    const lastCandidate = upperBound(this.startUs, query.range.endUs);
+    const continuationSourceIndex = query.continuation
+      ? sourceIndexFromEventId(query.continuation)
+      : undefined;
+    const startedAt = options.now();
+    const yieldInterval = options.yieldInterval ?? 2_048;
+    const events: WorkbenchTimelineEventDto[] = [];
+    let totalMatched = 0;
+    let eligibleMatched = 0;
+    let pastContinuation = continuationSourceIndex === undefined;
+    for (let position = firstCandidate; position < lastCandidate; position += 1) {
+      if (options.isCancelled()) throw new TimelineQueryCancelled();
+      if (options.now() - startedAt > options.timeoutMs) {
+        throw new TimelineQueryTimeout();
+      }
+      const sourceIndex = this.sourceIndexes[position];
+      const intersects = this.startUs[position] + this.durationUs[position]
+        >= query.range.startUs;
+      if (intersects && this.matchesCustomQuery(position, query.query)) {
+        totalMatched += 1;
+        if (!pastContinuation && sourceIndex === continuationSourceIndex) {
+          pastContinuation = true;
+        } else if (pastContinuation) {
+          eligibleMatched += 1;
+          if (events.length < query.limit) events.push(this.dtoAt(position));
+        }
+      }
+      if ((position - firstCandidate + 1) % yieldInterval === 0) {
+        await options.yieldControl();
+      }
+    }
+    const truncated = events.length > 0 && events.length < eligibleMatched;
+    return {
+      events,
+      truncation: {
+        truncated,
+        returnedCount: events.length,
+        totalMatched,
+        ...(truncated ? { continuation: events[events.length - 1].id } : {}),
+      },
+    };
+  }
+
   getInput(eventIdValue: string): TimelineStoreEventInput | undefined {
     const sourceIndex = sourceIndexFromEventId(eventIdValue);
     return sourceIndex === undefined ? undefined : this.inputsBySourceIndex.get(sourceIndex);
@@ -698,6 +774,33 @@ export class TimelineColumnarStore {
 
   private positionsToDtos(positions: number[] | undefined): WorkbenchTimelineEventDto[] {
     return (positions ?? []).map(position => this.dtoAt(position));
+  }
+
+  private matchesCustomQuery(
+    position: number,
+    query: WorkbenchCustomQuery,
+  ): boolean {
+    const sourceIndex = this.sourceIndexes[position];
+    const input = this.inputsBySourceIndex.get(sourceIndex);
+    const values = {
+      name: this.strings.values[this.nameIndexes[position]],
+      category: this.strings.values[this.categoryIndexes[position]],
+      trackId: this.strings.values[this.trackIndexes[position]],
+      status: input?.status,
+      durationUs: this.durationUs[position],
+    };
+    return query.clauses.every(clause => {
+      if (clause.field === 'durationUs') {
+        if (clause.operator === 'gte') return values.durationUs >= clause.value;
+        if (clause.operator === 'lte') return values.durationUs <= clause.value;
+        return values.durationUs === clause.value;
+      }
+      if (clause.field === 'status') return values.status === clause.value;
+      const actual = values[clause.field];
+      return clause.operator === 'contains'
+        ? actual.toLowerCase().includes(clause.value.toLowerCase())
+        : actual === clause.value;
+    });
   }
 
   private dtoAt(position: number): WorkbenchTimelineEventDto {

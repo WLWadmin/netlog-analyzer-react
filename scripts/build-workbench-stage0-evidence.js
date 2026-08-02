@@ -164,6 +164,12 @@ validateStage6Round(
   [44, 45, 46],
   { 44: 'implemented', 45: 'implemented', 46: 'audited' },
 );
+validateStage6Round(
+  source.stage6Round3,
+  'Stage 6 round 3',
+  [47, 48],
+  { 47: 'implemented', 48: 'implemented' },
+);
 
 const allCriterionIds = new Set();
 for (const record of source.records) {
@@ -270,8 +276,11 @@ const lines = [
   `- Stage 6 第二轮：${source.stage6Round2.batches.map(batch => (
     `Batch ${batch.batchId} ${batch.states.map(state => `\`${state}\``).join('/')}`
   )).join('；')}`,
+  `- Stage 6 第三轮：${source.stage6Round3.batches.map(batch => (
+    `Batch ${batch.batchId} ${batch.states.map(state => `\`${state}\``).join('/')}`
+  )).join('；')}`,
   `- Stage 6 开关：\`${source.stage6Round1.featureFlag}\`（仍依赖前五档 Workbench 开关）`,
-  `- 浏览器验证：第一轮 \`${source.stage6Round1.browserVerification.state}\`，第二轮 \`${source.stage6Round2.browserVerification.state}\``,
+  `- 浏览器验证：第一轮 \`${source.stage6Round1.browserVerification.state}\`，第二轮 \`${source.stage6Round2.browserVerification.state}\`，第三轮 \`${source.stage6Round3.browserVerification.state}\``,
   `- 状态计数：${source.allowedCriterionStatuses.map(status => `${status}=${statusCounts[status]}`).join('，')}`,
   '- 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。',
   '',
