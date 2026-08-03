@@ -39,12 +39,14 @@ describe('Stage 6 capability audit contract', () => {
         expect(criterion.criterionId.startsWith(`${record.capabilityId}-`)).toBe(true);
         expect(criterion.points).toBeGreaterThan(0);
         expect(criterion.limitations.length).toBeGreaterThan(0);
-        if (criterion.status === 'implemented-verified') {
-          expect(criterion.codeEvidence.length).toBeGreaterThan(0);
-          expect(criterion.testEvidence.length + criterion.sampleEvidence.length)
-            .toBeGreaterThan(0);
-        }
       }
+    }
+    const verifiedCriteria = records.flatMap(record => record.criteria)
+      .filter(criterion => criterion.status === 'implemented-verified');
+    for (const criterion of verifiedCriteria) {
+      expect(criterion.codeEvidence.length).toBeGreaterThan(0);
+      expect(criterion.testEvidence.length + criterion.sampleEvidence.length)
+        .toBeGreaterThan(0);
     }
   });
 

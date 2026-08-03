@@ -9,6 +9,7 @@ import {
   type WorkbenchBenchmarkCorpusMetrics,
 } from '../workbench/spike/benchmarkProtocol';
 import type { WorkbenchRequest } from '../workbench/protocol';
+import { findForbiddenStage6Keys } from './stage6Privacy';
 import { WorkbenchBenchmarkBridge } from './workbenchBrowserBenchmark';
 
 export interface Stage2ProductBenchmarkState {
@@ -37,6 +38,20 @@ export interface Stage2ProductBenchmarkState {
     selection: ReturnType<TraceWorkbenchClient['getSelectionQueueStats']>;
     analysis: ReturnType<TraceWorkbenchClient['getAnalysisQueueStats']>;
   };
+  stage6: {
+    requestTypes: Partial<Record<WorkbenchRequest['type'], number>>;
+    customQueryResponseKeys: string[];
+    customQueryEventKeys: string[];
+    pluginManifestKeys: string[];
+    pluginResponseKeys: string[];
+    pluginEventKeys: string[];
+    advancedStatuses: Partial<Record<string, string[]>>;
+    forbiddenPayloadKeys: string[];
+    activeRequestCount: number;
+    maxActiveRequestCount: number;
+    installedPluginCount: number;
+    workerTerminated: boolean;
+  };
   sessionClosed: boolean;
   error?: string;
 }
@@ -61,6 +76,20 @@ function appendSample(
   const values = samples[type] ?? [];
   values.push(Number(value.toFixed(3)));
   samples[type] = values;
+}
+
+const STAGE6_REQUEST_TYPES = new Set<WorkbenchRequest['type']>([
+  'query-advanced-analysis',
+  'query-custom-events',
+  'install-track-plugin',
+  'query-track-plugin',
+  'remove-track-plugin',
+]);
+
+function sortedKeys(value: unknown): string[] {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? Object.keys(value).sort()
+    : [];
 }
 
 export async function runStage2ProductBenchmark(): Promise<void> {
@@ -112,6 +141,20 @@ export async function runStage2ProductBenchmark(): Promise<void> {
         },
       },
     },
+    stage6: {
+      requestTypes: {},
+      customQueryResponseKeys: [],
+      customQueryEventKeys: [],
+      pluginManifestKeys: [],
+      pluginResponseKeys: [],
+      pluginEventKeys: [],
+      advancedStatuses: {},
+      forbiddenPayloadKeys: [],
+      activeRequestCount: 0,
+      maxActiveRequestCount: 0,
+      installedPluginCount: 0,
+      workerTerminated: false,
+    },
     sessionClosed: false,
   };
   window.__STAGE2_PRODUCT_BENCHMARK__ = state;
@@ -128,32 +171,81 @@ export async function runStage2ProductBenchmark(): Promise<void> {
     const transport = {
       dispatch: async (request: WorkbenchRequest) => {
         const startedAt = performance.now();
-        const measurement = await bridge.dispatch(request);
-        appendSample(state.protocolSamples, request.type, performance.now() - startedAt);
-        appendSample(state.workerSamples, request.type, measurement.workerElapsedMs);
-        state.transferBytes += measurement.requestBytes + measurement.responseBytes;
-        if (measurement.value.type === 'source-change-result') {
-          state.sourceChanges.push({
-            operation: measurement.value.operation,
-            sourceRevision: measurement.value.sourceRevision,
-            revokedEdgeCount: measurement.value.revokedEdgeCount,
-            revokedFindingCount: measurement.value.revokedFindingCount,
-          });
-        } else if (measurement.value.type === 'viewport-result') {
-          state.truncation.viewportObserved += 1;
-          if (measurement.value.truncation.truncated) {
-            state.truncation.viewportTruncated += 1;
+        state.stage6.activeRequestCount += 1;
+        state.stage6.maxActiveRequestCount = Math.max(
+          state.stage6.maxActiveRequestCount,
+          state.stage6.activeRequestCount,
+        );
+        try {
+          const measurement = await bridge.dispatch(request);
+          appendSample(state.protocolSamples, request.type, performance.now() - startedAt);
+          appendSample(state.workerSamples, request.type, measurement.workerElapsedMs);
+          state.transferBytes += measurement.requestBytes + measurement.responseBytes;
+          if (STAGE6_REQUEST_TYPES.has(request.type)) {
+            state.stage6.requestTypes[request.type] = (
+              state.stage6.requestTypes[request.type] ?? 0
+            ) + 1;
+            state.stage6.forbiddenPayloadKeys = [...new Set([
+              ...state.stage6.forbiddenPayloadKeys,
+              ...findForbiddenStage6Keys(request),
+              ...findForbiddenStage6Keys(measurement.value),
+            ])].sort();
           }
-          if (measurement.value.lod?.mode === 'sampled') {
-            state.truncation.viewportSampled += 1;
+          if (request.type === 'install-track-plugin') {
+            state.stage6.pluginManifestKeys = sortedKeys(request.manifest);
           }
-        } else if (measurement.value.type === 'selection-result') {
-          state.truncation.selectionObserved += 1;
-          if (measurement.value.truncation.truncated) {
-            state.truncation.selectionTruncated += 1;
+          if (measurement.value.type === 'custom-query-result') {
+            state.stage6.customQueryResponseKeys = sortedKeys(measurement.value);
+            state.stage6.customQueryEventKeys = sortedKeys(measurement.value.events[0]);
+          } else if (measurement.value.type === 'track-plugin-result') {
+            state.stage6.pluginResponseKeys = sortedKeys(measurement.value);
+            if (measurement.value.operation === 'removed') {
+              state.stage6.installedPluginCount = Math.max(
+                0,
+                state.stage6.installedPluginCount - 1,
+              );
+            } else {
+              state.stage6.installedPluginCount += measurement.value.operation === 'installed'
+                ? 1
+                : 0;
+              state.stage6.pluginEventKeys = sortedKeys(
+                measurement.value.projectedEvents[0],
+              );
+            }
+          } else if (measurement.value.type === 'advanced-analysis-result') {
+            const statuses = state.stage6.advancedStatuses[
+              measurement.value.capability
+            ] ?? [];
+            statuses.push(measurement.value.status);
+            state.stage6.advancedStatuses[measurement.value.capability] = statuses;
+          } else if (measurement.value.type === 'session-released') {
+            state.stage6.installedPluginCount = 0;
           }
+          if (measurement.value.type === 'source-change-result') {
+            state.sourceChanges.push({
+              operation: measurement.value.operation,
+              sourceRevision: measurement.value.sourceRevision,
+              revokedEdgeCount: measurement.value.revokedEdgeCount,
+              revokedFindingCount: measurement.value.revokedFindingCount,
+            });
+          } else if (measurement.value.type === 'viewport-result') {
+            state.truncation.viewportObserved += 1;
+            if (measurement.value.truncation.truncated) {
+              state.truncation.viewportTruncated += 1;
+            }
+            if (measurement.value.lod?.mode === 'sampled') {
+              state.truncation.viewportSampled += 1;
+            }
+          } else if (measurement.value.type === 'selection-result') {
+            state.truncation.selectionObserved += 1;
+            if (measurement.value.truncation.truncated) {
+              state.truncation.selectionTruncated += 1;
+            }
+          }
+          return measurement.value;
+        } finally {
+          state.stage6.activeRequestCount -= 1;
         }
-        return measurement.value;
       },
       dispatchSourceFile: async (
         request: Extract<
@@ -180,6 +272,7 @@ export async function runStage2ProductBenchmark(): Promise<void> {
       close: () => {
         state.sessionClosed = true;
         bridge.close();
+        state.stage6.workerTerminated = true;
       },
     };
     const client = new TraceWorkbenchClient(preparation.value.source, transport);

@@ -4,6 +4,7 @@ import {
 } from 'react';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
 import type { AdvancedAnalysisResultResponse } from '../../../workbench/protocol';
+import { useStableAnalysisRange } from './useStableAnalysisRange';
 
 interface AnimationCompositionPanelProps {
   client: TraceWorkbenchClient;
@@ -41,11 +42,16 @@ const AnimationCompositionPanel: React.FC<AnimationCompositionPanelProps> = ({
 }) => {
   const [response, setResponse] = useState<AnimationResponse>();
   const [error, setError] = useState('');
+  const stableRange = useStableAnalysisRange(range);
 
   useEffect(() => {
     let disposed = false;
+    setResponse(undefined);
     setError('');
-    void client.queryAdvancedAnalysis('animation-composition', range).then(result => {
+    if (!stableRange) return () => {
+      disposed = true;
+    };
+    void client.queryAdvancedAnalysis('animation-composition', stableRange).then(result => {
       if (
         !disposed
         && result.type === 'advanced-analysis-result'
@@ -59,7 +65,7 @@ const AnimationCompositionPanel: React.FC<AnimationCompositionPanelProps> = ({
     return () => {
       disposed = true;
     };
-  }, [client, range]);
+  }, [client, stableRange]);
 
   return (
     <section className="trace-advanced-panel" aria-labelledby="trace-animation-heading">

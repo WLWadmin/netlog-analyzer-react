@@ -64,6 +64,13 @@ docs/superpowers/reports/*
 !docs/superpowers/reports/workbench-stage2-*.md
 !docs/superpowers/reports/workbench-stage3-*.json
 !docs/superpowers/reports/workbench-stage3-*.md
+!docs/superpowers/reports/workbench-stage6-browser-100k.json
+!docs/superpowers/reports/workbench-stage6-browser-500k.json
+!docs/superpowers/reports/workbench-stage6-browser-1000k.json
+!docs/superpowers/reports/workbench-stage6-ui-validation.json
+!docs/superpowers/reports/workbench-stage6-build-matrix.json
+!docs/superpowers/reports/workbench-stage6-evidence.json
+!docs/superpowers/reports/workbench-stage6-evidence.md
 public/test.log
 public/test.har
 fix_combined_upload_and_dedup.patch

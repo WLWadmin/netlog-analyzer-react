@@ -6,11 +6,11 @@
 - 自动计分：85 / 100
 - 发布验收：未接受
 - 外部门禁：`real-sample-blocked`、`worker-peak-memory-unmeasured`
-- Stage 6 第一轮：Batch 41 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 42 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 43 `implemented`/`automated-verified`/`real-sample-blocked`
-- Stage 6 第二轮：Batch 44 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 45 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 46 `audited`/`automated-verified`/`real-sample-blocked`
-- Stage 6 第三轮：Batch 47 `implemented`/`automated-verified`/`real-sample-blocked`；Batch 48 `implemented`/`automated-verified`/`real-sample-blocked`
+- Stage 6 第一轮：Batch 41 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`；Batch 42 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`；Batch 43 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`
+- Stage 6 第二轮：Batch 44 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`；Batch 45 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`；Batch 46 `audited`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`
+- Stage 6 第三轮：Batch 47 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`；Batch 48 `implemented`/`automated-verified`/`browser-synthetic-verified`/`real-sample-blocked`
 - Stage 6 开关：`REACT_APP_ENABLE_TRACE_STAGE6=1`（仍依赖前五档 Workbench 开关）
-- 浏览器验证：第一轮 `not-run`，第二轮 `not-run`，第三轮 `not-run`
+- 浏览器验证：第一轮 `browser-synthetic-verified`，第二轮 `browser-synthetic-verified`，第三轮 `browser-synthetic-verified`
 - 状态计数：implemented-verified=31，implemented-unverified=12，designed=0，absent=1
 - 计分规则：仅 `scoreEligible=true` 且状态为 `implemented-verified` 的 criteria 计分；能力得分不推导发布验收。
 

@@ -4,6 +4,7 @@ import {
 } from 'react';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
 import type { AdvancedAnalysisResultResponse } from '../../../workbench/protocol';
+import { useStableAnalysisRange } from './useStableAnalysisRange';
 
 interface MemoryTrendPanelProps {
   client: TraceWorkbenchClient;
@@ -48,12 +49,16 @@ const MemoryTrendPanel: React.FC<MemoryTrendPanelProps> = ({
 }) => {
   const [response, setResponse] = useState<MemoryTrendResponse>();
   const [error, setError] = useState('');
+  const stableRange = useStableAnalysisRange(range);
 
   useEffect(() => {
     let disposed = false;
     setResponse(undefined);
     setError('');
-    void client.queryAdvancedAnalysis('memory-trend', range).then(result => {
+    if (!stableRange) return () => {
+      disposed = true;
+    };
+    void client.queryAdvancedAnalysis('memory-trend', stableRange).then(result => {
       if (
         !disposed
         && result.type === 'advanced-analysis-result'
@@ -67,7 +72,7 @@ const MemoryTrendPanel: React.FC<MemoryTrendPanelProps> = ({
     return () => {
       disposed = true;
     };
-  }, [client, range]);
+  }, [client, stableRange]);
 
   const firstSample = response?.result.samples[0];
   const lastSample = response?.result.samples.at(-1);

@@ -1,8 +1,13 @@
 #!/usr/bin/env node
-'use strict';
 
+const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const {
+  actualHead,
+  changedRuntimeInputHash,
+  runtimeInputHash,
+} = require('./workbench-artifact-identity');
 
 const root = path.resolve(__dirname, '..');
 const sourcePath = path.join(
@@ -17,9 +22,23 @@ const benchmarkReportPath = path.join(
   root,
   'docs/superpowers/reports/2026-08-01-workbench-browser-benchmark.md',
 );
+const stage6EvidencePath = path.join(
+  root,
+  'docs/superpowers/reports/workbench-stage6-evidence.json',
+);
 const benchmarkEventCounts = [100000, 500000, 1000000];
 const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+const stage6Evidence = JSON.parse(fs.readFileSync(stage6EvidencePath, 'utf8'));
 const allowedStatuses = new Set(source.allowedCriterionStatuses);
+const stage6ArtifactPaths = [
+  'docs/superpowers/reports/workbench-stage6-browser-100k.json',
+  'docs/superpowers/reports/workbench-stage6-browser-500k.json',
+  'docs/superpowers/reports/workbench-stage6-browser-1000k.json',
+  'docs/superpowers/reports/workbench-stage6-ui-validation.json',
+  'docs/superpowers/reports/workbench-stage6-build-matrix.json',
+  'docs/superpowers/reports/workbench-stage6-evidence.json',
+  'docs/superpowers/reports/workbench-stage6-evidence.md',
+];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -117,6 +136,52 @@ assert(
     && source.blockingGates.includes('worker-peak-memory-unmeasured'),
   'external release blockers must remain explicit',
 );
+assert(
+  stage6Evidence.verification.browserSyntheticVerified === true
+    && stage6Evidence.browser.state === 'browser-synthetic-verified',
+  'Stage 6 browser synthetic evidence is not verified',
+);
+assert(
+  stage6Evidence.verification.realSample !== 'real-sample-verified'
+    && stage6Evidence.verification.workerPeakMemoryBytes === null
+    && stage6Evidence.verification.workerMemoryState
+      === 'worker-peak-memory-unmeasured'
+    && stage6Evidence.releaseAccepted === false
+    && stage6Evidence.blockers.includes('real-sample-blocked')
+    && stage6Evidence.blockers.includes('worker-peak-memory-unmeasured'),
+  'Stage 6 evidence overstates external release verification',
+);
+assert(
+  childProcess.spawnSync(
+    'git',
+    [
+      'merge-base',
+      '--is-ancestor',
+      stage6Evidence.baseline.actualHead,
+      actualHead(root),
+    ],
+    { cwd: root },
+  ).status === 0
+    && stage6Evidence.baseline.workingTreeDiffHash
+      === changedRuntimeInputHash(root, stage6Evidence.baseline.actualHead)
+    && stage6Evidence.baseline.runtimeInputHash === runtimeInputHash(root),
+  'Stage 6 evidence does not match the current HEAD and runtime inputs',
+);
+for (const artifactPath of stage6ArtifactPaths) {
+  assert(
+    fs.existsSync(path.join(root, artifactPath)),
+    `Stage 6 evidence artifact is missing: ${artifactPath}`,
+  );
+  const ignored = childProcess.spawnSync(
+    'git',
+    ['check-ignore', '--quiet', artifactPath],
+    { cwd: root },
+  );
+  assert(
+    ignored.status === 1,
+    `Stage 6 evidence artifact is still ignored: ${artifactPath}`,
+  );
+}
 function validateStage6Round(round, label, expectedBatches, primaryStates) {
   assert(round.releaseAccepted === false, `${label} is not release accepted`);
   assert(
@@ -124,8 +189,10 @@ function validateStage6Round(round, label, expectedBatches, primaryStates) {
     `${label} must declare its independent feature flag`,
   );
   assert(
-    round.browserVerification.state === 'not-run',
-    `${label} must not claim browser verification`,
+    round.browserVerification.state === 'browser-synthetic-verified'
+      && round.browserVerification.evidence
+        === 'docs/superpowers/reports/workbench-stage6-evidence.json',
+    `${label} lacks Stage 6 browser synthetic evidence`,
   );
   assert(
     round.batches.map(batch => batch.batchId).join(',') === expectedBatches.join(','),
@@ -145,7 +212,12 @@ function validateStage6Round(round, label, expectedBatches, primaryStates) {
       `Batch ${batch.batchId} omits real sample blocking`,
     );
     assert(
+      batch.states.includes('browser-synthetic-verified'),
+      `Batch ${batch.batchId} lacks browser synthetic verification`,
+    );
+    assert(
       !batch.states.includes('browser-verified')
+        && !batch.states.includes('real-sample-verified')
         && !batch.states.includes('release-accepted'),
       `Batch ${batch.batchId} overstates verification`,
     );

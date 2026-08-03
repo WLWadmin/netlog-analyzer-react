@@ -253,4 +253,57 @@ describe('TrackPluginPanel', () => {
     expect(screen.queryByText('Session Only')).toBeNull();
     expect(secondClient.queryTrackPlugin).not.toHaveBeenCalled();
   });
+
+  it('ignores a pending install response from a replaced client', async () => {
+    let resolveInstall: ((response: object) => void) | undefined;
+    const firstClient = {
+      installTrackPlugin: jest.fn().mockReturnValue(new Promise(resolve => {
+        resolveInstall = resolve;
+      })),
+      queryTrackPlugin: jest.fn(),
+    } as unknown as TraceWorkbenchClient;
+    const secondClient = {
+      queryTrackPlugin: jest.fn(),
+    } as unknown as TraceWorkbenchClient;
+    const onOverlaysChange = jest.fn();
+    const view = render(
+      <TrackPluginPanel
+        client={firstClient}
+        range={{ startUs: 0, endUs: 1_000 }}
+        onOverlaysChange={onOverlaysChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('插件 ID'), {
+      target: { value: 'old-session' },
+    });
+    fireEvent.change(screen.getByLabelText('插件名称'), {
+      target: { value: 'Old Session' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '添加临时轨道' }));
+    view.rerender(
+      <TrackPluginPanel
+        client={secondClient}
+        range={{ startUs: 0, endUs: 1_000 }}
+        onOverlaysChange={onOverlaysChange}
+      />,
+    );
+    resolveInstall?.({
+      type: 'track-plugin-result',
+      operation: 'installed',
+      plugin: {
+        pluginId: 'old-session',
+        label: 'Old Session',
+        trackId: 'plugin:old-session',
+      },
+      range: { startUs: 0, endUs: 1_000 },
+      projectedEvents: [],
+      evidenceIds: [],
+      limitations: [],
+      truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText('Old Session')).toBeNull();
+    expect(onOverlaysChange).toHaveBeenLastCalledWith([]);
+  });
 });

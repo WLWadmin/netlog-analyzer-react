@@ -117,6 +117,7 @@ export class WorkbenchSessionKernel {
   private readonly yieldControl: () => Promise<void>;
   private readonly queryTimeoutMs: number;
   private readonly queryYieldInterval: number;
+  private readonly customQueryYieldInterval: number;
 
   constructor(
     private readonly adapter: TraceEngineAdapter,
@@ -127,7 +128,11 @@ export class WorkbenchSessionKernel {
     this.yieldControl = options.yieldControl
       ?? (() => new Promise(resolve => setTimeout(resolve, 0)));
     this.queryTimeoutMs = options.queryTimeoutMs ?? 5_000;
-    this.queryYieldInterval = options.queryYieldInterval ?? 2_048;
+    this.queryYieldInterval = options.queryYieldInterval ?? 32_768;
+    // Custom predicates still check cancellation and timeout per event. A
+    // larger default interval avoids hundreds of timer turns on 1M-event
+    // scans while explicit test/host intervals retain their original value.
+    this.customQueryYieldInterval = options.queryYieldInterval ?? 65_536;
   }
 
   async dispatch(
@@ -1193,7 +1198,7 @@ export class WorkbenchSessionKernel {
         timeoutMs: this.queryTimeoutMs,
         now: this.now,
         yieldControl: this.yieldControl,
-        yieldInterval: this.queryYieldInterval,
+        yieldInterval: this.customQueryYieldInterval,
       });
       const currentSession = this.resolveSession(request);
       if ('type' in currentSession) return currentSession;
@@ -1360,7 +1365,7 @@ export class WorkbenchSessionKernel {
         timeoutMs: this.queryTimeoutMs,
         now: this.now,
         yieldControl: this.yieldControl,
-        yieldInterval: this.queryYieldInterval,
+        yieldInterval: this.customQueryYieldInterval,
       });
       const currentSession = this.resolveSession(request);
       if ('type' in currentSession) return currentSession;

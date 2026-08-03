@@ -115,6 +115,44 @@ describe('CustomQueryPanel', () => {
     await waitFor(() => expect(open).toHaveBeenCalledWith('trace:timeline:1'));
   });
 
+  it('keeps the response bounded while rendering only a review window', async () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      id: `trace:timeline:${index}`,
+      trackId: 'main',
+      startUs: index,
+      durationUs: 1,
+      depth: 0,
+      category: 'task',
+      name: `RunTask ${index}`,
+    }));
+    render(
+      <CustomQueryPanel
+        client={client({
+          type: 'custom-query-result',
+          range,
+          events,
+          evidenceIds: [],
+          limitations: [],
+          truncation: {
+            truncated: true,
+            returnedCount: 2_000,
+            totalMatched: 20_000,
+            continuation: 'trace:timeline:1999',
+          },
+        })}
+        range={range}
+        onFocusRange={jest.fn()}
+        onOpenEvent={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '运行自定义查询' }));
+    expect(await screen.findByText(/仅展示前 100 条/)).not.toBeNull();
+    expect(screen.queryByText(/继续翻页/)).toBeNull();
+    expect(screen.getAllByRole('listitem')).toHaveLength(100);
+    expect(screen.queryByText('RunTask 100')).toBeNull();
+  });
+
   it('shows server limitations and clears results when the query changes', async () => {
     render(
       <CustomQueryPanel
@@ -230,5 +268,58 @@ describe('CustomQueryPanel', () => {
     await Promise.resolve();
 
     expect(screen.queryByText(/LateOldRangeTask/)).toBeNull();
+  });
+
+  it('does not commit a query response from a replaced client', async () => {
+    let resolveQuery: ((response: object) => void) | undefined;
+    const firstClient = {
+      queryCustomEvents: jest.fn().mockReturnValue(new Promise(resolve => {
+        resolveQuery = resolve;
+      })),
+    } as unknown as TraceWorkbenchClient;
+    const secondClient = client({
+      type: 'custom-query-result',
+      range,
+      events: [],
+      evidenceIds: [],
+      limitations: [],
+      truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
+    });
+    const view = render(
+      <CustomQueryPanel
+        client={firstClient}
+        range={range}
+        onFocusRange={jest.fn()}
+        onOpenEvent={jest.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '运行自定义查询' }));
+    view.rerender(
+      <CustomQueryPanel
+        client={secondClient}
+        range={range}
+        onFocusRange={jest.fn()}
+        onOpenEvent={jest.fn()}
+      />,
+    );
+    resolveQuery?.({
+      type: 'custom-query-result',
+      range,
+      events: [{
+        id: 'trace:timeline:1',
+        trackId: 'main',
+        startUs: 100,
+        durationUs: 20,
+        depth: 0,
+        category: 'task',
+        name: 'OldClientTask',
+      }],
+      evidenceIds: [],
+      limitations: [],
+      truncation: { truncated: false, returnedCount: 1, totalMatched: 1 },
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText(/OldClientTask/)).toBeNull();
   });
 });

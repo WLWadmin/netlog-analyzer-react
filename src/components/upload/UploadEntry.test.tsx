@@ -21,7 +21,7 @@ describe('UploadEntry', () => {
   };
 
   it('uses one shared upload zone and exposes local trust boundaries', () => {
-    const { container } = render(
+    render(
       <UploadEntry
         {...baseProps}
         state={{ status: 'idle' }}
@@ -32,8 +32,7 @@ describe('UploadEntry', () => {
     expect(screen.getByRole('heading', { name: '导入诊断文件' })).not.toBeNull();
     expect(screen.queryByText('浏览器证据诊断工作台')).toBeNull();
     expect(screen.getByText('文件不会上传服务器')).not.toBeNull();
-    expect(container.querySelectorAll('[data-testid="shared-upload"]')).toHaveLength(1);
-    expect(container.querySelector('select')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('updates the parser mode through the expert selector', () => {

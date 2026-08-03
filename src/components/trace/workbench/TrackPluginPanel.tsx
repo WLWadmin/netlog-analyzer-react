@@ -67,6 +67,8 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
   const [error, setError] = useState('');
   const overlaysRef = useRef(overlays);
   const previousClientRef = useRef(client);
+  const currentClientRef = useRef(client);
+  currentClientRef.current = client;
   const rangeRef = useRef(range);
   rangeRef.current = range;
   const rangeStartUs = range.startUs;
@@ -154,8 +156,10 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
     };
     setError('');
     setStatus('正在创建临时轨道…');
+    const requestClient = client;
     try {
-      const response = await client.installTrackPlugin(range, manifest);
+      const response = await requestClient.installTrackPlugin(range, manifest);
+      if (currentClientRef.current !== requestClient) return;
       if (
         response?.type === 'track-plugin-result'
         && isUpdatedPluginResponse(response)
@@ -170,15 +174,17 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
             { ...overlayFromResponse(response), events: [] },
           ]);
           try {
-            currentResponse = await client.queryTrackPlugin(
+            currentResponse = await requestClient.queryTrackPlugin(
               response.plugin.pluginId,
               currentRange,
             );
           } catch {
+            if (currentClientRef.current !== requestClient) return;
             setStatus('');
             setError('临时轨道已创建，但当前范围刷新失败；未显示旧范围事件。');
             return;
           }
+          if (currentClientRef.current !== requestClient) return;
         }
         if (
           !currentResponse
@@ -214,6 +220,7 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
         setError('临时轨道创建失败，当前时间轴仍可使用。');
       }
     } catch {
+      if (currentClientRef.current !== requestClient) return;
       setStatus('');
       setError('临时轨道创建失败，当前时间轴仍可使用。');
     }
@@ -221,8 +228,10 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
 
   const remove = async (overlay: TrackPluginOverlay) => {
     setError('');
+    const requestClient = client;
     try {
-      const response = await client.removeTrackPlugin(overlay.pluginId);
+      const response = await requestClient.removeTrackPlugin(overlay.pluginId);
+      if (currentClientRef.current !== requestClient) return;
       if (
         response?.type === 'track-plugin-result'
         && response.operation === 'removed'
@@ -235,6 +244,7 @@ const TrackPluginPanel: React.FC<TrackPluginPanelProps> = ({
         setError('临时轨道移除失败。');
       }
     } catch {
+      if (currentClientRef.current !== requestClient) return;
       setError('临时轨道移除失败。');
     }
   };

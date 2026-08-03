@@ -18,23 +18,24 @@
     "releaseAccepted": false,
     "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
     "browserVerification": {
-      "state": "not-run",
-      "reason": "按分批验证策略，浏览器 benchmark 与 feature flag 构建延后到 Batch 49–50。"
+      "state": "browser-synthetic-verified",
+      "reason": "Batch 49–50 已完成 100K、500K、1M 合成浏览器 benchmark、交互验证与六档 feature flag 构建；该状态不替代真实样本验证。",
+      "evidence": "docs/superpowers/reports/workbench-stage6-evidence.json"
     },
     "batches": [
       {
         "batchId": 41,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["能力计分不推导发布验收；Worker 独立峰值内存未测。"]
       },
       {
         "batchId": 42,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["CLS 仅由合成单元 fixture 验证，尚无独立 corpus；不映射 DOM，不推断根因。"]
       },
       {
         "batchId": 43,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["动画状态仅由合成单元 fixture 验证，尚无独立 corpus；时间重叠不构成归因。"]
       }
     ],
@@ -54,23 +55,24 @@
     "releaseAccepted": false,
     "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
     "browserVerification": {
-      "state": "not-run",
-      "reason": "按分批验证策略，浏览器 benchmark 与六档 feature flag 构建延后到 Batch 49–50。"
+      "state": "browser-synthetic-verified",
+      "reason": "Batch 49–50 已完成 100K、500K、1M 合成浏览器 benchmark、交互验证与六档 feature flag 构建；该状态不替代真实样本验证。",
+      "evidence": "docs/superpowers/reports/workbench-stage6-evidence.json"
     },
     "batches": [
       {
         "batchId": 44,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["仅接受明确 GC 名称、持续时间和 jsHeapSizeUsed 字节计数器；结果、交互/长任务上下文和证据引用均按整个响应 2000 项上限返回；不支持 Heap Snapshot、对象保留链或泄漏确认。"]
       },
       {
         "batchId": 45,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["GPU 查询和轨道共用事件名、类别及进程/线程元数据白名单，且只统计含明确持续时间的活动；结果和证据引用均按整个响应 2000 项上限返回；不推断利用率、硬件瓶颈、显存压力或驱动根因。"]
       },
       {
         "batchId": 46,
-        "states": ["audited", "automated-verified", "real-sample-blocked"],
+        "states": ["audited", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["复用既有双 Trace 比较并补齐审计测试；尚无真实同场景 Trace 对。"]
       }
     ],
@@ -99,18 +101,19 @@
     "releaseAccepted": false,
     "featureFlag": "REACT_APP_ENABLE_TRACE_STAGE6=1",
     "browserVerification": {
-      "state": "not-run",
-      "reason": "浏览器 benchmark 与六档 feature flag 构建按计划延后到 Batch 49–50。"
+      "state": "browser-synthetic-verified",
+      "reason": "Batch 49–50 已完成 100K、500K、1M 合成浏览器 benchmark、交互验证与六档 feature flag 构建；该状态不替代真实样本验证。",
+      "evidence": "docs/superpowers/reports/workbench-stage6-evidence.json"
     },
     "batches": [
       {
         "batchId": 47,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["仅支持 1–8 个 AND 条件及 name/category/trackId/status/durationUs 白名单字段；不支持 SQL、正则、OR、嵌套表达式或用户代码；结果与证据引用最多 2000 项，证据截断会作为可见限制返回。"]
       },
       {
         "batchId": 48,
-        "states": ["implemented", "automated-verified", "real-sample-blocked"],
+        "states": ["implemented", "automated-verified", "browser-synthetic-verified", "real-sample-blocked"],
         "limitations": ["插件是当前会话内的声明式临时轨道规则，只接收白名单投影；不执行源码、不访问网络、文件、存储、截图、evidence payload 或原始事件；投影与证据引用共享 2000 项预算并显示截断限制，切换会话 client 时清除旧 overlay。"]
       }
     ],
@@ -131,8 +134,20 @@
         "checkedFiles": 21
       },
       "fullJest": {
-        "state": "not-run",
-        "reason": "Round 2 的全量 Jest 通过记录早于 Batch 47–48 当前源码；本轮按冻结策略仅执行定向测试，最终综合验证延后到 Batch 49–50。"
+        "state": "passed",
+        "passedSuites": 161,
+        "skippedSuites": 3,
+        "passedTests": 1047,
+        "skippedTests": 11,
+        "scope": "Batch 49–50 final comprehensive gate"
+      },
+      "finalStage6Gate": {
+        "state": "passed",
+        "browserVerification": "browser-synthetic-verified",
+        "buildMatrix": "passed-six-unique-combinations",
+        "repositoryEslint": "passed",
+        "privacyAndResources": "passed",
+        "evidence": "docs/superpowers/reports/workbench-stage6-evidence.json"
       },
       "diffCheck": "passed"
     }

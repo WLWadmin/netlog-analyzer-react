@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 
 const childProcess = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const WebSocket = require('ws');
+const {
+  actualHead,
+  assertBuildIdentity,
+  buildIdentity,
+  changedRuntimeInputHash,
+  runtimeInputHash,
+  writeBuildIdentity,
+} = require('./workbench-artifact-identity');
 
 const root = path.resolve(__dirname, '..');
 const browserStage = Number(process.env.WORKBENCH_BROWSER_STAGE ?? 3);
 const stage4Mode = browserStage >= 4;
 const stage5Mode = browserStage >= 5;
+const stage6Mode = browserStage >= 6;
 const artifactStage = `stage${browserStage}`;
 const buildDir = path.resolve(process.env[
   `WORKBENCH_STAGE${browserStage}_BUILD_DIR`
@@ -62,35 +70,42 @@ function timing(samples) {
   };
 }
 
-function workingTreeDiffHash() {
-  const files = childProcess.execFileSync(
-    'git',
-    ['ls-files', '--modified', '--others', '--exclude-standard'],
-    { cwd: root, encoding: 'utf8' },
-  ).split('\n')
-    .filter(Boolean)
-    .filter(file => (
-      file === 'package.json'
-      || file.startsWith('src/')
-      || file.startsWith('scripts/')
-    ))
-    .sort();
-  const hash = crypto.createHash('sha256');
-  for (const file of files) {
-    hash.update(file);
-    hash.update('\0');
-    hash.update(fs.readFileSync(path.join(root, file)));
-    hash.update('\0');
-  }
-  return hash.digest('hex');
+function workingTreeDiffHash(baseRef) {
+  return changedRuntimeInputHash(root, baseRef);
 }
 
-function buildProductBenchmark() {
-  const head = childProcess.execFileSync(
-    'git',
-    ['rev-parse', 'HEAD'],
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+function productFlags() {
+  return {
+    REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
+    REACT_APP_ENABLE_TRACE_TIMELINE: '1',
+    REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
+    REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage4Mode ? '1' : '0',
+    REACT_APP_ENABLE_TRACE_STAGE5: stage5Mode ? '1' : '0',
+    REACT_APP_ENABLE_TRACE_STAGE6: stage6Mode ? '1' : '0',
+  };
+}
+
+function flagOffFlags() {
+  return {
+    REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
+    REACT_APP_ENABLE_TRACE_TIMELINE: '1',
+    REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
+    REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage5Mode ? '1' : '0',
+    REACT_APP_ENABLE_TRACE_STAGE5: stage6Mode ? '1' : '0',
+    REACT_APP_ENABLE_TRACE_STAGE6: '0',
+  };
+}
+
+function buildProductBenchmark(identity) {
+  const flags = productFlags();
+  const expected = buildIdentity({
+    ...identity,
+    role: `${artifactStage}-product`,
+    flags,
+  });
+  if (process.env.WORKBENCH_REUSE_BROWSER_BUILDS === '1') {
+    return assertBuildIdentity(buildDir, expected);
+  }
   childProcess.execFileSync('npm', ['run', 'build'], {
     cwd: root,
     env: {
@@ -99,19 +114,27 @@ function buildProductBenchmark() {
       PUBLIC_URL: '/',
       BUILD_PATH: buildDir,
       REACT_APP_ENABLE_WORKBENCH_BENCHMARK: '1',
-      REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
-      REACT_APP_ENABLE_TRACE_TIMELINE: '1',
-      REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
-      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage4Mode ? '1' : '0',
-      REACT_APP_ENABLE_TRACE_STAGE5: stage5Mode ? '1' : '0',
-      REACT_APP_WORKBENCH_BENCHMARK_REF: `${head}+${artifactStage}-working-tree`,
+      ...flags,
+      REACT_APP_WORKBENCH_BENCHMARK_REF:
+        `${identity.head}+${artifactStage}-working-tree`,
     },
     stdio: 'inherit',
   });
+  writeBuildIdentity(buildDir, expected);
+  return expected;
 }
 
-function buildFlagOffBenchmark() {
+function buildFlagOffBenchmark(identity) {
   if (!stage4Mode) return;
+  const flags = flagOffFlags();
+  const expected = buildIdentity({
+    ...identity,
+    role: `${artifactStage}-flag-off`,
+    flags,
+  });
+  if (process.env.WORKBENCH_REUSE_BROWSER_BUILDS === '1') {
+    return assertBuildIdentity(flagOffBuildDir, expected);
+  }
   childProcess.execFileSync('npm', ['run', 'build'], {
     cwd: root,
     env: {
@@ -120,17 +143,17 @@ function buildFlagOffBenchmark() {
       PUBLIC_URL: '/',
       BUILD_PATH: flagOffBuildDir,
       REACT_APP_ENABLE_WORKBENCH_BENCHMARK: '1',
-      REACT_APP_ENABLE_TRACE_WORKBENCH: '1',
-      REACT_APP_ENABLE_TRACE_TIMELINE: '1',
-      REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS: '1',
-      REACT_APP_ENABLE_TRACE_CROSS_SOURCE: stage5Mode ? '1' : '0',
-      REACT_APP_ENABLE_TRACE_STAGE5: '0',
-      REACT_APP_WORKBENCH_BENCHMARK_REF: stage5Mode
-        ? 'stage5-off'
+      ...flags,
+      REACT_APP_WORKBENCH_BENCHMARK_REF: stage6Mode
+        ? 'stage6-off'
+        : stage5Mode
+          ? 'stage5-off'
         : 'stage4-cross-source-off',
     },
     stdio: 'inherit',
   });
+  writeBuildIdentity(flagOffBuildDir, expected);
+  return expected;
 }
 
 function getJson(urlPath) {
@@ -528,8 +551,11 @@ async function measureButton(cdp, label, requestType) {
 }
 
 async function measureBrush(cdp, offset) {
-  const bounds = await cdp.evaluate(`(() => {
-    const bounds = document.querySelector('.trace-timeline-canvas').getBoundingClientRect();
+  const bounds = await cdp.evaluate(`(async () => {
+    const canvas = document.querySelector('.trace-timeline-canvas');
+    canvas.scrollIntoView({ block: 'center' });
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const bounds = canvas.getBoundingClientRect();
     return { left: bounds.left, top: bounds.top, width: bounds.width };
   })()`);
   const before = await cdp.evaluate(
@@ -607,6 +633,335 @@ async function measureSearch(cdp, index) {
   })()`);
 }
 
+async function runStage6Checks(cdp) {
+  await cdp.waitFor(
+    `[
+      'layout-shifts', 'animation-composition', 'memory-trend', 'gpu-raster'
+    ].every(capability => (
+      (window.__STAGE3_PRODUCT_BENCHMARK__.stage6.advancedStatuses[capability] || [])
+        .includes('available')
+    ))`,
+    'Stage 6 advanced analysis availability',
+  );
+  await cdp.evaluate(`(() => {
+    window.__stage6IsolationChecks = {
+      fetch: 0,
+      xhr: 0,
+      localStorage: 0,
+      indexedDb: 0,
+      beacon: 0,
+      webSocket: 0,
+      eventSource: 0,
+    };
+    const originalFetch = window.fetch;
+    window.fetch = (...args) => {
+      window.__stage6IsolationChecks.fetch += 1;
+      return originalFetch(...args);
+    };
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(...args) {
+      window.__stage6IsolationChecks.xhr += 1;
+      return originalOpen.apply(this, args);
+    };
+    for (const method of ['getItem', 'setItem', 'removeItem', 'clear']) {
+      const original = Storage.prototype[method];
+      Storage.prototype[method] = function(...args) {
+        window.__stage6IsolationChecks.localStorage += 1;
+        return original.apply(this, args);
+      };
+    }
+    for (const method of ['open', 'deleteDatabase', 'databases']) {
+      if (typeof indexedDB[method] !== 'function') continue;
+      const original = indexedDB[method].bind(indexedDB);
+      indexedDB[method] = (...args) => {
+        window.__stage6IsolationChecks.indexedDb += 1;
+        return original(...args);
+      };
+    }
+    const originalSendBeacon = navigator.sendBeacon?.bind(navigator);
+    if (originalSendBeacon) {
+      navigator.sendBeacon = (...args) => {
+        window.__stage6IsolationChecks.beacon += 1;
+        return originalSendBeacon(...args);
+      };
+    }
+    const OriginalWebSocket = window.WebSocket;
+    window.WebSocket = class extends OriginalWebSocket {
+      constructor(...args) {
+        window.__stage6IsolationChecks.webSocket += 1;
+        super(...args);
+      }
+    };
+    const OriginalEventSource = window.EventSource;
+    if (OriginalEventSource) {
+      window.EventSource = class extends OriginalEventSource {
+        constructor(...args) {
+          window.__stage6IsolationChecks.eventSource += 1;
+          super(...args);
+        }
+      };
+    }
+  })()`);
+
+  const customQuerySamples = [];
+  await cdp.evaluate(`(() => {
+    const input = document.querySelector(
+      '[aria-labelledby="trace-custom-query-heading"] [aria-label="查询值"]'
+    );
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    ).set;
+    setter.call(input, 'Event');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  for (let index = 0; index < totalRunCount; index += 1) {
+    const elapsed = await cdp.evaluate(`(async () => {
+      const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+      const before = (state.protocolSamples['query-custom-events'] || []).length;
+      const section = document.querySelector(
+        '[aria-labelledby="trace-custom-query-heading"]'
+      );
+      const button = section.querySelector('[aria-label="运行自定义查询"]');
+      const startedAt = performance.now();
+      button.click();
+      while ((state.protocolSamples['query-custom-events'] || []).length <= before) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      while (!section.textContent.includes('结果已截断')) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      return performance.now() - startedAt;
+    })()`);
+    if (index >= warmupCount) customQuerySamples.push(elapsed);
+  }
+  const customQuery = await cdp.evaluate(`(async () => {
+    const section = document.querySelector(
+      '[aria-labelledby="trace-custom-query-heading"]'
+    );
+    const state = window.__STAGE3_PRODUCT_BENCHMARK__.stage6;
+    const input = section.querySelector('[aria-label="查询值"]');
+    const truncatedLimitationVisible = section.textContent.includes('结果已截断');
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    ).set;
+    setter.call(input, 'NoStage6Match');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => requestAnimationFrame(() => (
+      requestAnimationFrame(resolve)
+    )));
+    const staleResultCleared = !section.querySelector('ol')
+      && !section.textContent.includes('结果已截断');
+    return {
+      requestSent: (state.requestTypes['query-custom-events'] || 0) > 0,
+      responseKeys: state.customQueryResponseKeys,
+      eventKeys: state.customQueryEventKeys,
+      forbiddenPayloadKeys: state.forbiddenPayloadKeys,
+      truncatedLimitationVisible,
+      staleResultCleared,
+      keyboardFocusable: input.tabIndex >= 0
+        && section.querySelector('[aria-label="运行自定义查询"]').tabIndex >= 0,
+    };
+  })()`);
+  assert(customQuery.requestSent, 'Stage 6 custom query request was not sent');
+  assert(
+    customQuery.truncatedLimitationVisible,
+    'Stage 6 custom query truncation limitation was not visible',
+  );
+  assert(customQuery.staleResultCleared, 'Stage 6 custom query retained stale results');
+  assert(
+    customQuery.eventKeys.every(key => [
+      'category', 'depth', 'durationUs', 'id', 'name', 'startUs', 'status', 'trackId',
+    ].includes(key)),
+    `Stage 6 custom query returned non-whitelisted keys: ${customQuery.eventKeys.join(', ')}`,
+  );
+  assert(
+    customQuery.forbiddenPayloadKeys.length === 0,
+    `Stage 6 payload exposed forbidden keys: ${customQuery.forbiddenPayloadKeys.join(', ')}`,
+  );
+
+  const installPlugin = async (pluginId, label) => cdp.evaluate(`(async () => {
+    const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+    const section = document.querySelector(
+      '[aria-labelledby="trace-track-plugin-heading"]'
+    );
+    const setValue = (label, value) => {
+      const input = section.querySelector('[aria-label="' + label + '"]');
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      ).set;
+      setter.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    setValue('插件 ID', ${JSON.stringify(pluginId)});
+    setValue('插件名称', ${JSON.stringify(label)});
+    setValue('插件查询值', 'Task');
+    const before = (state.protocolSamples['install-track-plugin'] || []).length;
+    const startedAt = performance.now();
+    section.querySelector('[aria-label="添加临时轨道"]').click();
+    while ((state.protocolSamples['install-track-plugin'] || []).length <= before) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    while (!document.querySelector(
+      '[aria-label="折叠 ${label}"], [aria-label="展开 ${label}"]'
+    )) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    return performance.now() - startedAt;
+  })()`);
+  const removePlugin = async label => cdp.evaluate(`(async () => {
+    const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+    const before = (state.protocolSamples['remove-track-plugin'] || []).length;
+    document.querySelector(
+      '[aria-label=${JSON.stringify(`移除 ${label}`)}]'
+    ).click();
+    while ((state.protocolSamples['remove-track-plugin'] || []).length <= before) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    while (document.querySelector(
+      '[aria-label="折叠 ${label}"], [aria-label="展开 ${label}"]'
+    )) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+  })()`);
+
+  await installPlugin('stage6-functional', 'Stage 6 Functional');
+  const pluginTrackVisible = await cdp.evaluate(
+    `!!document.querySelector(
+      '[aria-label="折叠 Stage 6 Functional"], [aria-label="展开 Stage 6 Functional"]'
+    )`,
+  );
+  await cdp.evaluate(
+    `document.querySelector('[aria-label="隐藏 Stage 6 Functional"]').click()`,
+  );
+  const pluginTrackHidden = await cdp.evaluate(
+    `!document.querySelector(
+      '[aria-label="折叠 Stage 6 Functional"], [aria-label="展开 Stage 6 Functional"]'
+    )`,
+  );
+  await cdp.evaluate(
+    `document.querySelector('[aria-label="显示 Stage 6 Functional"]').click()`,
+  );
+  await cdp.waitFor(
+    `!!document.querySelector(
+      '[aria-label="折叠 Stage 6 Functional"], [aria-label="展开 Stage 6 Functional"]'
+    )`,
+    'Stage 6 plugin track show',
+  );
+
+  const projectedTrackUpdateSamples = [];
+  for (let index = 0; index < totalRunCount; index += 1) {
+    const elapsed = await cdp.evaluate(`(async () => {
+      const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+      const before = (state.protocolSamples['query-track-plugin'] || []).length;
+      const startedAt = performance.now();
+      document.querySelector('[aria-label="放大时间轴"]').click();
+      while ((state.protocolSamples['query-track-plugin'] || []).length <= before) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      while (!document.querySelector(
+        '[aria-label="折叠 Stage 6 Functional"], [aria-label="展开 Stage 6 Functional"]'
+      )) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      return performance.now() - startedAt;
+    })()`);
+    if (index >= warmupCount) projectedTrackUpdateSamples.push(elapsed);
+  }
+  await cdp.waitFor(
+    `[
+      'layout-shifts', 'animation-composition', 'memory-trend', 'gpu-raster'
+    ].every(capability => (
+      (window.__STAGE3_PRODUCT_BENCHMARK__.stage6.advancedStatuses[capability] || [])
+        .includes('unavailable')
+    ))`,
+    'Stage 6 advanced analysis unavailable states',
+  );
+  await removePlugin('Stage 6 Functional');
+
+  const pluginInstallSamples = [];
+  for (let index = 0; index < totalRunCount; index += 1) {
+    const label = `Stage 6 Measured ${index}`;
+    const elapsed = await installPlugin(`stage6-measured-${index}`, label);
+    if (index >= warmupCount) pluginInstallSamples.push(elapsed);
+    await removePlugin(label);
+  }
+  const plugin = await cdp.evaluate(`(() => {
+    const state = window.__STAGE3_PRODUCT_BENCHMARK__.stage6;
+    const isolation = window.__stage6IsolationChecks;
+    return {
+      installRequestSent: (state.requestTypes['install-track-plugin'] || 0) > 0,
+      refreshRequestSent: (state.requestTypes['query-track-plugin'] || 0) > 0,
+      manifestKeys: state.pluginManifestKeys,
+      responseKeys: state.pluginResponseKeys,
+      eventKeys: state.pluginEventKeys,
+      remainingOverlayCount: document.querySelectorAll(
+        '[aria-labelledby="trace-track-plugin-heading"] li'
+      ).length,
+      installedPluginCount: state.installedPluginCount,
+      isolation,
+      keyboardFocusable: [
+        '插件 ID', '插件名称', '插件查询值', '添加临时轨道'
+      ].every(label => (
+        document.querySelector('[aria-label="' + label + '"]')?.tabIndex >= 0
+      )),
+    };
+  })()`);
+  assert(pluginTrackVisible, 'Stage 6 plugin track was not rendered');
+  assert(pluginTrackHidden, 'Stage 6 plugin track did not hide');
+  assert(plugin.remainingOverlayCount === 0, 'Stage 6 plugin overlay was not removed');
+  assert(plugin.installedPluginCount === 0, 'Stage 6 plugin remained installed');
+  assert(
+    plugin.manifestKeys.join(',') === 'label,maxEvents,pluginId,query',
+    `Stage 6 plugin manifest keys differ: ${plugin.manifestKeys.join(', ')}`,
+  );
+  assert(
+    plugin.eventKeys.every(key => [
+      'category', 'durationUs', 'eventId', 'evidenceIds', 'name',
+      'sourceEventId', 'startUs', 'status', 'trackId',
+    ].includes(key)),
+    `Stage 6 plugin returned non-whitelisted keys: ${plugin.eventKeys.join(', ')}`,
+  );
+  assert(
+    Object.values(plugin.isolation).every(value => value === 0),
+    `Stage 6 plugin accessed a forbidden browser API: ${JSON.stringify(plugin.isolation)}`,
+  );
+  for (let index = 0; index < totalRunCount; index += 1) {
+    await cdp.evaluate(`(async () => {
+      const state = window.__STAGE3_PRODUCT_BENCHMARK__;
+      const before = (state.protocolSamples['query-viewport'] || []).length;
+      document.querySelector('[aria-label="缩小时间轴"]').click();
+      while ((state.protocolSamples['query-viewport'] || []).length <= before) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    })()`);
+  }
+  return {
+    customQuery,
+    plugin: {
+      ...plugin,
+      trackVisible: pluginTrackVisible,
+      hideShowVerified: pluginTrackHidden,
+      removeVerified: plugin.remainingOverlayCount === 0,
+    },
+    advancedAnalysis: await cdp.evaluate(
+      'window.__STAGE3_PRODUCT_BENCHMARK__.stage6.advancedStatuses',
+    ),
+    timings: {
+      customQuery: timing(customQuerySamples),
+      pluginInstall: timing(pluginInstallSamples),
+      pluginRefresh: timing((await cdp.evaluate(
+        `(window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples[
+          'query-track-plugin'
+        ] || []).slice(-${validRunCount})`,
+      ))),
+      projectedTrackUpdate: timing(projectedTrackUpdateSamples),
+    },
+  };
+}
+
 async function runOne(cdp, eventCount, diffHash) {
   cdp.consoleErrors.length = 0;
   await cdp.send('Page.navigate', {
@@ -616,6 +971,7 @@ async function runOne(cdp, eventCount, diffHash) {
     `window.__STAGE3_PRODUCT_BENCHMARK__?.ready === true
       || !!window.__STAGE3_PRODUCT_BENCHMARK__?.error`,
     `${eventCount} product benchmark`,
+    1_200,
   );
   const preparationError = await cdp.evaluate(
     'window.__STAGE3_PRODUCT_BENCHMARK__?.error || null',
@@ -641,9 +997,13 @@ async function runOne(cdp, eventCount, diffHash) {
       return revoke(value);
     };
   })()`);
+  const stage6 = stage6Mode
+    ? await runStage6Checks(cdp)
+    : undefined;
 
   const viewports = {};
-  for (const width of [1280, 1100, 900]) {
+  const viewportWidths = stage6Mode ? [1440, 1024, 768, 360] : [1280, 1100, 900];
+  for (const width of viewportWidths) {
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width,
       height: 900,
@@ -661,16 +1021,22 @@ async function runOne(cdp, eventCount, diffHash) {
         insight,
         narrow,
         horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
-        passed: ${width} === 1280
-          ? canvas && insight && !narrow
-          : ${width} === 1100
-            ? canvas && !insight && !narrow
-            : !canvas && !insight && narrow,
+        passed: ${JSON.stringify(stage6Mode)}
+          ? ${width} === 1440
+            ? canvas && insight && !narrow
+            : ${width} === 1024
+              ? canvas && !insight && !narrow
+              : !canvas && !insight && narrow
+          : ${width} === 1280
+            ? canvas && insight && !narrow
+            : ${width} === 1100
+              ? canvas && !insight && !narrow
+              : !canvas && !insight && narrow,
       };
     })()`);
   }
   await cdp.send('Emulation.setDeviceMetricsOverride', {
-    width: 1280,
+    width: stage6Mode ? 1440 : 1280,
     height: 900,
     deviceScaleFactor: 1,
     mobile: false,
@@ -737,8 +1103,11 @@ async function runOne(cdp, eventCount, diffHash) {
     if (index >= warmupCount) canvasDrawSamples.push(elapsed);
   }
 
-  const canvasBounds = await cdp.evaluate(`(() => {
-    const bounds = document.querySelector('.trace-timeline-canvas').getBoundingClientRect();
+  const canvasBounds = await cdp.evaluate(`(async () => {
+    const canvas = document.querySelector('.trace-timeline-canvas');
+    canvas.scrollIntoView({ block: 'center' });
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const bounds = canvas.getBoundingClientRect();
     return { left: bounds.left, top: bounds.top, width: bounds.width };
   })()`);
   let hoverPoint;
@@ -978,7 +1347,16 @@ async function runOne(cdp, eventCount, diffHash) {
   const resources = await cdp.evaluate(`({
     ...window.__stage3ResourceChecks,
     sessionClosed: window.__STAGE3_PRODUCT_BENCHMARK__.sessionClosed,
-    canvasRemoved: !document.querySelector('.trace-timeline-canvas')
+    canvasRemoved: !document.querySelector('.trace-timeline-canvas'),
+    activeQueryCount:
+      window.__STAGE3_PRODUCT_BENCHMARK__.stage6.activeRequestCount,
+    trackPluginCount:
+      window.__STAGE3_PRODUCT_BENCHMARK__.stage6.installedPluginCount,
+    projectedOverlaysRemoved:
+      !document.querySelector('[aria-label^="折叠 Stage 6"]')
+      && !document.querySelector('[aria-label^="展开 Stage 6"]'),
+    workerTerminated:
+      window.__STAGE3_PRODUCT_BENCHMARK__.stage6.workerTerminated
   })`);
   const selectionProtocolSamples = stateBeforeClose.protocolSamples['query-selection'] ?? [];
   const cancellationSamples = stateBeforeClose.protocolSamples['cancel-query'] ?? [];
@@ -1020,6 +1398,7 @@ async function runOne(cdp, eventCount, diffHash) {
       eventLogInteraction: timing(eventLogInteractionSamples),
       searchInteraction: timing(searchInteractionSamples),
       cancellationResponse: timing(cancellationSamples.slice(-10)),
+      ...(stage6 ? stage6.timings : {}),
     },
     interactions: {
       hoverVerified,
@@ -1030,6 +1409,7 @@ async function runOne(cdp, eventCount, diffHash) {
       filmstripDialogClosed: dialogEscape,
       ...expertChecks,
       ...(crossSource ? { crossSource } : {}),
+      ...(stage6 ? { stage6 } : {}),
     },
     responsive: viewports,
     themes: {
@@ -1055,6 +1435,10 @@ async function runOne(cdp, eventCount, diffHash) {
       blobUrlsRevoked: resources.revoked,
       sessionClosed: resources.sessionClosed,
       canvasRemoved: resources.canvasRemoved,
+      activeQueryCount: resources.activeQueryCount,
+      trackPluginCount: resources.trackPluginCount,
+      projectedOverlaysRemoved: resources.projectedOverlaysRemoved,
+      workerTerminated: resources.workerTerminated,
     },
     safety: {
       maxJsonBytes: 128 * 1024 * 1024,
@@ -1064,7 +1448,9 @@ async function runOne(cdp, eventCount, diffHash) {
     consoleErrors: [...cdp.consoleErrors],
   };
   const suffix = eventCount === 1_000_000 ? '1000k' : `${eventCount / 1_000}k`;
-  const baselineStage = stage5Mode ? 'stage4' : 'stage2';
+  const baselineStage = stage6Mode
+    ? 'stage5'
+    : stage5Mode ? 'stage4' : 'stage2';
   const baselinePath = path.join(
     reportDir,
     `workbench-${baselineStage}-browser-${suffix}.json`,
@@ -1094,11 +1480,19 @@ async function runOne(cdp, eventCount, diffHash) {
 }
 
 async function main() {
-  buildProductBenchmark();
-  buildFlagOffBenchmark();
+  const head = actualHead(root);
+  const diffHash = workingTreeDiffHash(head);
+  const inputHash = runtimeInputHash(root);
+  const identity = { head, inputHash };
+  const productBuildIdentity = buildProductBenchmark(identity);
+  const flagOffBuildIdentity = buildFlagOffBenchmark(identity);
   assert(fs.existsSync(path.join(buildDir, 'index.html')), `Build directory is missing: ${buildDir}`);
   fs.mkdirSync(reportDir, { recursive: true });
-  const diffHash = workingTreeDiffHash();
+  assert(
+    workingTreeDiffHash(head) === diffHash
+      && runtimeInputHash(root) === inputHash,
+    'Runtime inputs changed while building the browser benchmark',
+  );
   const server = childProcess.spawn(
     'python3',
     ['-m', 'http.server', String(port), '--directory', buildDir],
@@ -1149,6 +1543,8 @@ async function main() {
     const artifacts = [];
     for (const eventCount of eventCounts) {
       const artifact = await runOne(cdp, eventCount, diffHash);
+      artifact.runtimeInputHash = inputHash;
+      artifact.buildIdentity = productBuildIdentity;
       if (stage4Mode && eventCount === eventCounts[0]) {
         const crossSource = artifact.interactions.crossSource;
         for (const key of [
@@ -1179,6 +1575,15 @@ async function main() {
         panP95: artifact.timings.pan.p95Ms,
         hoverP95: artifact.timings.hover.p95Ms,
         selectionP95: artifact.timings.selectionQuery.p95Ms,
+        ...(stage6Mode
+          ? {
+              customQueryP95: artifact.timings.customQuery.p95Ms,
+              pluginInstallP95: artifact.timings.pluginInstall.p95Ms,
+              pluginRefreshP95: artifact.timings.pluginRefresh.p95Ms,
+              projectedTrackUpdateP95:
+                artifact.timings.projectedTrackUpdate.p95Ms,
+            }
+          : {}),
       })}\n`);
     }
     let flagOff;
@@ -1191,7 +1596,32 @@ async function main() {
           || !!window.__STAGE3_PRODUCT_BENCHMARK__?.error`,
         `Stage ${browserStage} flag-off product benchmark`,
       );
-      flagOff = stage5Mode
+      flagOff = stage6Mode
+        ? await cdp.evaluate(`(() => ({
+            stage6UiAbsent: [
+              'trace-layout-shift-heading',
+              'trace-animation-heading',
+              'trace-memory-heading',
+              'trace-gpu-raster-heading',
+              'trace-custom-query-heading',
+              'trace-track-plugin-heading'
+            ].every(id => !document.getElementById(id)),
+            noStage6Queries: !Object.keys(
+              window.__STAGE3_PRODUCT_BENCHMARK__.protocolSamples
+            ).some(type => [
+              'query-advanced-analysis', 'query-custom-events',
+              'install-track-plugin', 'query-track-plugin',
+              'remove-track-plugin'
+            ].includes(type)),
+            stage1To5Present:
+              !!document.querySelector('.trace-timeline-workbench')
+              && !!document.querySelector('.trace-expert-analysis')
+              && !!document.querySelector('.trace-cross-source-panel')
+              && !!document.querySelector('#trace-insights-heading')
+              && !!document.querySelector('.trace-comparison-panel'),
+            error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
+          }))()`)
+        : stage5Mode
         ? await cdp.evaluate(`(() => ({
             stage5UiAbsent:
               !document.querySelector('#trace-insights-heading')
@@ -1216,7 +1646,11 @@ async function main() {
             ].includes(type)),
             error: window.__STAGE3_PRODUCT_BENCHMARK__.error || null,
           }))()`);
-      if (stage5Mode) {
+      if (stage6Mode) {
+        assert(flagOff.stage6UiAbsent, 'Stage 6 UI appeared with its flag off');
+        assert(flagOff.noStage6Queries, 'Stage 6 query ran with its flag off');
+        assert(flagOff.stage1To5Present, 'Stage 1-5 behavior was not preserved');
+      } else if (stage5Mode) {
         assert(flagOff.stage5UiAbsent, 'Stage 5 UI appeared with its flag off');
         assert(flagOff.noStage5Queries, 'Stage 5 query ran with its flag off');
       } else {
@@ -1233,6 +1667,7 @@ async function main() {
         status: 'browser-benchmark-verified',
         codeRef: uiSource.codeRef,
         workingTreeDiffHash: diffHash,
+        runtimeInputHash: inputHash,
         runner: uiSource.runner,
         browserUserAgent: uiSource.environment.browserUserAgent,
         sampleHash: uiSource.corpus.sampleHash,
@@ -1242,6 +1677,8 @@ async function main() {
         themes: uiSource.themes,
         resources: uiSource.resources,
         flagOff,
+        buildIdentity: productBuildIdentity,
+        flagOffBuildIdentity,
         consoleErrors: uiSource.consoleErrors,
       }, null, 2)}\n`,
     );

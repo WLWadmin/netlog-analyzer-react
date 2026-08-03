@@ -2,9 +2,9 @@ import { createNetlogPrerenderStateReducer } from './netlogPrerenderStateReducer
 
 describe('createNetlogPrerenderStateReducer', () => {
   it('聚合 prerender/prefetch/preconnect/prediction 事件', () => {
-    const reducer = createNetlogPrerenderStateReducer();
+    const { accept, finish } = createNetlogPrerenderStateReducer();
 
-    reducer.accept({
+    accept({
       eventId: 0,
       byteStart: 10,
       byteEnd: 50,
@@ -14,7 +14,7 @@ describe('createNetlogPrerenderStateReducer', () => {
       sourceTypeName: 'PRERENDER',
       params: { url: 'https://app.example/page' },
     });
-    reducer.accept({
+    accept({
       eventId: 1,
       byteStart: 51,
       byteEnd: 90,
@@ -25,7 +25,7 @@ describe('createNetlogPrerenderStateReducer', () => {
       params: { url: 'https://app.example/data', net_error: -105 },
     });
 
-    const view = reducer.finish();
+    const view = finish();
 
     expect(view.eventCount).toBe(2);
     expect(view.prerenderCount).toBe(1);

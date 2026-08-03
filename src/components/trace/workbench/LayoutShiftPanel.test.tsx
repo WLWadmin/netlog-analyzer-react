@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -7,6 +8,10 @@ import type { TraceWorkbenchClient } from '../../../workbench/client';
 import LayoutShiftPanel from './LayoutShiftPanel';
 
 describe('LayoutShiftPanel', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('shows cluster range, score, members and limitations', async () => {
     const queryAdvancedAnalysis = jest.fn().mockResolvedValue({
       type: 'advanced-analysis-result',
@@ -61,5 +66,45 @@ describe('LayoutShiftPanel', () => {
     );
 
     expect(await screen.findByText(/CLS 能力不可用/)).not.toBeNull();
+  });
+
+  it('queries only the final range after rapid viewport changes', () => {
+    jest.useFakeTimers();
+    const queryAdvancedAnalysis = jest.fn().mockReturnValue(new Promise(
+      () => undefined,
+    ));
+    const subject = {
+      queryAdvancedAnalysis,
+    } as unknown as TraceWorkbenchClient;
+    const view = render(
+      <LayoutShiftPanel
+        client={subject}
+        range={{ startUs: 0, endUs: 1_000 }}
+        onFocusRange={jest.fn()}
+      />,
+    );
+
+    view.rerender(
+      <LayoutShiftPanel
+        client={subject}
+        range={{ startUs: 1_000, endUs: 2_000 }}
+        onFocusRange={jest.fn()}
+      />,
+    );
+    view.rerender(
+      <LayoutShiftPanel
+        client={subject}
+        range={{ startUs: 2_000, endUs: 3_000 }}
+        onFocusRange={jest.fn()}
+      />,
+    );
+    expect(queryAdvancedAnalysis).not.toHaveBeenCalled();
+
+    act(() => jest.advanceTimersByTime(150));
+    expect(queryAdvancedAnalysis).toHaveBeenCalledTimes(1);
+    expect(queryAdvancedAnalysis).toHaveBeenCalledWith(
+      'layout-shifts',
+      { startUs: 2_000, endUs: 3_000 },
+    );
   });
 });

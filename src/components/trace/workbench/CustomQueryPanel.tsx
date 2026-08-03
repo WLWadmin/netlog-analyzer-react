@@ -48,6 +48,7 @@ const STATUS_VALUES = [
   'incomplete',
   'candidate',
 ] as const;
+const MAX_RENDERED_RESULTS = 100;
 
 function defaultClause(id: number): EditableClause {
   return {
@@ -107,12 +108,14 @@ const CustomQueryPanel: React.FC<CustomQueryPanelProps> = ({
     'idle' | 'loading' | 'invalid' | 'unavailable' | 'failed'
   >('idle');
   const requestSequence = useRef(0);
+  const currentClientRef = useRef(client);
+  currentClientRef.current = client;
 
   useEffect(() => {
     requestSequence.current += 1;
     setResponse(undefined);
     setState('idle');
-  }, [range.endUs, range.startUs]);
+  }, [client, range.endUs, range.startUs]);
 
   useEffect(() => {
     requestSequence.current += 1;
@@ -145,11 +148,15 @@ const CustomQueryPanel: React.FC<CustomQueryPanelProps> = ({
       return;
     }
     const sequence = ++requestSequence.current;
+    const requestClient = client;
     setState('loading');
     setResponse(undefined);
     try {
-      const result = await client.queryCustomEvents(range, query, 2_000);
-      if (sequence !== requestSequence.current) return;
+      const result = await requestClient.queryCustomEvents(range, query, 2_000);
+      if (
+        currentClientRef.current !== requestClient
+        || sequence !== requestSequence.current
+      ) return;
       if (result?.type === 'custom-query-result') {
         setResponse(result);
         setState('idle');
@@ -162,7 +169,10 @@ const CustomQueryPanel: React.FC<CustomQueryPanelProps> = ({
         setState('failed');
       }
     } catch {
-      if (sequence === requestSequence.current) setState('failed');
+      if (
+        currentClientRef.current === requestClient
+        && sequence === requestSequence.current
+      ) setState('failed');
     }
   };
 
@@ -280,30 +290,38 @@ const CustomQueryPanel: React.FC<CustomQueryPanelProps> = ({
         )}
       </div>
       {response && response.events.length > 0 && (
-        <ol>
-          {response.events.map(event => (
-            <li key={event.id}>
-              <span>{event.name} · {event.durationUs} μs</span>
-              <button
-                type="button"
-                aria-label={`定位 ${event.name}`}
-                onClick={() => onFocusRange({
-                  startUs: event.startUs,
-                  endUs: event.startUs + event.durationUs,
-                })}
-              >
-                定位
-              </button>
-              <button
-                type="button"
-                aria-label={`打开 ${event.name} 详情`}
-                onClick={() => onOpenEvent(event.id)}
-              >
-                打开详情
-              </button>
-            </li>
-          ))}
-        </ol>
+        <>
+          {response.events.length > MAX_RENDERED_RESULTS && (
+            <p>
+              当前返回 {response.events.length} 条，仅展示前
+              {' '}{MAX_RENDERED_RESULTS} 条；请缩小查询范围复核其余结果。
+            </p>
+          )}
+          <ol>
+            {response.events.slice(0, MAX_RENDERED_RESULTS).map(event => (
+              <li key={event.id}>
+                <span>{event.name} · {event.durationUs} μs</span>
+                <button
+                  type="button"
+                  aria-label={`定位 ${event.name}`}
+                  onClick={() => onFocusRange({
+                    startUs: event.startUs,
+                    endUs: event.startUs + event.durationUs,
+                  })}
+                >
+                  定位
+                </button>
+                <button
+                  type="button"
+                  aria-label={`打开 ${event.name} 详情`}
+                  onClick={() => onOpenEvent(event.id)}
+                >
+                  打开详情
+                </button>
+              </li>
+            ))}
+          </ol>
+        </>
       )}
     </section>
   );

@@ -4,6 +4,7 @@ import {
 } from 'react';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
 import type { AdvancedAnalysisResultResponse } from '../../../workbench/protocol';
+import { useStableAnalysisRange } from './useStableAnalysisRange';
 
 interface GpuRasterPanelProps {
   client: TraceWorkbenchClient;
@@ -32,12 +33,16 @@ const GpuRasterPanel: React.FC<GpuRasterPanelProps> = ({
 }) => {
   const [response, setResponse] = useState<GpuRasterResponse>();
   const [error, setError] = useState('');
+  const stableRange = useStableAnalysisRange(range);
 
   useEffect(() => {
     let disposed = false;
     setResponse(undefined);
     setError('');
-    void client.queryAdvancedAnalysis('gpu-raster', range).then(result => {
+    if (!stableRange) return () => {
+      disposed = true;
+    };
+    void client.queryAdvancedAnalysis('gpu-raster', stableRange).then(result => {
       if (
         !disposed
         && result.type === 'advanced-analysis-result'
@@ -51,7 +56,7 @@ const GpuRasterPanel: React.FC<GpuRasterPanelProps> = ({
     return () => {
       disposed = true;
     };
-  }, [client, range]);
+  }, [client, stableRange]);
 
   return (
     <section className="trace-advanced-panel" aria-labelledby="trace-gpu-raster-heading">

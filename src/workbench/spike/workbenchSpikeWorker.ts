@@ -71,6 +71,84 @@ function buildSyntheticEvents(eventCount: WorkbenchBenchmarkEventCount): Chromiu
         } },
       };
     }
+    if (index === 2) {
+      return {
+        ts: 20,
+        dur: 1,
+        cat: 'loading',
+        name: 'LayoutShift',
+        ph: 'X',
+        pid: 1,
+        tid: 10,
+        args: {
+          data: {
+            weighted_score_delta: 0.125,
+            had_recent_input: false,
+          },
+        },
+      };
+    }
+    if (index === 3) {
+      return {
+        ts: 30,
+        dur: 80,
+        cat: 'animation',
+        name: 'CompositorAnimation',
+        ph: 'X',
+        pid: 1,
+        tid: 10,
+        args: { data: { composite_failed: false } },
+      };
+    }
+    if (index === 4 || index === 8) {
+      return {
+        ts: index * 10,
+        dur: 1,
+        cat: 'v8',
+        name: 'UpdateCounters',
+        ph: 'X',
+        pid: 1,
+        tid: 10,
+        args: {
+          data: {
+            jsHeapSizeUsed: index === 4 ? 1_048_576 : 1_572_864,
+          },
+        },
+      };
+    }
+    if (index === 5) {
+      return {
+        ts: 50,
+        dur: 25,
+        cat: 'v8',
+        name: 'MajorGC',
+        ph: 'X',
+        pid: 1,
+        tid: 10,
+      };
+    }
+    if (index === 6) {
+      return {
+        ts: 60,
+        dur: 30,
+        cat: 'gpu',
+        name: 'GPUTask',
+        ph: 'X',
+        pid: 2,
+        tid: 20,
+      };
+    }
+    if (index === 7) {
+      return {
+        ts: 70,
+        dur: 20,
+        cat: 'cc',
+        name: 'RasterTask',
+        ph: 'X',
+        pid: 1,
+        tid: 11,
+      };
+    }
     const family = families[index % families.length];
     const screenshot = index % 1_000 === 0;
     const crossSourceRequest = index === 10_001 || index === 20_001;

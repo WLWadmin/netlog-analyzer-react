@@ -14,7 +14,9 @@ jest.mock('antd', () => {
   const React = require('react');
   const Tabs = ({ items }: { items: Array<{ key: string; label: string; children: React.ReactNode }> }) => {
     const [activeKey, setActiveKey] = React.useState(items[0]?.key);
-    const active = items.find(item => item.key === activeKey);
+    const { children: activeContent } = items.find(
+      item => item.key === activeKey,
+    ) ?? {};
     return (
       <div>
         <div role="tablist">
@@ -24,7 +26,7 @@ jest.mock('antd', () => {
             </button>
           ))}
         </div>
-        <div>{active?.children}</div>
+        <div>{activeContent}</div>
       </div>
     );
   };

@@ -310,13 +310,17 @@ describe('Diagnosis first screen components', () => {
     document.documentElement.setAttribute('data-theme', 'dark');
 
     const { container } = render(<FinalDiagnosisPanel finalSummary={summary} hideReferenceConclusions />);
+    // This style audit intentionally covers every inline-styled descendant.
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
     const themedNodes = Array.from(container.querySelectorAll('.novice-troubleshooting-flow [style]'));
 
     expect(themedNodes.length).toBeGreaterThan(0);
     themedNodes.forEach(node => {
       expect(node.getAttribute('style')).not.toMatch(/rgba\(255|rgba\(248|rgba\(236|rgba\(254/);
     });
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
     expect(container.querySelector('.novice-troubleshooting-problem')).toHaveStyle({ background: 'var(--bg-surface)' });
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
     expect(container.querySelector('.novice-troubleshooting-action')).toHaveStyle({ background: 'var(--bg-surface)' });
 
     document.documentElement.removeAttribute('data-theme');

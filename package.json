@@ -40,6 +40,10 @@
     "workbench:stage4-evidence": "node scripts/build-workbench-stage4-evidence.js",
     "workbench:stage5-browser": "node scripts/run-workbench-stage5-browser.js",
     "workbench:stage5-evidence": "node scripts/build-workbench-stage5-evidence.js",
+    "workbench:stage6-browser": "node scripts/run-workbench-stage6-browser.js",
+    "workbench:stage6-build-matrix": "node scripts/run-workbench-stage6-build-matrix.js",
+    "workbench:stage6-evidence": "node scripts/build-workbench-stage6-evidence.js",
+    "workbench:artifact-identity-test": "node scripts/workbench-artifact-identity.test.js",
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"
