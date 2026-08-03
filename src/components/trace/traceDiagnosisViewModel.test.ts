@@ -36,6 +36,185 @@ describe('traceDiagnosisViewModel', () => {
     expect(card.severityLabel).toBe('警告');
   });
 
+  it('首要问题投影影响、时间窗口、证据强度和可读证据摘要', () => {
+    const model = buildTraceDiagnosisViewModel({
+      ...result,
+      intake: {
+        ...result.intake,
+        captureStartUs: 200_000,
+      },
+      context: {
+        ...result.context,
+        evidence: [{
+          evidenceId: 'trace:event:7',
+          eventIndex: 7,
+          origin: 'raw',
+          name: 'RunTask',
+          timestampUs: 3_400_000,
+        }],
+      },
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'main-thread',
+          ruleId: 'M1',
+          category: 'main-thread',
+          severity: 'critical',
+          confidence: 'high',
+          title: '主线程长任务',
+          conclusion: '主线程长任务可能延迟用户交互。',
+        }],
+        evaluations: [],
+      },
+    });
+
+    expect(model.primary).toEqual(expect.objectContaining({
+      impactLabel: '高影响',
+      impactSummary: expect.stringContaining('交互'),
+      timeWindowLabel: '3.20 秒附近',
+      evidenceStrengthLabel: '较强证据',
+      evidenceSummaries: ['RunTask · 3.20 秒'],
+      causeSummary: expect.stringContaining('疑似'),
+    }));
+  });
+
+  it('多条可用证据使用首尾相对时间形成时间范围', () => {
+    const model = buildTraceDiagnosisViewModel({
+      ...result,
+      intake: {
+        ...result.intake,
+        captureStartUs: 200_000,
+      },
+      context: {
+        ...result.context,
+        evidence: [
+          {
+            evidenceId: 'trace:event:7',
+            eventIndex: 7,
+            origin: 'raw',
+            name: 'RunTask',
+            timestampUs: 3_400_000,
+          },
+          {
+            evidenceId: 'trace:event:8',
+            eventIndex: 8,
+            origin: 'raw',
+            name: 'DrawFrame',
+            timestampUs: 4_600_000,
+          },
+        ],
+      },
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'main-thread',
+          ruleId: 'M1',
+          category: 'main-thread',
+          confidence: 'high',
+          evidenceIds: ['trace:event:7', 'trace:event:8'],
+        }],
+        evaluations: [],
+      },
+    });
+
+    expect(model.primary?.timeWindowLabel).toBe('3.20 秒–4.40 秒');
+  });
+
+  it('证据展示额度耗尽时仍保留次要结论自身的时间窗口', () => {
+    const evidence = Array.from({ length: 4 }, (_, index) => ({
+      evidenceId: `trace:event:${index + 7}`,
+      eventIndex: index + 7,
+      origin: 'raw' as const,
+      name: 'RunTask',
+      timestampUs: (index + 1) * 1_000_000,
+    }));
+    const model = buildTraceDiagnosisViewModel({
+      ...result,
+      intake: {
+        ...result.intake,
+        captureStartUs: 0,
+      },
+      context: {
+        ...result.context,
+        evidence,
+      },
+      diagnosis: {
+        diagnoses: [
+          {
+            ...diagnosis,
+            id: 'primary',
+            ruleId: 'M1',
+            category: 'main-thread',
+            confidence: 'high',
+            score: 100,
+            evidenceIds: evidence.slice(0, 3).map(item => item.evidenceId),
+          },
+          {
+            ...diagnosis,
+            id: 'secondary',
+            ruleId: 'R1',
+            category: 'rendering',
+            confidence: 'medium',
+            score: 90,
+            evidenceIds: [evidence[3].evidenceId],
+          },
+        ],
+        evaluations: [],
+      },
+    });
+
+    expect(model.primary?.evidenceIds).toHaveLength(3);
+    expect(model.secondary[0].evidenceIds).toEqual([]);
+    expect(model.secondary[0].timeWindowLabel).toBe('4.00 秒附近');
+  });
+
+  it('录制起点缺失时不把原始 Trace 时钟伪装为相对时间', () => {
+    const model = buildTraceDiagnosisViewModel({
+      ...result,
+      context: {
+        ...result.context,
+        evidence: [{
+          evidenceId: 'trace:event:7',
+          eventIndex: 7,
+          origin: 'raw',
+          name: 'RunTask',
+          timestampUs: 3_200_000,
+        }],
+      },
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'main-thread',
+          ruleId: 'M1',
+          category: 'main-thread',
+          confidence: 'high',
+        }],
+        evaluations: [],
+      },
+    });
+
+    expect(model.primary?.timeWindowLabel).toBe('时间窗口不可用');
+    expect(model.primary?.evidenceSummaries).toEqual(['RunTask · 时间不可用']);
+  });
+
+  it('缺少时间证据时明确显示 unavailable', () => {
+    const model = buildTraceDiagnosisViewModel({
+      ...result,
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'main-thread',
+          ruleId: 'M1',
+          category: 'main-thread',
+          confidence: 'high',
+        }],
+        evaluations: [],
+      },
+    });
+
+    expect(model.primary?.timeWindowLabel).toBe('时间窗口不可用');
+  });
+
   it.each([
     ['quality', 'overview'], ['loading', 'overview'], ['network', 'network'],
     ['security', 'network'], ['main-thread', 'main-thread'],
@@ -124,7 +303,8 @@ describe('traceDiagnosisViewModel', () => {
     });
 
     expect(model.primary).toBeUndefined();
-    expect(model.observationOnlyMessage).toBe('证据不足，当前只能看到以下现象');
+    expect(model.observationOnlyMessage).toContain('目前只能确认现象');
+    expect(model.observationOnlyMessage).toContain('缺少');
     expect(model.secondary).toHaveLength(2);
   });
 

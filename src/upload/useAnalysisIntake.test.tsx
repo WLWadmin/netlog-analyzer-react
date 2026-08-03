@@ -7,6 +7,8 @@ import type {
   ProbeVerdict,
 } from './fileFormatTypes';
 import {
+  analysisIntakeReducer,
+  buildParserValidationProgress,
   RESULT_READY_HOLD_MS,
   useAnalysisIntake,
 } from './useAnalysisIntake';
@@ -81,6 +83,69 @@ describe('useAnalysisIntake', () => {
       taskId: 'task-1',
       parserId: 'har@1',
     });
+  });
+
+  it('commits parser validation at phase one before parser progress arrives', () => {
+    const state = analysisIntakeReducer(
+      { status: 'probing', taskId: 'task-1' },
+      {
+        type: 'validating',
+        taskId: 'task-1',
+        parserId: 'chromium-performance-trace@1',
+        progress: buildParserValidationProgress(
+          'task-1',
+          'chromium-performance-trace@1',
+          1,
+          2,
+        ),
+      },
+    );
+
+    expect(state).toEqual(expect.objectContaining({
+      status: 'validating',
+      progress: expect.objectContaining({
+        phase: 'validating',
+        phaseIndex: 1,
+        label: '正在验证 Trace 结构',
+      }),
+    }));
+  });
+
+  it('rejects a phase-zero update after parser validation begins', () => {
+    const validating = analysisIntakeReducer(
+      { status: 'probing', taskId: 'task-1' },
+      {
+        type: 'validating',
+        taskId: 'task-1',
+        parserId: 'chromium-performance-trace@1',
+        progress: buildParserValidationProgress(
+          'task-1',
+          'chromium-performance-trace@1',
+          1,
+          2,
+        ),
+      },
+    );
+    const regressed = analysisIntakeReducer(validating, {
+      type: 'progress',
+      taskId: 'task-1',
+      progress: {
+        taskId: 'task-1',
+        parserId: 'chromium-performance-trace@1',
+        phase: 'probing-format',
+        label: '正在识别文件格式',
+        mode: 'determinate',
+        completed: 0,
+        total: 100,
+        unit: 'bytes',
+        phaseIndex: 0,
+        phaseCount: 5,
+        startedAt: 1,
+        updatedAt: 2,
+      },
+    });
+
+    expect(regressed).toEqual(validating);
   });
 
   it('automatically commits the ready result after five seconds', async () => {

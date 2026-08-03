@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { progressRatio, type AnalysisProgress } from '../../upload/analysisProgress';
+import {
+  isMonotonicProgress,
+  progressRatio,
+  type AnalysisProgress,
+} from '../../upload/analysisProgress';
 
 interface AnalysisProgressPanelProps {
   progress: AnalysisProgress;
@@ -52,7 +56,8 @@ function useAnimatedPercent(targetPercent: number, taskId: string): number {
 
   useEffect(() => {
     const start = displayRef.current;
-    if (targetPercent <= start || typeof window.requestAnimationFrame !== 'function') {
+    if (targetPercent <= start) return undefined;
+    if (typeof window.requestAnimationFrame !== 'function') {
       displayRef.current = targetPercent;
       setDisplayPercent(targetPercent);
       return undefined;
@@ -83,50 +88,61 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
   onCancel,
   onContinue,
 }) => {
+  const acceptedProgressRef = useRef(progress);
+  if (
+    acceptedProgressRef.current.taskId !== progress.taskId
+    || isMonotonicProgress(acceptedProgressRef.current, progress)
+  ) {
+    acceptedProgressRef.current = progress;
+  }
+  const acceptedProgress = acceptedProgressRef.current;
   const localStartedAt = useRef(Date.now());
-  const activityTaskId = useRef(progress.taskId);
+  const activityTaskId = useRef(acceptedProgress.taskId);
   const [now, setNow] = useState(Date.now());
   const [activity, setActivity] = useState<ActivityRecord[]>([{
-    phase: progress.phase,
-    label: progress.label,
+    phase: acceptedProgress.phase,
+    label: acceptedProgress.label,
     startedAt: Date.now(),
   }]);
-  const targetPercent = Math.floor(progressRatio(progress) * 100);
-  const displayPercent = useAnimatedPercent(targetPercent, progress.taskId);
+  const targetPercent = Math.floor(progressRatio(acceptedProgress) * 100);
+  const displayPercent = useAnimatedPercent(
+    targetPercent,
+    acceptedProgress.taskId,
+  );
 
   useEffect(() => {
     localStartedAt.current = Date.now();
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 100);
     return () => window.clearInterval(timer);
-  }, [progress.taskId]);
+  }, [acceptedProgress.taskId]);
 
   useEffect(() => {
     const changedAt = Date.now();
     setActivity(previous => {
-      if (activityTaskId.current !== progress.taskId) {
-        activityTaskId.current = progress.taskId;
+      if (activityTaskId.current !== acceptedProgress.taskId) {
+        activityTaskId.current = acceptedProgress.taskId;
         return [{
-          phase: progress.phase,
-          label: progress.label,
+          phase: acceptedProgress.phase,
+          label: acceptedProgress.label,
           startedAt: changedAt,
         }];
       }
       const last = previous[previous.length - 1];
       if (!last) {
         return [{
-          phase: progress.phase,
-          label: progress.label,
+          phase: acceptedProgress.phase,
+          label: acceptedProgress.label,
           startedAt: changedAt,
         }];
       }
-      if (last.phase === progress.phase) {
+      if (last.phase === acceptedProgress.phase) {
         return [
           ...previous.slice(0, -1),
           {
             ...last,
-            label: progress.label,
-            ...(progress.resultReady ? { endedAt: changedAt } : {}),
+            label: acceptedProgress.label,
+            ...(acceptedProgress.resultReady ? { endedAt: changedAt } : {}),
           },
         ];
       }
@@ -134,22 +150,27 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
         ...previous.slice(0, -1),
         { ...last, endedAt: changedAt },
         {
-          phase: progress.phase,
-          label: progress.label,
+          phase: acceptedProgress.phase,
+          label: acceptedProgress.label,
           startedAt: changedAt,
-          ...(progress.resultReady ? { endedAt: changedAt } : {}),
+          ...(acceptedProgress.resultReady ? { endedAt: changedAt } : {}),
         },
       ];
     });
-  }, [progress.label, progress.phase, progress.resultReady, progress.taskId]);
+  }, [
+    acceptedProgress.label,
+    acceptedProgress.phase,
+    acceptedProgress.resultReady,
+    acceptedProgress.taskId,
+  ]);
 
   const remainingSeconds = autoContinueAt === undefined
     ? undefined
     : Math.max(0, Math.ceil((autoContinueAt - now) / 1000));
-  const workCopy = progress.resultReady
+  const workCopy = acceptedProgress.resultReady
     ? '全部本地分析已完成'
-    : progress.mode === 'determinate'
-      ? `已处理 ${progress.completed?.toLocaleString()} / ${progress.total?.toLocaleString()} ${progress.unit ? UNIT_COPY[progress.unit] : ''}`
+    : acceptedProgress.mode === 'determinate'
+      ? `已处理 ${acceptedProgress.completed?.toLocaleString()} / ${acceptedProgress.total?.toLocaleString()} ${acceptedProgress.unit ? UNIT_COPY[acceptedProgress.unit] : ''}`
       : '正在执行不可拆分的本地任务';
 
   return (
@@ -160,15 +181,15 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
           <span>任务完成度</span>
         </div>
         <div className="analysis-progress-current">
-          <span>{progress.resultReady ? '结果已就绪' : '当前任务'}</span>
-          <h2>{progress.label}</h2>
+          <span>{acceptedProgress.resultReady ? '结果已就绪' : '当前任务'}</span>
+          <h2>{acceptedProgress.label}</h2>
           <p>{workCopy}</p>
         </div>
         <div className="analysis-progress-actions">
           <span aria-label={`已用时 ${formatElapsed(now - localStartedAt.current)}`}>
             {formatElapsed(now - localStartedAt.current)}
           </span>
-          {progress.resultReady ? (
+          {acceptedProgress.resultReady ? (
             <button className="primary-action" type="button" onClick={onContinue}>
               立即查看结果
             </button>
@@ -181,7 +202,7 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
       <div
         className="analysis-progress-track"
         role="progressbar"
-        aria-label={progress.label}
+        aria-label={acceptedProgress.label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={displayPercent}
@@ -197,7 +218,8 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
 
       <ol className="analysis-activity" aria-label="解析阶段记录">
         {activity.map((record, index) => {
-          const isCurrent = index === activity.length - 1 && !progress.resultReady;
+          const isCurrent = index === activity.length - 1
+            && !acceptedProgress.resultReady;
           const duration = (record.endedAt ?? now) - record.startedAt;
           return (
             <li className={isCurrent ? 'is-current' : 'is-complete'} key={`${record.phase}-${index}`}>

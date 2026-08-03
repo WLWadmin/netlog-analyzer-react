@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { TraceEventRef } from '../../../parsers/trace/types';
+import type { TraceContextFacts } from '../../../parsers/trace/types';
 import { useNavigation } from '../../../contexts/NavigationContext';
 import { traceEvidenceDomId } from '../traceDiagnosisViewModel';
+import { buildEvidenceFactsViewModel } from '../traceFactsViewModel';
 import { useTraceTargetNavigation } from '../useTraceTargetNavigation';
-import { TraceNavigationError } from './TraceTabShared';
+import {
+  TraceFactsSectionHeading,
+  TraceNavigationError,
+  TraceSummaryGrid,
+} from './TraceTabShared';
 
-const EVIDENCE_PAGE_SIZE = 100;
+const EVIDENCE_PAGE_SIZE = 25;
 
-const TraceEvidenceTab: React.FC<{ evidence: TraceEventRef[] }> = ({ evidence }) => {
+const TraceEvidenceTab: React.FC<{
+  context: TraceContextFacts;
+  onReturnToConclusion?: () => void;
+}> = ({ context, onReturnToConclusion }) => {
+  const { evidence } = context;
   const { intent } = useNavigation();
   const [visibleLimit, setVisibleLimit] = useState(EVIDENCE_PAGE_SIZE);
   const [pinnedEvidenceId, setPinnedEvidenceId] = useState<string>();
@@ -17,44 +26,117 @@ const TraceEvidenceTab: React.FC<{ evidence: TraceEventRef[] }> = ({ evidence })
     ? String(intent.scrollTo.id)
     : undefined;
 
-  // 导航意图消费后仍保留目标项，避免目标位于首批数据之外时刚高亮就从 DOM 消失。
   useEffect(() => {
     if (targetEvidenceId) setPinnedEvidenceId(targetEvidenceId);
   }, [targetEvidenceId]);
 
+  const activeTargetId = targetEvidenceId ?? pinnedEvidenceId;
+  const target = useMemo(
+    () => evidence.find(item => item.evidenceId === activeTargetId),
+    [activeTargetId, evidence],
+  );
   const visibleEvidence = useMemo(() => {
-    const items = evidence.slice(0, visibleLimit);
-    const targetId = targetEvidenceId ?? pinnedEvidenceId;
-    if (!targetId || items.some(item => item.evidenceId === targetId)) return items;
-    const target = evidence.find(item => item.evidenceId === targetId);
-    return target ? [...items, target] : items;
-  }, [evidence, pinnedEvidenceId, targetEvidenceId, visibleLimit]);
+    const withoutTarget = target
+      ? evidence.filter(item => item.evidenceId !== target.evidenceId)
+      : evidence;
+    const page = withoutTarget.slice(0, Math.max(0, visibleLimit - (target ? 1 : 0)));
+    return target ? [target, ...page] : page;
+  }, [evidence, target, visibleLimit]);
+  const evidenceViewModel = useMemo(
+    () => buildEvidenceFactsViewModel(context),
+    [context],
+  );
   const navigation = useTraceTargetNavigation('evidence');
 
-  return <section aria-label="Trace 证据定位" data-testid="trace-evidence-tab">
-    <h2>证据索引</h2>
-    <p className="trace-result-note">这里只展示有限事件引用和定位字段，不包含 args、源码、Header、正文或完整原始事件。</p>
-    <TraceNavigationError message={navigation.navigationError} />
-    <p className="trace-evidence-count" role="status">
-      已展示 {visibleEvidence.length} / {evidence.length} 条
-    </p>
-    <div className="trace-result-grid">{visibleEvidence.map(item => {
-      const id = traceEvidenceDomId(item.evidenceId);
-      return <article className={`trace-result-panel${id === navigation.highlightedDomId ? ' is-highlighted' : ''}`} id={id} key={item.evidenceId} tabIndex={-1}>
-        <div className="trace-result-panel-heading"><div><span>{item.evidenceId}</span><h2>{item.name ?? '未命名事件'}</h2></div></div>
-        <dl className="trace-fact-list"><div><dt>索引</dt><dd>eventIndex {item.eventIndex}</dd></div>{item.processId !== undefined && <div><dt>进程</dt><dd>{item.processId}</dd></div>}{item.threadId !== undefined && <div><dt>线程</dt><dd>{item.threadId}</dd></div>}{item.timestampUs !== undefined && <div><dt>时间</dt><dd>{item.timestampUs} μs</dd></div>}</dl>
-      </article>;
-    })}</div>
-    {visibleLimit < evidence.length && (
-      <button
-        className="trace-load-more"
-        onClick={() => setVisibleLimit(limit => Math.min(limit + EVIDENCE_PAGE_SIZE, evidence.length))}
-        type="button"
-      >
-        继续显示 {Math.min(EVIDENCE_PAGE_SIZE, evidence.length - visibleLimit)} 条
-      </button>
-    )}
-    {!evidence.length && <p className="trace-result-note">当前没有可展示的证据索引。</p>}
-  </section>;
+  return (
+    <section aria-label="Trace 证据定位" className="trace-facts-tab" data-testid="trace-evidence-tab">
+      <TraceFactsSectionHeading
+        description="这里只展示有限事件引用和定位字段，不包含 args、源码、Header、正文或完整原始事件。"
+        eyebrow="RAW EVIDENCE INDEX"
+        title="全部证据 · 高级"
+      />
+      <TraceNavigationError message={navigation.navigationError} />
+
+      <section aria-labelledby="trace-evidence-summary">
+        <h3 id="trace-evidence-summary">类别与数量摘要</h3>
+        <TraceSummaryGrid items={[
+          {
+            label: '可定位索引',
+            value: evidenceViewModel.truncated
+              ? `${evidenceViewModel.availableCount} / ${evidenceViewModel.totalCount}`
+              : String(evidenceViewModel.availableCount),
+          },
+          { label: '网络', value: String(evidenceViewModel.counts['网络']) },
+          { label: '主线程 / CPU', value: String(evidenceViewModel.counts['主线程 / CPU']) },
+          { label: '渲染', value: String(evidenceViewModel.counts['渲染']) },
+          { label: '其他', value: String(evidenceViewModel.counts['其他']) },
+        ]} />
+        <p className="trace-facts-breakdown">
+          类别按既有事实引用统计；同一证据关联多个类别时会分别计数。
+        </p>
+        {evidenceViewModel.truncated ? (
+          <p className="trace-facts-limitation">
+            类别统计只覆盖已返回的 {evidenceViewModel.availableCount} 条索引；
+            其余 {evidenceViewModel.totalCount - evidenceViewModel.availableCount} 条当前不可定位。
+          </p>
+        ) : null}
+      </section>
+
+      {target ? (
+        <aside className="trace-evidence-association" role="status">
+          <div>
+            <strong>从诊断结论定位的关联证据</strong>
+            <p>{target.name ?? '未命名事件'} · {target.evidenceId} 已置顶并聚焦。</p>
+          </div>
+          {onReturnToConclusion ? (
+            <button onClick={onReturnToConclusion} type="button">返回诊断结论</button>
+          ) : null}
+        </aside>
+      ) : null}
+
+      <section aria-labelledby="trace-evidence-list">
+        <h3 id="trace-evidence-list">证据索引</h3>
+        <p className="trace-evidence-count" role="status">
+          已展示 {visibleEvidence.length} / {evidenceViewModel.availableCount} 条可定位索引
+          {evidenceViewModel.truncated ? `（Trace 共 ${evidenceViewModel.totalCount} 条）` : ''}
+        </p>
+        {visibleEvidence.length > 0 ? (
+          <div className="trace-compact-table-wrap">
+            <table className="trace-compact-table trace-evidence-table">
+              <thead><tr><th>Evidence ID</th><th>事件名</th><th>类别</th><th>时间</th><th>进程 / 线程</th></tr></thead>
+              <tbody>{visibleEvidence.map(item => {
+                const id = traceEvidenceDomId(item.evidenceId);
+                return (
+                  <tr
+                    className={id === navigation.highlightedDomId ? 'is-highlighted' : undefined}
+                    data-testid="trace-evidence-row"
+                    id={id}
+                    key={item.evidenceId}
+                    tabIndex={-1}
+                  >
+                    <td><code>{item.evidenceId}</code></td>
+                    <td><strong>{item.name ?? '未命名事件'}</strong><small>eventIndex {item.eventIndex}</small></td>
+                    <td>{evidenceViewModel.categoryByEvidenceId.get(item.evidenceId) ?? '其他'}</td>
+                    <td>{item.timestampUs === undefined ? '不可用' : `${item.timestampUs} μs`}</td>
+                    <td>{item.processId ?? '未知'} / {item.threadId ?? '未知'}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        ) : <p className="trace-result-note">当前没有可展示的证据索引。</p>}
+        {visibleLimit < evidence.length ? (
+          <button
+            className="trace-load-more"
+            onClick={() => setVisibleLimit(limit => Math.min(limit + EVIDENCE_PAGE_SIZE, evidence.length))}
+            type="button"
+          >
+            继续显示 {Math.min(EVIDENCE_PAGE_SIZE, evidence.length - visibleLimit)} 条
+          </button>
+        ) : null}
+      </section>
+    </section>
+  );
 };
+
 export default TraceEvidenceTab;

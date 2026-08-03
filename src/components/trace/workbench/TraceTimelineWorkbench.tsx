@@ -386,6 +386,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
         drawerOpen,
         scrollTop: mainRef.current?.scrollTop ?? 0,
       });
+      store.setCursor(response.detail.startUs);
       returnFocus.current.push(focus);
       setDrawerOpen(true);
     } catch {
@@ -538,12 +539,22 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
             </section>
           )}
 
-          {session.capabilities.includes('screenshots') ? (
+          {closing ? (
+            <section className="trace-filmstrip is-unavailable" aria-label="截图胶片">
+              <strong>截图胶片</strong>
+              <p>正在停止播放并释放截图资源…</p>
+            </section>
+          ) : session.capabilities.includes('screenshots') ? (
             <ScreenshotFilmstrip
               client={client}
               screenshotCount={session.screenshotCount}
               captureRange={session.range}
+              focusedTimestampUs={interaction.cursorUs
+                ?? (interaction.selection
+                  ? (interaction.selection.startUs + interaction.selection.endUs) / 2
+                  : undefined)}
               hoveredTimestampUs={hoveredEvent?.startUs}
+              onCursorTimestamp={timestampUs => store.setCursor(timestampUs)}
               onSelectTimestamp={timestampUs => {
                 const duration = interaction.viewport.endUs - interaction.viewport.startUs;
                 store.setCursor(timestampUs);

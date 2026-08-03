@@ -29,7 +29,7 @@ const TABS: Array<{ tab: TraceTab; label: string }> = [
   { tab: 'conclusion', label: '结论' }, { tab: 'overview', label: '概览' },
   { tab: 'network', label: '网络' }, { tab: 'main-thread', label: '主线程' },
   { tab: 'rendering', label: '渲染' }, { tab: 'interactions', label: '交互' },
-  { tab: 'evidence', label: '证据' },
+  { tab: 'evidence', label: '全部证据 · 高级' },
 ];
 
 const TraceResultPage: React.FC<TraceResultPageProps> = ({
@@ -147,7 +147,12 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
       {activeTab === 'main-thread' && <TraceMainThreadTab context={result.context} />}
       {activeTab === 'rendering' && <TraceRenderingTab context={result.context} />}
       {activeTab === 'interactions' && <TraceInteractionsTab context={result.context} />}
-      {activeTab === 'evidence' && <TraceEvidenceTab evidence={result.context.evidence} />}
+      {activeTab === 'evidence' && (
+        <TraceEvidenceTab
+          context={result.context}
+          onReturnToConclusion={() => onTabChange?.('conclusion')}
+        />
+      )}
     </section>
   );
 };

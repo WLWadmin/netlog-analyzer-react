@@ -108,7 +108,7 @@ const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = 
         <p role="status">当前报告没有可复用的 Workbench Worker，会话入口不可用。</p>
       )}
       {client && snapshot.status === 'available' && (
-        <button type="button" onClick={createSession}>创建分析工作台会话</button>
+        <button type="button" onClick={createSession}>打开交互式性能分析</button>
       )}
       {snapshot.status === 'creating' && (
         <p role="status">

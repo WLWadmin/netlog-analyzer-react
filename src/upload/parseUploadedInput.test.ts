@@ -280,6 +280,68 @@ describe('parseUploadedInput', () => {
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 
+  it('parser selected 后将 sniffing-source 映射为 phase one Trace 验证', async () => {
+    const onStructuredProgress = jest.fn();
+    const analysisResult: TraceAnalysisResult = {
+      intake: {
+        format: 'chromium-trace-object',
+        encoding: 'plain-json',
+        jsonBytes: 1,
+        eventCount: 0,
+        availableFamilies: [],
+        warnings: [],
+      },
+      context: {
+        processes: [],
+        threads: [],
+        frames: [],
+        navigations: [],
+        evidence: [],
+        evidenceTotalCount: 0,
+        evidenceReturnedCount: 0,
+        quality: {
+          level: 'insufficient',
+          captureWindow: 'missing',
+          navigationContext: 'missing',
+          processThreadMetadata: 'missing',
+          frameHierarchy: 'missing',
+          rendererMainThread: 'missing',
+          skippedEventCount: 0,
+          warnings: [],
+          disabledCapabilities: [],
+        },
+        warnings: [],
+      },
+      diagnosis: { diagnoses: [], evaluations: [] },
+    };
+    inspectTraceUploadInWorkerMock.mockImplementation((_file, options) => {
+      options.onProgress({
+        phase: 'sniffing-source',
+        processedBytes: 0,
+        totalBytes: 100,
+      });
+      return {
+        promise: Promise.resolve({ kind: 'trace', result: analysisResult }),
+        cancel: jest.fn(),
+      };
+    });
+
+    await parseUploadedInput({
+      data: new File(['{"traceEvents":[]}'], 'sample.trace'),
+      fileTypeHint: 'trace',
+      useWorker: true,
+      taskId: 'task-1',
+      onStructuredProgress,
+    });
+
+    expect(onStructuredProgress).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'task-1',
+      phase: 'validating',
+      phaseIndex: 1,
+      label: '正在验证 Trace 结构',
+    }));
+  });
+
   it('flag off 时仍识别 Trace，并返回固定 feature-disabled 错误', async () => {
     delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
     inspectTraceUploadInWorkerMock.mockReturnValue({

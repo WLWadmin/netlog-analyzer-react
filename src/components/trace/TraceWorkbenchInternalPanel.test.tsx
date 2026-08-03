@@ -69,7 +69,7 @@ describe('TraceWorkbenchInternalPanel', () => {
 
   it('keeps the stage 1 minimal panel when the Timeline flag is disabled', async () => {
     render(<TraceWorkbenchInternalPanel client={client()} diagnoses={[]} />);
-    fireEvent.click(screen.getByRole('button', { name: '创建分析工作台会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开交互式性能分析' }));
 
     expect(await screen.findByRole('heading', { name: '最小视口查询' })).not.toBeNull();
     expect(screen.queryByRole('heading', { name: 'Performance Timeline' })).toBeNull();
@@ -80,7 +80,16 @@ describe('TraceWorkbenchInternalPanel', () => {
     render(<TraceWorkbenchInternalPanel client={client()} diagnoses={[]} />);
     expect(screen.queryByRole('heading', { name: 'Performance Timeline' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '创建分析工作台会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开交互式性能分析' }));
     expect(await screen.findByRole('heading', { name: 'Performance Timeline' })).not.toBeNull();
+  });
+
+  it('does not expose internal session language in the user action', () => {
+    render(<TraceWorkbenchInternalPanel client={client()} diagnoses={[]} />);
+
+    expect(screen.getByRole('button', {
+      name: '打开交互式性能分析',
+    })).not.toBeNull();
+    expect(screen.queryByText('创建分析工作台会话')).toBeNull();
   });
 });

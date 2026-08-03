@@ -34,6 +34,7 @@ async function createClient(
   missingNetwork = false,
   viewportFailures = 0,
   selectionFailures = 0,
+  screenshotCount = 0,
 ) {
   const close = jest.fn();
   let viewportCount = 0;
@@ -76,7 +77,7 @@ async function createClient(
             rendering: 1,
             ...(missingNetwork ? {} : { network: 1 }),
           },
-          screenshotCount: 0,
+          screenshotCount,
         },
       };
     }
@@ -172,6 +173,32 @@ async function createClient(
         },
       };
     }
+    if (request.type === 'query-screenshot-index') {
+      return {
+        type: 'screenshot-index-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        ...session,
+        screenshots: [
+          { screenshotId: 'shot-0', evidenceId: 'trace:event:0', timestampUs: 0, encodedBytes: 4, decodedBytes: 64 },
+          { screenshotId: 'shot-1', evidenceId: 'trace:event:1', timestampUs: 400_000, encodedBytes: 4, decodedBytes: 64 },
+        ].slice(0, screenshotCount),
+        rejectedCount: 0,
+      };
+    }
+    if (request.type === 'query-screenshot') {
+      return {
+        type: 'screenshot-result',
+        schemaVersion: WORKBENCH_SCHEMA_VERSION,
+        requestId: request.requestId,
+        ...session,
+        screenshot: {
+          screenshotId: request.screenshotId,
+          mimeType: 'image/jpeg',
+          bytes: new Uint8Array([1, 2, 3, 4]),
+        },
+      };
+    }
     if (request.type === 'release-session') {
       return {
         type: 'session-released',
@@ -196,6 +223,8 @@ async function createClient(
 
 describe('TraceTimelineWorkbench', () => {
   beforeEach(() => {
+    URL.createObjectURL = jest.fn(() => 'blob:timeline-shot');
+    URL.revokeObjectURL = jest.fn();
     jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       clearRect: jest.fn(),
       fillRect: jest.fn(),
@@ -349,5 +378,35 @@ describe('TraceTimelineWorkbench', () => {
         'query-track-plugin',
       ]),
     );
+  });
+
+  it('synchronizes screenshot selection and Timeline cursor in both directions', async () => {
+    const { client, dispatch } = await createClient(false, 0, 0, 2);
+    render(<TraceTimelineWorkbench client={client} diagnoses={[diagnosis]} />);
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    fireEvent.click(screen.getByRole('button', { name: '展开截图胶片' }));
+    await screen.findByRole('button', { name: '查看录制截图，时间 0.40 秒' });
+
+    fireEvent.click(screen.getByRole('button', { name: '定位诊断：Forced Reflow 观察' }));
+    expect(await screen.findByText('0.40 秒')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看录制截图，时间 0.00 秒' }));
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'query-selection',
+      range: { startUs: 0, endUs: 10_000 },
+    })));
+  });
+
+  it('releases Filmstrip Blob URLs as soon as workbench closing starts', async () => {
+    const { client } = await createClient(false, 0, 0, 2);
+    render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    fireEvent.click(screen.getByRole('button', { name: '展开截图胶片' }));
+    await screen.findByAltText('当前录制截图，时间 0.00 秒');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭工作台' }));
+
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalled());
+    expect(screen.queryByRole('region', { name: '截图播放控制' })).toBeNull();
   });
 });

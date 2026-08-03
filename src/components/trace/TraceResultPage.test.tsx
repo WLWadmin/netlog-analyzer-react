@@ -202,7 +202,18 @@ describe('TraceResultPage', () => {
     render(<NavigationProvider><Harness /></NavigationProvider>);
     expect(screen.getByText('观察：Trace 中记录到 HTTP 404 响应。')).not.toBeNull();
     expect(screen.getByText('检查请求地址。')).not.toBeNull();
-    expect(screen.getAllByText('警告').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/警告/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/目前只能确认现象/)).not.toBeNull();
+    expect(screen.queryByText('trace:event:7')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', {
+      name: '查看判断依据：HTTP 404',
+    }));
+    expect(screen.getByText('trace:event:7')).not.toBeNull();
+    expect(screen.getByText('存在 HTTP 响应。')).not.toBeNull();
+    expect(screen.getByRole('button', {
+      name: '收起判断依据：HTTP 404',
+    })).not.toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: '查看事实：HTTP 404' }));
     expect(await screen.findByText(/HTTP 错误/, {
@@ -212,9 +223,51 @@ describe('TraceResultPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '结论' }));
     await userEvent.click(screen.getByRole('button', { name: '查看证据索引：HTTP 404' }));
     expect(await screen.findByText('ResourceReceiveResponse', {
-      selector: '[id="trace-evidence-trace%3Aevent%3A7"] h2',
+      selector: '[id="trace-evidence-trace%3Aevent%3A7"] strong',
     })).not.toBeNull();
     expect(screen.getByText('eventIndex 7')).not.toBeNull();
+  });
+
+  it('首要问题使用诊断主轴展示问题、影响、证据与行动', () => {
+    const primaryResult: TraceAnalysisResult = {
+      ...result,
+      context: {
+        ...result.context,
+        evidence: [{
+          evidenceId: 'trace:event:7',
+          eventIndex: 7,
+          origin: 'raw',
+          name: 'RunTask',
+          timestampUs: 3_200_000,
+        }],
+      },
+      diagnosis: {
+        diagnoses: [{
+          ...result.diagnosis.diagnoses[0],
+          id: 'main-thread',
+          ruleId: 'M1',
+          category: 'main-thread',
+          title: '主线程长任务',
+          conclusion: '主线程长任务可能延迟用户交互。',
+          confidence: 'high',
+          severity: 'critical',
+          advice: ['先定位最长任务。', '检查热点函数。'],
+        }],
+        evaluations: [],
+      },
+    };
+
+    render(<TraceResultPage result={primaryResult} />);
+
+    expect(screen.getByText('首要问题')).not.toBeNull();
+    expect(screen.getByText('高影响')).not.toBeNull();
+    expect(screen.getByText('较强证据')).not.toBeNull();
+    expect(screen.getByText('3.20 秒附近')).not.toBeNull();
+    expect(screen.getByText('现象')).not.toBeNull();
+    expect(screen.getByText('关键证据')).not.toBeNull();
+    expect(screen.getByText('疑似原因')).not.toBeNull();
+    expect(screen.getByText('优先行动')).not.toBeNull();
+    expect(screen.getByText('RunTask · 3.20 秒')).not.toBeNull();
   });
 
   it('目标缺失时提示失败、消费意图，并允许重复点击同一目标', async () => {
@@ -246,7 +299,7 @@ describe('TraceResultPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '查看证据索引：HTTP 404' }));
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2));
 
-    const highlightedEvidenceSelector = '[id="trace-evidence-trace%3Aevent%3A7"].is-highlighted h2';
+    const highlightedEvidenceSelector = '[id="trace-evidence-trace%3Aevent%3A7"].is-highlighted strong';
     expect(screen.getByText('ResourceReceiveResponse', { selector: highlightedEvidenceSelector })).not.toBeNull();
     act(() => { jest.advanceTimersByTime(2000); });
     expect(screen.queryByText('ResourceReceiveResponse', { selector: highlightedEvidenceSelector })).toBeNull();
@@ -287,36 +340,36 @@ describe('TraceResultPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '查看证据索引：HTTP 404' }));
 
     expect(await screen.findByText('Event 149', {
-      selector: '[id="trace-evidence-trace%3Aevent%3A149"] h2',
+      selector: '[id="trace-evidence-trace%3Aevent%3A149"] strong',
     })).not.toBeNull();
     expect(screen.queryByText('Event 100')).toBeNull();
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
   });
 
 
-  it('七页展示定位所需完整字段，overview 提供 quality 锚点', () => {
+  it('七页展示定位所需完整字段，overview 提供 quality 锚点', async () => {
     const { rerender } = render(<TraceResultPage result={result} activeTab="overview" />);
     expect(screen.getByText('采集质量', { selector: '#trace-fact-quality h2' })).not.toBeNull();
     expect(screen.getByText('导航上下文')).not.toBeNull();
     expect(screen.getByText('JSON 大小')).not.toBeNull();
 
     rerender(<TraceResultPage result={result} activeTab="network" />);
-    expect(screen.getByText('请求 ID')).not.toBeNull();
-    expect(screen.getByText('Trace 开始')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: '展开全部网络事实' }));
+    expect(screen.getByText('结果 / 方法')).not.toBeNull();
+    expect(screen.getByText('Trace 开始 / 时长')).not.toBeNull();
 
     rerender(<TraceResultPage result={result} activeTab="evidence" />);
-    expect(screen.getByText('进程')).not.toBeNull();
-    expect(screen.getByText('线程')).not.toBeNull();
+    expect(screen.getByText('进程 / 线程')).not.toBeNull();
     expect(screen.getByText('时间')).not.toBeNull();
   });
 
 
-  it('各事实页展示最终诊断所需字段', () => {
+  it('各事实页展示最终诊断所需字段', async () => {
     const detailed: TraceAnalysisResult = {
       ...result,
       context: {
         ...result.context,
-        requests: [{ ...result.context.requests?.[0] ?? { id: 'request-1', requestId: '1', redirectIndex: 0, result: 'http-error', resultConfidence: 'high', timing: { trace: { startUs: 1 } }, initiatorEvidenceIds: [], evidenceIds: [], limitations: [], dataEventCount: 0 }, fromCache: true, dispatch: { dispatchWaitMs: 30, mainThreadOverlapMs: 20 }, limitations: ['dispatch 限制'] }],
+        requests: [{ ...result.context.requests?.[0] ?? { id: 'request-1', requestId: '1', redirectIndex: 0, result: 'http-error', resultConfidence: 'high', timing: { trace: { startUs: 1 } }, initiatorEvidenceIds: [], evidenceIds: [], limitations: [], dataEventCount: 0 }, method: 'GET', url: { origin: 'https://example.com', pathname: '/api' }, navigationKey: 'nav-1', fromCache: true, dispatch: { dispatchWaitMs: 30, mainThreadOverlapMs: 20 }, limitations: ['dispatch 限制'] }],
         profiles: [{ id: 'profile-1', processId: 1, threadId: 2, profileId: 'p1', startUs: 1, endUs: 100, nodeCount: 2, sampleCount: 3, evidenceIds: [], limitations: ['profile 限制'] }],
         cpuHotspots: [{ id: 'hotspot-1', processId: 1, threadId: 2, profileId: 'p1', nodeId: 3, functionName: 'work', script: { origin: 'https://example.com', pathname: '/app.js' }, lineNumber: 10, columnNumber: 20, sampleCount: 4, sampleTimeMs: 12, taskIds: [], evidenceIds: [] }],
         milestones: [{ id: 'milestone-1', navigationKey: 'nav-1', name: 'LCP', timestampUs: 10, relativeUs: 9, candidate: true, evidenceIds: [] }],
@@ -332,19 +385,27 @@ describe('TraceResultPage', () => {
 
     rerender(<TraceResultPage result={detailed} activeTab="network" />);
     expect(screen.getByText(/HTTP 错误/, { selector: '#trace-fact-request-1 strong' })).not.toBeNull();
-    expect(screen.getByText('缓存')).not.toBeNull();
-    expect(screen.getByText('派发等待 / 主线程重叠')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: '展开全部网络事实' }));
+    expect(screen.getByText('状态 / 协议 / 缓存')).not.toBeNull();
+    expect(screen.getByText('派发 / 限制')).not.toBeNull();
+    expect(screen.getByText('https://example.com/api', {
+      selector: '[data-testid="trace-network-expert-row"] .trace-table-url',
+    })).not.toBeNull();
+    expect(screen.getByText('导航 nav-1')).not.toBeNull();
     expect(screen.getByText('dispatch 限制')).not.toBeNull();
 
     rerender(<TraceResultPage result={detailed} activeTab="main-thread" />);
-    expect(screen.getByText('Profile · profile-1')).not.toBeNull();
-    expect(screen.getByText('行 / 列')).not.toBeNull();
-    expect(screen.getByText('profile 限制')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: '展开全部主线程事实' }));
+    expect(screen.getByText('p1', {
+      selector: '[data-testid="trace-profile-expert-row"] strong',
+    })).not.toBeNull();
+    expect(screen.getByText('自耗时 / 位置')).not.toBeNull();
+    expect(screen.getByText(/profile 限制/)).not.toBeNull();
 
     rerender(<TraceResultPage result={detailed} activeTab="rendering" />);
     expect(screen.queryByText(/LCP 候选/)).toBeNull();
     expect(screen.getByText(/60 Hz 参考预算/)).not.toBeNull();
-    expect(screen.getByText(/弱线索/)).not.toBeNull();
+    expect(screen.getByText('弱线索', { selector: 'td' })).not.toBeNull();
 
     rerender(<TraceResultPage result={detailed} activeTab="interactions" />);
     expect(screen.getByText('汇总完整性')).not.toBeNull();

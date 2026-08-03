@@ -48,7 +48,12 @@ type IntakeAction =
   | { type: 'reset' }
   | { type: 'probing'; taskId: string }
   | { type: 'awaiting-confirmation'; taskId: string; resolution: FormatResolution }
-  | { type: 'validating'; taskId: string; parserId: FileParserId }
+  | {
+      type: 'validating';
+      taskId: string;
+      parserId: FileParserId;
+      progress: AnalysisProgress;
+    }
   | { type: 'parsing'; taskId: string; parserId: FileParserId }
   | { type: 'progress'; taskId: string; progress: AnalysisProgress }
   | {
@@ -69,6 +74,32 @@ type IntakeAction =
 
 function taskIdOf(state: IntakeState): string | undefined {
   return state.status === 'idle' ? undefined : state.taskId;
+}
+
+const PARSER_VALIDATION_LABELS: Record<FileParserId, string> = {
+  'har@1': '正在验证 HAR 结构',
+  'chromium-netlog@1': '正在验证 NetLog 结构',
+  'chromium-performance-trace@1': '正在验证 Trace 结构',
+  'go-service-log@1': '正在验证服务日志结构',
+};
+
+export function buildParserValidationProgress(
+  taskId: string,
+  parserId: FileParserId,
+  startedAt: number,
+  updatedAt = Date.now(),
+): AnalysisProgress {
+  return buildAnalysisProgress({
+    taskId,
+    parserId,
+    phase: 'validating',
+    label: PARSER_VALIDATION_LABELS[parserId],
+    mode: 'indeterminate',
+    phaseIndex: 1,
+    phaseCount: 5,
+    startedAt,
+    updatedAt,
+  });
 }
 
 export function analysisIntakeReducer(
@@ -93,9 +124,21 @@ export function analysisIntakeReducer(
         resolution: action.resolution,
       };
     case 'validating':
-      return { status: 'validating', taskId: action.taskId, parserId: action.parserId };
+      return {
+        status: 'validating',
+        taskId: action.taskId,
+        parserId: action.parserId,
+        progress: action.progress,
+      };
     case 'parsing':
-      return { status: 'parsing', taskId: action.taskId, parserId: action.parserId };
+      return {
+        status: 'parsing',
+        taskId: action.taskId,
+        parserId: action.parserId,
+        ...('progress' in state && state.progress
+          ? { progress: state.progress }
+          : {}),
+      };
     case 'progress':
       if (
         (
@@ -208,7 +251,16 @@ export function useAnalysisIntake({
   ) => {
     const taskId = input.taskId;
     if (!isActive(taskId)) return;
-    dispatch({ type: 'validating', taskId, parserId });
+    dispatch({
+      type: 'validating',
+      taskId,
+      parserId,
+      progress: buildParserValidationProgress(
+        taskId,
+        parserId,
+        taskStartedAtRef.current ?? Date.now(),
+      ),
+    });
     try {
       const result = await confirmFileParser(
         input,

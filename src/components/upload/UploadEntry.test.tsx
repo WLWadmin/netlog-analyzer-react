@@ -50,7 +50,7 @@ describe('UploadEntry', () => {
     expect(onParserModeChange).toHaveBeenCalledWith('har@1');
   });
 
-  it('keeps the parsing fallback at the structure phase boundary', () => {
+  it('does not invent parser progress when the reducer has not received it', () => {
     render(
       <UploadEntry
         {...baseProps}
@@ -62,8 +62,8 @@ describe('UploadEntry', () => {
       />,
     );
 
-    expect(screen.getByText('20%')).not.toBeNull();
-    expect(screen.getByText('正在解析文件结构')).not.toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText('20%')).toBeNull();
   });
 
   it('shows ambiguous candidates in place without a second upload zone', () => {

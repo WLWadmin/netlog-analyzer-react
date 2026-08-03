@@ -67,9 +67,8 @@ export function isMonotonicProgress(
   if (next.phaseIndex < previous.phaseIndex) return false;
   if (
     next.phaseIndex === previous.phaseIndex
-    && previous.completed !== undefined
-    && next.completed !== undefined
-    && next.completed < previous.completed
+    && next.phase === previous.phase
+    && progressRatio(next) < progressRatio(previous)
   ) {
     return false;
   }

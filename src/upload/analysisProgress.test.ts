@@ -87,6 +87,60 @@ describe('analysis progress contract', () => {
     expect(isMonotonicProgress(previous, { ...next, phaseIndex: 1 })).toBe(false);
   });
 
+  it('allows a new worker subphase at the same workflow index', () => {
+    const reading = buildAnalysisProgress({
+      taskId: 'task-1',
+      phase: 'reading',
+      mode: 'determinate',
+      label: '正在读取 Trace 文件',
+      completed: 100,
+      total: 100,
+      unit: 'bytes',
+      phaseIndex: 1,
+      phaseCount: 5,
+      startedAt: 1,
+      updatedAt: 2,
+    });
+    const decompressing = buildAnalysisProgress({
+      taskId: 'task-1',
+      phase: 'decompressing',
+      mode: 'determinate',
+      label: '正在解压 gzip Trace',
+      completed: 0,
+      total: 100,
+      unit: 'bytes',
+      phaseIndex: 1,
+      phaseCount: 5,
+      startedAt: 1,
+      updatedAt: 3,
+    });
+
+    expect(isMonotonicProgress(reading, decompressing)).toBe(true);
+  });
+
+  it('rejects a lower completion ratio within the same worker subphase', () => {
+    const previous = buildAnalysisProgress({
+      taskId: 'task-1',
+      phase: 'reading',
+      mode: 'determinate',
+      label: '正在读取 Trace 文件',
+      completed: 50,
+      total: 100,
+      unit: 'bytes',
+      phaseIndex: 1,
+      phaseCount: 5,
+      startedAt: 1,
+      updatedAt: 2,
+    });
+
+    expect(isMonotonicProgress(previous, {
+      ...previous,
+      completed: 60,
+      total: 200,
+      updatedAt: 3,
+    })).toBe(false);
+  });
+
   it('never reports 100 percent before completed state', () => {
     const progress = buildAnalysisProgress({
       taskId: 'task-1',
@@ -104,5 +158,23 @@ describe('analysis progress contract', () => {
     });
 
     expect(progressRatio(progress)).toBe(1);
+  });
+
+  it('caps the final phase below 100 percent until the result is ready', () => {
+    const progress = buildAnalysisProgress({
+      taskId: 'task-1',
+      phase: 'preparing-result',
+      mode: 'determinate',
+      label: '正在提交结果页面',
+      completed: 1,
+      total: 1,
+      unit: 'rules',
+      phaseIndex: 4,
+      phaseCount: 5,
+      startedAt: 1,
+      updatedAt: 2,
+    });
+
+    expect(progressRatio(progress)).toBe(0.99);
   });
 });

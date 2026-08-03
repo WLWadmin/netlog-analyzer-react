@@ -92,6 +92,91 @@ describe('AnalysisProgressPanel', () => {
     expect(screen.getAllByText(/秒/).length).toBeGreaterThan(0);
   });
 
+  it('does not move the visible percent or activity back for the same task', () => {
+    const { rerender } = render(
+      <AnalysisProgressPanel
+        progress={{
+          taskId: 'task-1',
+          phase: 'validating',
+          label: '正在验证 Trace 结构',
+          mode: 'indeterminate',
+          phaseIndex: 1,
+          phaseCount: 5,
+          startedAt: 1,
+          updatedAt: 2,
+        }}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    rerender(
+      <AnalysisProgressPanel
+        progress={{
+          taskId: 'task-1',
+          phase: 'probing-format',
+          label: '正在识别文件格式',
+          mode: 'determinate',
+          completed: 0,
+          total: 100,
+          unit: 'bytes',
+          phaseIndex: 0,
+          phaseCount: 5,
+          startedAt: 1,
+          updatedAt: 3,
+        }}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('20%')).not.toBeNull();
+    expect(screen.getByText('当前：正在验证 Trace 结构')).not.toBeNull();
+    expect(screen.queryByText('当前：正在识别文件格式')).toBeNull();
+  });
+
+  it('advances worker subphase labels without lowering the visible percent', () => {
+    const { rerender } = render(
+      <AnalysisProgressPanel
+        progress={{
+          taskId: 'task-1',
+          phase: 'reading',
+          label: '正在读取 Trace 文件',
+          mode: 'determinate',
+          completed: 100,
+          total: 100,
+          unit: 'bytes',
+          phaseIndex: 1,
+          phaseCount: 5,
+          startedAt: 1,
+          updatedAt: 2,
+        }}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    rerender(
+      <AnalysisProgressPanel
+        progress={{
+          taskId: 'task-1',
+          phase: 'decompressing',
+          label: '正在解压 gzip Trace',
+          mode: 'determinate',
+          completed: 0,
+          total: 100,
+          unit: 'bytes',
+          phaseIndex: 1,
+          phaseCount: 5,
+          startedAt: 1,
+          updatedAt: 3,
+        }}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('40%')).not.toBeNull();
+    expect(screen.getByText('当前：正在解压 gzip Trace')).not.toBeNull();
+    expect(screen.getByText('已完成：读取 Trace 文件')).not.toBeNull();
+  });
+
   it('shows a five-second result handoff and supports entering immediately', () => {
     const onContinue = jest.fn();
     render(

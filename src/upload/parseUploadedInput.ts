@@ -24,7 +24,7 @@ import { isTraceWorkbenchEnabled } from '../workbench/featureFlag';
 const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
 const TRACE_PROGRESS_LABELS: Record<TraceTaskProgress['phase'], string> = {
-  'sniffing-source': '正在识别文件格式',
+  'sniffing-source': '正在验证 Trace 结构',
   'reading-file': '正在读取 Trace 文件',
   decompressing: '正在解压 gzip Trace',
   'parsing-json': '正在解析 Trace JSON 结构',
@@ -145,9 +145,9 @@ export async function parseUploadedInput(options: {
     const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
     const traceStartedAt = Date.now();
     const tracePhaseIndex: Record<TraceTaskProgress['phase'], number> = {
-      'sniffing-source': 0,
-      'reading-file': 0,
-      decompressing: 0,
+      'sniffing-source': 1,
+      'reading-file': 1,
+      decompressing: 1,
       'parsing-json': 1,
       'validating-trace': 1,
       'summarizing-intake': 2,
@@ -167,7 +167,7 @@ export async function parseUploadedInput(options: {
           taskId,
           parserId: 'chromium-performance-trace@1',
           phase: progress.phase === 'sniffing-source'
-            ? 'probing-format'
+            ? 'validating'
             : progress.phase === 'reading-file'
               ? 'reading'
               : progress.phase === 'decompressing'

@@ -27,6 +27,12 @@ export interface TraceDiagnosisCardViewModel {
   confidenceLabel: string;
   conclusion: string;
   summary: string;
+  impactLabel: string;
+  impactSummary: string;
+  timeWindowLabel: string;
+  evidenceStrengthLabel: string;
+  evidenceSummaries: string[];
+  causeSummary: string;
   counterEvidence: string[];
   limitations: string[];
   evidenceIds: string[];
@@ -57,6 +63,33 @@ const SEVERITY_LABEL: Record<TraceDiagnosis['severity'], string> = {
   info: '提示',
 };
 
+const IMPACT_LABEL: Record<TraceDiagnosis['severity'], string> = {
+  critical: '高影响',
+  warning: '中等影响',
+  info: '低影响',
+};
+
+const IMPACT_SUMMARY: Record<TraceDiagnosisCategory, string> = {
+  quality: '采集信息不足会降低后续判断的可靠性。',
+  loading: '可能延长页面完成加载或进入可用状态的时间。',
+  network: '可能造成资源加载失败、等待变长或页面内容不完整。',
+  security: '可能影响相关请求的可用性，需要结合网络证据复核。',
+  'main-thread': '可能造成页面卡顿或用户交互响应变慢。',
+  rendering: '可能造成画面更新不流畅或视觉稳定性下降。',
+  interaction: '可能造成点击、输入等操作反馈延迟。',
+};
+
+const EVIDENCE_STRENGTH: Record<TraceDiagnosisConfidence, string> = {
+  confirmed: '直接证据',
+  high: '较强证据',
+  medium: '支持证据',
+  observation: '现象线索',
+};
+
+function formatTime(timestampUs: number): string {
+  return `${(timestampUs / 1_000_000).toFixed(2)} 秒`;
+}
+
 export function traceFactDomId(id: string): string {
   return `trace-fact-${encodeURIComponent(id)}`;
 }
@@ -67,17 +100,40 @@ export function traceEvidenceDomId(id: string): string {
 
 function toCard(
   diagnosis: TraceDiagnosis,
-  availableEvidence: Set<string>,
+  evidenceById: Map<string, TraceAnalysisResult['context']['evidence'][number]>,
   usedEvidence: Set<string>,
   evidenceLimit: number,
   adviceLimit: number,
+  captureStartUs: number | undefined,
 ): TraceDiagnosisCardViewModel {
   const factId = diagnosis.factIds[0] ?? (diagnosis.category === 'quality' ? 'quality' : undefined);
-  const availableEvidenceIds = diagnosis.evidenceIds.filter(id => availableEvidence.has(id));
+  const availableEvidenceIds = diagnosis.evidenceIds.filter(id => (
+    evidenceById.has(id)
+  ));
   const evidenceIds = availableEvidenceIds
     .filter(id => !usedEvidence.has(id))
     .slice(0, evidenceLimit);
   evidenceIds.forEach(id => usedEvidence.add(id));
+  const availableEvidence = availableEvidenceIds.flatMap(id => {
+    const item = evidenceById.get(id);
+    return item ? [item] : [];
+  });
+  const displayedEvidence = evidenceIds.flatMap(id => {
+    const item = evidenceById.get(id);
+    return item ? [item] : [];
+  });
+  const timestamps = availableEvidence.flatMap(item => (
+    item.timestampUs === undefined || captureStartUs === undefined
+      ? []
+      : [Math.max(0, item.timestampUs - captureStartUs)]
+  ));
+  const firstTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : undefined;
+  const lastTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : undefined;
+  const timeWindowLabel = firstTimestamp === undefined || lastTimestamp === undefined
+    ? '时间窗口不可用'
+    : firstTimestamp === lastTimestamp
+      ? `${formatTime(firstTimestamp)}附近`
+      : `${formatTime(firstTimestamp)}–${formatTime(lastTimestamp)}`;
   return {
     id: diagnosis.id,
     ruleId: diagnosis.ruleId,
@@ -88,6 +144,19 @@ function toCard(
     confidenceLabel: CONFIDENCE_LABEL[diagnosis.confidence],
     conclusion: diagnosis.conclusion,
     summary: diagnosis.confidence === 'observation' ? `观察：${diagnosis.conclusion}` : diagnosis.conclusion,
+    impactLabel: IMPACT_LABEL[diagnosis.severity],
+    impactSummary: IMPACT_SUMMARY[diagnosis.category],
+    timeWindowLabel,
+    evidenceStrengthLabel: EVIDENCE_STRENGTH[diagnosis.confidence],
+    evidenceSummaries: displayedEvidence.map(item => {
+      const time = item.timestampUs === undefined || captureStartUs === undefined
+        ? '时间不可用'
+        : formatTime(Math.max(0, item.timestampUs - captureStartUs));
+      return `${item.name ?? 'Trace 事件'} · ${time}`;
+    }),
+    causeSummary: diagnosis.confidence === 'observation'
+      ? '目前只能确认现象，现有证据不足以确定原因。'
+      : `疑似与${diagnosis.title}相关；结论仍以当前录制窗口内的证据为限。`,
     counterEvidence: diagnosis.counterEvidence.slice(0, 3),
     limitations: diagnosis.limitations.slice(0, 3),
     evidenceIds,
@@ -100,7 +169,9 @@ function toCard(
 }
 
 export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): TraceDiagnosisViewModel {
-  const availableEvidence = new Set(result.context.evidence.map(item => item.evidenceId));
+  const evidenceById = new Map(
+    result.context.evidence.map(item => [item.evidenceId, item]),
+  );
   const { primary: primaryDiagnosis, selected } = selectTraceDiagnoses(
     result.diagnosis.diagnoses,
   );
@@ -110,10 +181,11 @@ export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): Trace
   const cards = selected.map(diagnosis => {
     const card = toCard(
       diagnosis,
-      availableEvidence,
+      evidenceById,
       usedEvidence,
       remainingEvidence,
       remainingAdvice,
+      result.intake.captureStartUs,
     );
     remainingEvidence -= card.evidenceIds.length;
     remainingAdvice -= card.advice.length;
@@ -126,7 +198,10 @@ export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): Trace
     secondary,
     cards,
     ...(!primary && cards.length > 0
-      ? { observationOnlyMessage: '证据不足，当前只能看到以下现象' }
+      ? {
+          observationOnlyMessage:
+            '目前只能确认现象，缺少足够的直接证据或可校准时间关系，暂不能判断确定原因。',
+        }
       : {}),
   };
 }

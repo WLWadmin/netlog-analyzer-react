@@ -18,16 +18,6 @@ interface UploadEntryProps {
   onContinue(): void;
 }
 
-const EMPTY_PROGRESS = {
-  phase: 'probing-format' as const,
-  label: '正在预检文件结构',
-  mode: 'indeterminate' as const,
-  phaseIndex: 0,
-  phaseCount: 5,
-  startedAt: 0,
-  updatedAt: 0,
-};
-
 const UploadEntry: React.FC<UploadEntryProps> = ({
   traceEnabled,
   state,
@@ -41,17 +31,10 @@ const UploadEntry: React.FC<UploadEntryProps> = ({
 }) => {
   const progress = state.status === 'ready'
     ? state.progress
-    : state.status === 'validating' || state.status === 'parsing'
-      ? state.progress ?? {
-        ...EMPTY_PROGRESS,
-        taskId: state.taskId,
-        parserId: state.parserId,
-        phase: state.status === 'validating' ? 'validating' as const : 'parsing-structure' as const,
-        label: state.status === 'validating' ? '正在严格校验文件结构' : '正在解析文件结构',
-        phaseIndex: 1,
-      }
-      : state.status === 'probing'
-        ? state.progress ?? { ...EMPTY_PROGRESS, taskId: state.taskId }
+    : state.status === 'probing'
+      || state.status === 'validating'
+      || state.status === 'parsing'
+      ? state.progress
         : undefined;
 
   return (
