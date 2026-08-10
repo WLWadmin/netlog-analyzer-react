@@ -26,6 +26,12 @@ export interface AnalysisProgress {
   unit?: ProgressUnit;
   phaseIndex: number;
   phaseCount: number;
+  /**
+   * Optional bounds for a measured sub-step inside one high-level phase.
+   * They describe workflow completion, not elapsed-time estimates.
+   */
+  phaseProgressStart?: number;
+  phaseProgressSpan?: number;
   startedAt: number;
   updatedAt: number;
   resultReady?: boolean;
@@ -55,6 +61,16 @@ export function buildAnalysisProgress(
   ) {
     throw new Error('progress completed must be between zero and total');
   }
+  const phaseProgressStart = progress.phaseProgressStart ?? 0;
+  const phaseProgressSpan = progress.phaseProgressSpan ?? 1;
+  if (
+    phaseProgressStart < 0
+    || phaseProgressStart > 1
+    || phaseProgressSpan < 0
+    || phaseProgressStart + phaseProgressSpan > 1
+  ) {
+    throw new Error('phase progress range must stay within the current phase');
+  }
   return progress;
 }
 
@@ -65,13 +81,7 @@ export function isMonotonicProgress(
   if (!previous) return true;
   if (previous.taskId !== next.taskId) return false;
   if (next.phaseIndex < previous.phaseIndex) return false;
-  if (
-    next.phaseIndex === previous.phaseIndex
-    && next.phase === previous.phase
-    && progressRatio(next) < progressRatio(previous)
-  ) {
-    return false;
-  }
+  if (progressRatio(next) < progressRatio(previous)) return false;
   return true;
 }
 
@@ -84,12 +94,15 @@ export function progressRatio(
     Math.max(0, progress.phaseIndex),
     phaseCount - 1,
   );
-  const localRatio = progress.mode === 'determinate'
+  const measuredRatio = progress.mode === 'determinate'
     && progress.completed !== undefined
     && progress.total !== undefined
     && progress.total > 0
     ? progress.completed / progress.total
     : 0;
+  const phaseProgressStart = progress.phaseProgressStart ?? 0;
+  const phaseProgressSpan = progress.phaseProgressSpan ?? 1;
+  const localRatio = phaseProgressStart + measuredRatio * phaseProgressSpan;
   // This is workflow completion, not an ETA. Measured work advances within the
   // current phase; indivisible work stays at the phase boundary.
   const overallRatio = (phaseIndex + localRatio) / phaseCount;

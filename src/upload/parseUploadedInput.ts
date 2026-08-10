@@ -35,6 +35,23 @@ const TRACE_PROGRESS_LABELS: Record<TraceTaskProgress['phase'], string> = {
   'build-facts': '正在构建 Trace 事实',
 };
 
+const TRACE_PROGRESS_PROJECTION: Record<TraceTaskProgress['phase'], {
+  phase: AnalysisProgress['phase'];
+  phaseIndex: number;
+  phaseProgressStart: number;
+  phaseProgressSpan: number;
+}> = {
+  'sniffing-source': { phase: 'validating', phaseIndex: 1, phaseProgressStart: 0, phaseProgressSpan: 0 },
+  'reading-file': { phase: 'reading', phaseIndex: 1, phaseProgressStart: 0, phaseProgressSpan: 1 / 3 },
+  decompressing: { phase: 'decompressing', phaseIndex: 1, phaseProgressStart: 0, phaseProgressSpan: 1 / 3 },
+  'parsing-json': { phase: 'parsing-structure', phaseIndex: 1, phaseProgressStart: 1 / 3, phaseProgressSpan: 0 },
+  'validating-trace': { phase: 'validating', phaseIndex: 1, phaseProgressStart: 2 / 3, phaseProgressSpan: 0 },
+  'summarizing-intake': { phase: 'scanning-records', phaseIndex: 2, phaseProgressStart: 0, phaseProgressSpan: 0 },
+  'scan-events': { phase: 'scanning-records', phaseIndex: 2, phaseProgressStart: 1 / 2, phaseProgressSpan: 1 / 2 },
+  'finalize-contexts': { phase: 'building-facts', phaseIndex: 3, phaseProgressStart: 0, phaseProgressSpan: 0 },
+  'build-facts': { phase: 'building-facts', phaseIndex: 3, phaseProgressStart: 1 / 2, phaseProgressSpan: 1 / 2 },
+};
+
 function readKnownNonTraceText(file: File): Promise<string> {
   if (typeof file.text === 'function') return file.text();
   return new Promise((resolve, reject) => {
@@ -144,41 +161,19 @@ export async function parseUploadedInput(options: {
     }
     const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
     const traceStartedAt = Date.now();
-    const tracePhaseIndex: Record<TraceTaskProgress['phase'], number> = {
-      'sniffing-source': 1,
-      'reading-file': 1,
-      decompressing: 1,
-      'parsing-json': 1,
-      'validating-trace': 1,
-      'summarizing-intake': 2,
-      'scan-events': 2,
-      'finalize-contexts': 3,
-      'build-facts': 3,
-    };
     const task = inspectTraceUploadInWorker(data, {
       hint: fileTypeHint,
       enableWorkbench: isTraceWorkbenchEnabled(),
       onProgress: (progress: TraceTaskProgress) => {
         onProgress?.(progress.phase);
+        const projection = TRACE_PROGRESS_PROJECTION[progress.phase];
         const completed = progress.processedEvents ?? progress.processedBytes;
         const total = progress.totalEvents ?? progress.totalBytes;
         const unit = progress.processedEvents !== undefined ? 'events' : 'bytes';
         onStructuredProgress?.({
           taskId,
           parserId: 'chromium-performance-trace@1',
-          phase: progress.phase === 'sniffing-source'
-            ? 'validating'
-            : progress.phase === 'reading-file'
-              ? 'reading'
-              : progress.phase === 'decompressing'
-                ? 'decompressing'
-                : progress.phase === 'parsing-json'
-                  ? 'parsing-structure'
-                  : progress.phase === 'validating-trace'
-                    ? 'validating'
-                    : progress.phase === 'scan-events'
-                      ? 'scanning-records'
-                      : 'building-facts',
+          phase: projection.phase,
           label: TRACE_PROGRESS_LABELS[progress.phase],
           mode: completed !== undefined && total !== undefined
             ? 'determinate'
@@ -186,8 +181,10 @@ export async function parseUploadedInput(options: {
           ...(completed === undefined ? {} : { completed }),
           ...(total === undefined ? {} : { total }),
           ...(completed === undefined || total === undefined ? {} : { unit }),
-          phaseIndex: tracePhaseIndex[progress.phase],
+          phaseIndex: projection.phaseIndex,
           phaseCount: 5,
+          phaseProgressStart: projection.phaseProgressStart,
+          phaseProgressSpan: projection.phaseProgressSpan,
           startedAt: traceStartedAt,
           updatedAt: Date.now(),
         });

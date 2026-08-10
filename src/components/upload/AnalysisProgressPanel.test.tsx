@@ -133,7 +133,7 @@ describe('AnalysisProgressPanel', () => {
     expect(screen.queryByText('当前：正在识别文件格式')).toBeNull();
   });
 
-  it('advances worker subphase labels without lowering the visible percent', () => {
+  it('advances bounded worker subphase labels without lowering the visible percent', () => {
     const { rerender } = render(
       <AnalysisProgressPanel
         progress={{
@@ -146,6 +146,8 @@ describe('AnalysisProgressPanel', () => {
           unit: 'bytes',
           phaseIndex: 1,
           phaseCount: 5,
+          phaseProgressStart: 0,
+          phaseProgressSpan: 1 / 3,
           startedAt: 1,
           updatedAt: 2,
         }}
@@ -157,14 +159,13 @@ describe('AnalysisProgressPanel', () => {
       <AnalysisProgressPanel
         progress={{
           taskId: 'task-1',
-          phase: 'decompressing',
-          label: '正在解压 gzip Trace',
-          mode: 'determinate',
-          completed: 0,
-          total: 100,
-          unit: 'bytes',
+          phase: 'parsing-structure',
+          label: '正在解析 Trace JSON 结构',
+          mode: 'indeterminate',
           phaseIndex: 1,
           phaseCount: 5,
+          phaseProgressStart: 1 / 3,
+          phaseProgressSpan: 0,
           startedAt: 1,
           updatedAt: 3,
         }}
@@ -172,8 +173,8 @@ describe('AnalysisProgressPanel', () => {
       />,
     );
 
-    expect(screen.getByText('40%')).not.toBeNull();
-    expect(screen.getByText('当前：正在解压 gzip Trace')).not.toBeNull();
+    expect(screen.getByText('26%')).not.toBeNull();
+    expect(screen.getByText('当前：正在解析 Trace JSON 结构')).not.toBeNull();
     expect(screen.getByText('已完成：读取 Trace 文件')).not.toBeNull();
   });
 

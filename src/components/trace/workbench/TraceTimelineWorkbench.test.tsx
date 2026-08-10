@@ -244,6 +244,15 @@ describe('TraceTimelineWorkbench', () => {
     } as unknown as CanvasRenderingContext2D);
   });
 
+  afterEach(() => {
+    delete process.env.REACT_APP_ENABLE_TRACE_WORKBENCH;
+    delete process.env.REACT_APP_ENABLE_TRACE_TIMELINE;
+    delete process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS;
+    delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
+    delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
+  });
+
   afterAll(() => {
     jest.restoreAllMocks();
   });
@@ -361,6 +370,31 @@ describe('TraceTimelineWorkbench', () => {
     act(() => client.fail());
 
     expect(await screen.findByText(/不会自动回退到主线程解析/)).not.toBeNull();
+  });
+
+  it('defers Stage 6 expert panels until the user expands them', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE6 = '1';
+    const { client, dispatch } = await createClient();
+    render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
+
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    expect(screen.getByRole('button', { name: '展开高级分析' }).getAttribute('aria-expanded'))
+      .toBe('false');
+    expect(screen.queryByText('声明式自定义查询')).toBeNull();
+    expect(screen.queryByText('受控临时轨道')).toBeNull();
+    expect(dispatch.mock.calls.map(([request]) => request.type)).not.toEqual(
+      expect.arrayContaining([
+        'query-advanced-analysis',
+        'query-custom-events',
+        'install-track-plugin',
+        'query-track-plugin',
+      ]),
+    );
   });
 
   it('does not render or request Stage 6 query and plugin UI when the flag is off', async () => {

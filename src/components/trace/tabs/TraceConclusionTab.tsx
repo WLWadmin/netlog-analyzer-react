@@ -120,7 +120,7 @@ const PrimaryIncident: React.FC<{
     <ol className="trace-diagnosis-axis" aria-label="诊断主轴">
       <li>
         <span>01</span>
-        <div><strong>现象</strong><p>{card.summary}</p></div>
+        <div><strong>用户影响</strong><p>{card.impactSummary}</p></div>
       </li>
       <li>
         <span>02</span>
@@ -137,7 +137,7 @@ const PrimaryIncident: React.FC<{
       </li>
       <li>
         <span>03</span>
-        <div><strong>疑似原因</strong><p>{card.causeSummary}</p></div>
+        <div><strong>{card.causeLabel}</strong><p>{card.causeSummary}</p></div>
       </li>
       <li>
         <span>04</span>
@@ -152,10 +152,6 @@ const PrimaryIncident: React.FC<{
       </li>
     </ol>
 
-    <aside className="trace-impact-summary">
-      <strong>用户影响</strong>
-      <p>{card.impactSummary}</p>
-    </aside>
     <DiagnosisActions
       card={card}
       onNavigateEvidence={onNavigateEvidence}

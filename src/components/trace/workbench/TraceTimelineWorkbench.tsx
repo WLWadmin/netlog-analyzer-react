@@ -148,6 +148,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [selectionError, setSelectionError] = useState('');
   const [evidenceError, setEvidenceError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pluginOverlays, setPluginOverlays] = useState<TrackPluginOverlay[]>([]);
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const crossSourceEnabled = isTraceCrossSourceEnabled();
@@ -576,39 +577,59 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
           )}
 
           {stage6Enabled && (
-            <>
-              <LayoutShiftPanel
-                client={client}
-                range={advancedRange}
-                onFocusRange={focusAdvancedRange}
-              />
-              <AnimationCompositionPanel
-                client={client}
-                range={advancedRange}
-                onFocusRange={focusAdvancedRange}
-              />
-              <MemoryTrendPanel
-                client={client}
-                range={advancedRange}
-                onFocusRange={focusAdvancedRange}
-              />
-              <GpuRasterPanel
-                client={client}
-                range={advancedRange}
-                onFocusRange={focusAdvancedRange}
-              />
-              <CustomQueryPanel
-                client={client}
-                range={advancedRange}
-                onFocusRange={focusAdvancedRange}
-                onOpenEvent={openDetail}
-              />
-              <TrackPluginPanel
-                client={client}
-                range={advancedRange}
-                onOverlaysChange={setPluginOverlays}
-              />
-            </>
+            <section
+              className="trace-advanced-suite"
+              aria-labelledby="trace-advanced-suite-heading"
+            >
+              <header>
+                <div>
+                  <h3 id="trace-advanced-suite-heading">高级分析工具</h3>
+                  <p>布局偏移、动画、内存、GPU、声明式查询与临时轨道按需加载。</p>
+                </div>
+                <button
+                  aria-expanded={advancedOpen}
+                  onClick={() => setAdvancedOpen(value => !value)}
+                  type="button"
+                >
+                  {advancedOpen ? '收起高级分析' : '展开高级分析'}
+                </button>
+              </header>
+              {advancedOpen ? (
+                <div className="trace-advanced-suite-content">
+                  <LayoutShiftPanel
+                    client={client}
+                    range={advancedRange}
+                    onFocusRange={focusAdvancedRange}
+                  />
+                  <AnimationCompositionPanel
+                    client={client}
+                    range={advancedRange}
+                    onFocusRange={focusAdvancedRange}
+                  />
+                  <MemoryTrendPanel
+                    client={client}
+                    range={advancedRange}
+                    onFocusRange={focusAdvancedRange}
+                  />
+                  <GpuRasterPanel
+                    client={client}
+                    range={advancedRange}
+                    onFocusRange={focusAdvancedRange}
+                  />
+                  <CustomQueryPanel
+                    client={client}
+                    range={advancedRange}
+                    onFocusRange={focusAdvancedRange}
+                    onOpenEvent={openDetail}
+                  />
+                  <TrackPluginPanel
+                    client={client}
+                    range={advancedRange}
+                    onOverlaysChange={setPluginOverlays}
+                  />
+                </div>
+              ) : null}
+            </section>
           )}
 
           <div id="trace-timeline-canvas-region">

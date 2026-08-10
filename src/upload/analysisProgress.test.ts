@@ -87,7 +87,7 @@ describe('analysis progress contract', () => {
     expect(isMonotonicProgress(previous, { ...next, phaseIndex: 1 })).toBe(false);
   });
 
-  it('allows a new worker subphase at the same workflow index', () => {
+  it('uses bounded sub-step ranges without letting the workflow ratio regress', () => {
     const reading = buildAnalysisProgress({
       taskId: 'task-1',
       phase: 'reading',
@@ -98,24 +98,45 @@ describe('analysis progress contract', () => {
       unit: 'bytes',
       phaseIndex: 1,
       phaseCount: 5,
+      phaseProgressStart: 0,
+      phaseProgressSpan: 1 / 3,
       startedAt: 1,
       updatedAt: 2,
     });
-    const decompressing = buildAnalysisProgress({
+    const parsing = buildAnalysisProgress({
       taskId: 'task-1',
-      phase: 'decompressing',
-      mode: 'determinate',
-      label: '正在解压 gzip Trace',
-      completed: 0,
-      total: 100,
-      unit: 'bytes',
+      phase: 'parsing-structure',
+      mode: 'indeterminate',
+      label: '正在解析 Trace JSON 结构',
       phaseIndex: 1,
       phaseCount: 5,
+      phaseProgressStart: 1 / 3,
+      phaseProgressSpan: 0,
       startedAt: 1,
       updatedAt: 3,
     });
 
-    expect(isMonotonicProgress(reading, decompressing)).toBe(true);
+    expect(progressRatio(reading)).toBeCloseTo(progressRatio(parsing));
+    expect(isMonotonicProgress(reading, parsing)).toBe(true);
+    expect(isMonotonicProgress(reading, {
+      ...parsing,
+      phaseProgressStart: 0,
+    })).toBe(false);
+  });
+
+  it('rejects invalid sub-step ranges', () => {
+    expect(() => buildAnalysisProgress({
+      taskId: 'task-1',
+      phase: 'reading',
+      mode: 'indeterminate',
+      label: '正在读取 Trace 文件',
+      phaseIndex: 1,
+      phaseCount: 5,
+      phaseProgressStart: 0.8,
+      phaseProgressSpan: 0.3,
+      startedAt: 1,
+      updatedAt: 2,
+    })).toThrow('phase progress range must stay within the current phase');
   });
 
   it('rejects a lower completion ratio within the same worker subphase', () => {

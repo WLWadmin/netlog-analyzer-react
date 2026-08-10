@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import type { TraceWorkbenchClient } from '../../../workbench/client';
@@ -11,6 +12,8 @@ const QUALITY_LABEL: Record<WorkbenchInsight['evidenceQuality'], string> = {
   medium: '中等质量证据',
   low: '低质量证据',
 };
+
+const DEFAULT_INSIGHT_LIMIT = 5;
 
 const InsightNavigator: React.FC<{
   client: TraceWorkbenchClient;
@@ -32,9 +35,15 @@ const InsightNavigator: React.FC<{
     store.getSnapshot,
     store.getSnapshot,
   );
+  const [showAll, setShowAll] = useState(false);
   const range = interaction.selection ?? interaction.viewport;
+  const visibleInsights = result?.insights.slice(
+    0,
+    showAll ? result.insights.length : DEFAULT_INSIGHT_LIMIT,
+  ) ?? [];
 
   useEffect(() => {
+    setShowAll(false);
     const timer = window.setTimeout(() => {
       void client.queryInsights(range).catch(() => undefined);
     }, 500);
@@ -51,7 +60,7 @@ const InsightNavigator: React.FC<{
       {result?.emptyReason && <p>{result.emptyReason}</p>}
       {result && result.insights.length > 0 && (
         <ol>
-          {result.insights.map(insight => (
+          {visibleInsights.map(insight => (
             <li key={insight.insightId}>
               <button type="button" onClick={() => onNavigate(insight)}>
                 <strong>{insight.priority}. {insight.phenomenon}</strong>
@@ -64,16 +73,31 @@ const InsightNavigator: React.FC<{
                       : '证据不足'}
                 </span>
               </button>
-              <p>候选原因：{insight.candidateReasons.join('；')}</p>
-              <p>限制：{insight.limitations.join('；')}</p>
-              <p>建议验证：{insight.verificationSteps.join('；')}</p>
+              <p>原因线索：{insight.candidateReasons.join('；')}</p>
               <p>
                 定位范围 {(insight.timeRange.startUs / 1_000).toFixed(2)}
                 –{(insight.timeRange.endUs / 1_000).toFixed(2)} ms
               </p>
+              <details>
+                <summary>查看限制与验证</summary>
+                <p>限制：{insight.limitations.join('；')}</p>
+                <p>建议验证：{insight.verificationSteps.join('；')}</p>
+              </details>
             </li>
           ))}
         </ol>
+      )}
+      {result && result.insights.length > DEFAULT_INSIGHT_LIMIT && (
+        <button
+          className="trace-insights-more"
+          type="button"
+          aria-expanded={showAll}
+          onClick={() => setShowAll(value => !value)}
+        >
+          {showAll
+            ? '收起次要 Insights'
+            : `查看其余 ${result.insights.length - DEFAULT_INSIGHT_LIMIT} 条 Insights`}
+        </button>
       )}
       {result?.truncation.truncated && (
         <p>

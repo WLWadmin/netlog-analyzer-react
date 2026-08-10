@@ -500,24 +500,6 @@
   padding-left: 0;
 }
 
-.trace-impact-summary {
-  border-block: 1px solid var(--border-color);
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 100px minmax(0, 1fr);
-  margin-top: 8px;
-  padding: 14px 0;
-}
-
-.trace-impact-summary strong {
-  color: var(--trace-ink);
-}
-
-.trace-impact-summary p {
-  color: var(--text-secondary);
-  margin: 0;
-}
-
 .trace-secondary-section {
   margin-top: 32px;
 }
@@ -662,7 +644,6 @@
     align-items: flex-start;
   }
 
-  .trace-impact-summary,
   .trace-diagnosis-basis dl div {
     grid-template-columns: 1fr;
   }
@@ -1143,6 +1124,24 @@
   margin-top: 8px;
 }
 
+.trace-insight-navigator details {
+  border-top: 1px solid var(--timeline-grid);
+  margin-top: 8px;
+  padding-top: 6px;
+}
+
+.trace-insight-navigator summary {
+  color: var(--timeline-selection);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.trace-insights-more {
+  margin-top: 10px;
+  width: 100%;
+}
+
 .trace-insight-navigator button {
   align-items: flex-start;
   display: flex;
@@ -1168,6 +1167,7 @@
 
 .trace-workbench-limitations,
 .trace-filmstrip,
+.trace-advanced-suite,
 .trace-advanced-panel,
 .trace-timeline-viewport,
 .trace-analysis-drawer,
@@ -1177,6 +1177,51 @@
   border-radius: 8px;
   margin-bottom: 12px;
   padding: 12px;
+}
+
+.trace-advanced-suite > header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.trace-advanced-suite > header h3 {
+  color: var(--timeline-ink);
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.trace-advanced-suite > header p {
+  color: var(--timeline-muted);
+  margin: 0;
+}
+
+.trace-advanced-suite > header button {
+  background: var(--timeline-surface);
+  border: 1px solid var(--timeline-grid);
+  border-radius: 6px;
+  color: var(--timeline-ink);
+  cursor: pointer;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 7px 10px;
+}
+
+.trace-advanced-suite > header button:focus-visible,
+.trace-insight-navigator summary:focus-visible {
+  outline: 3px solid var(--timeline-selection);
+  outline-offset: 3px;
+}
+
+.trace-advanced-suite-content {
+  border-top: 1px solid var(--timeline-grid);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.trace-advanced-suite-content > .trace-advanced-panel:last-child {
+  margin-bottom: 0;
 }
 
 .trace-workbench-limitations h3 {
@@ -1416,6 +1461,11 @@
 }
 
 @media (max-width: 799px) {
+  .trace-advanced-suite > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .trace-filmstrip-stage {
     grid-template-columns: minmax(0, 1fr);
   }

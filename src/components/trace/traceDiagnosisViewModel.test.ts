@@ -74,7 +74,8 @@ describe('traceDiagnosisViewModel', () => {
       timeWindowLabel: '3.20 秒附近',
       evidenceStrengthLabel: '较强证据',
       evidenceSummaries: ['RunTask · 3.20 秒'],
-      causeSummary: expect.stringContaining('疑似'),
+      causeLabel: '可能贡献因素',
+      causeSummary: expect.stringContaining('主线程占用可能推迟页面更新和交互响应'),
     }));
   });
 

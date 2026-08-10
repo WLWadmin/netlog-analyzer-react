@@ -263,11 +263,12 @@ describe('TraceResultPage', () => {
     expect(screen.getByText('高影响')).not.toBeNull();
     expect(screen.getByText('较强证据')).not.toBeNull();
     expect(screen.getByText('3.20 秒附近')).not.toBeNull();
-    expect(screen.getByText('现象')).not.toBeNull();
+    expect(screen.getByText('用户影响')).not.toBeNull();
     expect(screen.getByText('关键证据')).not.toBeNull();
-    expect(screen.getByText('疑似原因')).not.toBeNull();
+    expect(screen.getByText('可能贡献因素')).not.toBeNull();
     expect(screen.getByText('优先行动')).not.toBeNull();
     expect(screen.getByText('RunTask · 3.20 秒')).not.toBeNull();
+    expect(screen.getByText(/主线程占用可能推迟页面更新和交互响应/)).not.toBeNull();
   });
 
   it('目标缺失时提示失败、消费意图，并允许重复点击同一目标', async () => {

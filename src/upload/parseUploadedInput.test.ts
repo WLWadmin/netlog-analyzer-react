@@ -11,6 +11,7 @@ import {
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import type { TraceAnalysisResult } from '../diagnosis/trace';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
+import { progressRatio, type AnalysisProgress } from './analysisProgress';
 
 jest.mock('../parsers/netlog', () => ({
   parseLog: jest.fn(),
@@ -280,7 +281,7 @@ describe('parseUploadedInput', () => {
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 
-  it('parser selected 后将 sniffing-source 映射为 phase one Trace 验证', async () => {
+  it('parser selected 后按五阶段单调投影 Trace Worker 子阶段', async () => {
     const onStructuredProgress = jest.fn();
     const analysisResult: TraceAnalysisResult = {
       intake: {
@@ -320,6 +321,15 @@ describe('parseUploadedInput', () => {
         processedBytes: 0,
         totalBytes: 100,
       });
+      options.onProgress({ phase: 'reading-file', processedBytes: 100, totalBytes: 100 });
+      options.onProgress({ phase: 'parsing-json' });
+      options.onProgress({ phase: 'validating-trace' });
+      options.onProgress({ phase: 'summarizing-intake' });
+      options.onProgress({ phase: 'scan-events', processedEvents: 0, totalEvents: 100 });
+      options.onProgress({ phase: 'scan-events', processedEvents: 100, totalEvents: 100 });
+      options.onProgress({ phase: 'finalize-contexts' });
+      options.onProgress({ phase: 'build-facts', processedEvents: 0, totalEvents: 2 });
+      options.onProgress({ phase: 'build-facts', processedEvents: 2, totalEvents: 2 });
       return {
         promise: Promise.resolve({ kind: 'trace', result: analysisResult }),
         cancel: jest.fn(),
@@ -340,6 +350,15 @@ describe('parseUploadedInput', () => {
       phaseIndex: 1,
       label: '正在验证 Trace 结构',
     }));
+    const projected = onStructuredProgress.mock.calls.map(
+      ([progress]) => progress as AnalysisProgress,
+    );
+    const ratios = projected.map(progressRatio);
+    expect(ratios.every((ratio, index) => index === 0 || ratio >= ratios[index - 1])).toBe(true);
+    expect(projected.find(item => item.label === '正在汇总 Trace 接入信息')?.phase)
+      .toBe('scanning-records');
+    expect(projected.find(item => item.label === '正在整理 Trace 上下文')?.phase)
+      .toBe('building-facts');
   });
 
   it('flag off 时仍识别 Trace，并返回固定 feature-disabled 错误', async () => {

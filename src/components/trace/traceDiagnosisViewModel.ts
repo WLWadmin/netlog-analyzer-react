@@ -32,6 +32,7 @@ export interface TraceDiagnosisCardViewModel {
   timeWindowLabel: string;
   evidenceStrengthLabel: string;
   evidenceSummaries: string[];
+  causeLabel: string;
   causeSummary: string;
   counterEvidence: string[];
   limitations: string[];
@@ -77,6 +78,16 @@ const IMPACT_SUMMARY: Record<TraceDiagnosisCategory, string> = {
   'main-thread': '可能造成页面卡顿或用户交互响应变慢。',
   rendering: '可能造成画面更新不流畅或视觉稳定性下降。',
   interaction: '可能造成点击、输入等操作反馈延迟。',
+};
+
+const CONTRIBUTOR_CONTEXT: Record<TraceDiagnosisCategory, string> = {
+  quality: '当前首要限制是录制范围或上下文不完整；补齐采集后才能继续判断性能贡献因素。',
+  loading: '这个里程碑偏晚是结果信号，还需要对齐同期请求、主线程和渲染事实才能定位贡献来源。',
+  network: '这是请求层的异常或等待线索；Trace 本身不能继续确定 DNS、连接、TLS、代理或服务端根因。',
+  security: '当前只能确认应用层响应或访问策略现象，不能据此确定具体安全策略或性能根因。',
+  'main-thread': '这类主线程占用可能推迟页面更新和交互响应，是当前录制中应优先处理的贡献因素。',
+  rendering: '这类渲染工作或布局线索可能使画面更新超出参考预算，但不能自动归因到具体线程或 DOM 操作。',
+  interaction: '应优先检查延迟占比最大的阶段及其同期任务和渲染事件；单份 Trace 不代表线上用户分布。',
 };
 
 const EVIDENCE_STRENGTH: Record<TraceDiagnosisConfidence, string> = {
@@ -154,9 +165,14 @@ function toCard(
         : formatTime(Math.max(0, item.timestampUs - captureStartUs));
       return `${item.name ?? 'Trace 事件'} · ${time}`;
     }),
+    causeLabel: diagnosis.confidence === 'observation'
+      || diagnosis.category === 'quality'
+      || diagnosis.category === 'security'
+      ? '判断边界'
+      : '可能贡献因素',
     causeSummary: diagnosis.confidence === 'observation'
-      ? '目前只能确认现象，现有证据不足以确定原因。'
-      : `疑似与${diagnosis.title}相关；结论仍以当前录制窗口内的证据为限。`,
+      ? `目前只能确认“${diagnosis.title}”这一现象。${CONTRIBUTOR_CONTEXT[diagnosis.category]}`
+      : `${diagnosis.conclusion} ${CONTRIBUTOR_CONTEXT[diagnosis.category]}`,
     counterEvidence: diagnosis.counterEvidence.slice(0, 3),
     limitations: diagnosis.limitations.slice(0, 3),
     evidenceIds,
