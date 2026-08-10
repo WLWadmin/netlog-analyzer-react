@@ -1,5 +1,7 @@
 import {
+  buildDiagnosisFindings,
   selectTraceDiagnoses,
+  type DiagnosisFinding,
   type TraceAnalysisResult,
   type TraceDiagnosis,
   type TraceDiagnosisCategory,
@@ -25,13 +27,15 @@ export interface TraceDiagnosisCardViewModel {
   title: string;
   confidence: TraceDiagnosis['confidence'];
   confidenceLabel: string;
+  attributionStatus: 'confirmed' | 'needs-validation' | 'unresolved';
+  attributionLabel: string;
+  attributionSummary: string;
   conclusion: string;
   summary: string;
   impactLabel: string;
   impactSummary: string;
   timeWindowLabel: string;
   evidenceStrengthLabel: string;
-  evidenceSummaries: string[];
   causeLabel: string;
   causeSummary: string;
   counterEvidence: string[];
@@ -91,11 +95,67 @@ const CONTRIBUTOR_CONTEXT: Record<TraceDiagnosisCategory, string> = {
 };
 
 const EVIDENCE_STRENGTH: Record<TraceDiagnosisConfidence, string> = {
-  confirmed: '直接证据',
-  high: '较强证据',
-  medium: '支持证据',
-  observation: '现象线索',
+  confirmed: '事实已确认',
+  high: '事实证据较强',
+  medium: '事实证据有限',
+  observation: '仅确认现象',
 };
+
+interface AttributionPresentation {
+  status: TraceDiagnosisCardViewModel['attributionStatus'];
+  label: string;
+  summary: string;
+}
+
+const ATTRIBUTION: Record<DiagnosisFinding['attributionLevel'], AttributionPresentation> = {
+  confirmed: {
+    status: 'confirmed',
+    label: '已确认原因',
+    summary: '已经形成可定位的因果证据，可以直接查看并处理该原因。',
+  },
+  'highly-correlated': {
+    status: 'needs-validation',
+    label: '高度相关，仍待确认',
+    summary: '现有证据与问题高度相关，但尚未形成唯一、完整的因果链。',
+  },
+  'possible-contributor': {
+    status: 'needs-validation',
+    label: '原因尚未定位',
+    summary: '已经确认发生了这个性能现象，但还没有找到它背后的具体原因。',
+  },
+  observation: {
+    status: 'unresolved',
+    label: '无法确认原因',
+    summary: '当前文件只能确认存在相关现象，不能判断它是否造成了用户问题。',
+  },
+  insufficient: {
+    status: 'unresolved',
+    label: '证据不足，无法归因',
+    summary: '当前文件缺少完成归因所需的必要证据。',
+  },
+};
+
+const ATTRIBUTION_GAP_BY_RULE: Partial<Record<TraceDiagnosis['ruleId'], string>> = {
+  M1: '已经确认发生长任务，但当前证据没有定位到造成它的具体脚本、函数或执行来源。',
+  M2: '已经发现脚本或垃圾回收活动线索，但还需要源码位置和同期任务证据才能确认原因。',
+};
+
+const MISSING_CONFIRMED_CAUSE: AttributionPresentation = {
+  status: 'unresolved',
+  label: '原因信息缺失',
+  summary: '归因记录没有提供可展示的具体原因，因此不能标记为已确认原因。',
+};
+
+function attributionPresentation(finding: DiagnosisFinding): AttributionPresentation {
+  const cause = finding.cause?.trim();
+  if (finding.attributionLevel === 'confirmed' && !cause) {
+    return MISSING_CONFIRMED_CAUSE;
+  }
+  const presentation = ATTRIBUTION[finding.attributionLevel];
+  return finding.attributionLevel === 'confirmed'
+    ? { ...presentation, summary: `已确认原因：${cause}` }
+    : presentation;
+}
 
 function formatTime(timestampUs: number): string {
   return `${(timestampUs / 1_000_000).toFixed(2)} 秒`;
@@ -111,6 +171,7 @@ export function traceEvidenceDomId(id: string): string {
 
 function toCard(
   diagnosis: TraceDiagnosis,
+  finding: DiagnosisFinding,
   evidenceById: Map<string, TraceAnalysisResult['context']['evidence'][number]>,
   usedEvidence: Set<string>,
   evidenceLimit: number,
@@ -129,10 +190,6 @@ function toCard(
     const item = evidenceById.get(id);
     return item ? [item] : [];
   });
-  const displayedEvidence = evidenceIds.flatMap(id => {
-    const item = evidenceById.get(id);
-    return item ? [item] : [];
-  });
   const timestamps = availableEvidence.flatMap(item => (
     item.timestampUs === undefined || captureStartUs === undefined
       ? []
@@ -145,6 +202,26 @@ function toCard(
     : firstTimestamp === lastTimestamp
       ? `${formatTime(firstTimestamp)}附近`
       : `${formatTime(firstTimestamp)}–${formatTime(lastTimestamp)}`;
+  const attribution = attributionPresentation(finding);
+  const explicitCause = finding.cause?.trim();
+  const limitation = diagnosis.limitations[0];
+  const causeSummary = attribution.status === 'confirmed'
+    ? explicitCause ?? MISSING_CONFIRMED_CAUSE.summary
+    : attribution.status === 'needs-validation'
+      ? ATTRIBUTION_GAP_BY_RULE[diagnosis.ruleId]
+        ?? `${diagnosis.conclusion} ${limitation
+          ? `当前限制是：${limitation}`
+          : '现有线索还需要补充或交叉验证，不能直接认定为具体原因。'}`
+      : `${diagnosis.conclusion} ${limitation
+        ? `无法确认是因为：${limitation}`
+        : CONTRIBUTOR_CONTEXT[diagnosis.category]}`;
+  const fallbackAdvice = attribution.status === 'confirmed'
+    ? '查看相关记录，按结论处理后重新录制验证。'
+    : attribution.status === 'needs-validation'
+      ? '查看相关记录并补充判断依据，确认后再处理。'
+      : '查看无法确认的原因，按缺失信息补充录制内容。';
+  const advice = (diagnosis.advice.length > 0 ? diagnosis.advice : [fallbackAdvice])
+    .slice(0, adviceLimit);
   return {
     id: diagnosis.id,
     ruleId: diagnosis.ruleId,
@@ -153,30 +230,29 @@ function toCard(
     title: diagnosis.title,
     confidence: diagnosis.confidence,
     confidenceLabel: CONFIDENCE_LABEL[diagnosis.confidence],
+    attributionStatus: attribution.status,
+    attributionLabel: attribution.label,
+    attributionSummary: attribution.summary,
     conclusion: diagnosis.conclusion,
-    summary: diagnosis.confidence === 'observation' ? `观察：${diagnosis.conclusion}` : diagnosis.conclusion,
-    impactLabel: IMPACT_LABEL[diagnosis.severity],
+    summary: `${attribution.label}：${diagnosis.conclusion}`,
+    impactLabel: attribution.status === 'unresolved'
+      ? '影响未确认'
+      : attribution.status === 'confirmed'
+        ? IMPACT_LABEL[diagnosis.severity]
+        : `${IMPACT_LABEL[diagnosis.severity]}现象`,
     impactSummary: IMPACT_SUMMARY[diagnosis.category],
     timeWindowLabel,
     evidenceStrengthLabel: EVIDENCE_STRENGTH[diagnosis.confidence],
-    evidenceSummaries: displayedEvidence.map(item => {
-      const time = item.timestampUs === undefined || captureStartUs === undefined
-        ? '时间不可用'
-        : formatTime(Math.max(0, item.timestampUs - captureStartUs));
-      return `${item.name ?? 'Trace 事件'} · ${time}`;
-    }),
-    causeLabel: diagnosis.confidence === 'observation'
-      || diagnosis.category === 'quality'
-      || diagnosis.category === 'security'
-      ? '判断边界'
-      : '可能贡献因素',
-    causeSummary: diagnosis.confidence === 'observation'
-      ? `目前只能确认“${diagnosis.title}”这一现象。${CONTRIBUTOR_CONTEXT[diagnosis.category]}`
-      : `${diagnosis.conclusion} ${CONTRIBUTOR_CONTEXT[diagnosis.category]}`,
+    causeLabel: attribution.status === 'confirmed'
+      ? '确认的具体原因'
+      : attribution.status === 'needs-validation'
+        ? '为什么还不能确认原因'
+        : '为什么无法确认',
+    causeSummary,
     counterEvidence: diagnosis.counterEvidence.slice(0, 3),
     limitations: diagnosis.limitations.slice(0, 3),
     evidenceIds,
-    advice: diagnosis.advice.slice(0, adviceLimit),
+    advice,
     ...(factId ? { factTarget: { tab: FACT_TAB_BY_CATEGORY[diagnosis.category], factId } } : {}),
     ...(availableEvidenceIds[0]
       ? { evidenceTarget: { tab: 'evidence' as const, evidenceId: availableEvidenceIds[0] } }
@@ -191,16 +267,21 @@ export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): Trace
   const { primary: primaryDiagnosis, selected } = selectTraceDiagnoses(
     result.diagnosis.diagnoses,
   );
+  const findings = result.diagnosis.findings
+    ?? buildDiagnosisFindings(result.diagnosis.diagnoses);
+  const findingByDiagnosisId = new Map(findings.map(finding => [finding.id, finding]));
   let remainingEvidence = 3;
   let remainingAdvice = 3;
   const usedEvidence = new Set<string>();
   const cards = selected.map(diagnosis => {
     const card = toCard(
       diagnosis,
+      findingByDiagnosisId.get(`finding:${diagnosis.id}`)
+        ?? buildDiagnosisFindings([diagnosis])[0],
       evidenceById,
       usedEvidence,
       remainingEvidence,
-      remainingAdvice,
+      Math.min(1, remainingAdvice),
       result.intake.captureStartUs,
     );
     remainingEvidence -= card.evidenceIds.length;
@@ -216,7 +297,7 @@ export function buildTraceDiagnosisViewModel(result: TraceAnalysisResult): Trace
     ...(!primary && cards.length > 0
       ? {
           observationOnlyMessage:
-            '目前只能确认现象，缺少足够的直接证据或可校准时间关系，暂不能判断确定原因。',
+            '目前只能确认现象，缺少完成归因所需的信息。请按每条结论的下一步补充录制内容。',
         }
       : {}),
   };

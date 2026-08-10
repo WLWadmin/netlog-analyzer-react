@@ -131,8 +131,27 @@ describe('Trace diagnosis rules', () => {
       lineNumber: 10, sampleCount: 10, sampleTimeMs: 220, taskIds: [], evidenceIds: [evidence(6)],
     }] })));
     expect(m1.conclusion).not.toContain('TBT');
+    expect(m2.title).toBe('发现脚本采样集中');
+    expect(m2.conclusion).toContain('尚不能证明它是卡顿原因');
     expect(m2.limitations.join(' ')).toContain('Source Map');
     expect(m2.conclusion).toContain('/app.bundle.js');
+  });
+
+  it('M2 does not present idle CPU samples as a script hotspot', () => {
+    const diagnosis = matched(evaluation(mainThreadRules, 'M2', context({ cpuHotspots: [{
+      id: 'idle-hotspot', processId: 1, threadId: 1, profileId: 'profile', nodeId: 1,
+      functionName: '(idle)', sampleCount: 500, sampleTimeMs: 5_221.569,
+      taskIds: [], evidenceIds: [evidence(6)],
+    }] })));
+
+    expect(diagnosis).toEqual(expect.objectContaining({
+      title: '未能定位具体脚本',
+      confidence: 'observation',
+      severity: 'info',
+    }));
+    expect(diagnosis.conclusion).toContain('无法归属到具体脚本或函数');
+    expect(diagnosis.conclusion).not.toContain('脚本采样热点');
+    expect(diagnosis.advice.join(' ')).toContain('重新录制');
   });
 
   it('R1 stays observational for weak clues and R2 declares the 60Hz limitation', () => {

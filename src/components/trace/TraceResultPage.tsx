@@ -88,7 +88,10 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
     <section className="trace-result" aria-labelledby="trace-result-title">
       <header className="trace-result-heading">
         <div>
-          <span>CHROMIUM PERFORMANCE TRACE</span>
+          <div className="trace-result-identity">
+            <span>CHROMIUM PERFORMANCE TRACE</span>
+            <strong>Trace 分析 Beta</strong>
+          </div>
           <h1 id="trace-result-title">性能诊断</h1>
           <p>从页面加载、网络、主线程、渲染和交互事实中定位优先排查方向。</p>
         </div>

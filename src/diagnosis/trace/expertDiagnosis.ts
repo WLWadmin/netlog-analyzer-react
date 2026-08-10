@@ -17,6 +17,8 @@ export interface DiagnosisFinding {
     | 'possible-contributor'
     | 'observation'
     | 'insufficient';
+  /** Present only when an exclusive, user-visible cause has been established. */
+  cause?: string;
   evidenceConfidence: 'high' | 'medium' | 'low' | 'insufficient';
   necessaryEvidenceIds: string[];
   supportingEvidenceIds: string[];

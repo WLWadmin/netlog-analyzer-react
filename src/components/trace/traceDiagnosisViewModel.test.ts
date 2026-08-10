@@ -32,11 +32,11 @@ describe('traceDiagnosisViewModel', () => {
 
     expect(card.conclusion).toBe(diagnosis.conclusion);
     expect(card.evidenceIds).toEqual(['trace:event:7']);
-    expect(card.advice).toEqual(['建议 1', '建议 2', '建议 3']);
+    expect(card.advice).toEqual(['建议 1']);
     expect(card.severityLabel).toBe('警告');
   });
 
-  it('首要问题投影影响、时间窗口、证据强度和可读证据摘要', () => {
+  it('事实 confirmed 不会被误写成已确认原因', () => {
     const model = buildTraceDiagnosisViewModel({
       ...result,
       intake: {
@@ -60,23 +60,100 @@ describe('traceDiagnosisViewModel', () => {
           ruleId: 'M1',
           category: 'main-thread',
           severity: 'critical',
-          confidence: 'high',
+          confidence: 'confirmed',
           title: '主线程长任务',
-          conclusion: '主线程长任务可能延迟用户交互。',
+          conclusion: '任务持续 1620.624ms，超过 50ms 部分为 1570.624ms。',
+          counterEvidence: ['单任务阻塞贡献不等于页面总阻塞时间。'],
+          limitations: ['当前事实没有定位到具体脚本或函数。'],
         }],
         evaluations: [],
       },
     });
 
     expect(model.primary).toEqual(expect.objectContaining({
-      impactLabel: '高影响',
+      attributionStatus: 'needs-validation',
+      attributionLabel: '原因尚未定位',
+      attributionSummary: expect.stringContaining('确认发生了这个性能现象'),
+      impactLabel: '高影响现象',
       impactSummary: expect.stringContaining('交互'),
       timeWindowLabel: '3.20 秒附近',
-      evidenceStrengthLabel: '较强证据',
-      evidenceSummaries: ['RunTask · 3.20 秒'],
-      causeLabel: '可能贡献因素',
-      causeSummary: expect.stringContaining('主线程占用可能推迟页面更新和交互响应'),
+      evidenceStrengthLabel: '事实已确认',
+      causeLabel: '为什么还不能确认原因',
+      causeSummary: expect.stringContaining('具体脚本、函数或执行来源'),
     }));
+  });
+
+  it('只有 finding attributionLevel confirmed 才展示已确认原因', () => {
+    const card = buildTraceDiagnosisViewModel({
+      ...result,
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'confirmed-cause',
+          ruleId: 'M1',
+          category: 'main-thread',
+          confidence: 'confirmed',
+        }],
+        evaluations: [],
+        findings: [{
+          id: 'finding:confirmed-cause',
+          domain: 'main-thread',
+          phenomenon: '主线程长任务',
+          impact: '页面交互被阻塞。',
+          attributionLevel: 'confirmed',
+          cause: '同步执行的 app.js 初始化函数持续占用主线程。',
+          evidenceConfidence: 'high',
+          necessaryEvidenceIds: ['trace:event:7'],
+          supportingEvidenceIds: [],
+          counterEvidenceIds: [],
+          competingCauses: [],
+          limitations: [],
+          verificationSteps: ['修复后重新录制验证。'],
+          entityIds: ['request-1'],
+        }],
+      },
+    }).cards[0];
+
+    expect(card).toEqual(expect.objectContaining({
+      attributionStatus: 'confirmed',
+      attributionLabel: '已确认原因',
+      attributionSummary: expect.stringContaining('app.js 初始化函数'),
+      causeSummary: '同步执行的 app.js 初始化函数持续占用主线程。',
+    }));
+  });
+
+  it('finding 标记 confirmed 但没有 cause 时仍不展示已确认原因', () => {
+    const confirmedWithoutCause = buildTraceDiagnosisViewModel({
+      ...result,
+      diagnosis: {
+        diagnoses: [{
+          ...diagnosis,
+          id: 'missing-cause',
+          ruleId: 'M1',
+          category: 'main-thread',
+          confidence: 'confirmed',
+        }],
+        evaluations: [],
+        findings: [{
+          id: 'finding:missing-cause',
+          domain: 'main-thread',
+          phenomenon: '主线程长任务',
+          impact: '页面交互被阻塞。',
+          attributionLevel: 'confirmed',
+          evidenceConfidence: 'high',
+          necessaryEvidenceIds: ['trace:event:7'],
+          supportingEvidenceIds: [],
+          counterEvidenceIds: [],
+          competingCauses: [],
+          limitations: [],
+          verificationSteps: ['补充具体原因。'],
+          entityIds: ['request-1'],
+        }],
+      },
+    }).cards[0];
+
+    expect(confirmedWithoutCause.attributionStatus).toBe('unresolved');
+    expect(confirmedWithoutCause.attributionLabel).toBe('原因信息缺失');
   });
 
   it('多条可用证据使用首尾相对时间形成时间范围', () => {
@@ -195,7 +272,6 @@ describe('traceDiagnosisViewModel', () => {
     });
 
     expect(model.primary?.timeWindowLabel).toBe('时间窗口不可用');
-    expect(model.primary?.evidenceSummaries).toEqual(['RunTask · 时间不可用']);
   });
 
   it('缺少时间证据时明确显示 unavailable', () => {
@@ -264,7 +340,7 @@ describe('traceDiagnosisViewModel', () => {
       diagnosis: { diagnoses: [{ ...diagnosis, limitations: ['不能确定底层网络根因。'] }], evaluations: [] },
     }).cards[0];
 
-    expect(card.summary).toBe(`观察：${diagnosis.conclusion}`);
+    expect(card.summary).toBe(`无法确认原因：${diagnosis.conclusion}`);
     expect(card.confidenceLabel).toBe('观察');
     expect(card.counterEvidence).toEqual(['存在 HTTP 响应。']);
     expect(card.limitations).toEqual(['不能确定底层网络根因。']);

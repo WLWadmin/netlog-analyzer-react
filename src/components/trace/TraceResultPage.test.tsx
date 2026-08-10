@@ -149,6 +149,7 @@ describe('TraceResultPage', () => {
     render(<TraceResultPage result={result} activeTab="overview" />);
 
     expect(screen.getByRole('heading', { name: '性能诊断' })).not.toBeNull();
+    expect(screen.getByText('Trace 分析 Beta')).not.toBeNull();
     expect(screen.getByText('12')).not.toBeNull();
     expect(screen.getByText('2.00 秒')).not.toBeNull();
     expect(screen.getByText('页面加载诊断暂不可用')).not.toBeNull();
@@ -200,7 +201,7 @@ describe('TraceResultPage', () => {
     };
 
     render(<NavigationProvider><Harness /></NavigationProvider>);
-    expect(screen.getByText('观察：Trace 中记录到 HTTP 404 响应。')).not.toBeNull();
+    expect(screen.getByText('无法确认原因：Trace 中记录到 HTTP 404 响应。')).not.toBeNull();
     expect(screen.getByText('检查请求地址。')).not.toBeNull();
     expect(screen.getAllByText(/警告/).length).toBeGreaterThan(0);
     expect(screen.getByText(/目前只能确认现象/)).not.toBeNull();
@@ -228,7 +229,7 @@ describe('TraceResultPage', () => {
     expect(screen.getByText('eventIndex 7')).not.toBeNull();
   });
 
-  it('首要问题使用诊断主轴展示问题、影响、证据与行动', () => {
+  it('需要验证的首要结论明确展示状态、影响边界、判断原因与行动', () => {
     const primaryResult: TraceAnalysisResult = {
       ...result,
       context: {
@@ -248,9 +249,11 @@ describe('TraceResultPage', () => {
           ruleId: 'M1',
           category: 'main-thread',
           title: '主线程长任务',
-          conclusion: '主线程长任务可能延迟用户交互。',
-          confidence: 'high',
+          conclusion: '任务持续 1620.624ms，超过 50ms 部分为 1570.624ms。',
+          confidence: 'confirmed',
           severity: 'critical',
+          counterEvidence: ['单任务阻塞贡献不等于页面总阻塞时间。'],
+          limitations: ['当前事实没有定位到具体脚本或函数。'],
           advice: ['先定位最长任务。', '检查热点函数。'],
         }],
         evaluations: [],
@@ -259,16 +262,15 @@ describe('TraceResultPage', () => {
 
     render(<TraceResultPage result={primaryResult} />);
 
-    expect(screen.getByText('首要问题')).not.toBeNull();
-    expect(screen.getByText('高影响')).not.toBeNull();
-    expect(screen.getByText('较强证据')).not.toBeNull();
+    expect(screen.getAllByText('原因尚未定位').length).toBeGreaterThan(0);
+    expect(screen.getByText('高影响现象')).not.toBeNull();
+    expect(screen.getByText('事实已确认')).not.toBeNull();
     expect(screen.getByText('3.20 秒附近')).not.toBeNull();
-    expect(screen.getByText('用户影响')).not.toBeNull();
-    expect(screen.getByText('关键证据')).not.toBeNull();
-    expect(screen.getByText('可能贡献因素')).not.toBeNull();
-    expect(screen.getByText('优先行动')).not.toBeNull();
-    expect(screen.getByText('RunTask · 3.20 秒')).not.toBeNull();
-    expect(screen.getByText(/主线程占用可能推迟页面更新和交互响应/)).not.toBeNull();
+    expect(screen.getByText('这会带来什么影响')).not.toBeNull();
+    expect(screen.getByText('为什么还不能确认原因')).not.toBeNull();
+    expect(screen.getByText('下一步怎么做')).not.toBeNull();
+    expect(screen.queryByText('RunTask · 3.20 秒')).toBeNull();
+    expect(screen.getByText(/具体脚本、函数或执行来源/)).not.toBeNull();
   });
 
   it('目标缺失时提示失败、消费意图，并允许重复点击同一目标', async () => {

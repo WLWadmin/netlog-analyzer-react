@@ -34,7 +34,7 @@ const DiagnosisActions: React.FC<DiagnosisActionsProps> = ({
         onClick={() => onNavigateFact(factTarget)}
         type="button"
       >
-        定位相关事实
+        查看相关记录
       </button>
     ) : null}
       {evidenceTarget ? (
@@ -43,7 +43,7 @@ const DiagnosisActions: React.FC<DiagnosisActionsProps> = ({
         onClick={() => onNavigateEvidence(evidenceTarget)}
         type="button"
       >
-        打开证据索引
+        查看技术证据
       </button>
     ) : null}
     </div>
@@ -65,7 +65,7 @@ const DiagnosisBasis: React.FC<{
         onClick={() => setExpanded(value => !value)}
         type="button"
       >
-        {expanded ? '收起判断依据' : '查看判断依据'}
+        {expanded ? '收起开发者依据' : '给开发人员查看'}
       </button>
       {expanded ? (
         <div id={contentId}>
@@ -103,10 +103,10 @@ const PrimaryIncident: React.FC<{
   onNavigateFact: Props['onNavigateFact'];
   onNavigateEvidence: Props['onNavigateEvidence'];
 }> = ({ card, onNavigateFact, onNavigateEvidence }) => (
-  <article className={`trace-primary-incident is-severity-${card.severity}`}>
+  <article className={`trace-primary-incident is-attribution-${card.attributionStatus}`}>
     <header className="trace-primary-incident-heading">
       <div>
-        <span>首要问题</span>
+        <span>优先结论</span>
         <h2>{card.title}</h2>
         <p>{card.conclusion}</p>
       </div>
@@ -117,40 +117,32 @@ const PrimaryIncident: React.FC<{
       </div>
     </header>
 
-    <ol className="trace-diagnosis-axis" aria-label="诊断主轴">
-      <li>
-        <span>01</span>
-        <div><strong>用户影响</strong><p>{card.impactSummary}</p></div>
-      </li>
-      <li>
-        <span>02</span>
-        <div>
-          <strong>关键证据</strong>
-          {card.evidenceSummaries.length > 0 ? (
-            <ul>
-              {card.evidenceSummaries.map(item => <li key={item}>{item}</li>)}
-            </ul>
-          ) : (
-            <p>当前没有可展示的事件摘要。</p>
-          )}
-        </div>
-      </li>
-      <li>
-        <span>03</span>
-        <div><strong>{card.causeLabel}</strong><p>{card.causeSummary}</p></div>
-      </li>
-      <li>
-        <span>04</span>
-        <div>
-          <strong>优先行动</strong>
+    <section className="trace-attribution-verdict" aria-label="归因状态">
+      <span>归因判断</span>
+      <strong>{card.attributionLabel}</strong>
+      <p>{card.attributionSummary}</p>
+    </section>
+
+    <div className="trace-diagnosis-guide">
+      <section>
+        <h3>这会带来什么影响</h3>
+        <p>{card.impactSummary}</p>
+      </section>
+      <section>
+        <h3>{card.causeLabel}</h3>
+        <p>{card.causeSummary}</p>
+      </section>
+      <section>
+          <h3>下一步怎么做</h3>
           {card.advice.length > 0 ? (
             <ol>{card.advice.map(item => <li key={item}>{item}</li>)}</ol>
           ) : (
-            <p>先定位相关事实和时间窗口，再补充可验证证据。</p>
+            <p>{card.attributionStatus === 'confirmed'
+              ? '先查看相关记录，再按结论处理并复测。'
+              : '先查看无法确认的原因，再补充对应的录制信息。'}</p>
           )}
-        </div>
-      </li>
-    </ol>
+      </section>
+    </div>
 
     <DiagnosisActions
       card={card}
@@ -166,7 +158,7 @@ const SecondaryDiagnosis: React.FC<{
   onNavigateFact: Props['onNavigateFact'];
   onNavigateEvidence: Props['onNavigateEvidence'];
 }> = ({ card, onNavigateFact, onNavigateEvidence }) => (
-  <article className={`trace-secondary-diagnosis is-severity-${card.severity}`}>
+  <article className={`trace-secondary-diagnosis is-attribution-${card.attributionStatus}`}>
     <header>
       <div>
         <span>{card.severityLabel} · {card.evidenceStrengthLabel}</span>
@@ -202,7 +194,7 @@ const TraceConclusionTab: React.FC<Props> = ({
     <div className="trace-conclusion-heading">
       <span>DIAGNOSIS PRIORITY</span>
       <h2>优先结论</h2>
-      <p>先处理影响最大且证据最充分的问题，再进入事实与证据复核。</p>
+      <p>先确认原因是否已经找到，再按建议处理；技术证据留给开发人员复核。</p>
     </div>
     {observationOnlyMessage ? (
       <p className="trace-observation-notice" role="status">
@@ -221,7 +213,7 @@ const TraceConclusionTab: React.FC<Props> = ({
         <div>
           <span>SECONDARY FINDINGS</span>
           <h2 id="trace-secondary-title">
-            {primary ? '其他需要关注' : '已确认的现象'}
+            {primary ? '其他需要关注' : '当前无法确认原因'}
           </h2>
         </div>
         <div className="trace-secondary-list">

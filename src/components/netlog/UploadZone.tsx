@@ -284,7 +284,9 @@ const UploadZone: React.FC<UploadZoneProps> = ({
             文件结构唯一明确时自动开始；不确定时再由你选择格式
           </p>
           <p className="diagnostic-upload-formats">
-            {formats} · {multiple ? 'HAR + NetLog 联合诊断' : '单文件'}
+            {formats}
+            {traceEnabled && <span className="diagnostic-upload-beta">Trace 分析 Beta</span>}
+            {' · '}{multiple ? 'HAR + NetLog 联合诊断' : '单文件'}
           </p>
 
           <div className="diagnostic-upload-badges" aria-label="处理方式">

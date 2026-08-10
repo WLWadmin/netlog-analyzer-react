@@ -37,6 +37,8 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          REACT_APP_ENABLE_TRACE_ANALYSIS: '1'
         run: npm run build
 
       - name: Setup Pages

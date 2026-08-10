@@ -52,6 +52,7 @@ describe('UploadZone Trace feature flag', () => {
       '.json,.har,.log',
     );
     expect(screen.queryByText(/Trace \/ gzip/)).toBeNull();
+    expect(screen.queryByText('Trace 分析 Beta')).toBeNull();
   });
 
   it('advertises and accepts Trace when the flag is enabled', () => {
@@ -62,6 +63,7 @@ describe('UploadZone Trace feature flag', () => {
       '.trace',
     );
     expect(screen.getByText(/Trace \/ gzip/)).not.toBeNull();
+    expect(screen.getByText('Trace 分析 Beta')).not.toBeNull();
   });
 
   it('passes the original File to the intake gateway without reading or choosing a parser', async () => {
