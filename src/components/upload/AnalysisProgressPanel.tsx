@@ -166,7 +166,7 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
 
   const remainingSeconds = autoContinueAt === undefined
     ? undefined
-    : Math.max(0, Math.ceil((autoContinueAt - now) / 1000));
+    : Math.max(0, Math.ceil((autoContinueAt - Math.max(now, Date.now())) / 1000));
   const workCopy = acceptedProgress.resultReady
     ? '全部本地分析已完成'
     : acceptedProgress.mode === 'determinate'

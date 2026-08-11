@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import AnalysisProgressPanel from './AnalysisProgressPanel';
 
 describe('AnalysisProgressPanel', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('renders real work counts and determinate aria values', () => {
     render(
       <AnalysisProgressPanel
@@ -178,7 +182,7 @@ describe('AnalysisProgressPanel', () => {
     expect(screen.getByText('已完成：读取 Trace 文件')).not.toBeNull();
   });
 
-  it('shows a five-second result handoff and supports entering immediately', () => {
+  it('shows a three-second result handoff and supports entering immediately', () => {
     const onContinue = jest.fn();
     render(
       <AnalysisProgressPanel
@@ -197,15 +201,57 @@ describe('AnalysisProgressPanel', () => {
           updatedAt: 2,
           resultReady: true,
         }}
-        autoContinueAt={Date.now() + 5_000}
+        autoContinueAt={Date.now() + 3_000}
         onCancel={jest.fn()}
         onContinue={onContinue}
       />,
     );
 
     expect(screen.getByText('100%')).not.toBeNull();
-    expect(screen.getByText('5 秒后自动进入结果页面')).not.toBeNull();
+    expect(screen.getByText('3 秒后自动进入结果页面')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '立即查看结果' }));
     expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show a stale extra second when analysis becomes ready', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000);
+    const progress = {
+      taskId: 'task-1',
+      parserId: 'har@1' as const,
+      phase: 'parsing-structure' as const,
+      label: '正在解析 HAR JSON 结构',
+      mode: 'indeterminate' as const,
+      phaseIndex: 1,
+      phaseCount: 5,
+      startedAt: 1,
+      updatedAt: 2,
+    };
+    const { rerender } = render(
+      <AnalysisProgressPanel progress={progress} onCancel={jest.fn()} />,
+    );
+
+    jest.setSystemTime(11_000);
+    rerender(
+      <AnalysisProgressPanel
+        progress={{
+          ...progress,
+          phase: 'preparing-result',
+          label: '分析完成，正在准备结果页面',
+          mode: 'determinate',
+          completed: 1,
+          total: 1,
+          unit: 'rules',
+          phaseIndex: 4,
+          updatedAt: 11_000,
+          resultReady: true,
+        }}
+        autoContinueAt={14_000}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('3 秒后自动进入结果页面')).not.toBeNull();
+    expect(screen.queryByText('4 秒后自动进入结果页面')).toBeNull();
   });
 });

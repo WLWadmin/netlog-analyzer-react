@@ -4,8 +4,12 @@ import {
 } from './createFileFormatIntake';
 
 describe('createFileParseInput', () => {
-  it('keeps the raw file out of main-thread probe values', async () => {
+  it('reuses one in-memory snapshot for small-file probing and parsing', async () => {
     const file = new File(['{"traceEvents":[]}'], 'sample.json');
+    const readSnapshot = jest.fn().mockResolvedValue(
+      new Uint8Array(file.size).buffer,
+    );
+    Object.defineProperty(file, 'arrayBuffer', { value: readSnapshot });
     const onProgress = jest.fn();
     const probeFile = jest.fn().mockImplementation(async (
       _file,
@@ -32,15 +36,38 @@ describe('createFileParseInput', () => {
     });
 
     expect(input.value).toBeUndefined();
-    expect(input.payload).toBe(file);
+    expect(input.payload).toBeInstanceOf(File);
+    expect(input.payload).not.toBe(file);
+    expect(readSnapshot).toHaveBeenCalledTimes(1);
+    expect(probeFile).toHaveBeenCalledWith(input.payload, expect.any(Object));
     expect(input.probeVerdicts).toEqual([
       expect.objectContaining({ parserId: 'chromium-performance-trace@1' }),
     ]);
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
       taskId: 'task-1',
+      phase: 'reading',
+      label: '正在读取文件快照',
+      mode: 'indeterminate',
+    }));
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'task-1',
       mode: 'determinate',
       unit: 'bytes',
     }));
+  });
+
+  it('keeps the original File path for files above the snapshot threshold', async () => {
+    const file = new File(['{}'], 'large.json');
+    Object.defineProperty(file, 'size', { value: 20 * 1024 * 1024 + 1 });
+    const probeFile = jest.fn().mockResolvedValue({
+      container: 'plain',
+      verdicts: [],
+    });
+
+    const input = await createFileParseInput(file, 'task-large', { probeFile });
+
+    expect(probeFile).toHaveBeenCalledWith(file, expect.any(Object));
+    expect(input.payload).toBe(file);
   });
 });
 

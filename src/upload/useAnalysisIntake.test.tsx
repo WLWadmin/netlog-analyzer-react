@@ -148,7 +148,7 @@ describe('useAnalysisIntake', () => {
     expect(regressed).toEqual(validating);
   });
 
-  it('automatically commits the ready result after five seconds', async () => {
+  it('automatically commits the ready result after three seconds', async () => {
     jest.useFakeTimers();
     const parse = jest.fn().mockResolvedValue({ kind: 'har' });
     const onResult = jest.fn();

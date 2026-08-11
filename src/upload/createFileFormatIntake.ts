@@ -16,6 +16,20 @@ import type {
 } from './probeFileFormat';
 import type { AnalysisProgress } from './analysisProgress';
 
+// Small files reuse one memory-backed File so probing and parsing do not read
+// the original disk-backed Blob separately.
+const FILE_SNAPSHOT_REUSE_MAX_BYTES = 20 * 1024 * 1024;
+
+function readFileSnapshot(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 export async function createFileParseInput(
   file: File,
   taskId: string,
@@ -85,7 +99,28 @@ export async function createFileParseInput(
           return probeFileFormatInWorker(target, probeOptions);
         }
   );
-  const outcome = await probeFile(file, {
+  let reusableFile = file;
+  if (file.size <= FILE_SNAPSHOT_REUSE_MAX_BYTES) {
+    options.onProgress?.({
+      taskId,
+      phase: 'reading',
+      label: '正在读取文件快照',
+      mode: 'indeterminate',
+      phaseIndex: 0,
+      phaseCount: 5,
+      startedAt,
+      updatedAt: Date.now(),
+    });
+    const snapshot = await readFileSnapshot(file);
+    if (options.signal?.aborted) {
+      throw new DOMException('文件预检已取消', 'AbortError');
+    }
+    reusableFile = new File([snapshot], file.name, {
+      type: file.type,
+      lastModified: file.lastModified,
+    });
+  }
+  const outcome = await probeFile(reusableFile, {
     taskId,
     signal: options.signal,
     onProgress: onProbeProgress,
@@ -96,7 +131,7 @@ export async function createFileParseInput(
     container: outcome.container,
     value: undefined,
     probeVerdicts: outcome.verdicts,
-    payload: file,
+    payload: reusableFile,
   };
 }
 

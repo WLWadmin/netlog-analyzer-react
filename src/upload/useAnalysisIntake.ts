@@ -16,7 +16,7 @@ import {
   type AnalysisProgress,
 } from './analysisProgress';
 
-export const RESULT_READY_HOLD_MS = 5_000;
+export const RESULT_READY_HOLD_MS = 3_000;
 
 export type IntakeState =
   | { status: 'idle' }
