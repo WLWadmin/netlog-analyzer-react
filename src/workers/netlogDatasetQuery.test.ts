@@ -1,5 +1,5 @@
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
-import type { CompactEventIndex, NetlogIndexableFile } from './netlogDatasetIndexer';
+import { buildNetlogSecondaryIndexes, type CompactEventIndex, type NetlogIndexableFile } from './netlogDatasetIndexer';
 import { numericColumnIndexOf } from './chunkedNumericColumn';
 
 const index: CompactEventIndex = {
@@ -27,6 +27,39 @@ const index: CompactEventIndex = {
 };
 
 describe('queryNetlogEvents', () => {
+  it('二级索引与无索引查询结果等价', () => {
+    const indexed: CompactEventIndex = { ...index };
+    buildNetlogSecondaryIndexes(indexed);
+    const queries = [
+      { analysisId: 'a1', page: 2, pageSize: 2 },
+      { analysisId: 'a1', typeId: 10 },
+      { analysisId: 'a1', typeName: 'URL_REQUEST' },
+      { analysisId: 'a1', sourceId: 1 },
+      { analysisId: 'a1', sourceChainId: 1 },
+      { analysisId: 'a1', errorOnly: true },
+      { analysisId: 'a1', typeId: 10, sourceId: 2, errorOnly: true },
+      { analysisId: 'a1', typeName: 'UNKNOWN_TYPE' },
+    ];
+
+    for (const query of queries) {
+      expect(queryNetlogEvents(indexed, query)).toEqual(queryNetlogEvents(index, query));
+    }
+
+    const duplicateNames: CompactEventIndex = {
+      ...index,
+      eventTypeNames: { ...index.eventTypeNames, 30: 'URL_REQUEST' },
+    };
+    const indexedDuplicateNames: CompactEventIndex = { ...duplicateNames };
+    buildNetlogSecondaryIndexes(indexedDuplicateNames);
+    expect(queryNetlogEvents(indexedDuplicateNames, {
+      analysisId: 'a1',
+      typeName: 'URL_REQUEST',
+    })).toEqual(queryNetlogEvents(duplicateNames, {
+      analysisId: 'a1',
+      typeName: 'URL_REQUEST',
+    }));
+  });
+
   it('支持分页查询', () => {
     const result = queryNetlogEvents(index, { analysisId: 'a1', page: 2, pageSize: 2 });
 

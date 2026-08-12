@@ -114,6 +114,10 @@ describe('netlogDatasetIndexer', () => {
     expect(index.sourceErrorCodes).toEqual({ 11: -105 });
     expect(index.sourceFirstEventId).toEqual({ 10: 0, 11: 1 });
     expect(index.sourceLastEventId).toEqual({ 10: 0, 11: 1 });
+    expect(Array.from(index.typePostings!.items)).toEqual([0, 1]);
+    expect(Array.from(index.typePostings!.keys)).toEqual([1, 2]);
+    expect(Array.from(index.typePostings!.starts)).toEqual([0, 1, 2]);
+    expect(Array.from(index.errorEventIds!)).toEqual([1]);
     expect(index.topLevelValueRanges?.constants).toEqual(expect.objectContaining({
       byteStart: expect.any(Number),
       byteEnd: expect.any(Number),
@@ -210,6 +214,17 @@ describe('netlogDatasetIndexer', () => {
     expect(Array.from(numericColumnValues(index.sourceDependencyFrom!))).toEqual([30, 30]);
     expect(Array.from(numericColumnValues(index.sourceDependencyTo!))).toEqual([10, 50]);
     expect(Array.from(numericColumnValues(index.sourceDependencyEventId!))).toEqual([1, 1]);
+    const adjacency = index.sourceAdjacency!;
+    const source30Index = Array.from(adjacency.keys).indexOf(30);
+    const source10Index = Array.from(adjacency.keys).indexOf(10);
+    expect(Array.from(adjacency.items.subarray(
+      adjacency.starts[source30Index],
+      adjacency.starts[source30Index + 1],
+    ))).toEqual([10, 50]);
+    expect(Array.from(adjacency.items.subarray(
+      adjacency.starts[source10Index],
+      adjacency.starts[source10Index + 1],
+    ))).toEqual([30]);
     expect(index.sourceUrls).toEqual({ 10: 'https://chain.example' });
     expect(index.sourceHosts).toEqual({ 10: 'chain.example' });
   });

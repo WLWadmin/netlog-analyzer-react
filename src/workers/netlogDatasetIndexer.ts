@@ -52,6 +52,15 @@ export interface CompactEventIndex {
   sourceLastEventId?: Record<number, number>;
   timeTickOffset?: number;
   topLevelValueRanges?: Record<string, { byteStart: number; byteEnd: number }>;
+  typePostings?: CompactPostingIndex;
+  errorEventIds?: Uint32Array;
+  sourceAdjacency?: CompactPostingIndex;
+}
+
+export interface CompactPostingIndex {
+  keys: Uint32Array;
+  starts: Uint32Array;
+  items: Uint32Array;
 }
 
 export interface NetlogDatasetIndexResult {
@@ -138,6 +147,113 @@ function appendColumn(column: NumericColumn | undefined, value: number): void {
   if (Array.isArray(column)) {
     column.push(value);
   }
+}
+
+function forEachNumericValue(
+  column: NumericColumn,
+  callback: (value: number, index: number) => void,
+): void {
+  if (column instanceof ChunkedNumericColumn) {
+    let baseIndex = 0;
+    let remaining = column.length;
+    for (const chunk of column.getChunks()) {
+      const limit = Math.min(chunk.length, remaining);
+      for (let offset = 0; offset < limit; offset += 1) {
+        callback(chunk[offset], baseIndex + offset);
+      }
+      baseIndex += limit;
+      remaining -= limit;
+    }
+    return;
+  }
+  column.forEach(callback);
+}
+
+function buildPostingIndex(column: NumericColumn): CompactPostingIndex {
+  const counts = new Map<number, number>();
+  forEachNumericValue(column, value => {
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  const sortedKeys = Array.from(counts.keys()).sort((left, right) => left - right);
+  const keys = Uint32Array.from(sortedKeys);
+  const starts = new Uint32Array(keys.length + 1);
+  const positions = new Map<number, number>();
+  for (let index = 0; index < keys.length; index += 1) {
+    starts[index + 1] = starts[index] + counts.get(keys[index])!;
+    positions.set(keys[index], index);
+  }
+  const cursors = starts.slice(0, keys.length);
+  const items = new Uint32Array(starts[keys.length]);
+  forEachNumericValue(column, (value, eventId) => {
+    const keyIndex = positions.get(value)!;
+    items[cursors[keyIndex]] = eventId;
+    cursors[keyIndex] += 1;
+  });
+  return { keys, starts, items };
+}
+
+function buildErrorEventIds(flags: NumericColumn): Uint32Array {
+  let count = 0;
+  forEachNumericValue(flags, value => {
+    if (value === 1) count += 1;
+  });
+  const eventIds = new Uint32Array(count);
+  let cursor = 0;
+  forEachNumericValue(flags, (value, eventId) => {
+    if (value === 1) {
+      eventIds[cursor] = eventId;
+      cursor += 1;
+    }
+  });
+  return eventIds;
+}
+
+function buildSourceAdjacency(index: CompactEventIndex): CompactPostingIndex {
+  const from = index.sourceDependencyFrom;
+  const to = index.sourceDependencyTo;
+  if (!from || !to) {
+    return {
+      keys: new Uint32Array(),
+      starts: new Uint32Array(1),
+      items: new Uint32Array(),
+    };
+  }
+  const counts = new Map<number, number>();
+  for (let edgeId = 0; edgeId < from.length; edgeId += 1) {
+    const sourceId = numericColumnAt(from, edgeId);
+    const dependencyId = numericColumnAt(to, edgeId);
+    if (!sourceId || !dependencyId) continue;
+    counts.set(sourceId, (counts.get(sourceId) || 0) + 1);
+    counts.set(dependencyId, (counts.get(dependencyId) || 0) + 1);
+  }
+  const sortedKeys = Array.from(counts.keys()).sort((left, right) => left - right);
+  const keys = Uint32Array.from(sortedKeys);
+  const starts = new Uint32Array(keys.length + 1);
+  const positions = new Map<number, number>();
+  for (let index = 0; index < keys.length; index += 1) {
+    starts[index + 1] = starts[index] + counts.get(keys[index])!;
+    positions.set(keys[index], index);
+  }
+  const items = new Uint32Array(starts[keys.length]);
+  const cursors = starts.slice(0, keys.length);
+  for (let edgeId = 0; edgeId < from.length; edgeId += 1) {
+    const sourceId = numericColumnAt(from, edgeId);
+    const dependencyId = numericColumnAt(to, edgeId);
+    if (!sourceId || !dependencyId) continue;
+    const sourceIndex = positions.get(sourceId)!;
+    const dependencyIndex = positions.get(dependencyId)!;
+    items[cursors[sourceIndex]] = dependencyId;
+    cursors[sourceIndex] += 1;
+    items[cursors[dependencyIndex]] = sourceId;
+    cursors[dependencyIndex] += 1;
+  }
+  return { keys, starts, items };
+}
+
+export function buildNetlogSecondaryIndexes(index: CompactEventIndex): void {
+  index.typePostings = buildPostingIndex(index.typeId);
+  index.errorEventIds = buildErrorEventIds(index.flags);
+  index.sourceAdjacency = buildSourceAdjacency(index);
 }
 
 function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
@@ -474,22 +590,30 @@ export async function buildNetlogCompactEventIndex(
   let objectInString = false;
   let objectEscape = false;
   let objectStart = -1;
-  let objectBytes = new Uint8Array(1024);
-  let objectByteLength = 0;
+  let objectByteParts: Uint8Array[] = [];
+  let objectChunkStart = -1;
   let lastProgressAt = 0;
 
   const resetObjectBytes = () => {
-    objectByteLength = 0;
+    objectByteParts = [];
+    objectChunkStart = -1;
   };
 
-  const appendObjectByte = (byte: number) => {
-    if (objectByteLength >= objectBytes.length) {
-      const next = new Uint8Array(objectBytes.length * 2);
-      next.set(objectBytes);
-      objectBytes = next;
+  const finishObjectBytes = (
+    chunk: Uint8Array,
+    chunkEnd: number,
+  ): Uint8Array => {
+    const current = chunk.subarray(objectChunkStart, chunkEnd);
+    if (objectByteParts.length === 0) return current;
+    objectByteParts.push(current);
+    const byteLength = objectByteParts.reduce((sum, part) => sum + part.length, 0);
+    const merged = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const part of objectByteParts) {
+      merged.set(part, offset);
+      offset += part.length;
     }
-    objectBytes[objectByteLength] = byte;
-    objectByteLength += 1;
+    return merged;
   };
 
   const resetSkip = () => {
@@ -540,8 +664,8 @@ export async function buildNetlogCompactEventIndex(
     }
   };
 
-  const finishObject = async (byteEnd: number) => {
-    const eventJson = decoder.decode(objectBytes.subarray(0, objectByteLength));
+  const finishObject = async (eventBytes: Uint8Array, byteEnd: number) => {
+    const eventJson = decoder.decode(eventBytes);
     const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
     if (probedTypeId !== undefined) {
       const probedTypeName = eventName(index, probedTypeId);
@@ -683,9 +807,10 @@ export async function buildNetlogCompactEventIndex(
       const { value, done } = await reader.read();
       if (done) break;
       const chunk = value || new Uint8Array();
+      if (objectDepth > 0) objectChunkStart = 0;
       for (let i = 0; i < chunk.length; i++) {
-      const byte = chunk[i];
-      const byteOffset = absoluteByteOffset + i;
+        const byte = chunk[i];
+        const byteOffset = absoluteByteOffset + i;
 
       if (mode === 'done') continue;
 
@@ -823,11 +948,10 @@ export async function buildNetlogCompactEventIndex(
           objectInString = false;
           objectEscape = false;
           resetObjectBytes();
-          appendObjectByte(byte);
+          objectChunkStart = i;
           continue;
         }
 
-        appendObjectByte(byte);
         if (objectInString) {
           if (objectEscape) objectEscape = false;
           else if (byte === BACKSLASH) objectEscape = true;
@@ -842,11 +966,16 @@ export async function buildNetlogCompactEventIndex(
         else if (byte === RIGHT_BRACE) {
           objectDepth--;
           if (objectDepth === 0) {
-            await finishObject(byteOffset + 1);
+            const eventBytes = finishObjectBytes(chunk, i + 1);
+            await finishObject(eventBytes, byteOffset + 1);
           }
         }
       }
-    }
+      }
+      if (objectDepth > 0 && objectChunkStart >= 0) {
+        objectByteParts.push(chunk.subarray(objectChunkStart));
+        objectChunkStart = -1;
+      }
       absoluteByteOffset += chunk.length;
       const now = Date.now();
       if (
@@ -866,6 +995,8 @@ export async function buildNetlogCompactEventIndex(
   } finally {
     reader.releaseLock();
   }
+
+  buildNetlogSecondaryIndexes(index);
 
   return {
     index,

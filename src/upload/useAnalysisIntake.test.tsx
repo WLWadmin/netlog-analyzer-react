@@ -13,6 +13,13 @@ import {
   useAnalysisIntake,
 } from './useAnalysisIntake';
 import { ReadableStream as NodeReadableStream } from 'stream/web';
+import { cancelActiveAnalysisWorkerTasks } from '../workers/analysisWorkerRegistry';
+
+jest.mock('../workers/analysisWorkerRegistry', () => ({
+  cancelActiveAnalysisWorkerTasks: jest.fn(),
+}));
+
+const cancelActiveAnalysisWorkerTasksMock = cancelActiveAnalysisWorkerTasks as jest.Mock;
 
 beforeAll(() => {
   Object.defineProperty(global, 'ReadableStream', {
@@ -57,6 +64,7 @@ function input(taskId: string): ParseInput {
 describe('useAnalysisIntake', () => {
   afterEach(() => {
     jest.useRealTimers();
+    cancelActiveAnalysisWorkerTasksMock.mockClear();
   });
 
   it('automatically executes one unique strong recommendation', async () => {
@@ -288,6 +296,7 @@ describe('useAnalysisIntake', () => {
     });
     await waitFor(() => expect(result.current.state.status).toBe('idle'));
     expect(onResult).not.toHaveBeenCalled();
+    expect(cancelActiveAnalysisWorkerTasksMock).toHaveBeenCalledTimes(1);
   });
 
   it('cancels an untransferred large-file stream when intake is cancelled', async () => {

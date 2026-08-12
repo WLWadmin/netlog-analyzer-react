@@ -31,6 +31,7 @@ import {
   RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
   RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
 } from '../constants/analysisThresholds';
+import { registerAnalysisWorkerTerminator } from './analysisWorkerRegistry';
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
@@ -732,15 +733,15 @@ export async function parseLargeNetlogFileInWorker(
     singleScanDataset: Boolean(options?.singleScanDataset),
   });
   const request: WorkerRequest = {
-    type: 'parse-large-netlog-file',
-    id,
-    payload: {
-      ...(isFileStreamParseSession(input) ? input : {}),
-      file,
-      debug: isLargeNetlogDebugEnabled(),
-      singleScanDataset: Boolean(options?.singleScanDataset),
-    },
-  };
+      type: 'parse-large-netlog-file',
+      id,
+      payload: {
+        ...(isFileStreamParseSession(input) ? input : {}),
+        file,
+        debug: isLargeNetlogDebugEnabled(),
+        singleScanDataset: Boolean(options?.singleScanDataset),
+      },
+    };
   const response = await sendToWorkerWithStreamFallback(
     request,
     {
@@ -846,3 +847,5 @@ export function terminateWorker(): void {
   }
   pendingTasks.clear();
 }
+
+registerAnalysisWorkerTerminator(terminateWorker);

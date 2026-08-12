@@ -16,6 +16,7 @@ import {
   isMonotonicProgress,
   type AnalysisProgress,
 } from './analysisProgress';
+import { cancelActiveAnalysisWorkerTasks } from '../workers/analysisWorkerRegistry';
 
 export const RESULT_READY_HOLD_MS = 3_000;
 
@@ -214,6 +215,7 @@ export function useAnalysisIntake({
 
   const begin = useCallback((taskId: string) => {
     clearPendingResult();
+    if (activeTaskIdRef.current) cancelActiveAnalysisWorkerTasks();
     releaseActiveInput();
     activeTaskIdRef.current = taskId;
     taskStartedAtRef.current = Date.now();
@@ -399,6 +401,7 @@ export function useAnalysisIntake({
 
   const cancel = useCallback(() => {
     clearPendingResult();
+    if (activeTaskIdRef.current) cancelActiveAnalysisWorkerTasks();
     releaseActiveInput();
     activeTaskIdRef.current = undefined;
     taskStartedAtRef.current = undefined;

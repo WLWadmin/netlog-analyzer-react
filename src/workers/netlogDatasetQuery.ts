@@ -56,6 +56,18 @@ const DEFAULT_RAW_SEARCH_TIME_LIMIT_MS = 2_000;
 function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<number> {
   const chain = new Set<number>([sourceId]);
   const queue = [sourceId];
+  if (index.sourceAdjacency) {
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const current = queue[cursor];
+      for (const next of postingItems(index.sourceAdjacency, current) || []) {
+        if (!chain.has(next)) {
+          chain.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return chain;
+  }
   const from = index.sourceDependencyFrom || [];
   const to = index.sourceDependencyTo || [];
   for (let cursor = 0; cursor < queue.length; cursor += 1) {
@@ -71,6 +83,112 @@ function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<numbe
     }
   }
   return chain;
+}
+
+function postingEventIds(
+  posting: CompactEventIndex['typePostings'],
+  value: number,
+): Uint32Array | undefined {
+  return posting ? postingItems(posting, value) : undefined;
+}
+
+function postingItems(
+  posting: NonNullable<CompactEventIndex['typePostings']>,
+  key: number,
+): Uint32Array {
+  let low = 0;
+  let high = posting.keys.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = posting.keys[middle];
+    if (candidate === key) {
+      return posting.items.subarray(posting.starts[middle], posting.starts[middle + 1]);
+    }
+    if (candidate < key) low = middle + 1;
+    else high = middle - 1;
+  }
+  return new Uint32Array();
+}
+
+function findNamedIds(names: Record<number, string> | undefined, name: string): number[] {
+  const expected = name.toLowerCase();
+  const matches: number[] = [];
+  for (const [id, candidate] of Object.entries(names || {})) {
+    if (candidate.toLowerCase() === expected) matches.push(Number(id));
+  }
+  return matches;
+}
+
+function sourceChainEventIds(index: CompactEventIndex, sourceChain: Set<number>): Uint32Array | undefined {
+  const ranges = Array.from(sourceChain, sourceId => {
+    const start = index.sourceFirstEventId?.[sourceId];
+    const end = index.sourceLastEventId?.[sourceId];
+    return start === undefined || end === undefined ? undefined : { start, end };
+  }).filter((range): range is { start: number; end: number } => Boolean(range))
+    .sort((left, right) => left.start - right.start);
+  if (ranges.length === 0) return undefined;
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  const count = merged.reduce((total, range) => total + range.end - range.start + 1, 0);
+  if (count > index.count / 2) return undefined;
+  const eventIds = new Uint32Array(count);
+  let cursor = 0;
+  for (const range of merged) {
+    for (let eventId = range.start; eventId <= range.end; eventId += 1) {
+      eventIds[cursor] = eventId;
+      cursor += 1;
+    }
+  }
+  return eventIds;
+}
+
+function sourceEventIds(index: CompactEventIndex, sourceId: number): Uint32Array | undefined {
+  const start = index.sourceFirstEventId?.[sourceId];
+  const end = index.sourceLastEventId?.[sourceId];
+  if (start === undefined || end === undefined || end - start + 1 > index.count / 2) {
+    return undefined;
+  }
+  const eventIds = new Uint32Array(end - start + 1);
+  for (let offset = 0; offset < eventIds.length; offset += 1) {
+    eventIds[offset] = start + offset;
+  }
+  return eventIds;
+}
+
+function selectCandidateEventIds(
+  index: CompactEventIndex,
+  query: QueryNetlogEventsPayload,
+  sourceChain?: Set<number>,
+): Uint32Array | undefined {
+  const candidates: Uint32Array[] = [];
+  if (query.typeId !== undefined) {
+    const ids = postingEventIds(index.typePostings, query.typeId);
+    if (ids) candidates.push(ids);
+  } else if (query.typeName && index.typePostings) {
+    const typeIds = findNamedIds(index.eventTypeNames, query.typeName);
+    if (typeIds.length === 0) candidates.push(new Uint32Array());
+    if (typeIds.length === 1) candidates.push(postingEventIds(index.typePostings, typeIds[0])!);
+  }
+  if (query.sourceId !== undefined) {
+    const ids = sourceEventIds(index, query.sourceId);
+    if (ids) candidates.push(ids);
+  }
+  if (query.errorOnly && index.errorEventIds) candidates.push(index.errorEventIds);
+  if (sourceChain) {
+    const ids = sourceChainEventIds(index, sourceChain);
+    if (ids) candidates.push(ids);
+  }
+  return candidates.reduce<Uint32Array | undefined>(
+    (smallest, ids) => !smallest || ids.length < smallest.length ? ids : smallest,
+    undefined,
+  );
 }
 
 function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEventsPayload, sourceChain?: Set<number>): boolean {
@@ -136,10 +254,27 @@ export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEv
   const pageSize = Math.min(500, Math.max(1, query.pageSize || 100));
   const start = (page - 1) * pageSize;
   const rows: NetlogEventRow[] = [];
+  if (!hasStructuredRawSearchFilter(query)) {
+    const end = Math.min(index.count, start + pageSize);
+    for (let eventId = start; eventId < end; eventId += 1) {
+      rows.push(toRow(index, eventId));
+    }
+    return {
+      analysisId: query.analysisId,
+      timeTickOffset: index.timeTickOffset,
+      page,
+      pageSize,
+      total: index.count,
+      rows,
+    };
+  }
   let total = 0;
   const sourceChain = query.sourceChainId !== undefined ? buildSourceChain(index, query.sourceChainId) : undefined;
+  const candidates = selectCandidateEventIds(index, query, sourceChain);
+  const candidateCount = candidates?.length ?? index.count;
 
-  for (let eventId = 0; eventId < index.count; eventId++) {
+  for (let candidateId = 0; candidateId < candidateCount; candidateId += 1) {
+    const eventId = candidates?.[candidateId] ?? candidateId;
     if (!matches(index, eventId, query, sourceChain)) continue;
     if (total >= start && rows.length < pageSize) {
       rows.push(toRow(index, eventId));
@@ -185,8 +320,11 @@ export async function queryNetlogEventsWithRawSearch(
   const timeLimitMs = Math.max(0, query.rawSearchTimeLimitMs ?? DEFAULT_RAW_SEARCH_TIME_LIMIT_MS);
   const startedAt = Date.now();
   const sourceChain = query.sourceChainId !== undefined ? buildSourceChain(index, query.sourceChainId) : undefined;
+  const candidates = selectCandidateEventIds(index, query, sourceChain);
+  const candidateCount = candidates?.length ?? index.count;
 
-  for (let eventId = 0; eventId < index.count; eventId++) {
+  for (let candidateId = 0; candidateId < candidateCount; candidateId += 1) {
+    const eventId = candidates?.[candidateId] ?? candidateId;
     if (!matches(index, eventId, query, sourceChain)) continue;
     if (scanned >= scanLimit) {
       scanLimitHit = true;
