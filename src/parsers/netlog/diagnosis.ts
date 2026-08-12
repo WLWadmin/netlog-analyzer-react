@@ -657,11 +657,13 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
   }
 
   // ---- HTTP/2 GOAWAY detection ----
-  const goawayEvents = r.http2Events?.filter(e => e.type === 212 || e.type === 213);
-  if (goawayEvents && goawayEvents.length > 0) {
+  const goawayCount = r.eventCategoryStats?.http2.suggestionGoawayCount
+    ?? r.http2Events?.filter(e => e.type === 212 || e.type === 213).length
+    ?? 0;
+  if (goawayCount > 0) {
     suggestions.push({
       icon: '📡',
-      title: `检测到 HTTP/2 GOAWAY 帧 (${goawayEvents.length} 个)`,
+      title: `检测到 HTTP/2 GOAWAY 帧 (${goawayCount} 个)`,
       detail: '服务器主动发送了 HTTP/2 GOAWAY 帧，关闭了连接。根据 oncall 经验，GOAWAY 帧携带的错误码如果是 0x1（协议错误），可能是服务端或中间节点（如 TLB）的问题。',
       conclusion: '检测到 HTTP/2 GOAWAY。GOAWAY 可以是正常优雅关闭，也可能携带协议或内部错误；需要先查看错误码、last_stream_id 和请求是否成功重试。',
       actions: [

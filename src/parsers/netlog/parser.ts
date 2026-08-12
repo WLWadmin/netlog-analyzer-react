@@ -1,9 +1,20 @@
-import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway, isHttp2GoawayRecv } from './constants';
+import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
 import { truncateUrl } from '../../utils/format';
-import { formatNetlogWallTime } from '../../utils/netlogTime';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import { assertNoCompetingRootFormat } from '../shared/rootFormatGuard';
+import { hashStableValue, netlogEventIdentity } from './stableFingerprint';
+import { createRequestAccumulator } from './requestAccumulator';
+import {
+  buildCleanAssessmentIssue,
+  buildConnectionFailureIssue,
+  buildHttp2GoawaySummary,
+  buildHttp2GoawayIssue,
+  buildNetworkErrorIssues,
+  buildProxySummary,
+  buildQuicEventIssue,
+  buildSslDiagnosticIssue,
+} from './diagnosticRules';
 
 export interface ParsedEvent {
   time: number;
@@ -34,6 +45,11 @@ export interface URLRequest {
   remoteIp?: string | null;    // x-response-sinfo
   protocol?: 'HTTP/1.1' | 'HTTP/2' | 'QUIC';
   events: ParsedEvent[];
+  eventCount?: number;
+  eventSequenceFingerprint?: string;
+  relatedSourceIds?: number[];
+  relatedSourceTypeNames?: string[];
+  lifecycleStageDurations?: Record<string, number>;
   timeline: RequestTimeline;
 }
 
@@ -113,6 +129,50 @@ export interface NetlogClockContext {
   evidence: string;
 }
 
+export type NetlogEventCategory =
+  | 'dns'
+  | 'connect'
+  | 'ssl'
+  | 'proxy'
+  | 'quic'
+  | 'http2'
+  | 'cache'
+  | 'networkChange';
+
+export interface NetlogEventCategoryStat {
+  count: number;
+  sequenceFingerprint: string;
+  errorCount: number;
+  errorEvidence: Array<{
+    time: number;
+    typeName: string;
+    sourceId: number;
+    error: number;
+  }>;
+  hitCount: number;
+  missCount: number;
+  goawayCount: number;
+  suggestionGoawayCount: number;
+}
+
+export interface NetlogDiagnosticContextEvent {
+  category: NetlogEventCategory;
+  time: number;
+  typeName: string;
+  sourceId: number;
+}
+
+export interface NetlogDiagnosticContextIndex {
+  count: number;
+  chunkSize: number;
+  categoryChunks: readonly Uint8Array[];
+  timeChunks: readonly Float64Array[];
+  typeNameChunks: readonly Uint32Array[];
+  sourceIdChunks: readonly Uint32Array[];
+  typeNames: readonly string[];
+  sortedOrder?: Uint32Array;
+}
+
 export interface AnalysisResult {
   totalEvents: number;
   timeTickOffset?: number;
@@ -143,6 +203,9 @@ export interface AnalysisResult {
   slowRequests: URLRequest[];
   cacheEvents: ParsedEvent[];
   networkChanges: ParsedEvent[];
+  eventCategoryStats?: Record<NetlogEventCategory, NetlogEventCategoryStat>;
+  diagnosticContextEvents?: NetlogDiagnosticContextEvent[];
+  diagnosticContextIndex?: NetlogDiagnosticContextIndex;
   proxyInfo: ProxyInfo;
   failedDomains: FailedDomain[];
   systemInfo: {
@@ -287,8 +350,12 @@ export function parseLog(
   }
 
   const parsedEvents: ParsedEvent[] = [];
-  // O(1) URL request lookup map
-  const requestIndex = new Map<number, URLRequest>();
+  const requestAccumulator = createRequestAccumulator({
+    requestEventPreviewLimit: 0,
+    onRequestEvent: (request, eventIndex) => {
+      request.events.push(parsedEvents[eventIndex]);
+    },
+  });
 
   let processedEventCount = 0;
   let lastProgressAt = 0;
@@ -316,7 +383,7 @@ export function parseLog(
     if (parsed.time < result.timeRange.start) result.timeRange.start = parsed.time;
     if (parsed.time > result.timeRange.end) result.timeRange.end = parsed.time;
 
-    ensureUrlRequest(parsed, result, requestIndex);
+    requestAccumulator.accept(parsed);
     processedEventCount += 1;
     const now = Date.now();
     if (
@@ -334,10 +401,12 @@ export function parseLog(
     }
   }
 
-  const sourceOwners = buildSourceOwnerMap(parsedEvents, requestIndex);
+  const requestOutput = requestAccumulator.finish();
+  result.urlRequests = requestOutput.requests;
+  result.connectionFailures = requestOutput.connectionFailures;
 
   for (const evt of parsedEvents) {
-    categorizeEvent(evt, result, requestIndex, sourceOwners);
+    categorizeEvent(evt, result);
   }
 
   // Calculate unique sources and peak concurrency
@@ -345,12 +414,79 @@ export function parseLog(
   result.uniqueSources = sourceIds.size;
   result.peakConcurrency = calculatePeakConcurrency(parsedEvents);
 
-  buildTimelines(result);
-  inferProtocols(result);
   extractFailedDomains(result);
   runDiagnostics(result);
+    result.eventCategoryStats = {
+      dns: categoryStat(result.dnsEvents),
+      connect: categoryStat(result.connectEvents),
+      ssl: categoryStat(result.sslEvents),
+      proxy: categoryStat(result.proxyEvents),
+      quic: categoryStat(result.quicEvents),
+      http2: categoryStat(result.http2Events),
+      cache: categoryStat(result.cacheEvents),
+      networkChange: categoryStat(result.networkChanges),
+    };
+    result.diagnosticContextEvents = buildDiagnosticContextEvents(result);
 
   return { events: parsedEvents, result };
+}
+
+function categoryStat(events: ParsedEvent[]): NetlogEventCategoryStat {
+  let errorCount = 0;
+  const errorEvidence: NetlogEventCategoryStat['errorEvidence'] = [];
+  let hitCount = 0;
+  let missCount = 0;
+  let goawayCount = 0;
+  let suggestionGoawayCount = 0;
+  for (const event of events) {
+    if (event.params?.net_error !== undefined && event.params.net_error !== 0) {
+      errorCount += 1;
+      if (errorEvidence.length < 4) {
+        errorEvidence.push({
+          time: event.time,
+          typeName: event.typeName,
+          sourceId: event.source.id,
+          error: Number(event.params.net_error),
+        });
+      }
+    }
+    const text = `${event.typeName} ${JSON.stringify(event.params || {})}`.toLowerCase();
+    if (text.includes('hit')) hitCount += 1;
+    if (text.includes('miss') || text.includes('create') || text.includes('doom')) {
+      missCount += 1;
+    }
+    if (event.typeName.includes('GOAWAY')) goawayCount += 1;
+    if (event.type === 212 || event.type === 213) suggestionGoawayCount += 1;
+  }
+  return {
+    count: events.length,
+    sequenceFingerprint: hashStableValue(events.map(netlogEventIdentity)),
+    errorCount,
+    errorEvidence,
+    hitCount,
+    missCount,
+    goawayCount,
+    suggestionGoawayCount,
+  };
+}
+
+function buildDiagnosticContextEvents(
+  result: AnalysisResult,
+): NetlogDiagnosticContextEvent[] {
+  const groups: Array<[NetlogEventCategory, ParsedEvent[]]> = [
+    ['networkChange', result.networkChanges],
+    ['proxy', result.proxyEvents],
+    ['cache', result.cacheEvents],
+    ['ssl', result.sslEvents],
+    ['quic', result.quicEvents],
+    ['http2', result.http2Events],
+  ];
+  return groups.flatMap(([category, events]) => events.map(event => ({
+    category,
+    time: event.time,
+    typeName: event.typeName,
+    sourceId: event.source.id,
+  })));
 }
 
 // ============================================================
@@ -740,6 +876,15 @@ function extractDnsAnswerIps(params: unknown): string[] {
   return Array.from(ips);
 }
 
+export function addDnsRecordsFromEvent(
+  result: AnalysisResult,
+  event: ParsedEvent,
+): void {
+  const host = extractHostFromParams(event.params);
+  const ips = extractDnsAnswerIps(event.params);
+  addDnsRecord(result, host, ips, 'dns_event', event.time);
+}
+
 function isDnsRelatedEvent(evt: ParsedEvent): boolean {
   const tn = evt.typeName || '';
   const stn = evt.source?.typeName || '';
@@ -904,195 +1049,7 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
   return peak;
 }
 
-function ensureUrlRequest(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>) {
-  if (evt.source.typeName !== "URL_REQUEST" || !evt.params.url || requestIndex.has(evt.source.id)) {
-    return;
-  }
-
-  const newReq: URLRequest = {
-    id: evt.source.id,
-    url: evt.params.url,
-    method: evt.params.method || "GET",
-    startTime: evt.time,
-    events: [evt],
-    status: "pending",
-    timeline: {},
-    resolvedIp: null,
-    remoteIp: null,
-    errorDesc: undefined,
-  };
-  r.urlRequests.push(newReq);
-  requestIndex.set(evt.source.id, newReq);
-}
-
-function getEventStreamId(evt: ParsedEvent): number | null {
-  const raw = evt.params.stream_id ?? evt.params.streamId ?? evt.params.spdy_stream_id;
-  const id = Number(raw);
-  return Number.isFinite(id) ? id : null;
-}
-
-function buildSourceOwnerMap(events: ParsedEvent[], requestIndex: Map<number, URLRequest>): Map<number, Set<number>> {
-  const graph = new Map<number, Set<number>>();
-
-  const link = (a: number, b: number) => {
-    if (!graph.has(a)) graph.set(a, new Set());
-    if (!graph.has(b)) graph.set(b, new Set());
-    graph.get(a)!.add(b);
-    graph.get(b)!.add(a);
-  };
-
-  for (const evt of events) {
-    const dep = evt.params?.source_dependency;
-    const depId = Number(dep?.id);
-    if (Number.isFinite(depId) && depId > 0) {
-      link(evt.source.id, depId);
-    }
-  }
-
-  const owners = new Map<number, Set<number>>();
-  const addOwner = (sourceId: number, requestId: number) => {
-    if (!owners.has(sourceId)) owners.set(sourceId, new Set());
-    owners.get(sourceId)!.add(requestId);
-  };
-
-  for (const requestId of requestIndex.keys()) {
-    const queue = [requestId];
-    const seen = new Set<number>(queue);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      addOwner(current, requestId);
-
-      for (const next of graph.get(current) || []) {
-        if (seen.has(next)) continue;
-        if (next !== requestId && requestIndex.has(next)) continue;
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-
-  return owners;
-}
-
-function resolveRequestForEvent(
-  evt: ParsedEvent,
-  requestIndex: Map<number, URLRequest>,
-  sourceOwners: Map<number, Set<number>>
- ): URLRequest | null {
-  if (evt.source.typeName === "URL_REQUEST") {
-    return requestIndex.get(evt.source.id) || null;
-  }
-
-  const ownerIds = Array.from(sourceOwners.get(evt.source.id) || []);
-  if (ownerIds.length === 0) return null;
-
-  let candidates = ownerIds
-    .map(id => requestIndex.get(id))
-    .filter((req): req is URLRequest => Boolean(req));
-
-  if (candidates.length <= 1) {
-    return candidates[0] || null;
-  }
-
-  const streamId = getEventStreamId(evt);
-  if (streamId !== null) {
-    const streamMatches = candidates.filter(req => req.events.some(event => getEventStreamId(event) === streamId));
-    if (streamMatches.length === 1) {
-      return streamMatches[0];
-    }
-    if (streamMatches.length > 1) {
-      candidates = streamMatches;
-    }
-  }
-
-  const host = normalizeHost(extractHostFromParams(evt.params));
-  if (host) {
-    const hostMatches = candidates.filter(req => normalizeHost(req.url) === host);
-    if (hostMatches.length === 1) {
-      return hostMatches[0];
-    }
-    if (hostMatches.length > 1) {
-      candidates = hostMatches;
-    }
-  }
-
-  return candidates.length === 1 ? candidates[0] : null;
-}
-
-const NON_TERMINAL_REQUEST_NET_ERRORS = new Set([
-  -1,   // ERR_IO_PENDING
-  -173, // ERR_WS_UPGRADE
-  -406, // ERR_CACHE_RACE
-]);
-
-function getTerminalRequestNetError(evt: ParsedEvent): number | null {
-  if (evt.source.typeName !== 'URL_REQUEST') return null;
-  const raw = evt.params?.net_error;
-  if (raw === undefined || raw === null || raw === '') return null;
-  const code = Number(raw);
-  if (!Number.isFinite(code) || code === 0 || NON_TERMINAL_REQUEST_NET_ERRORS.has(code)) return null;
-  return code;
-}
-
-function appendRequestEvent(req: URLRequest, evt: ParsedEvent, r: AnalysisResult) {
-  const p = evt.params;
-  const tn = evt.typeName;
-
-  const isDuplicate = req.events.some(
-    e => e.type === evt.type && e.phase === evt.phase && e.time === evt.time && e.source.id === evt.source.id
-  );
-  if (!isDuplicate) {
-    req.events.push(evt);
-  }
-
-  if (evt.source.typeName === "URL_REQUEST" && p.method) {
-    req.method = p.method;
-  }
-
-  if (tn === "HTTP_TRANSACTION_READ_RESPONSE_HEADERS" || tn === "HTTP_TRANSACTION_READ_HEADERS") {
-    req.status = p.status_code ? `${p.status_code}` : "completed";
-    req.statusCode = p.status_code ?? req.statusCode;
-  }
-
-  if ((tn === "HTTP_TRANSACTION_READ_RESPONSE_HEADERS" || tn === "HTTP_TRANSACTION_READ_HEADERS") && p.headers) {
-    const headers = parseHeaders(p.headers);
-    if (!req.resolvedIp) {
-      req.resolvedIp = headers["x-response-cinfo"] || headers["x-tt-cip"] || headers["x-lsc-source-ip"] || null;
-    }
-    if (!req.remoteIp) {
-      req.remoteIp = headers["x-response-sinfo"] || null;
-    }
-  }
-
-  if (evt.phaseName === "END") {
-    if (!req.endTime || evt.time > req.endTime) {
-      req.endTime = evt.time;
-    }
-    req.duration = (req.endTime || evt.time) - req.startTime;
-  }
-
-  const errCode = getTerminalRequestNetError(evt);
-  if (errCode !== null) {
-    req.error = errCode;
-    req.errorDesc = getNetErrorDescription(errCode);
-    req.status = "error";
-
-    const alreadyTracked = r.connectionFailures.some(
-      failure => failure.requestId === req.id && failure.error === errCode
-    );
-    if (!alreadyTracked) {
-      r.connectionFailures.push({
-        requestId: req.id,
-        url: req.url,
-        error: errCode,
-        time: evt.time,
-      });
-    }
-  }
-}
-
-function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<number, URLRequest>, sourceOwners: Map<number, Set<number>>) {
+function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
   const p = evt.params;
   const tn = evt.typeName;
   const stn = evt.source.typeName;
@@ -1123,44 +1080,24 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   if (tn.includes("QUIC_")) {
     r.quicEvents.push(evt);
     r.protocols["QUIC"] = (r.protocols["QUIC"] || 0) + 1;
-    if (p.error_code || p.net_error) {
-      r.errors.push({
-        severity: "error",
-        category: "QUIC",
-        message: "QUIC 连接错误: " + (p.error_code || p.net_error),
-        detail: JSON.stringify(p, null, 2),
-        time: evt.time,
-      });
-    }
+      const issue = buildQuicEventIssue(evt);
+      if (issue) r.errors.push(issue);
   }
 
   // ---- HTTP/2 events ----
   if (stn === "HTTP2_SESSION" || tn.includes("HTTP2_") || tn.includes("HTTP/2_")) {
     r.http2Events.push(evt);
     r.protocols["HTTP/2"] = (r.protocols["HTTP/2"] || 0) + 1;
-    if (isHttp2Goaway(evt)) {
-      r.errors.push({
-        severity: "warning",
-        category: "HTTP/2",
-        message: "HTTP/2 " + (isHttp2GoawayRecv(evt) ? "接收" : "发送") + " GOAWAY 帧",
-        detail: "Last Stream ID: " + p.last_stream_id + ", Error: " + (p.error_code || p.status),
-        time: evt.time,
-      });
-    }
+      const issue = buildHttp2GoawayIssue(evt);
+      if (issue) r.errors.push(issue);
   }
 
   // ---- DNS events ----
   if (isDnsRelatedEvent(evt)) {
     r.dnsEvents.push(evt);
-    const host = extractHostFromParams(p);
-    const ips = extractDnsAnswerIps(p);
-    addDnsRecord(r, host, ips, "dns_event", evt.time);
+    addDnsRecordsFromEvent(r, evt);
   }
 
-  const req = resolveRequestForEvent(evt, requestIndex, sourceOwners);
-  if (req) {
-    appendRequestEvent(req, evt, r);
-  }
   // ---- Connection events ----
   if (tn.includes('TCP_') || tn.includes('SOCKET_') || tn.includes('TRANSPORT_CONNECT_')) {
     r.connectEvents.push(evt);
@@ -1187,7 +1124,7 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult, requestIndex: Map<
   }
 }
 
-function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
+export function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
   const p = evt.params;
   return evt.typeName.includes('PROXY') ||
     Boolean(
@@ -1202,7 +1139,7 @@ function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
     );
 }
 
-function addProxyEvent(evt: ParsedEvent, r: AnalysisResult) {
+export function addProxyEvent(evt: ParsedEvent, r: AnalysisResult) {
   const exists = r.proxyEvents.some(e =>
     e.source.id === evt.source.id &&
     e.type === evt.type &&
@@ -1371,106 +1308,6 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
   }
 }
 
-function buildTimelines(r: AnalysisResult) {
-  for (const req of r.urlRequests) {
-    let dnsStart: number | null = null, dnsEnd: number | null = null;
-    let connectStart: number | null = null, connectEnd: number | null = null;
-    let sslStart: number | null = null, sslEnd: number | null = null;
-    let sendStart: number | null = null, sendEnd: number | null = null;
-    let headersStart: number | null = null, headersEnd: number | null = null;
-    let bodyEnd: number | null = null;
-
-    for (const evt of req.events) {
-      const tn = evt.typeName;
-      const ph = evt.phaseName;
-      const stn = evt.source.typeName;
-
-      // DNS
-      if (stn === 'HOST_RESOLVER_IMPL_JOB' || stn === 'HOST_RESOLVER_MANAGER_JOB' || tn.includes('DNS_')) {
-        if (ph === 'BEGIN') dnsStart = evt.time;
-        if (ph === 'END') dnsEnd = evt.time;
-      }
-      // Connect
-      if (tn.includes('TCP_') || tn.includes('SOCKET_') || tn.includes('TRANSPORT_CONNECT_')) {
-        if (ph === 'BEGIN') connectStart = evt.time;
-        if (ph === 'END') connectEnd = evt.time;
-      }
-      // SSL
-      if (tn.includes('SSL_') || tn.includes('TLS_')) {
-        if (ph === 'BEGIN') sslStart = evt.time;
-        if (ph === 'END') sslEnd = evt.time;
-      }
-      // Send
-      if (tn.includes('SEND_REQUEST_') || tn.includes('HTTP_TRANSACTION_SEND_')) {
-        if (ph === 'BEGIN') sendStart = evt.time;
-        if (ph === 'END') sendEnd = evt.time;
-      }
-      // Headers
-      if (tn.includes('READ_RESPONSE_HEADERS') || tn.includes('READ_HEADERS')) {
-        if (ph === 'BEGIN') headersStart = evt.time;
-        if (ph === 'END') headersEnd = evt.time;
-      }
-      // Body
-      if (tn.includes('READ_BODY') || tn.includes('READ_DATA')) {
-        if (ph === 'END') bodyEnd = evt.time;
-      }
-    }
-
-    if (dnsStart !== null && dnsEnd !== null) {
-      req.timeline.dns = { start: dnsStart, end: dnsEnd, duration: dnsEnd - dnsStart };
-    }
-    if (connectStart !== null && connectEnd !== null) {
-      req.timeline.connect = { start: connectStart, end: connectEnd, duration: connectEnd - connectStart };
-    }
-    if (sslStart !== null && sslEnd !== null) {
-      req.timeline.ssl = { start: sslStart, end: sslEnd, duration: sslEnd - sslStart };
-    }
-
-    const sStart = sendStart || req.startTime;
-    const sEnd = sendEnd || headersStart || connectEnd || sslEnd;
-    if (sStart !== null && sEnd !== null) {
-      req.timeline.send = { start: sStart, end: sEnd, duration: sEnd - sStart };
-    }
-
-    const wStart = sEnd || connectEnd || sslEnd;
-    const wEnd = headersEnd || headersStart;
-    if (wStart !== null && wEnd !== null && wEnd > wStart) {
-      req.timeline.wait = { start: wStart, end: wEnd, duration: wEnd - wStart };
-    }
-
-    const dStart = headersEnd || headersStart;
-    const dEnd = bodyEnd || req.endTime;
-    if (dStart !== null && dEnd !== undefined && dEnd !== null && dStart !== undefined && dEnd > dStart) {
-      req.timeline.download = { start: dStart, end: dEnd, duration: dEnd - dStart };
-    }
-  }
-}
-
-function inferProtocols(r: AnalysisResult) {
-  for (const req of r.urlRequests) {
-    const hasQuic = req.events.some(e =>
-      e.typeName.includes('QUIC_') || e.source.typeName.includes('QUIC')
-    );
-    const hasHttp2 = req.events.some(e =>
-      e.source.typeName === 'HTTP2_SESSION' || e.typeName.includes('HTTP2_') || e.typeName.includes('HTTP/2_')
-    );
-    const hasSsl = req.events.some(e =>
-      e.typeName.includes('SSL_') || e.typeName.includes('TLS_') ||
-      e.source.typeName === 'SSL_CONNECT_JOB' || e.source.typeName === 'SSL_CONNECT'
-    );
-
-    if (hasQuic) {
-      req.protocol = 'QUIC';
-    } else if (hasHttp2) {
-      req.protocol = 'HTTP/2';
-    } else if (hasSsl || req.url.startsWith('https://')) {
-      req.protocol = 'HTTP/1.1';
-    } else {
-      req.protocol = 'HTTP/1.1';
-    }
-  }
-}
-
 function extractFailedDomains(r: AnalysisResult) {
   const domainMap = new Map<string, FailedDomain>();
 
@@ -1594,31 +1431,11 @@ function extractFailedDomains(r: AnalysisResult) {
 
 function runDiagnostics(r: AnalysisResult) {
   for (const fail of r.connectionFailures) {
-    const netErr = getNetErrorDescription(fail.error);
-    r.errors.push({
-      severity: 'error',
-      category: '连接失败',
-      message: `请求失败: ${fail.url}`,
-      detail: `错误码: ${fail.error} (${netErr})\n时间: ${formatNetlogWallTime(fail.time, r.timeTickOffset)}`,
-      time: fail.time,
-    });
+      r.errors.push(buildConnectionFailureIssue(fail, r.timeTickOffset));
   }
 
   for (const issue of r.sslIssues) {
-    const categoryMap: Record<SslIssue['category'], string> = {
-      cert: '证书错误',
-      timeout: 'TLS/SSL 握手超时',
-      protocol: 'TLS/SSL 协议错误',
-      connection: 'TLS/SSL 连接错误',
-      other: 'TLS/SSL 错误',
-    };
-    r.errors.push({
-      severity: 'error',
-      category: 'SSL/TLS',
-      message: `${categoryMap[issue.category]}: ${issue.host}`,
-      detail: `错误码: ${issue.error} (${getNetErrorDescription(issue.error)})\n事件: ${issue.event.typeName}\n分类: ${categoryMap[issue.category]}`,
-      time: issue.event.time,
-    });
+      r.errors.push(buildSslDiagnosticIssue(issue));
   }
 
   for (const req of r.urlRequests) {
@@ -1649,15 +1466,11 @@ function runDiagnostics(r: AnalysisResult) {
   }
 
   const goaways = r.http2Events.filter(isHttp2Goaway);
-  if (goaways.length > 0) {
-    r.warnings.push({
-      severity: 'warning',
-      category: 'HTTP/2',
-      message: `检测到 ${goaways.length} 个 HTTP/2 GOAWAY 帧`,
-      detail: '服务器主动关闭了 HTTP/2 连接，可能存在连接复用问题或服务器重启。',
-      time: goaways[0].time,
-    });
-  }
+    const goawaySummary = buildHttp2GoawaySummary(
+      goaways.length,
+      goaways[0]?.time || 0,
+    );
+    if (goawaySummary) r.warnings.push(goawaySummary);
 
   const quicErrors = r.quicEvents.filter(e => e.params.error_code || e.params.net_error);
   if (quicErrors.length > 0) {
@@ -1680,66 +1493,18 @@ function runDiagnostics(r: AnalysisResult) {
     });
   }
 
-  // Proxy detection: check if proxy is actually being used (not just DIRECT events)
-  if (r.proxyInfo.hasProxy && r.proxyInfo.proxyList.length > 0) {
-    const pi = r.proxyInfo;
-    let detail = `代理模式: ${pi.proxyType || '未知'}\n`;
-    detail += `代理服务器: ${pi.proxyList.join(', ')}\n`;
-    if (pi.pacUrl) {
-      detail += `PAC 地址: ${pi.pacUrl}\n`;
-    }
-    if (pi.proxySettings && pi.proxySettings.bypass_list) {
-      const bypassList = pi.proxySettings.bypass_list;
-      if (Array.isArray(bypassList) && bypassList.length > 0) {
-        detail += `\nBypass 列表 (${bypassList.length} 项):\n`;
-        detail += bypassList.map((item: string) => `  - ${item}`).join('\n');
-      }
-    }
-    if (pi.vpnHints.length > 0) {
-      detail += `\nVPN 检测线索:\n`;
-      detail += pi.vpnHints.map((h: string) => `  - ${h}`).join('\n');
-    }
+    const proxySummary = buildProxySummary(
+      r.proxyInfo,
+      r.proxyEvents.length,
+      r.proxyEvents[0]?.time || 0,
+    );
+    if (proxySummary?.severity === 'ok') r.info.push(proxySummary);
+    else if (proxySummary) r.warnings.push(proxySummary);
 
-    r.warnings.push({
-      severity: 'warning',
-      category: '代理',
-      message: `检测到代理配置: ${pi.proxyList.join(', ')}`,
-      detail,
-      time: r.proxyEvents[0]?.time || 0,
-    });
-  } else if (r.proxyEvents.length > 0) {
-    // Only DIRECT proxy events found
-    r.info.push({
-      severity: 'ok',
-      category: '代理',
-      message: '未检测到代理配置',
-      detail: '所有请求均为直连模式，未经过代理服务器。',
-      time: r.proxyEvents[0]?.time || 0,
-    });
-  }
-
-  for (const [errCode, count] of Object.entries(r.errorSources)) {
-    const code = parseInt(errCode);
-    const desc = getNetErrorDescription(code);
-    if (code !== 0) {
-      r.errors.push({
-        severity: 'error',
-        category: '网络错误',
-        message: `${desc} (出现 ${count} 次)`,
-        detail: `错误码: ${errCode}`,
-        time: 0,
-      });
-    }
-  }
+    r.errors.push(...buildNetworkErrorIssues(r.errorSources));
 
   if (r.errors.length === 0 && r.warnings.length === 0) {
-    r.info.push({
-      severity: 'ok',
-      category: '总体评估',
-      message: '未检测到明显网络问题',
-      detail: '所有请求均正常完成，无错误或异常延迟。',
-      time: 0,
-    });
+    r.info.push(buildCleanAssessmentIssue());
   }
 }
 
@@ -1750,39 +1515,4 @@ export function percentile(arr: number[], p: number): number {
   const sorted = [...arr].sort((a, b) => a - b);
   const idx = Math.ceil(sorted.length * p) - 1;
   return sorted[Math.max(0, idx)] || 0;
-}
-
-// Parse headers from various formats (string, array, object) into a key-value map
-function parseHeaders(headers: any): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (!headers) return result;
-
-  if (Array.isArray(headers)) {
-    // Array of "key: value" strings
-    for (const line of headers) {
-      const idx = line.indexOf(':');
-      if (idx > 0) {
-        const key = line.substring(0, idx).trim().toLowerCase();
-        const val = line.substring(idx + 1).trim();
-        result[key] = val;
-      }
-    }
-  } else if (typeof headers === 'string') {
-    // CRLF-separated string
-    const lines = headers.split(/\r?\n/);
-    for (const line of lines) {
-      const idx = line.indexOf(':');
-      if (idx > 0) {
-        const key = line.substring(0, idx).trim().toLowerCase();
-        const val = line.substring(idx + 1).trim();
-        result[key] = val;
-      }
-    }
-  } else if (typeof headers === 'object') {
-    // Already an object
-    for (const [key, val] of Object.entries(headers)) {
-      result[key.toLowerCase()] = String(val);
-    }
-  }
-  return result;
 }

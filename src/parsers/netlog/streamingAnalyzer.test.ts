@@ -130,7 +130,7 @@ describe('createNetlogStreamingAnalyzer', () => {
     ]);
   });
 
-  it('从 CACHE_HIT 样本的 aliases/canonical_names + ip_endpoints 提取 DNS 记录', () => {
+  it('不把完整解析尚未采纳的 CACHE_HIT 嵌套候选写入 DNS 记录', () => {
     const analyzer = createNetlogStreamingAnalyzer();
     analyzer.applyMetadata({
       constants: {
@@ -157,15 +157,10 @@ describe('createNetlogStreamingAnalyzer', () => {
     }));
     const { result } = analyzer.finish();
 
-    expect(result.dnsRecords).toEqual([
-      expect.objectContaining({
-        host: 'glata.bytedance.com',
-        ips: ['27.128.209.201', '27.185.242.148'],
-      }),
-    ]);
+    expect(result.dnsRecords).toEqual([]);
   });
 
-  it('从 DNS_TASK_EXTRACTION_RESULTS 的 results 数组提取 DNS 记录', () => {
+  it('不让 DNS_TASK 嵌套候选造成流式路径独有的 DNS 结果', () => {
     const analyzer = createNetlogStreamingAnalyzer();
     analyzer.applyMetadata({
       constants: {
@@ -197,19 +192,10 @@ describe('createNetlogStreamingAnalyzer', () => {
     }));
     const { result } = analyzer.finish();
 
-    expect(result.dnsRecords).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        host: 'l7-online-self-max.s.dsa.cdnbuild.net',
-        ips: expect.arrayContaining(['27.185.242.148', '106.116.191.122']),
-      }),
-      expect.objectContaining({
-        host: 'internal-api-drive-stream.larkoffice.com',
-        ips: expect.arrayContaining(['27.185.242.148', '106.116.191.122']),
-      }),
-    ]));
+    expect(result.dnsRecords).toEqual([]);
   });
 
-  it('支持高频低价值事件轻量计数', () => {
+  it('高频低价值事件默认进入完整诊断', () => {
     const analyzer = createNetlogStreamingAnalyzer();
     analyzer.applyMetadata({
       constants: {
@@ -218,16 +204,19 @@ describe('createNetlogStreamingAnalyzer', () => {
       },
     });
 
-    analyzer.recordLightweightEvent(7201, 8201);
+    analyzer.accept(event({
+      time: '1',
+      type: 7201,
+      source: { id: 1, type: 8201 },
+      params: {},
+    }));
     const { result, meta } = analyzer.finish();
 
     expect(result.totalEvents).toBe(1);
     expect(meta.parsedEvents).toBe(1);
-    expect(meta.fullyParsedEvents).toBe(0);
-    expect(meta.lightweightCountedEvents).toBe(1);
-    expect(meta.lightweightEventTypes).toEqual([
-      { name: 'HTTP2_SESSION_UPDATE_RECV_WINDOW', count: 1 },
-    ]);
+    expect(meta.fullyParsedEvents).toBe(1);
+    expect(meta.lightweightCountedEvents).toBe(0);
+    expect(meta.lightweightEventTypes).toEqual([]);
     expect(meta.diagnostics.topEventTypes).toEqual([
       { name: 'HTTP2_SESSION_UPDATE_RECV_WINDOW', count: 1 },
     ]);

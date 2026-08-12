@@ -17,6 +17,19 @@ interface LifecycleMeasure {
 }
 
 const identityMeasure: LifecycleMeasure = (_label, fn) => fn();
+const lifecycleStageOrder: LifecycleStageName[] = [
+  'dns',
+  'proxy',
+  'socket',
+  'tcp',
+  'tls',
+  'http2',
+  'quic',
+  'cache',
+  'request',
+  'response',
+  'unknown',
+];
 
 function generateId(prefix: string, seed: string | number) {
   return `${prefix}-${seed}-${Date.now().toString(36)}`;
@@ -146,19 +159,34 @@ export function netlogLifecycleToCards(
   if (candidates.length === 0) return [];
 
   const measure: LifecycleMeasure = opts?.measure ?? identityMeasure;
-  const graph = opts?.graph || getCachedSourceGraph(events, result.urlRequests);
-  const eventsBySourceId = opts?.eventsBySourceId || getCachedEventsBySourceId(events);
+  const allCandidatesHaveCompactLifecycle = candidates.every(request => (
+    request.relatedSourceIds
+    && request.relatedSourceTypeNames
+    && request.lifecycleStageDurations
+  ));
+  const graph = allCandidatesHaveCompactLifecycle
+    ? null
+    : opts?.graph || getCachedSourceGraph(events, result.urlRequests);
+  const eventsBySourceId = allCandidatesHaveCompactLifecycle
+    ? null
+    : opts?.eventsBySourceId || getCachedEventsBySourceId(events);
 
   return measure('Diagnosis/lifecycle/netlogLifecycleToCards', () => {
     const cards: DiagnosticCard[] = [];
     for (const req of candidates) {
-      const relatedSourceIds = collectRelatedSourceIdsFromGraph(graph, req.id);
-      const lifecycle = measure(`Diagnosis/lifecycle/buildRequestLifecycle/${req.id}`, () =>
-        buildRequestLifecycle(events, result.urlRequests, req, {
-          relatedSourceIds,
-          eventsBySourceId,
-        })
-      );
+      const relatedSourceIds = req.relatedSourceIds
+        || collectRelatedSourceIdsFromGraph(graph!, req.id);
+      const lifecycle = req.lifecycleStageDurations
+        ? null
+        : measure(`Diagnosis/lifecycle/buildRequestLifecycle/${req.id}`, () =>
+            buildRequestLifecycle(events, result.urlRequests, req, {
+              relatedSourceIds,
+              eventsBySourceId: eventsBySourceId!,
+            })
+          );
+      const relatedSourceTypes = req.relatedSourceTypeNames
+        || lifecycle?.relatedSourceTypes
+        || [];
 
       const dominantTimelineStage = (() => {
         const tl = req.timeline || {};
@@ -177,7 +205,20 @@ export function netlogLifecycleToCards(
       })();
 
       const dominantLifecycleStage = dominantTimelineStage || (() => {
-        const dominant = getDominantStage(lifecycle);
+        const compactDominant = Object.entries(req.lifecycleStageDurations || {})
+          .filter(([, duration]) => Number.isFinite(duration) && duration > 0)
+          .sort((left, right) => (
+            right[1] - left[1]
+            || lifecycleStageOrder.indexOf(left[0] as LifecycleStageName)
+              - lifecycleStageOrder.indexOf(right[0] as LifecycleStageName)
+          ))[0];
+        if (compactDominant) {
+          return {
+            stage: compactDominant[0] as LifecycleStageName,
+            duration: compactDominant[1],
+          };
+        }
+        const dominant = lifecycle ? getDominantStage(lifecycle) : null;
         return dominant ? { stage: dominant.name, duration: dominant.duration || 0 } : null;
       })();
       const dominantStage = dominantLifecycleStage?.stage || 'unknown';
@@ -192,9 +233,9 @@ export function netlogLifecycleToCards(
         ...buildStageBreakdownEvidence(req),
         {
           label: 'source 链路',
-          value: lifecycle.relatedSourceTypes.slice(0, 8).join(' → ') || '未记录',
+          value: relatedSourceTypes.slice(0, 8).join(' → ') || '未记录',
           source: 'derived',
-          detail: `涉及 ${lifecycle.relatedSourceIds.length} 个 source`,
+          detail: `涉及 ${relatedSourceIds.length} 个 source`,
         },
       ];
 
@@ -214,7 +255,7 @@ export function netlogLifecycleToCards(
           '生命周期基于 source_dependency 关系追踪；如果 NetLog 缺失依赖边，底层证据可能不完整',
         ],
         relatedRequestIds: [req.id],
-        relatedSourceIds: lifecycle.relatedSourceIds.slice(0, 15),
+        relatedSourceIds: relatedSourceIds.slice(0, 15),
         navigationTarget: { tab: 'requests', requestIds: [req.id], keyword: host },
       });
     }

@@ -1,11 +1,39 @@
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
-import { extractDnsAnswerCandidates as extractSharedDnsAnswerCandidates } from './dnsAnswerCandidates';
-import type { AnalysisResult, DiagnosisIssue, DnsRecord, DohCandidate, ParsedEvent, URLRequest } from './parser';
+import type {
+  AnalysisResult,
+  DnsRecord,
+  DohCandidate,
+  NetlogEventCategory,
+  NetlogEventCategoryStat,
+  ParsedEvent,
+} from './parser';
+import {
+  addDnsRecordsFromEvent,
+  addProxyEvent,
+  shouldAnalyzeProxyEvent,
+} from './parser';
+import { truncateUrl } from '../../utils/format';
+import {
+  createStableSequenceFingerprint,
+  netlogEventIdentity,
+  type StableSequenceFingerprint,
+} from './stableFingerprint';
+import {
+  buildCleanAssessmentIssue,
+  buildConnectionFailureIssue,
+  buildHttp2GoawaySummary,
+  buildHttp2GoawayIssue,
+  buildNetworkErrorIssues,
+  buildProxySummary,
+  buildQuicEventIssue,
+  buildSslDiagnosticIssue,
+} from './diagnosticRules';
+import { createRequestAccumulator } from './requestAccumulator';
+import { createDiagnosticContextIndexBuilder } from './diagnosticContextIndex';
 
 const MAX_EVENTS_PREVIEW = 20_000;
-const MAX_REQUEST_EVENTS = 30;
 const MAX_CATEGORY_EVENTS = 5_000;
 
 export interface StreamingAnalyzerMeta {
@@ -354,16 +382,6 @@ function addDnsRecord(result: AnalysisResult, host: string | null, ips: string[]
   result.dnsRecords.push({ host, ips: cleanIps, source, time });
 }
 
-function extractDnsRecordCandidates(evt: ParsedEvent): Array<{ host: string | null; ips: string[] }> {
-  return extractSharedDnsAnswerCandidates(evt.params, {
-    eventId: undefined,
-    sourceId: evt.source.id,
-    time: evt.time,
-    typeName: evt.typeName,
-    sourceTypeName: evt.source.typeName,
-  }).map(candidate => ({ host: candidate.host || null, ips: candidate.ips }));
-}
-
 function addDnsServers(result: AnalysisResult, ips: string[]) {
   const next = new Set(result.dnsServers);
   ips.forEach(ip => {
@@ -510,37 +528,6 @@ function isDnsRelatedEvent(evt: ParsedEvent): boolean {
   return stn.includes('HOST_RESOLVER') || stn.includes('DNS') || tn.includes('HOST_RESOLVER') || tn.includes('DNS') || tn.includes('SECURE_DNS') || tn.includes('DOH');
 }
 
-function shouldAnalyzeProxyEvent(evt: ParsedEvent): boolean {
-  const p = evt.params || {};
-  return evt.typeName.includes('PROXY') || Boolean(p.proxy_config || p.proxy_list || p.fallback_proxy || p.proxy_server || p.proxy_info || p.proxy_chain || p.pac_string || p.tunnel_host);
-}
-
-function analyzeProxyEvent(evt: ParsedEvent, result: AnalysisResult) {
-  addBounded(result.proxyEvents, evt);
-  const p = evt.params || {};
-  const pi = result.proxyInfo;
-  if (p.proxy_config) {
-    pi.hasProxy = true;
-    pi.proxySettings = p.proxy_config;
-    if (p.proxy_config.mode) pi.proxyType = p.proxy_config.mode === 'direct' ? 'direct (无代理)' : p.proxy_config.mode;
-  }
-  const proxyValues = [p.proxy_list, p.fallback_proxy, p.proxy_server, p.proxy_info, p.proxy_chain, p.pac_string].flat().filter(Boolean);
-  for (const proxy of proxyValues) {
-    const value = String(proxy);
-    if (value !== 'DIRECT' && value !== 'direct://') {
-      pi.hasProxy = true;
-      if (!pi.proxyList.includes(value)) pi.proxyList.push(value);
-    }
-  }
-  for (const proxy of pi.proxyList) {
-    const lower = String(proxy).toLowerCase();
-    if (lower.includes('vpn') || lower.includes('tunnel') || lower.includes('socks') || lower.includes('127.0.0.1')) {
-      pi.isVPN = true;
-      pi.vpnHints.push(`代理地址含VPN特征: ${proxy}`);
-    }
-  }
-}
-
 function isKeyEvent(evt: ParsedEvent): boolean {
   return evt.source.typeName === 'URL_REQUEST' ||
     isDnsRelatedEvent(evt) ||
@@ -556,13 +543,53 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
   const result = createEmptyResult();
   let eventNames: Record<number, string> = { ...(options.eventNames || {}) };
   let sourceNames: Record<number, string> = { ...(options.sourceNames || {}) };
-  const requestIndex = new Map<number, URLRequest>();
+    const requestAccumulator = createRequestAccumulator();
+    const eventCategories: NetlogEventCategory[] = [
+      'dns',
+      'connect',
+      'ssl',
+      'proxy',
+      'quic',
+      'http2',
+      'cache',
+      'networkChange',
+    ];
+    const categoryCounts = Object.fromEntries(
+      eventCategories.map(category => [category, 0]),
+    ) as Record<NetlogEventCategory, number>;
+    const categoryFingerprints = Object.fromEntries(
+      eventCategories.map(category => [category, createStableSequenceFingerprint()]),
+    ) as Record<NetlogEventCategory, StableSequenceFingerprint>;
+    const createCategoryMetrics = (): Omit<
+      NetlogEventCategoryStat,
+      'count' | 'sequenceFingerprint'
+    > => ({
+      errorCount: 0,
+      errorEvidence: [],
+      hitCount: 0,
+      missCount: 0,
+      goawayCount: 0,
+      suggestionGoawayCount: 0,
+    });
+    const categoryMetrics: Record<
+      NetlogEventCategory,
+      Omit<NetlogEventCategoryStat, 'count' | 'sequenceFingerprint'>
+    > = {
+      dns: createCategoryMetrics(),
+      connect: createCategoryMetrics(),
+      ssl: createCategoryMetrics(),
+      proxy: createCategoryMetrics(),
+      quic: createCategoryMetrics(),
+      http2: createCategoryMetrics(),
+      cache: createCategoryMetrics(),
+      networkChange: createCategoryMetrics(),
+    };
+    const diagnosticContextIndex = createDiagnosticContextIndexBuilder();
   const sourceIds = new Set<number>();
   const activeSources = new Set<number>();
   const eventsPreview: ParsedEvent[] = [];
   const unknownEventTypes = new Set<number>();
   const unknownSourceTypes = new Set<number>();
-  const lightweightEventTypeCounts = new Map<string, number>();
   const eventTypeCounts = new Map<string, number>();
   const sourceTypeCounts = new Map<string, number>();
   const responseHeaderKeyCounts = new Map<string, number>();
@@ -637,6 +664,51 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
 
   applyMetadata(options);
 
+    const trackCategoryEvent = (category: NetlogEventCategory, event: ParsedEvent) => {
+      categoryCounts[category] += 1;
+      categoryFingerprints[category].accept(netlogEventIdentity(event));
+      const metrics = categoryMetrics[category];
+      if (event.params?.net_error !== undefined && event.params.net_error !== 0) {
+        metrics.errorCount += 1;
+        if (metrics.errorEvidence.length < 4) {
+          metrics.errorEvidence.push({
+            time: event.time,
+            typeName: event.typeName,
+            sourceId: event.source.id,
+            error: Number(event.params.net_error),
+          });
+        }
+      }
+      if (category === 'cache') {
+        const text = `${event.typeName} ${JSON.stringify(event.params || {})}`.toLowerCase();
+        if (text.includes('hit')) metrics.hitCount += 1;
+        if (text.includes('miss') || text.includes('create') || text.includes('doom')) {
+          metrics.missCount += 1;
+        }
+      }
+      if (event.typeName.includes('GOAWAY')) metrics.goawayCount += 1;
+      if (event.type === 212 || event.type === 213) {
+        metrics.suggestionGoawayCount += 1;
+      }
+      if (
+        category === 'networkChange'
+        || category === 'proxy'
+        || category === 'cache'
+        || category === 'ssl'
+        || category === 'quic'
+        || category === 'http2'
+      ) {
+        diagnosticContextIndex.accept(
+          category,
+          event.time,
+          event.typeName,
+          event.source.id,
+        );
+      }
+    };
+    let http2GoawayCount = 0;
+    let firstHttp2GoawayTime = 0;
+
   const recordCommonEventStats = (rawType: number, rawSourceType: number | undefined, typeName: string, sourceTypeName: string) => {
     meta.parsedEvents++;
     result.totalEvents++;
@@ -644,16 +716,6 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
     incrementCounter(sourceTypeCounts, sourceTypeName);
     if (typeName.startsWith('UNKNOWN_')) unknownEventTypes.add(rawType);
     if (sourceTypeName === 'UNKNOWN_SRC' && rawSourceType !== undefined) unknownSourceTypes.add(rawSourceType);
-  };
-
-  const recordLightweightEvent = (rawType: number, rawSourceType?: number) => {
-    const typeName = eventNames[rawType] || EVENT_TYPES[rawType] || `UNKNOWN_${rawType}`;
-    const sourceTypeName = rawSourceType !== undefined
-      ? (sourceNames[rawSourceType] || SOURCE_TYPES[rawSourceType] || 'UNKNOWN_SRC')
-      : 'UNKNOWN_SRC';
-    recordCommonEventStats(rawType, rawSourceType, typeName, sourceTypeName);
-    meta.lightweightCountedEvents++;
-    incrementCounter(lightweightEventTypeCounts, typeName);
   };
 
   const accept = (rawEvent: any) => {
@@ -674,6 +736,7 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
       phaseName: PHASE[rawEvent.phase] || `PHASE_${rawEvent.phase}`,
       params: rawEvent.params || {},
     };
+      requestAccumulator.accept(parsed);
 
     recordCommonEventStats(rawEvent.type, sourceType, parsed.typeName, parsed.source.typeName);
     meta.fullyParsedEvents++;
@@ -714,57 +777,17 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
       meta.truncatedEventsPreview = true;
     }
 
-    if (parsed.source.typeName === 'URL_REQUEST' && parsed.params.url && !requestIndex.has(sourceId)) {
-      const req: URLRequest = {
-        id: sourceId,
-        url: parsed.params.url,
-        method: parsed.params.method || 'GET',
-        startTime: parsed.time,
-        status: 'pending',
-        timeline: {},
-        events: [parsed],
-        resolvedIp: null,
-        remoteIp: null,
-      };
-      requestIndex.set(sourceId, req);
-      result.urlRequests.push(req);
-    }
-
-    const req = requestIndex.get(sourceId);
-    if (req) {
-      if (req.events.length < MAX_REQUEST_EVENTS && req.events[req.events.length - 1] !== parsed) req.events.push(parsed);
-      if (parsed.params.method) req.method = parsed.params.method;
-      if (parsed.phaseName === 'END') {
-        req.endTime = parsed.time;
-        req.duration = parsed.time - req.startTime;
-      }
-      if (parsed.typeName.includes('READ_RESPONSE_HEADERS') || parsed.typeName.includes('READ_HEADERS')) {
-        req.status = parsed.params.status_code ? `${parsed.params.status_code}` : 'completed';
-        req.statusCode = parsed.params.status_code ?? req.statusCode;
-        if (parsed.params.headers) {
-          const headers = parseHeaders(parsed.params.headers);
-          req.resolvedIp = req.resolvedIp || headers['x-response-cinfo'] || headers['x-tt-cip'] || headers['x-lsc-source-ip'] || null;
-          req.remoteIp = req.remoteIp || headers['x-response-sinfo'] || null;
-        }
-      }
-      const err = parsed.params.net_error ?? parsed.params.error_code;
-      if (err !== undefined && err !== 0) {
-        const errCode = Number(err);
-        req.error = errCode;
-        req.errorDesc = getNetErrorDescription(errCode);
-        req.status = 'error';
-        result.connectionFailures.push({ url: req.url, error: errCode, time: parsed.time });
-      }
-    }
-
     if (isDnsRelatedEvent(parsed)) {
+        trackCategoryEvent('dns', parsed);
       addBounded(result.dnsEvents, parsed);
-      extractDnsRecordCandidates(parsed).forEach(candidate => {
-        addDnsRecord(result, candidate.host, candidate.ips, 'dns_event', parsed.time);
-      });
+      addDnsRecordsFromEvent(result, parsed);
     }
-    if (parsed.typeName.includes('TCP_') || parsed.typeName.includes('SOCKET_') || parsed.typeName.includes('TRANSPORT_CONNECT_')) addBounded(result.connectEvents, parsed);
+      if (parsed.typeName.includes('TCP_') || parsed.typeName.includes('SOCKET_') || parsed.typeName.includes('TRANSPORT_CONNECT_')) {
+        trackCategoryEvent('connect', parsed);
+        addBounded(result.connectEvents, parsed);
+      }
     if (parsed.typeName.includes('SSL_') || parsed.typeName.includes('TLS_') || parsed.source.typeName.includes('SSL')) {
+        trackCategoryEvent('ssl', parsed);
       addBounded(result.sslEvents, parsed);
       const sslError = parsed.params.error_code ?? parsed.params.net_error;
       if (sslError !== undefined && sslError !== 0) {
@@ -772,18 +795,49 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
         addBounded(result.sslIssues, issue);
         if (issue.category === 'cert') addBounded(result.certIssues, issue);
       }
+        if (parsed.params.encrypted_protocol || parsed.params.version) {
+          const key = `TLS_${parsed.params.encrypted_protocol || parsed.params.version}`;
+          result.protocols[key] = (result.protocols[key] || 0) + 1;
+        }
     }
     if (parsed.typeName.includes('QUIC_')) {
+        trackCategoryEvent('quic', parsed);
       addBounded(result.quicEvents, parsed);
       result.protocols.QUIC = (result.protocols.QUIC || 0) + 1;
+        const issue = buildQuicEventIssue(parsed);
+        if (issue) result.errors.push(issue);
     }
     if (parsed.source.typeName === 'HTTP2_SESSION' || parsed.typeName.includes('HTTP2_') || parsed.typeName.includes('HTTP/2_')) {
+        trackCategoryEvent('http2', parsed);
       addBounded(result.http2Events, parsed);
       result.protocols['HTTP/2'] = (result.protocols['HTTP/2'] || 0) + 1;
+        const issue = buildHttp2GoawayIssue(parsed);
+        if (issue) {
+          result.errors.push(issue);
+          http2GoawayCount += 1;
+          if (http2GoawayCount === 1) firstHttp2GoawayTime = parsed.time;
+        }
     }
-    if (shouldAnalyzeProxyEvent(parsed)) analyzeProxyEvent(parsed, result);
-    if (parsed.typeName.includes('HTTP_CACHE_') || parsed.typeName.includes('DISK_CACHE_')) addBounded(result.cacheEvents, parsed);
-    if (parsed.typeName.includes('NETWORK_CHANGE_')) addBounded(result.networkChanges, parsed);
+      if (shouldAnalyzeProxyEvent(parsed)) {
+        const previousProxyEventCount = result.proxyEvents.length;
+        addProxyEvent(parsed, result);
+        if (result.proxyEvents.length > previousProxyEventCount) {
+          trackCategoryEvent('proxy', parsed);
+        }
+      }
+      if (
+        parsed.typeName.includes('HTTP_CACHE_')
+        || parsed.typeName.includes('DISK_CACHE_')
+        || parsed.typeName.includes('SIMPLE_CACHE_')
+        || parsed.typeName.includes('ENTRY_')
+      ) {
+        trackCategoryEvent('cache', parsed);
+        addBounded(result.cacheEvents, parsed);
+      }
+      if (parsed.typeName.includes('NETWORK_CHANGE_')) {
+        trackCategoryEvent('networkChange', parsed);
+        addBounded(result.networkChanges, parsed);
+      }
     if (parsed.params.net_error && parsed.params.net_error !== 0) {
       result.errorSources[parsed.params.net_error] = (result.errorSources[parsed.params.net_error] || 0) + 1;
     }
@@ -791,9 +845,23 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
 
   const finish = (): StreamingAnalyzerOutput => {
     result.uniqueSources = sourceIds.size;
+      result.diagnosticContextIndex = diagnosticContextIndex.finish();
+      result.eventCategoryStats = Object.fromEntries(
+        eventCategories.map(category => [
+          category,
+          {
+            count: categoryCounts[category],
+            sequenceFingerprint: categoryFingerprints[category].finish(),
+            ...categoryMetrics[category],
+          },
+        ]),
+      ) as AnalysisResult['eventCategoryStats'];
     meta.unknownEventTypes = Array.from(unknownEventTypes).sort((a, b) => a - b);
     meta.unknownSourceTypes = Array.from(unknownSourceTypes).sort((a, b) => a - b);
-    meta.lightweightEventTypes = topCounts(lightweightEventTypeCounts, 30);
+    const requestOutput = requestAccumulator.finish();
+    result.urlRequests = requestOutput.requests;
+    result.connectionFailures = requestOutput.connectionFailures;
+
     meta.diagnostics = {
       topEventTypes: topCounts(eventTypeCounts, 30),
       topSourceTypes: topCounts(sourceTypeCounts, 30),
@@ -815,7 +883,7 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
         result.warnings.push({
           severity: 'warning',
           category: '慢请求',
-          message: `慢请求 (${(req.duration / 1000).toFixed(1)}s): ${req.url}`,
+          message: `慢请求 (${(req.duration / 1000).toFixed(1)}s): ${truncateUrl(req.url, 80)}`,
           detail: `URL: ${req.url}\n耗时: ${(req.duration / 1000).toFixed(2)}s\n方法: ${req.method}`,
           time: req.startTime,
         });
@@ -849,27 +917,30 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
       .sort((a, b) => b.count - a.count);
 
     for (const fail of result.connectionFailures) {
-      const issue: DiagnosisIssue = {
-        severity: 'error',
-        category: '连接失败',
-        message: `请求失败: ${fail.url}`,
-        detail: `错误码: ${fail.error} (${getNetErrorDescription(fail.error)})`,
-        time: fail.time,
-      };
-      result.errors.push(issue);
+        result.errors.push(buildConnectionFailureIssue(fail, result.timeTickOffset));
     }
     for (const issue of result.sslIssues) {
-      result.errors.push({
-        severity: 'error',
-        category: 'SSL/TLS',
-        message: `TLS/SSL 错误: ${issue.host}`,
-        detail: `错误码: ${issue.error} (${getNetErrorDescription(issue.error)})`,
-        time: issue.event.time,
-      });
+        result.errors.push(buildSslDiagnosticIssue(issue));
     }
+      result.errors.push(...buildNetworkErrorIssues(result.errorSources));
+      const goawaySummary = buildHttp2GoawaySummary(
+        http2GoawayCount,
+        firstHttp2GoawayTime,
+      );
+      if (goawaySummary) result.warnings.push(goawaySummary);
+      const proxySummary = buildProxySummary(
+        result.proxyInfo,
+        result.proxyEvents.length,
+        result.proxyEvents[0]?.time || 0,
+      );
+      if (proxySummary?.severity === 'ok') result.info.push(proxySummary);
+      else if (proxySummary) result.warnings.push(proxySummary);
+      if (result.errors.length === 0 && result.warnings.length === 0) {
+        result.info.push(buildCleanAssessmentIssue());
+      }
 
     return { result, eventsPreview, meta };
   };
 
-  return { accept, finish, applyMetadata, recordLightweightEvent };
+  return { accept, finish, applyMetadata };
 }

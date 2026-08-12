@@ -67,7 +67,7 @@ function stageLabel(name: LifecycleStageName): string {
   return STAGE_LABELS[name] || name;
 }
 
-function classifyStage(evt: ParsedEvent): LifecycleStageName {
+export function classifyLifecycleStage(evt: ParsedEvent): LifecycleStageName {
   const st = (evt.source?.typeName || '').toUpperCase();
   const et = (evt.typeName || '').toUpperCase();
   const hay = `${st} ${et}`;
@@ -182,7 +182,7 @@ export function buildRequestLifecycle(
   for (const evt of candidateEvents) {
     ensureUnique(relatedSourceTypes, evt.source.typeName);
 
-    const name = classifyStage(evt);
+    const name = classifyLifecycleStage(evt);
     const stage = stages[name];
     stage.eventCount += 1;
     if (stage.startTime === undefined || evt.time < stage.startTime) stage.startTime = evt.time;

@@ -33,6 +33,8 @@ import { Readable } from 'stream';
 import { TextDecoder, TextEncoder } from 'util';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail, type NetlogIndexableFile } from './netlogDatasetIndexer';
 import { queryNetlogEvents } from './netlogDatasetQuery';
+import { numericColumnFind } from './chunkedNumericColumn';
+import { createNetlogStreamingAnalyzer } from '../parsers/netlog/streamingAnalyzer';
 
 jest.setTimeout(15 * 60_000);
 (global as any).TextDecoder = TextDecoder;
@@ -71,16 +73,33 @@ describe('netlog worker benchmark', () => {
       slice: (start?: number, end?: number) => readSlice(filePath, start, end),
     };
 
+    const initialRss = process.memoryUsage().rss;
+    let peakRss = initialRss;
+    const sampleMemory = () => {
+      peakRss = Math.max(peakRss, process.memoryUsage().rss);
+    };
+    const analyzer = createNetlogStreamingAnalyzer();
     const startedAt = Date.now();
-    const result = await buildNetlogCompactEventIndex(file);
+    const result = await buildNetlogCompactEventIndex(file, {
+      onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
+      onEvent: value => analyzer.accept(value),
+      onProgress: sampleMemory,
+    });
     const datasetIndexMs = Date.now() - startedAt;
+    sampleMemory();
+    const memoryAfterScan = process.memoryUsage().rss;
+    const diagnosisStartedAt = Date.now();
+    const diagnosis = analyzer.finish();
+    const diagnosisFinalizeMs = Date.now() - diagnosisStartedAt;
+    sampleMemory();
+    const memoryAfterDiagnosis = process.memoryUsage().rss;
     const index = result.index;
     const queryTimes: number[] = [];
     const detailTimes: number[] = [];
     const analysisId = 'benchmark';
-    const sampleSourceId = index.sourceId.find(id => id > 0);
-    const sampleSourceChainId = index.sourceDependencyFrom?.find(id => id > 0) || sampleSourceId;
-    const sampleTypeId = index.typeId.find(id => id > 0);
+    const sampleSourceId = numericColumnFind(index.sourceId, id => id > 0);
+    const sampleSourceChainId = numericColumnFind(index.sourceDependencyFrom, id => id > 0) || sampleSourceId;
+    const sampleTypeId = numericColumnFind(index.typeId, id => id > 0);
     const queries = [
       { analysisId, page: 1, pageSize: 100 },
       { analysisId, page: 10, pageSize: 100 },
@@ -111,7 +130,12 @@ describe('netlog worker benchmark', () => {
       summaryScanMs: 0,
       summaryParsedEvents: 0,
       datasetIndexMs,
+      datasetReadyMs: datasetIndexMs,
+      diagnosisFinalizeMs,
+      diagnosisReadyMs: datasetIndexMs + diagnosisFinalizeMs,
       datasetEventCount: index.count,
+      diagnosisEventCount: diagnosis.result.totalEvents,
+      diagnosisRequestCount: diagnosis.result.urlRequests.length,
       lightweightParseSkippedEvents: result.parseSkipStats.lightweightParseSkippedEvents,
       lightweightParseSkippedBytes: result.parseSkipStats.lightweightParseSkippedBytes,
       lightweightParseSkipRate: index.count ? Math.round((result.parseSkipStats.lightweightParseSkippedEvents / index.count) * 10000) / 10000 : 0,
@@ -130,7 +154,24 @@ describe('netlog worker benchmark', () => {
       detailP50: percentile(detailTimes, 50),
       detailP95: percentile(detailTimes, 95),
       mainThreadBlockedMs: null,
-      memoryPeakEstimateMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      memoryInitialMb: Math.round(initialRss / 1024 / 1024),
+      memoryAfterScanMb: Math.round(memoryAfterScan / 1024 / 1024),
+      memoryAfterDiagnosisMb: Math.round(memoryAfterDiagnosis / 1024 / 1024),
+      memoryPeakEstimateMb: Math.round(peakRss / 1024 / 1024),
+      memoryPeakDeltaMb: Math.round((peakRss - initialRss) / 1024 / 1024),
+      stateCardinalities: {
+        dnsCache: result.dnsState.hostResolverCache.length,
+        dnsTaskResults: result.dnsState.taskResults.length,
+        proxyEvents: result.proxyState.proxyEvents.length,
+        proxyChains: result.proxyState.resolutionChains.length,
+        quicSessions: result.quicState.sessions.length,
+        http2Sessions: result.http2State.sessions.length,
+        http2Streams: result.http2State.streams.length,
+        sockets: result.socketsState.sockets.length,
+        socketLinks: result.socketsState.sourceLinks.length,
+        cacheEntries: result.cacheState.entries.length,
+        streamPoolJobs: result.streamPoolState.jobs.length,
+      },
       endpointEvidenceCount: endpointEvidence.failedOrSlowIps.length,
       endpointRowCount: endpointEvidence.cipSipRows.length,
       dnsAnswerCount: endpointEvidence.dnsAnswers.length,

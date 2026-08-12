@@ -1,6 +1,13 @@
 import { TextDecoder, TextEncoder } from 'util';
 import { ReadableStream as NodeReadableStream } from 'stream/web';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail, readNetlogTopLevelValue, type NetlogIndexableFile } from './netlogDatasetIndexer';
+import { numericColumnAt, numericColumnValues } from './chunkedNumericColumn';
+import { parseLog } from '../parsers/netlog/parser';
+import { createNetlogStreamingAnalyzer } from '../parsers/netlog/streamingAnalyzer';
+import {
+  buildNetlogParitySignature,
+  compareNetlogParitySignatures,
+} from '../parsers/netlog/parityComparator';
 
 Object.assign(global, { TextDecoder });
 
@@ -44,6 +51,49 @@ class ChunkedTextFile implements NetlogIndexableFile {
 }
 
 describe('netlogDatasetIndexer', () => {
+  it('成功扫描后释放输入 stream reader', async () => {
+    const bytes = new TextEncoder().encode('{"events":[]}');
+    const StreamCtor = NodeReadableStream as unknown as typeof ReadableStream;
+    const stream = new StreamCtor({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    const file: NetlogIndexableFile = {
+      size: bytes.length,
+      stream: () => stream,
+      slice: (start, end) => new Blob([bytes.slice(start, end)]),
+    };
+
+    await buildNetlogCompactEventIndex(file);
+
+    expect(stream.locked).toBe(false);
+  });
+
+  it('扫描异常时取消并释放输入 stream reader', async () => {
+    const bytes = new TextEncoder().encode('invalid');
+    const cancel = jest.fn();
+    const StreamCtor = NodeReadableStream as unknown as typeof ReadableStream;
+    const stream = new StreamCtor({
+      start(controller) {
+        controller.enqueue(bytes);
+      },
+      cancel,
+    });
+    const file: NetlogIndexableFile = {
+      size: bytes.length,
+      stream: () => stream,
+      slice: (start, end) => new Blob([bytes.slice(start, end)]),
+    };
+
+    await expect(buildNetlogCompactEventIndex(file)).rejects.toThrow(
+      'NetLog JSON 格式异常',
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(stream.locked).toBe(false);
+  });
+
   it('为 events 建立真实 byteStart/byteEnd，并支持按 eventId 读取 detail', async () => {
     const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21},"timeTickOffset":1741095022562},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11, 13]);
@@ -51,14 +101,14 @@ describe('netlogDatasetIndexer', () => {
     const { index, endpointEvidence, dataLoaded } = await buildNetlogCompactEventIndex(file);
 
     expect(index.count).toBe(2);
-    expect(index.typeId).toEqual([1, 2]);
-    expect(index.sourceId).toEqual([10, 11]);
-    expect(index.sourceTypeId).toEqual([20, 21]);
+    expect(Array.from(numericColumnValues(index.typeId))).toEqual([1, 2]);
+    expect(Array.from(numericColumnValues(index.sourceId))).toEqual([10, 11]);
+    expect(Array.from(numericColumnValues(index.sourceTypeId))).toEqual([20, 21]);
     expect(index.eventTypeNames).toEqual({ 1: 'URL_REQUEST', 2: 'SOCKET_CONNECT' });
     expect(index.sourceTypeNames).toEqual({ 20: 'URL_REQUEST', 21: 'SOCKET' });
     expect(index.timeTickOffset).toBe(1741095022562);
-    expect(index.phase).toEqual([0, 2]);
-    expect(index.flags).toEqual([0, 1]);
+    expect(Array.from(numericColumnValues(index.phase))).toEqual([0, 2]);
+    expect(Array.from(numericColumnValues(index.flags))).toEqual([0, 1]);
     expect(index.sourceUrls).toEqual({ 10: 'https://a.example' });
     expect(index.sourceHosts).toEqual({ 10: 'a.example' });
     expect(index.sourceErrorCodes).toEqual({ 11: -105 });
@@ -157,9 +207,9 @@ describe('netlogDatasetIndexer', () => {
 
     const { index } = await buildNetlogCompactEventIndex(file);
 
-    expect(index.sourceDependencyFrom).toEqual([30, 30]);
-    expect(index.sourceDependencyTo).toEqual([10, 50]);
-    expect(index.sourceDependencyEventId).toEqual([1, 1]);
+    expect(Array.from(numericColumnValues(index.sourceDependencyFrom!))).toEqual([30, 30]);
+    expect(Array.from(numericColumnValues(index.sourceDependencyTo!))).toEqual([10, 50]);
+    expect(Array.from(numericColumnValues(index.sourceDependencyEventId!))).toEqual([1, 1]);
     expect(index.sourceUrls).toEqual({ 10: 'https://chain.example' });
     expect(index.sourceHosts).toEqual({ 10: 'chain.example' });
   });
@@ -188,6 +238,96 @@ describe('netlogDatasetIndexer', () => {
         error: -2,
       }),
     ]);
+  });
+
+  it('纯 Dataset 扫描仍允许无 dependency socket 使用 early reducer', async () => {
+    const text = '{"constants":{"logEventTypes":{"UDP_CONNECT":1},"logSourceType":{"UDP_SOCKET":20}},"events":[{"time":"1","type":1,"source":{"id":300,"type":20},"phase":0,"params":{"address":"203.0.113.201:443"}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+
+    const { index, parseSkipStats, socketsState } = await buildNetlogCompactEventIndex(file);
+
+    expect(index.count).toBe(1);
+    expect(parseSkipStats.socketParseSkippedEvents).toBe(1);
+    expect(parseSkipStats.socketParseSkippedBytes).toBeGreaterThan(0);
+    expect(socketsState.lazyParamsStats.earlyReducerEvents).toBe(1);
+  });
+
+  it('诊断 onEvent 路径对每个事件正文只执行一次完整 JSON.parse', async () => {
+    const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1,"UDP_CONNECT":2,"URL_REQUEST":3},"logSourceType":{"SOCKET":20,"UDP_SOCKET":21,"URL_REQUEST":22}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"byte_count":1024}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"address":"203.0.113.201:443"}},{"time":"3","type":3,"source":{"id":12,"type":22},"phase":0,"params":{"url":"https://once.example"}}]}';
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const originalParse = JSON.parse;
+    const parsedEventTexts: string[] = [];
+    const parseSpy = jest.spyOn(JSON, 'parse').mockImplementation((value: string) => {
+      if (typeof value === 'string' && value.includes('"source":')) {
+        parsedEventTexts.push(value);
+      }
+      return originalParse(value);
+    });
+    const onEvent = jest.fn();
+
+    try {
+      const { index, parseSkipStats } = await buildNetlogCompactEventIndex(file, {
+        onEvent,
+      });
+
+      expect(index.count).toBe(3);
+      expect(onEvent).toHaveBeenCalledTimes(3);
+      expect(parsedEventTexts).toHaveLength(3);
+      expect(new Set(parsedEventTexts).size).toBe(3);
+      expect(parseSkipStats.lightweightParseSkippedEvents).toBe(0);
+      expect(parseSkipStats.socketParseSkippedEvents).toBe(0);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it('single-scan Dataset 与完整 parser 保持诊断等价和真实 byte range', async () => {
+    const raw = {
+      constants: {
+        logEventTypes: {
+          HTTP2_SESSION_UPDATE_RECV_WINDOW: 1,
+          URL_REQUEST_START_JOB: 2,
+          UDP_CONNECT: 3,
+          REQUEST_ALIVE: 4,
+        },
+        logSourceType: {
+          HTTP2_SESSION: 20,
+          URL_REQUEST: 21,
+          UDP_SOCKET: 22,
+        },
+      },
+      events: [
+        { time: '1', type: 1, source: { id: 30, type: 20 }, phase: 0, params: {} },
+        { time: '2', type: 2, source: { id: 10, type: 21 }, phase: 0, params: { url: 'https://single-scan.example.invalid', method: 'GET' } },
+        { time: '3', type: 3, source: { id: 20, type: 22 }, phase: 0, params: { address: '203.0.113.10:443', source_dependency: { id: 10 } } },
+        { time: '4', type: 4, source: { id: 10, type: 21 }, phase: 1, params: {} },
+      ],
+    };
+    const text = JSON.stringify(raw);
+    const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
+    const analyzer = createNetlogStreamingAnalyzer();
+
+    const { index } = await buildNetlogCompactEventIndex(file, {
+      onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
+      onEvent: value => analyzer.accept(value),
+    });
+    const candidate = analyzer.finish();
+    const full = parseLog(raw);
+    const difference = compareNetlogParitySignatures(
+      buildNetlogParitySignature(full, { allowPreviewDifferences: true }),
+      buildNetlogParitySignature({
+        result: candidate.result,
+        events: candidate.eventsPreview,
+      }, { allowPreviewDifferences: true }),
+    );
+    const detail = await readNetlogEventDetail(file, index, 2);
+
+    expect(difference).toBeNull();
+    expect(index.count).toBe(raw.events.length);
+    expect(numericColumnAt(index.byteStart, 2)).toBeLessThan(
+      numericColumnAt(index.byteEnd, 2)!,
+    );
+    expect(detail).toEqual(raw.events[2]);
   });
 
   it('构建 Dataset 时生成 Alt-Svc 和 StreamPool State', async () => {
@@ -227,7 +367,7 @@ describe('netlogDatasetIndexer', () => {
     ]));
   });
 
-  it('无错误轻量事件保留 compact index，但跳过 heavy onEvent 回调', async () => {
+  it('存在诊断 onEvent 消费者时轻量事件也走完整解析', async () => {
     const text = '{"constants":{"logEventTypes":{"SOCKET_BYTES_RECEIVED":1,"URL_REQUEST":2},"logSourceType":{"SOCKET":20,"URL_REQUEST":21}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"byte_count":1024}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"url":"https://keep.example"}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
     const onEvent = jest.fn();
@@ -236,15 +376,15 @@ describe('netlogDatasetIndexer', () => {
     const { index, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent, onLightweightEvent });
 
     expect(index.count).toBe(2);
-    expect(index.typeId).toEqual([1, 2]);
+    expect(Array.from(numericColumnValues(index.typeId))).toEqual([1, 2]);
     expect(index.byteStart).toHaveLength(2);
-    expect(onLightweightEvent).toHaveBeenCalledWith(1, 20, expect.objectContaining({
-      eventId: 0,
-      typeName: 'SOCKET_BYTES_RECEIVED',
-    }));
-    expect(onEvent).toHaveBeenCalledTimes(1);
-    expect(onEvent.mock.calls[0][0]).toEqual(expect.objectContaining({ type: 2 }));
-    expect(socketsState.eventCount).toBe(0);
+    expect(onLightweightEvent).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent.mock.calls.map(call => call[0])).toEqual([
+      expect.objectContaining({ type: 1 }),
+      expect.objectContaining({ type: 2 }),
+    ]);
+    expect(socketsState.eventCount).toBe(1);
   });
 
   it('无错误轻量事件命中 probe gate 时不执行完整 JSON.parse', async () => {
@@ -263,9 +403,9 @@ describe('netlogDatasetIndexer', () => {
       const { index, parseSkipStats } = await buildNetlogCompactEventIndex(file, { onLightweightEvent });
 
       expect(index.count).toBe(2);
-      expect(index.time[0]).toBe(123.5);
-      expect(index.sourceId[0]).toBe(10);
-      expect(index.sourceTypeId[0]).toBe(20);
+      expect(numericColumnAt(index.time, 0)).toBe(123.5);
+      expect(numericColumnAt(index.sourceId, 0)).toBe(10);
+      expect(numericColumnAt(index.sourceTypeId, 0)).toBe(20);
       expect(onLightweightEvent).toHaveBeenCalledWith(1, 20, expect.objectContaining({
         eventId: 0,
         typeName: 'SOCKET_BYTES_RECEIVED',
@@ -288,16 +428,16 @@ describe('netlogDatasetIndexer', () => {
     expect(index.count).toBe(2);
     expect(parseSkipStats.lightweightParseSkippedEvents).toBe(0);
     expect(parseSkipStats.lightweightParseSkippedBytes).toBe(0);
-    expect(parseSkipStats.socketParseSkippedEvents).toBe(1);
-    expect(parseSkipStats.socketParseSkippedBytes).toBeGreaterThan(0);
+    expect(parseSkipStats.socketParseSkippedEvents).toBe(0);
+    expect(parseSkipStats.socketParseSkippedBytes).toBe(0);
     expect(onLightweightEvent).not.toHaveBeenCalled();
-    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent).toHaveBeenCalledTimes(2);
     expect(socketsState.eventCount).toBe(2);
     expect(socketsState.errors).toEqual([
       expect.objectContaining({ eventId: 0, error: -7 }),
     ]);
-    expect(index.sourceDependencyFrom).toEqual([11]);
-    expect(index.sourceDependencyTo).toEqual([99]);
+    expect(Array.from(numericColumnValues(index.sourceDependencyFrom!))).toEqual([11]);
+    expect(Array.from(numericColumnValues(index.sourceDependencyTo!))).toEqual([99]);
   });
 
   it('带 dependency 的 socket 事件保留完整 parse 路径和 Endpoint Evidence socket peer', async () => {
@@ -333,7 +473,7 @@ describe('netlogDatasetIndexer', () => {
     ]));
   });
 
-  it('无 dependency 的 socket 事件可 parse-skip 并保留 Endpoint Evidence global candidate', async () => {
+  it('存在诊断 onEvent 消费者时无 dependency socket 也走完整解析', async () => {
     const text = '{"constants":{"logEventTypes":{"UDP_CONNECT":1},"logSourceType":{"UDP_SOCKET":20}},"events":[{"time":"1","type":1,"source":{"id":300,"type":20},"phase":0,"params":{"address":"203.0.113.201:443"}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
     const onEvent = jest.fn();
@@ -341,10 +481,10 @@ describe('netlogDatasetIndexer', () => {
     const { index, parseSkipStats, endpointEvidence, socketsState } = await buildNetlogCompactEventIndex(file, { onEvent });
 
     expect(index.count).toBe(1);
-    expect(onEvent).not.toHaveBeenCalled();
-    expect(parseSkipStats.socketParseSkippedEvents).toBe(1);
-    expect(parseSkipStats.socketParseSkippedBytes).toBeGreaterThan(0);
-    expect(socketsState.lazyParamsStats.earlyReducerEvents).toBe(1);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(parseSkipStats.socketParseSkippedEvents).toBe(0);
+    expect(parseSkipStats.socketParseSkippedBytes).toBe(0);
+    expect(socketsState.lazyParamsStats.earlyReducerEvents).toBe(0);
     expect(endpointEvidence.failedOrSlowIps).toEqual([
       expect.objectContaining({
         role: 'socket-peer',

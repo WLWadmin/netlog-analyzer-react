@@ -26,7 +26,7 @@ import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatas
 import { buildNetlogSourceChainDetailView, buildNetlogSourceChainView } from './netlogSourceChainView';
 import { buildNetlogRawEvidenceStructureView, getNetlogRawEvidenceMetadataValue, queryNetlogRawEvidenceEvents } from './netlogRawEvidenceView';
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
-import { extractSourceTypeId, extractTopLevelNumericField } from './netlogEventJsonProbe';
+import { extractTopLevelNumericField } from './netlogEventJsonProbe';
 import { LIGHTWEIGHT_COUNT_EVENT_NAMES } from './netlogLightweightEvents';
 import {
   buildAnalysisProgress,
@@ -103,11 +103,6 @@ function countObjectKeys(value: unknown): number {
 
 function extractEventTypeId(eventJson: string): number | undefined {
   return extractTopLevelNumericField(eventJson, 'type');
-}
-
-function hasErrorMarker(eventJson: string): boolean {
-  if (!/"(?:net_error|error_code)"\s*:/.test(eventJson)) return false;
-  return !/"(?:net_error|error_code)"\s*:\s*0(?:[,}])/.test(eventJson);
 }
 
 function buildLightweightTypeSet(constants: any): Set<number> {
@@ -271,16 +266,7 @@ async function parseLargeNetlogFile(payload: File | {
     const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
       ...(stream ? { stream } : {}),
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
-      onEvent: (event) => {
-        try {
-          analyzer.accept(event);
-        } catch {
-          // 单个事件 summary 解析失败不应中断 Dataset 构建
-        }
-      },
-      onLightweightEvent: (typeId, sourceTypeId) => {
-        analyzer.recordLightweightEvent(typeId, sourceTypeId);
-      },
+      onEvent: event => analyzer.accept(event),
       onProgress: (bytesRead, eventCount) => {
         sendStructuredProgress(id, start, {
           parserId: 'chromium-netlog@1',
@@ -421,10 +407,6 @@ async function parseLargeNetlogFile(payload: File | {
     try {
       const eventTypeId = extractEventTypeId(eventJson);
       sampleCollector?.maybeCollect(eventTypeId !== undefined ? eventNameById[eventTypeId] : undefined, eventJson);
-      if (eventTypeId !== undefined && lightweightTypeIds.has(eventTypeId) && !hasErrorMarker(eventJson)) {
-        analyzer.recordLightweightEvent(eventTypeId, extractSourceTypeId(eventJson));
-        continue;
-      }
       analyzer.accept(JSON.parse(eventJson));
     } catch {
       scanMeta.skippedEvents++;

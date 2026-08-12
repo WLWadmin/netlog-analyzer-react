@@ -1,5 +1,6 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { NetlogIndexableFile } from './netlogDatasetIndexer';
+import { numericColumnAt } from './chunkedNumericColumn';
 
 export interface QueryNetlogEventsPayload {
   analysisId: string;
@@ -60,8 +61,8 @@ function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<numbe
   for (let cursor = 0; cursor < queue.length; cursor += 1) {
     const current = queue[cursor];
     for (let i = 0; i < from.length; i += 1) {
-      const a = from[i];
-      const b = to[i];
+      const a = numericColumnAt(from, i);
+      const b = numericColumnAt(to, i);
       const next = a === current ? b : b === current ? a : undefined;
       if (next && !chain.has(next)) {
         chain.add(next);
@@ -73,15 +74,18 @@ function buildSourceChain(index: CompactEventIndex, sourceId: number): Set<numbe
 }
 
 function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEventsPayload, sourceChain?: Set<number>): boolean {
-  if (query.typeId !== undefined && index.typeId[eventId] !== query.typeId) return false;
-  if (query.sourceId !== undefined && index.sourceId[eventId] !== query.sourceId) return false;
-  if (sourceChain && !sourceChain.has(index.sourceId[eventId])) return false;
-  if (query.sourceTypeId !== undefined && index.sourceTypeId[eventId] !== query.sourceTypeId) return false;
-  if (query.typeName && (index.eventTypeNames?.[index.typeId[eventId]] || '').toLowerCase() !== query.typeName.toLowerCase()) return false;
-  if (query.sourceTypeName && (index.sourceTypeNames?.[index.sourceTypeId[eventId]] || '').toLowerCase() !== query.sourceTypeName.toLowerCase()) return false;
-  if (query.phase !== undefined && index.phase[eventId] !== query.phase) return false;
-  if (query.errorOnly && index.flags[eventId] !== 1) return false;
-  const time = index.time[eventId] || 0;
+  const typeId = numericColumnAt(index.typeId, eventId) || 0;
+  const sourceId = numericColumnAt(index.sourceId, eventId) || 0;
+  const sourceTypeId = numericColumnAt(index.sourceTypeId, eventId) || 0;
+  if (query.typeId !== undefined && typeId !== query.typeId) return false;
+  if (query.sourceId !== undefined && sourceId !== query.sourceId) return false;
+  if (sourceChain && !sourceChain.has(sourceId)) return false;
+  if (query.sourceTypeId !== undefined && sourceTypeId !== query.sourceTypeId) return false;
+  if (query.typeName && (index.eventTypeNames?.[typeId] || '').toLowerCase() !== query.typeName.toLowerCase()) return false;
+  if (query.sourceTypeName && (index.sourceTypeNames?.[sourceTypeId] || '').toLowerCase() !== query.sourceTypeName.toLowerCase()) return false;
+  if (query.phase !== undefined && numericColumnAt(index.phase, eventId) !== query.phase) return false;
+  if (query.errorOnly && numericColumnAt(index.flags, eventId) !== 1) return false;
+  const time = numericColumnAt(index.time, eventId) || 0;
   if (query.startTime !== undefined && time < query.startTime) return false;
   if (query.endTime !== undefined && time > query.endTime) return false;
   return true;
@@ -95,22 +99,22 @@ function phaseName(phase: number): string {
 }
 
 function toRow(index: CompactEventIndex, eventId: number): NetlogEventRow {
-  const typeId = index.typeId[eventId] || 0;
-  const sourceTypeId = index.sourceTypeId[eventId] || 0;
-  const phase = index.phase[eventId] || 0;
+  const typeId = numericColumnAt(index.typeId, eventId) || 0;
+  const sourceTypeId = numericColumnAt(index.sourceTypeId, eventId) || 0;
+  const phase = numericColumnAt(index.phase, eventId) || 0;
   return {
     eventId,
-    time: index.time[eventId] || 0,
+    time: numericColumnAt(index.time, eventId) || 0,
     typeId,
     typeName: index.eventTypeNames?.[typeId] || `UNKNOWN_${typeId}`,
-    sourceId: index.sourceId[eventId] || 0,
+    sourceId: numericColumnAt(index.sourceId, eventId) || 0,
     sourceTypeId,
     sourceTypeName: index.sourceTypeNames?.[sourceTypeId] || (sourceTypeId ? `UNKNOWN_SRC_${sourceTypeId}` : 'UNKNOWN_SRC'),
     phase,
     phaseName: phaseName(phase),
-    hasError: index.flags[eventId] === 1,
-    byteStart: index.byteStart[eventId],
-    byteEnd: index.byteEnd[eventId],
+    hasError: numericColumnAt(index.flags, eventId) === 1,
+    byteStart: numericColumnAt(index.byteStart, eventId) || 0,
+    byteEnd: numericColumnAt(index.byteEnd, eventId) || 0,
   };
 }
 
@@ -154,8 +158,8 @@ export function queryNetlogEvents(index: CompactEventIndex, query: QueryNetlogEv
 }
 
 async function rawEventMatches(file: NetlogIndexableFile, index: CompactEventIndex, eventId: number, needle: string): Promise<boolean> {
-  const start = index.byteStart[eventId];
-  const end = index.byteEnd[eventId];
+  const start = numericColumnAt(index.byteStart, eventId);
+  const end = numericColumnAt(index.byteEnd, eventId);
   if (start === undefined || end === undefined) return false;
   const text = await file.slice(start, end).text();
   return text.toLowerCase().includes(needle);

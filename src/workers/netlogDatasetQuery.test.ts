@@ -1,5 +1,6 @@
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
 import type { CompactEventIndex, NetlogIndexableFile } from './netlogDatasetIndexer';
+import { numericColumnIndexOf } from './chunkedNumericColumn';
 
 const index: CompactEventIndex = {
   count: 4,
@@ -74,7 +75,7 @@ describe('queryNetlogEvents', () => {
       size: events.join('').length,
       stream: () => new Blob([]).stream(),
       slice: (start?: number) => {
-        const eventId = index.byteStart.indexOf(start || 0);
+        const eventId = numericColumnIndexOf(index.byteStart, start || 0);
         return { text: async () => events[eventId] || '{}' } as Blob;
       },
     };
@@ -100,7 +101,7 @@ describe('queryNetlogEvents', () => {
       size: events.join('').length,
       stream: () => new Blob([]).stream(),
       slice: (start?: number) => {
-        const eventId = index.byteStart.indexOf(start || 0);
+        const eventId = numericColumnIndexOf(index.byteStart, start || 0);
         return { text: async () => events[eventId] || '{}' } as Blob;
       },
     };
@@ -150,7 +151,7 @@ describe('queryNetlogEvents', () => {
       size: events.join('').length,
       stream: () => new Blob([]).stream(),
       slice: (start?: number) => {
-        const eventId = index.byteStart.indexOf(start || 0);
+        const eventId = numericColumnIndexOf(index.byteStart, start || 0);
         return { text: async () => events[eventId] || '{}' } as Blob;
       },
     };
@@ -178,7 +179,7 @@ describe('queryNetlogEvents', () => {
       size: events.join('').length,
       stream: () => new Blob([]).stream(),
       slice: (start?: number) => {
-        const eventId = index.byteStart.indexOf(start || 0);
+        const eventId = numericColumnIndexOf(index.byteStart, start || 0);
         return { text: async () => events[eventId] || '{}' } as Blob;
       },
     };
@@ -216,7 +217,7 @@ describe('queryNetlogEvents', () => {
       size: events.join('').length,
       stream: () => new Blob([]).stream(),
       slice: (start?: number) => {
-        const eventId = index.byteStart.indexOf(start || 0);
+        const eventId = numericColumnIndexOf(index.byteStart, start || 0);
         return { text: async () => events[eventId] || '{}' } as Blob;
       },
     };

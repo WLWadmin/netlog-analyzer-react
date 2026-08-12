@@ -1,5 +1,10 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import type { TimelineStateView } from './netlogDatasetViews';
+import {
+  numericColumnAt,
+  numericColumnValues,
+  type NumericColumn,
+} from './chunkedNumericColumn';
 
 const DEFAULT_BUCKET_COUNT = 60;
 
@@ -8,29 +13,31 @@ function nameOf(names: Record<number, string> | undefined, id: number, fallback:
 }
 
 function sortedCounts(
-  ids: number[],
-  flags: number[],
+  ids: NumericColumn,
+  flags: NumericColumn,
   names: Record<number, string> | undefined,
   fallback: string
 ): Array<{ name: string; count: number; errorCount: number }> {
   const map = new Map<number, { count: number; errorCount: number }>();
-  ids.forEach((id, index) => {
+  let index = 0;
+  for (const id of numericColumnValues(ids)) {
     const row = map.get(id) || { count: 0, errorCount: 0 };
     row.count += 1;
-    if (flags[index]) row.errorCount += 1;
+    if (numericColumnAt(flags, index)) row.errorCount += 1;
     map.set(id, row);
-  });
+    index += 1;
+  }
   return Array.from(map.entries())
     .map(([id, row]) => ({ name: nameOf(names, id, fallback), ...row }))
     .sort((a, b) => b.errorCount - a.errorCount || b.count - a.count)
     .slice(0, 30);
 }
 
-function finiteTimeRange(times: number[]): { start: number; end: number } {
+function finiteTimeRange(times: NumericColumn): { start: number; end: number } {
   let start = Infinity;
   let end = -Infinity;
   let hasFiniteTime = false;
-  for (const time of times) {
+  for (const time of numericColumnValues(times)) {
     if (!Number.isFinite(time)) continue;
     hasFiniteTime = true;
     if (time < start) start = time;
@@ -55,14 +62,18 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
   const notableEvents: TimelineStateView['notableEvents'] = [];
 
   for (let eventId = 0; eventId < index.count; eventId += 1) {
-    const time = index.time[eventId] || 0;
+    const time = numericColumnAt(index.time, eventId) || 0;
     const bucketIndex = duration > 0 ? Math.min(bucketCount - 1, Math.max(0, Math.floor((time - start) / bucketSizeMs))) : 0;
     const bucket = buckets[bucketIndex];
     bucket.eventCount += 1;
-    if (index.flags[eventId]) bucket.errorCount += 1;
+    if (numericColumnAt(index.flags, eventId)) bucket.errorCount += 1;
 
-    const sourceId = index.sourceId[eventId] || 0;
-    const sourceTypeName = nameOf(index.sourceTypeNames, index.sourceTypeId[eventId] || 0, 'SOURCE');
+    const sourceId = numericColumnAt(index.sourceId, eventId) || 0;
+    const sourceTypeName = nameOf(
+      index.sourceTypeNames,
+      numericColumnAt(index.sourceTypeId, eventId) || 0,
+      'SOURCE',
+    );
     const source = sourceMap.get(sourceId) || {
       sourceId,
       sourceTypeName,
@@ -74,23 +85,27 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
       lastTime: time,
     };
     source.eventCount += 1;
-    if (index.flags[eventId]) source.errorCount += 1;
+    if (numericColumnAt(index.flags, eventId)) source.errorCount += 1;
     source.firstEventId = Math.min(source.firstEventId, eventId);
     source.lastEventId = Math.max(source.lastEventId, eventId);
     source.firstTime = Math.min(source.firstTime, time);
     source.lastTime = Math.max(source.lastTime, time);
     sourceMap.set(sourceId, source);
 
-    if (index.flags[eventId] && notableEvents.length < 100) {
+    if (numericColumnAt(index.flags, eventId) && notableEvents.length < 100) {
       notableEvents.push({
         sourceId,
         eventId,
-        byteStart: index.byteStart[eventId],
-        byteEnd: index.byteEnd[eventId],
+        byteStart: numericColumnAt(index.byteStart, eventId),
+        byteEnd: numericColumnAt(index.byteEnd, eventId),
         time,
-        typeName: nameOf(index.eventTypeNames, index.typeId[eventId] || 0, 'EVENT'),
+        typeName: nameOf(
+          index.eventTypeNames,
+          numericColumnAt(index.typeId, eventId) || 0,
+          'EVENT',
+        ),
         sourceTypeName,
-        phase: index.phase[eventId] || 0,
+        phase: numericColumnAt(index.phase, eventId) || 0,
         hasError: true,
       });
     }

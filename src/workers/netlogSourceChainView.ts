@@ -1,6 +1,7 @@
 import type { CompactEventIndex } from './netlogDatasetIndexer';
 import { queryNetlogEvents } from './netlogDatasetQuery';
 import type { NetlogSourceChainDetailView, NetlogSourceChainEdgeView, NetlogSourceChainNodeView, NetlogSourceChainView } from './netlogDatasetViews';
+import { numericColumnAt } from './chunkedNumericColumn';
 
 function buildSourceGraph(eventIndex: CompactEventIndex) {
   const nodes = new Map<number, NetlogSourceChainNodeView>();
@@ -9,16 +10,18 @@ function buildSourceGraph(eventIndex: CompactEventIndex) {
   const edgeCount = Math.min(eventIndex.sourceDependencyFrom?.length || 0, eventIndex.sourceDependencyTo?.length || 0);
 
   for (let i = 0; i < eventIndex.count; i += 1) {
-    const sourceId = eventIndex.sourceId[i];
+    const sourceId = numericColumnAt(eventIndex.sourceId, i) || 0;
     if (!Number.isFinite(sourceId) || sourceId <= 0) continue;
-    const typeName = eventIndex.sourceTypeNames?.[eventIndex.sourceTypeId[i]] || `SOURCE_TYPE_${eventIndex.sourceTypeId[i]}`;
+    const sourceTypeId = numericColumnAt(eventIndex.sourceTypeId, i) || 0;
+    const typeName = eventIndex.sourceTypeNames?.[sourceTypeId] || `SOURCE_TYPE_${sourceTypeId}`;
     const existing = nodes.get(sourceId);
-    const hasError = eventIndex.flags[i] === 1;
+    const hasError = numericColumnAt(eventIndex.flags, i) === 1;
+    const time = numericColumnAt(eventIndex.time, i) || 0;
     const errorCode = eventIndex.sourceErrorCodes?.[sourceId];
     if (existing) {
       existing.eventCount += 1;
-      existing.startTime = Math.min(existing.startTime, eventIndex.time[i]);
-      existing.endTime = Math.max(existing.endTime, eventIndex.time[i]);
+      existing.startTime = Math.min(existing.startTime, time);
+      existing.endTime = Math.max(existing.endTime, time);
       existing.lastEventId = eventIndex.sourceLastEventId?.[sourceId] ?? i;
       existing.url = existing.url || eventIndex.sourceUrls?.[sourceId];
       existing.host = existing.host || eventIndex.sourceHosts?.[sourceId];
@@ -37,8 +40,8 @@ function buildSourceGraph(eventIndex: CompactEventIndex) {
         type: typeName,
         url,
         host: eventIndex.sourceHosts?.[sourceId],
-        startTime: eventIndex.time[i],
-        endTime: eventIndex.time[i],
+        startTime: time,
+        endTime: time,
         firstEventId: eventIndex.sourceFirstEventId?.[sourceId] ?? i,
         lastEventId: eventIndex.sourceLastEventId?.[sourceId] ?? i,
         eventCount: 1,
@@ -50,8 +53,8 @@ function buildSourceGraph(eventIndex: CompactEventIndex) {
   }
 
   for (let i = 0; i < edgeCount; i += 1) {
-    const from = eventIndex.sourceDependencyFrom?.[i];
-    const to = eventIndex.sourceDependencyTo?.[i];
+    const from = numericColumnAt(eventIndex.sourceDependencyFrom, i);
+    const to = numericColumnAt(eventIndex.sourceDependencyTo, i);
     if (!from || !to || from === to) continue;
     if (!adjacency.has(from)) adjacency.set(from, new Set());
     if (!adjacency.has(to)) adjacency.set(to, new Set());
@@ -59,15 +62,19 @@ function buildSourceGraph(eventIndex: CompactEventIndex) {
     adjacency.get(to)!.add(from);
     const fromNode = nodes.get(from);
     const toNode = nodes.get(to);
-    const sampleEventId = eventIndex.sourceDependencyEventId?.[i];
+    const sampleEventId = numericColumnAt(eventIndex.sourceDependencyEventId, i);
     edges.push({
       fromSourceId: from,
       toSourceId: to,
       fromType: fromNode?.type || 'UNKNOWN_SRC',
       toType: toNode?.type || 'UNKNOWN_SRC',
       sampleEventId,
-      byteStart: sampleEventId !== undefined ? eventIndex.byteStart[sampleEventId] : undefined,
-      byteEnd: sampleEventId !== undefined ? eventIndex.byteEnd[sampleEventId] : undefined,
+      byteStart: sampleEventId !== undefined
+        ? numericColumnAt(eventIndex.byteStart, sampleEventId)
+        : undefined,
+      byteEnd: sampleEventId !== undefined
+        ? numericColumnAt(eventIndex.byteEnd, sampleEventId)
+        : undefined,
     });
   }
 

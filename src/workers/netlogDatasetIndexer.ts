@@ -23,22 +23,28 @@ import {
   hasNetlogErrorMarker,
   hasNetlogSourceDependencyMarker,
 } from './netlogEventJsonProbe';
+import {
+  ChunkedNumericColumn,
+  numericColumnAt,
+  numericColumnValues,
+  type NumericColumn,
+} from './chunkedNumericColumn';
 
 export interface CompactEventIndex {
   count: number;
-  time: number[];
-  typeId: number[];
-  sourceTypeId: number[];
-  sourceId: number[];
-  phase: number[];
-  flags: number[];
-  byteStart: number[];
-  byteEnd: number[];
+  time: NumericColumn;
+  typeId: NumericColumn;
+  sourceTypeId: NumericColumn;
+  sourceId: NumericColumn;
+  phase: NumericColumn;
+  flags: NumericColumn;
+  byteStart: NumericColumn;
+  byteEnd: NumericColumn;
   eventTypeNames?: Record<number, string>;
   sourceTypeNames?: Record<number, string>;
-  sourceDependencyFrom?: number[];
-  sourceDependencyTo?: number[];
-  sourceDependencyEventId?: number[];
+  sourceDependencyFrom?: NumericColumn;
+  sourceDependencyTo?: NumericColumn;
+  sourceDependencyEventId?: NumericColumn;
   sourceUrls?: Record<number, string>;
   sourceHosts?: Record<number, string>;
   sourceErrorCodes?: Record<number, number>;
@@ -102,19 +108,19 @@ function decodeAscii(bytes: number[]): string {
 function emptyIndex(): CompactEventIndex {
   return {
     count: 0,
-    time: [],
-    typeId: [],
-    sourceTypeId: [],
-    sourceId: [],
-    phase: [],
-    flags: [],
-    byteStart: [],
-    byteEnd: [],
+    time: new ChunkedNumericColumn(Float64Array),
+    typeId: new ChunkedNumericColumn(Uint32Array),
+    sourceTypeId: new ChunkedNumericColumn(Uint32Array),
+    sourceId: new ChunkedNumericColumn(Uint32Array),
+    phase: new ChunkedNumericColumn(Uint8Array),
+    flags: new ChunkedNumericColumn(Uint8Array),
+    byteStart: new ChunkedNumericColumn(Float64Array),
+    byteEnd: new ChunkedNumericColumn(Float64Array),
     eventTypeNames: {},
     sourceTypeNames: {},
-    sourceDependencyFrom: [],
-    sourceDependencyTo: [],
-    sourceDependencyEventId: [],
+    sourceDependencyFrom: new ChunkedNumericColumn(Uint32Array),
+    sourceDependencyTo: new ChunkedNumericColumn(Uint32Array),
+    sourceDependencyEventId: new ChunkedNumericColumn(Uint32Array),
     sourceUrls: {},
     sourceHosts: {},
     sourceErrorCodes: {},
@@ -122,6 +128,16 @@ function emptyIndex(): CompactEventIndex {
     sourceLastEventId: {},
     topLevelValueRanges: {},
   };
+}
+
+function appendColumn(column: NumericColumn | undefined, value: number): void {
+  if (column instanceof ChunkedNumericColumn) {
+    column.push(value);
+    return;
+  }
+  if (Array.isArray(column)) {
+    column.push(value);
+  }
 }
 
 function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
@@ -212,14 +228,14 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
   const sourceId = Number(event?.source?.id ?? event?.source_id) || 0;
   const eventId = index.count;
   index.count += 1;
-  index.time.push(Number(event?.time) || 0);
-  index.typeId.push(Number(event?.type) || 0);
-  index.sourceTypeId.push(Number(event?.source?.type ?? event?.source_type) || 0);
-  index.sourceId.push(sourceId);
-  index.phase.push(Number(event?.phase) || 0);
-  index.flags.push(event?.params?.net_error || event?.params?.error_code ? 1 : 0);
-  index.byteStart.push(byteStart);
-  index.byteEnd.push(byteEnd);
+  appendColumn(index.time, Number(event?.time) || 0);
+  appendColumn(index.typeId, Number(event?.type) || 0);
+  appendColumn(index.sourceTypeId, Number(event?.source?.type ?? event?.source_type) || 0);
+  appendColumn(index.sourceId, sourceId);
+  appendColumn(index.phase, Number(event?.phase) || 0);
+  appendColumn(index.flags, event?.params?.net_error || event?.params?.error_code ? 1 : 0);
+  appendColumn(index.byteStart, byteStart);
+  appendColumn(index.byteEnd, byteEnd);
   if (sourceId > 0) {
     if (index.sourceFirstEventId?.[sourceId] === undefined) index.sourceFirstEventId![sourceId] = eventId;
     index.sourceLastEventId![sourceId] = eventId;
@@ -234,9 +250,9 @@ function pushEvent(index: CompactEventIndex, event: any, byteStart: number, byte
   }
   for (const dependencySourceId of extractDependencySourceIds(event?.params)) {
     if (sourceId > 0 && dependencySourceId > 0) {
-      index.sourceDependencyFrom?.push(sourceId);
-      index.sourceDependencyTo?.push(dependencySourceId);
-      index.sourceDependencyEventId?.push(eventId);
+      appendColumn(index.sourceDependencyFrom, sourceId);
+      appendColumn(index.sourceDependencyTo, dependencySourceId);
+      appendColumn(index.sourceDependencyEventId, eventId);
     }
   }
 }
@@ -249,14 +265,14 @@ function pushProbedEvent(
 ) {
   const eventId = index.count;
   index.count += 1;
-  index.time.push(fields.time || 0);
-  index.typeId.push(fields.typeId || 0);
-  index.sourceTypeId.push(fields.sourceTypeId || 0);
-  index.sourceId.push(fields.sourceId || 0);
-  index.phase.push(fields.phase || 0);
-  index.flags.push(fields.hasError ? 1 : 0);
-  index.byteStart.push(byteStart);
-  index.byteEnd.push(byteEnd);
+  appendColumn(index.time, fields.time || 0);
+  appendColumn(index.typeId, fields.typeId || 0);
+  appendColumn(index.sourceTypeId, fields.sourceTypeId || 0);
+  appendColumn(index.sourceId, fields.sourceId || 0);
+  appendColumn(index.phase, fields.phase || 0);
+  appendColumn(index.flags, fields.hasError ? 1 : 0);
+  appendColumn(index.byteStart, byteStart);
+  appendColumn(index.byteEnd, byteEnd);
   const sourceId = fields.sourceId || 0;
   if (sourceId > 0) {
     if (index.sourceFirstEventId?.[sourceId] === undefined) index.sourceFirstEventId![sourceId] = eventId;
@@ -358,9 +374,11 @@ function hasSocketDependencyLikeShape(eventJson: string): boolean {
     /"(?:source_id|sourceId|parent_source_id|parentSourceId|url_request_source_id|urlRequestSourceId|request_source_id|requestSourceId|stream_source_id|streamSourceId|socket_source_id|socketSourceId|connect_job_source_id|connectJobSourceId|job_source_id|jobSourceId)"\s*:/.test(paramsBlock);
 }
 
-function topCounts(ids: number[], names: Record<number, string> | undefined): Array<{ name: string; count: number }> {
+function topCounts(ids: NumericColumn, names: Record<number, string> | undefined): Array<{ name: string; count: number }> {
   const counts = new Map<number, number>();
-  ids.forEach(id => counts.set(id, (counts.get(id) || 0) + 1));
+  for (const id of numericColumnValues(ids)) {
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 30)
@@ -393,8 +411,8 @@ function buildDataLoadedView(file: NetlogIndexableFile, index: CompactEventIndex
 }
 
 export async function readNetlogEventDetail(file: NetlogIndexableFile, index: CompactEventIndex, eventId: number): Promise<unknown> {
-  const start = index.byteStart[eventId];
-  const end = index.byteEnd[eventId];
+  const start = numericColumnAt(index.byteStart, eventId);
+  const end = numericColumnAt(index.byteEnd, eventId);
   if (start === undefined || end === undefined) {
     throw new Error(`NetLog eventId 不存在：${eventId}`);
   }
@@ -456,8 +474,23 @@ export async function buildNetlogCompactEventIndex(
   let objectInString = false;
   let objectEscape = false;
   let objectStart = -1;
-  let objectBytes: number[] = [];
+  let objectBytes = new Uint8Array(1024);
+  let objectByteLength = 0;
   let lastProgressAt = 0;
+
+  const resetObjectBytes = () => {
+    objectByteLength = 0;
+  };
+
+  const appendObjectByte = (byte: number) => {
+    if (objectByteLength >= objectBytes.length) {
+      const next = new Uint8Array(objectBytes.length * 2);
+      next.set(objectBytes);
+      objectBytes = next;
+    }
+    objectBytes[objectByteLength] = byte;
+    objectByteLength += 1;
+  };
 
   const resetSkip = () => {
     skipStarted = false;
@@ -508,7 +541,7 @@ export async function buildNetlogCompactEventIndex(
   };
 
   const finishObject = async (byteEnd: number) => {
-    const eventJson = decoder.decode(new Uint8Array(objectBytes));
+    const eventJson = decoder.decode(objectBytes.subarray(0, objectByteLength));
     const probedTypeId = extractTopLevelNumericField(eventJson, 'type');
     if (probedTypeId !== undefined) {
       const probedTypeName = eventName(index, probedTypeId);
@@ -516,7 +549,12 @@ export async function buildNetlogCompactEventIndex(
       const probedSourceTypeName = sourceTypeName(index, probedSourceTypeId || 0);
       const probedHasError = hasNetlogErrorMarker(eventJson);
       const probedHasDependency = hasNetlogSourceDependencyMarker(eventJson);
-      if (isLightweightCountEventName(probedTypeName) && !probedHasError && !probedHasDependency) {
+      if (
+        !options.onEvent
+        && isLightweightCountEventName(probedTypeName)
+        && !probedHasError
+        && !probedHasDependency
+      ) {
         const sourceId = extractSourceId(eventJson);
         const eventId = index.count;
         pushProbedEvent(index, {
@@ -535,11 +573,12 @@ export async function buildNetlogCompactEventIndex(
         });
         parseSkipStats.lightweightParseSkippedEvents += 1;
         parseSkipStats.lightweightParseSkippedBytes += eventJson.length;
-        objectBytes = [];
+        resetObjectBytes();
         objectStart = -1;
         return;
       }
       if (
+        !options.onEvent &&
         isSocketEarlyReducerCandidate(probedTypeName, probedSourceTypeName) &&
         canProbeSocketParamsFromEventJson(eventJson) &&
         !hasSocketDependencyLikeShape(eventJson)
@@ -559,9 +598,9 @@ export async function buildNetlogCompactEventIndex(
         }, objectStart, byteEnd);
         for (const dependencySourceId of dependencySourceIds) {
           if (sourceId > 0 && dependencySourceId > 0 && sourceId !== dependencySourceId) {
-            index.sourceDependencyFrom?.push(sourceId);
-            index.sourceDependencyTo?.push(dependencySourceId);
-            index.sourceDependencyEventId?.push(eventId);
+            appendColumn(index.sourceDependencyFrom, sourceId);
+            appendColumn(index.sourceDependencyTo, dependencySourceId);
+            appendColumn(index.sourceDependencyEventId, eventId);
           }
         }
         const socketSeed = {
@@ -583,7 +622,7 @@ export async function buildNetlogCompactEventIndex(
         });
         parseSkipStats.socketParseSkippedEvents = (parseSkipStats.socketParseSkippedEvents || 0) + 1;
         parseSkipStats.socketParseSkippedBytes = (parseSkipStats.socketParseSkippedBytes || 0) + eventJson.length;
-        objectBytes = [];
+        resetObjectBytes();
         objectStart = -1;
         return;
       }
@@ -596,6 +635,7 @@ export async function buildNetlogCompactEventIndex(
     const typeName = eventName(index, typeId);
     const dependencySourceIds = extractDependencySourceIds(event?.params);
     const shouldUseLightweightGate = isLightweightCountEventName(typeName) &&
+      !options.onEvent &&
       !hasErrorParams(event) &&
       dependencySourceIds.length === 0;
     if (shouldUseLightweightGate) {
@@ -605,7 +645,7 @@ export async function buildNetlogCompactEventIndex(
         byteEnd,
         typeName,
       });
-      objectBytes = [];
+      resetObjectBytes();
       objectStart = -1;
       return;
     }
@@ -634,15 +674,16 @@ export async function buildNetlogCompactEventIndex(
     reportingStateReducer.accept(seed);
     modulesStateReducer.accept(seed);
     prerenderStateReducer.accept(seed);
-    objectBytes = [];
+    resetObjectBytes();
     objectStart = -1;
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const chunk = value || new Uint8Array();
-    for (let i = 0; i < chunk.length; i++) {
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = value || new Uint8Array();
+      for (let i = 0; i < chunk.length; i++) {
       const byte = chunk[i];
       const byteOffset = absoluteByteOffset + i;
 
@@ -781,11 +822,12 @@ export async function buildNetlogCompactEventIndex(
           objectDepth = 1;
           objectInString = false;
           objectEscape = false;
-          objectBytes = [byte];
+          resetObjectBytes();
+          appendObjectByte(byte);
           continue;
         }
 
-        objectBytes.push(byte);
+        appendObjectByte(byte);
         if (objectInString) {
           if (objectEscape) objectEscape = false;
           else if (byte === BACKSLASH) objectEscape = true;
@@ -805,18 +847,24 @@ export async function buildNetlogCompactEventIndex(
         }
       }
     }
-    absoluteByteOffset += chunk.length;
-    const now = Date.now();
-    if (
-      options.onProgress
-      && (
-        absoluteByteOffset >= file.size
-        || now - lastProgressAt >= 100
-      )
-    ) {
-      lastProgressAt = now;
-      options.onProgress(Math.min(absoluteByteOffset, file.size), index.count);
+      absoluteByteOffset += chunk.length;
+      const now = Date.now();
+      if (
+        options.onProgress
+        && (
+          absoluteByteOffset >= file.size
+          || now - lastProgressAt >= 100
+        )
+      ) {
+        lastProgressAt = now;
+        options.onProgress(Math.min(absoluteByteOffset, file.size), index.count);
+      }
     }
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
 
   return {
