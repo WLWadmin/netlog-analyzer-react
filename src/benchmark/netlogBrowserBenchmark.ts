@@ -8,6 +8,7 @@ import {
   releaseNetlogDatasetInWorker,
 } from '../workers/workerClient';
 import { parseUploadedInput } from '../upload/parseUploadedInput';
+import { createFileParseInput } from '../upload/createFileFormatIntake';
 import { buildUploadPhase6DecisionReport, type UploadPhase6DecisionReport } from './netlogUploadPhase6Decision';
 
 interface BrowserBenchmarkMetrics {
@@ -257,9 +258,11 @@ async function runNetlogBrowserBenchmark() {
     if (mode === 'upload-single-scan') {
       window.localStorage.setItem('netlog_single_scan_dataset', '1');
       const uploadStartedAt = nowMs();
+      const input = await createFileParseInput(file, 'netlog-browser-benchmark');
       const parsed = await parseUploadedInput({
-        data: file,
+        data: input.payload,
         fileTypeHint: 'netlog',
+        containerHint: input.container,
         useWorker: true,
         onProgress: () => undefined,
       });
@@ -304,9 +307,11 @@ async function runNetlogBrowserBenchmark() {
     if (mode === 'upload-fallback') {
       window.localStorage.removeItem('netlog_single_scan_dataset');
       const uploadStartedAt = nowMs();
+      const input = await createFileParseInput(file, 'netlog-browser-benchmark');
       const parsed = await parseUploadedInput({
-        data: file,
+        data: input.payload,
         fileTypeHint: 'netlog',
+        containerHint: input.container,
         useWorker: true,
         onProgress: () => undefined,
       });

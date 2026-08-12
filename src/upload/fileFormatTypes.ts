@@ -50,6 +50,25 @@ export interface ParseInput extends ProbeInput {
   payload: unknown;
 }
 
+export interface FileStreamParseSession {
+  kind: 'file-stream-session';
+  file: File;
+  stream: ReadableStream<Uint8Array>;
+  container: 'plain' | 'gzip';
+}
+
+export function isFileStreamParseSession(
+  value: unknown,
+): value is FileStreamParseSession {
+  return value !== null
+    && typeof value === 'object'
+    && (value as { kind?: unknown }).kind === 'file-stream-session'
+    && typeof File !== 'undefined'
+    && (value as { file?: unknown }).file instanceof File
+    && typeof ReadableStream !== 'undefined'
+    && (value as { stream?: unknown }).stream instanceof ReadableStream;
+}
+
 export interface ValidationResult {
   ok: boolean;
   evidenceCodes: string[];

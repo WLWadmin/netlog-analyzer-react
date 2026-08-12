@@ -5,6 +5,7 @@
 
 import type { NetlogDatasetParseSkipStats, NetlogDatasetSocketLazyParamsStats } from './netlogDatasetTypes';
 import type { AnalysisProgress } from '../upload/analysisProgress';
+import type { FileStreamParseSession } from '../upload/fileFormatTypes';
 
 // ============ Request Messages (Main → Worker) ============
 
@@ -19,6 +20,9 @@ export interface ParseLargeNetlogFileRequest {
   id: string;
   payload: File | {
     file: File;
+    kind?: FileStreamParseSession['kind'];
+    stream?: ReadableStream<Uint8Array>;
+    container?: FileStreamParseSession['container'];
     debug?: boolean;
     singleScanDataset?: boolean;
   };
@@ -34,7 +38,7 @@ export interface ParseHarRequest {
 export interface ParseLogRequest {
   type: 'parse-log';
   id: string;
-  payload: string | File; // raw text content or locally selected file
+  payload: string | File | FileStreamParseSession;
 }
 
 export interface SearchRawJsonRequest {

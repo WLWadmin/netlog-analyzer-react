@@ -12,6 +12,14 @@ import {
   RESULT_READY_HOLD_MS,
   useAnalysisIntake,
 } from './useAnalysisIntake';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
+
+beforeAll(() => {
+  Object.defineProperty(global, 'ReadableStream', {
+    configurable: true,
+    value: NodeReadableStream,
+  });
+});
 
 function adapter(
   parserId: FileParserId,
@@ -280,5 +288,35 @@ describe('useAnalysisIntake', () => {
     });
     await waitFor(() => expect(result.current.state.status).toBe('idle'));
     expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it('cancels an untransferred large-file stream when intake is cancelled', async () => {
+    const cancelStream = jest.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      cancel: cancelStream,
+    });
+    const parse = jest.fn().mockReturnValue(new Promise(() => undefined));
+    const registry = new FileFormatRegistry([
+      adapter('har@1', 'definite-match', parse),
+    ]);
+    const { result } = renderHook(() => useAnalysisIntake({ registry }));
+    const largeInput: ParseInput = {
+      ...input('task-stream'),
+      payload: {
+        kind: 'file-stream-session',
+        file: new File([], 'large.har'),
+        stream,
+        container: 'plain',
+      },
+    };
+
+    act(() => {
+      void result.current.prepare(largeInput, 'har@1');
+    });
+    await waitFor(() => expect(parse).toHaveBeenCalledTimes(1));
+    act(() => result.current.cancel());
+
+    await waitFor(() => expect(cancelStream).toHaveBeenCalledTimes(1));
+    expect(result.current.state.status).toBe('idle');
   });
 });

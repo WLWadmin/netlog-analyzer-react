@@ -32,7 +32,10 @@ import {
   buildAnalysisProgress,
   type AnalysisProgress,
 } from '../upload/analysisProgress';
-import type { FileParserId } from '../upload/fileFormatTypes';
+import {
+  isFileStreamParseSession,
+  type FileParserId,
+} from '../upload/fileFormatTypes';
 
 /* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
@@ -161,6 +164,18 @@ function getStoredRawData(id: string): unknown {
 }
 
 async function readWorkerFileText(payload: unknown): Promise<unknown> {
+  if (isFileStreamParseSession(payload)) {
+    const reader = payload.stream.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join('');
+  }
   return payload instanceof File ? payload.text() : payload;
 }
 
@@ -202,17 +217,33 @@ function stringifyPreview(value: unknown, maxChars: number): { text: string; tru
   return { text: `${text.slice(0, maxChars)}\n...(内容过长已截断)`, truncated: true };
 }
 
-function normalizeLargeNetlogPayload(payload: File | { file: File; debug?: boolean; singleScanDataset?: boolean }) {
-  if (payload instanceof File) return { file: payload, debug: false };
+function normalizeLargeNetlogPayload(payload: File | {
+  file: File;
+  stream?: ReadableStream<Uint8Array>;
+  debug?: boolean;
+  singleScanDataset?: boolean;
+}) {
+  if (payload instanceof File) return {
+    file: payload,
+    stream: undefined,
+    debug: false,
+    singleScanDataset: false,
+  };
   return {
     file: payload.file,
+    stream: payload.stream,
     debug: Boolean(payload.debug),
-    singleScanDataset: Boolean((payload as { singleScanDataset?: boolean }).singleScanDataset),
+    singleScanDataset: Boolean(payload.singleScanDataset),
   };
 }
 
-async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolean; singleScanDataset?: boolean }, id: string, start: number) {
-  const { file, debug, singleScanDataset } = normalizeLargeNetlogPayload(payload);
+async function parseLargeNetlogFile(payload: File | {
+  file: File;
+  stream?: ReadableStream<Uint8Array>;
+  debug?: boolean;
+  singleScanDataset?: boolean;
+}, id: string, start: number) {
+  const { file, stream, debug, singleScanDataset } = normalizeLargeNetlogPayload(payload);
   if (!file.stream) {
     throw new Error('当前浏览器不支持大文件流式读取，请升级 Chrome/Edge 后重试');
   }
@@ -238,6 +269,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
     });
     const analyzer = createNetlogStreamingAnalyzer();
     const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
+      ...(stream ? { stream } : {}),
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
       onEvent: (event) => {
         try {
@@ -272,6 +304,9 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
       phaseCount: 5,
     });
     const { result, eventsPreview, meta } = analyzer.finish();
+    // Dataset indexing counts every event, including socket events handled by
+    // early reducers without full summary object parsing.
+    result.totalEvents = eventIndex.count;
     result.largeFileMode = {
       enabled: true,
       fileSize: file.size,
@@ -335,7 +370,7 @@ async function parseLargeNetlogFile(payload: File | { file: File; debug?: boolea
   };
   let lastProgressAt = 0;
 
-  for await (const eventJson of scanNetlogEventJson(file.stream(), scanMeta, {
+  for await (const eventJson of scanNetlogEventJson(stream ?? file.stream(), scanMeta, {
     fileSize: file.size,
     onDebug: (event, details) => logLargeNetlogDebug(id, event, details),
     onTopLevelField: (key, valueJson) => {

@@ -10,6 +10,10 @@ import type {
   TraceWorkerOutcome,
   TraceWorkerRequest,
 } from './traceWorkerProtocols';
+import {
+  isFileStreamParseSession,
+  type FileStreamParseSession,
+} from '../upload/fileFormatTypes';
 
 export const TRACE_WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 const TRACE_WORKER_CANCEL_GRACE_MS = 50;
@@ -34,6 +38,7 @@ export interface TraceWorkerTask {
 
 export interface TraceWorkerOptions {
   hint: TraceUploadHint;
+  container?: 'plain' | 'gzip';
   timeoutMs?: number;
   workbenchSourceTimeoutMs?: number;
   enableWorkbench?: boolean;
@@ -61,10 +66,11 @@ function failedTask(detail: TracePublicError): TraceWorkerTask {
 }
 
 export function createTraceWorkerTask(
-  file: File,
+  input: File | FileStreamParseSession,
   options: TraceWorkerOptions,
   createWorker: WorkerFactory,
 ): TraceWorkerTask {
+  const file = isFileStreamParseSession(input) ? input.file : input;
   const taskId = `trace-task-${++taskCounter}`;
   let worker: Worker;
   try {
@@ -294,11 +300,27 @@ export function createTraceWorkerTask(
     type: 'inspect-trace-upload',
     taskId,
     file,
+    ...(isFileStreamParseSession(input) ? { stream: input.stream } : {}),
+    ...(isFileStreamParseSession(input) || options.container
+      ? { container: isFileStreamParseSession(input) ? input.container : options.container }
+      : {}),
     hint: options.hint,
     keepWorkbenchAlive: options.enableWorkbench === true,
   };
   try {
-    worker.postMessage(request);
+    if (isFileStreamParseSession(input)) {
+      try {
+        worker.postMessage(request, [input.stream as unknown as Transferable]);
+      } catch {
+        if (!input.stream.locked) {
+          void input.stream.cancel().catch(() => undefined);
+        }
+        const { stream: _stream, ...fallbackRequest } = request;
+        worker.postMessage(fallbackRequest);
+      }
+    } else {
+      worker.postMessage(request);
+    }
   } catch {
     failWorker(workerFailure('Trace Worker 消息发送失败'));
   }

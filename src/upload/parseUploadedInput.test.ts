@@ -12,6 +12,14 @@ import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import type { TraceAnalysisResult } from '../diagnosis/trace';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
 import { progressRatio, type AnalysisProgress } from './analysisProgress';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
+
+beforeAll(() => {
+  Object.defineProperty(global, 'ReadableStream', {
+    configurable: true,
+    value: NodeReadableStream,
+  });
+});
 
 jest.mock('../parsers/netlog', () => ({
   parseLog: jest.fn(),
@@ -523,7 +531,7 @@ describe('parseUploadedInput', () => {
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 
-  it('大 NetLog File 默认走 single scan 大文件 worker 且不返回 rawDataId', async () => {
+  it('超过 100MB 的 NetLog 默认走 single scan Dataset worker 且不返回 rawDataId', async () => {
     const file = new File(['{}'], 'large-netlog.json', { type: 'application/json' });
     Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
     parseLargeNetlogFileInWorkerMock.mockResolvedValue({
@@ -553,6 +561,34 @@ describe('parseUploadedInput', () => {
     });
     expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledWith(file, { onProgress, singleScanDataset: true });
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it('20–100MB NetLog 保留完整解析并复用预检流', async () => {
+    const file = new File(['{}'], 'medium-netlog.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 64 * 1024 * 1024 });
+    const stream = new ReadableStream<Uint8Array>();
+    const session = {
+      kind: 'file-stream-session' as const,
+      file,
+      stream,
+      container: 'plain' as const,
+    };
+    parseNetlogInWorkerMock.mockResolvedValue({
+      events: [],
+      result: { totalEvents: 0 },
+    });
+
+    await parseUploadedInput({
+      data: session,
+      fileTypeHint: 'netlog',
+      useWorker: true,
+    });
+
+    expect(parseNetlogInWorkerMock).toHaveBeenCalledWith(
+      session,
+      expect.any(Object),
+    );
+    expect(parseLargeNetlogFileInWorkerMock).not.toHaveBeenCalled();
   });
 
   it('localStorage 显式关闭 single scan 时大 NetLog 回到摘要 fallback 路径', async () => {

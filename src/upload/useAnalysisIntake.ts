@@ -10,6 +10,7 @@ import type {
   FormatResolution,
   ParseInput,
 } from './fileFormatTypes';
+import { isFileStreamParseSession } from './fileFormatTypes';
 import {
   buildAnalysisProgress,
   isMonotonicProgress,
@@ -203,13 +204,21 @@ export function useAnalysisIntake({
     pendingResultRef.current = undefined;
   }, []);
 
+  const releaseActiveInput = useCallback(() => {
+    const payload = activeInputRef.current?.payload;
+    if (isFileStreamParseSession(payload) && !payload.stream.locked) {
+      void payload.stream.cancel().catch(() => undefined);
+    }
+    activeInputRef.current = undefined;
+  }, []);
+
   const begin = useCallback((taskId: string) => {
     clearPendingResult();
+    releaseActiveInput();
     activeTaskIdRef.current = taskId;
-    activeInputRef.current = undefined;
     taskStartedAtRef.current = Date.now();
     dispatch({ type: 'probing', taskId });
-  }, [clearPendingResult]);
+  }, [clearPendingResult, releaseActiveInput]);
 
   const reportProgress = useCallback((
     taskId: string,
@@ -327,6 +336,7 @@ export function useAnalysisIntake({
   ) => {
     const isNewTask = activeTaskIdRef.current !== input.taskId;
     clearPendingResult();
+    if (isNewTask) releaseActiveInput();
     activeTaskIdRef.current = input.taskId;
     activeInputRef.current = input;
     if (isNewTask || taskStartedAtRef.current === undefined) {
@@ -379,7 +389,7 @@ export function useAnalysisIntake({
         message: error instanceof Error ? error.message : '文件预检失败',
       });
     }
-  }, [clearPendingResult, execute, isActive, registry]);
+  }, [clearPendingResult, execute, isActive, registry, releaseActiveInput]);
 
   const confirm = useCallback(async (parserId: FileParserId) => {
     const input = activeInputRef.current;
@@ -389,16 +399,16 @@ export function useAnalysisIntake({
 
   const cancel = useCallback(() => {
     clearPendingResult();
+    releaseActiveInput();
     activeTaskIdRef.current = undefined;
-    activeInputRef.current = undefined;
     taskStartedAtRef.current = undefined;
     dispatch({ type: 'reset' });
-  }, [clearPendingResult]);
+  }, [clearPendingResult, releaseActiveInput]);
 
   const fail = useCallback((taskId: string, message: string) => {
     clearPendingResult();
+    releaseActiveInput();
     activeTaskIdRef.current = taskId;
-    activeInputRef.current = undefined;
     dispatch({ type: 'probing', taskId });
     dispatch({
       type: 'failed',
@@ -406,9 +416,12 @@ export function useAnalysisIntake({
       code: 'WORKER_FAILED',
       message,
     });
-  }, [clearPendingResult]);
+  }, [clearPendingResult, releaseActiveInput]);
 
-  useEffect(() => clearPendingResult, [clearPendingResult]);
+  useEffect(() => () => {
+    clearPendingResult();
+    releaseActiveInput();
+  }, [clearPendingResult, releaseActiveInput]);
 
   return {
     state,

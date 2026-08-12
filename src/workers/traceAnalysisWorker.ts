@@ -68,6 +68,10 @@ async function inspectTrace(
   try {
     let outcome: TraceParsedInput | undefined = await readTraceFileForWorker(request.file, {
       hint: request.hint,
+      ...(request.stream ? { stream: request.stream } : {}),
+      ...(request.container
+        ? { encoding: request.container === 'gzip' ? 'gzip-json' as const : 'plain-json' as const }
+        : {}),
       isCancelled: () => task.cancelled,
       yieldControl,
       onProgress: progress => post({

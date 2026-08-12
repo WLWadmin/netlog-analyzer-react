@@ -75,6 +75,7 @@ export interface NetlogIndexableFile {
 }
 
 export interface NetlogCompactEventIndexOptions {
+  stream?: ReadableStream<Uint8Array>;
   onTopLevelField?: (key: string, value: unknown) => void;
   onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number }) => void;
   onLightweightEvent?: (typeId: number, sourceTypeId: number | undefined, trace: { eventId: number; byteStart: number; byteEnd: number; typeName: string }) => void;
@@ -434,7 +435,7 @@ export async function buildNetlogCompactEventIndex(
   const modulesStateReducer = createNetlogModulesStateReducer();
   const prerenderStateReducer = createNetlogPrerenderStateReducer();
   const topLevelKeys = new Set<string>();
-  const reader = file.stream().getReader();
+  const reader = (options.stream ?? file.stream()).getReader();
   const decoder = new TextDecoder();
 
   let absoluteByteOffset = 0;

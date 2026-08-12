@@ -2,9 +2,15 @@ import {
   ReadableStream as NodeReadableStream,
   TransformStream as NodeTransformStream,
 } from 'stream/web';
-import { TextDecoder as NodeTextDecoder } from 'util';
+import {
+  TextDecoder as NodeTextDecoder,
+  TextEncoder as NodeTextEncoder,
+} from 'util';
 import { gzipSync, gunzipSync } from 'zlib';
-import { probeFileFormat } from './probeFileFormat';
+import {
+  probeFileFormat,
+  probeFileFormatStreamSession,
+} from './probeFileFormat';
 
 beforeAll(() => {
   Object.defineProperty(global, 'ReadableStream', {
@@ -14,6 +20,10 @@ beforeAll(() => {
   Object.defineProperty(global, 'TextDecoder', {
     configurable: true,
     value: NodeTextDecoder,
+  });
+  Object.defineProperty(global, 'TextEncoder', {
+    configurable: true,
+    value: NodeTextEncoder,
   });
   Object.defineProperty(global, 'TransformStream', {
     configurable: true,
@@ -28,6 +38,72 @@ function parserKinds(outcome: Awaited<ReturnType<typeof probeFileFormat>>) {
 }
 
 describe('probeFileFormat', () => {
+  it('replays the consumed prefix and remaining bytes from one source stream', async () => {
+    const bytes = new TextEncoder().encode(
+      '{"events":[],"constants":{},"padding":"after-probe"}',
+    );
+    const openStream = jest.fn(() => new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.subarray(0, 18));
+        controller.enqueue(bytes.subarray(18));
+        controller.close();
+      },
+    }));
+
+    const session = await probeFileFormatStreamSession(
+      openStream(),
+      { fileSize: 20 * 1024 * 1024 + 1 },
+    );
+    const reader = session.stream.getReader();
+    const replayed: Uint8Array[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      replayed.push(value);
+    }
+
+    expect(openStream).toHaveBeenCalledTimes(1);
+    expect(session.outcome.verdicts).toContainEqual(expect.objectContaining({
+      kind: 'definite-match',
+      parserId: 'chromium-netlog@1',
+    }));
+    const replayedLength = replayed.reduce(
+      (total, chunk) => total + chunk.byteLength,
+      0,
+    );
+    const replayedBytes = new Uint8Array(replayedLength);
+    let replayedOffset = 0;
+    replayed.forEach(chunk => {
+      replayedBytes.set(chunk, replayedOffset);
+      replayedOffset += chunk.byteLength;
+    });
+    expect(new TextDecoder().decode(replayedBytes)).toBe(
+      new TextDecoder().decode(bytes),
+    );
+  });
+
+  it.each([
+    ['ZIP', new Uint8Array([0x50, 0x4b, 0x03, 0x04]), 4, 'ZIP_UNSUPPORTED'],
+    ['oversized gzip', new Uint8Array([0x1f, 0x8b, 0x08, 0x00]), 65 * 1024 * 1024, 'GZIP_TOO_LARGE'],
+  ])('cancels the source stream when %s is rejected before probing', async (
+    _label,
+    bytes,
+    fileSize,
+    code,
+  ) => {
+    const cancel = jest.fn();
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+      },
+      cancel,
+    });
+
+    await expect(probeFileFormatStreamSession(source, { fileSize }))
+      .rejects.toMatchObject({ code });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['HAR', '{"log":{"entries":[]}}', 'har@1'],
     ['NetLog', '{"constants":{},"events":[]}', 'chromium-netlog@1'],

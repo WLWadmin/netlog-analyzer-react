@@ -4,6 +4,7 @@ import {
   type TraceWorkerTask,
 } from './traceWorkerTask';
 import { replaceActiveTraceWorkerTask } from './traceWorkerRegistry';
+import type { FileStreamParseSession } from '../upload/fileFormatTypes';
 
 export {
   TRACE_WORKER_TIMEOUT_MS,
@@ -16,7 +17,7 @@ function defaultWorkerFactory(): Worker {
 }
 
 export function inspectTraceUploadInWorker(
-  file: File,
+  file: File | FileStreamParseSession,
   options: TraceWorkerOptions,
 ): TraceWorkerTask {
   const task = createTraceWorkerTask(file, options, defaultWorkerFactory);

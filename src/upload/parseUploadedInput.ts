@@ -20,6 +20,10 @@ import { isTraceAnalysisEnabled } from './traceUploadFeature';
 import type { AnalysisProgress } from './analysisProgress';
 import type { TraceWorkbenchClient } from '../workbench/client';
 import { isTraceWorkbenchEnabled } from '../workbench/featureFlag';
+import {
+  isFileStreamParseSession,
+  type FileStreamParseSession,
+} from './fileFormatTypes';
 
 const LARGE_NETLOG_STREAM_BYTES = 100 * 1024 * 1024;
 
@@ -52,7 +56,22 @@ const TRACE_PROGRESS_PROJECTION: Record<TraceTaskProgress['phase'], {
   'build-facts': { phase: 'building-facts', phaseIndex: 3, phaseProgressStart: 1 / 2, phaseProgressSpan: 1 / 2 },
 };
 
-function readKnownNonTraceText(file: File): Promise<string> {
+async function readKnownNonTraceText(
+  input: File | FileStreamParseSession,
+): Promise<string> {
+  if (isFileStreamParseSession(input)) {
+    const reader = input.stream.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join('');
+  }
+  const file = input;
   if (typeof file.text === 'function') return file.text();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -110,6 +129,7 @@ export async function parseUploadedInput(options: {
   isTextLog?: boolean;
   repairInfo?: HarAnalysisResult['repairInfo'];
   fileTypeHint?: UploadFileTypeHint;
+  containerHint?: 'plain' | 'gzip';
   useWorker: boolean;
   taskId?: string;
   onProgress?: (phase: string) => void;
@@ -121,14 +141,21 @@ export async function parseUploadedInput(options: {
     isTextLog = false,
     repairInfo,
     fileTypeHint: initialFileTypeHint,
+    containerHint,
     useWorker,
     taskId = 'upload-task',
     onProgress,
     onStructuredProgress,
   } = options;
   let fileTypeHint = initialFileTypeHint;
+  const streamSession = isFileStreamParseSession(data) ? data : undefined;
+  const sourceFile = streamSession
+    ? streamSession.file
+    : typeof File !== 'undefined' && data instanceof File
+      ? data
+      : undefined;
 
-  if (typeof File !== 'undefined' && data instanceof File && data.name.toLowerCase().endsWith('.zip')) {
+  if (sourceFile?.name.toLowerCase().endsWith('.zip')) {
     throw new TraceWorkerError({
       code: 'TRACE_ZIP_UNSUPPORTED',
       stage: 'reading-file',
@@ -138,22 +165,25 @@ export async function parseUploadedInput(options: {
   }
 
   if (fileTypeHint === 'log' || isTextLog) {
-    const isFile = typeof File !== 'undefined' && data instanceof File;
+    const isFile = Boolean(sourceFile);
     if (typeof data !== 'string' && !isFile) {
       throw new Error('Log 文件内容必须是文本');
     }
+    const logInput = typeof data === 'string'
+      ? data
+      : streamSession ?? sourceFile!;
     if (useWorker) {
-      const { result } = await parseLogInWorker(data, { onProgress, onStructuredProgress });
+      const { result } = await parseLogInWorker(logInput, { onProgress, onStructuredProgress });
       return { kind: 'log', result };
     }
-    const text = typeof data === 'string'
-      ? data
-      : await readKnownNonTraceText(data as File);
+    const text = typeof logInput === 'string'
+      ? logInput
+      : await readKnownNonTraceText(logInput);
     return { kind: 'log', result: parseLogFile(text) };
   }
 
   if (fileTypeHint === 'trace' || fileTypeHint === 'json-auto') {
-    if (typeof File === 'undefined' || !(data instanceof File)) {
+    if (!sourceFile) {
       throw new Error('Trace 上传必须以 File 交给专用 Worker');
     }
     if (!useWorker) {
@@ -161,8 +191,9 @@ export async function parseUploadedInput(options: {
     }
     const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
     const traceStartedAt = Date.now();
-    const task = inspectTraceUploadInWorker(data, {
+    const task = inspectTraceUploadInWorker(streamSession ?? sourceFile, {
       hint: fileTypeHint,
+      container: streamSession?.container ?? containerHint,
       enableWorkbench: isTraceWorkbenchEnabled(),
       onProgress: (progress: TraceTaskProgress) => {
         onProgress?.(progress.phase);
@@ -219,7 +250,7 @@ export async function parseUploadedInput(options: {
         throw new Error('当前不支持 gzip 压缩的 HAR 或 NetLog');
       }
       if (outcome.source === 'har') {
-        const text = await readKnownNonTraceText(data);
+        const text = await readKnownNonTraceText(sourceFile);
         if (useWorker) {
           const { result, rawData, rawDataId } = await parseHarInWorker(
             text,
@@ -233,10 +264,10 @@ export async function parseUploadedInput(options: {
         if (repairInfo) result.repairInfo = repairInfo;
         return { kind: 'har', result, rawData: parsedData };
       }
-      if (data.size >= LARGE_NETLOG_STREAM_BYTES) {
+      if (sourceFile.size >= LARGE_NETLOG_STREAM_BYTES) {
         fileTypeHint = 'netlog';
       } else {
-        const text = await readKnownNonTraceText(data);
+        const text = await readKnownNonTraceText(sourceFile);
         if (useWorker) {
           const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
             text,
@@ -279,8 +310,8 @@ export async function parseUploadedInput(options: {
       return { kind: 'har', result, rawData, rawDataId };
     }
 
-    const harData = typeof File !== 'undefined' && data instanceof File
-      ? await readKnownNonTraceText(data)
+    const harData = sourceFile
+      ? await readKnownNonTraceText(streamSession ?? sourceFile)
       : data;
     const parsedData = typeof harData === 'string' ? JSON.parse(harData) : harData;
     const result = parseHar(parsedData);
@@ -288,20 +319,20 @@ export async function parseUploadedInput(options: {
     return { kind: 'har', result, rawData: parsedData };
   }
 
-  if (typeof File !== 'undefined' && data instanceof File && fileTypeHint === 'netlog' && data.size >= LARGE_NETLOG_STREAM_BYTES) {
+  if (sourceFile && fileTypeHint === 'netlog' && sourceFile.size >= LARGE_NETLOG_STREAM_BYTES) {
     if (!useWorker) {
       throw new Error('当前浏览器不支持 Worker，大文件 NetLog 无法安全解析');
     }
     const singleScanDataset = isSingleScanDatasetEnabled();
     console.info('[netlog-large]', {
       event: 'parseUploadedInput:large-netlog',
-      fileSize: data.size,
+      fileSize: sourceFile.size,
       useWorker,
       singleScanDataset,
     });
     let largeNetlogResult: Awaited<ReturnType<typeof parseLargeNetlogFileInWorker>>;
     try {
-      largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
+      largeNetlogResult = await parseLargeNetlogFileInWorker(streamSession ?? sourceFile, {
         onProgress,
         onStructuredProgress,
         singleScanDataset,
@@ -310,11 +341,11 @@ export async function parseUploadedInput(options: {
       if (!singleScanDataset) throw error;
       console.warn('[netlog-large]', {
         event: 'parseUploadedInput:single-scan-fallback',
-        fileSize: data.size,
+        fileSize: sourceFile.size,
         errorType: error instanceof Error ? error.name : 'unknown',
       });
       onProgress?.('Single scan Dataset 构建失败，正在回退到大文件摘要解析...');
-      largeNetlogResult = await parseLargeNetlogFileInWorker(data, {
+      largeNetlogResult = await parseLargeNetlogFileInWorker(sourceFile, {
         onProgress,
         onStructuredProgress,
         singleScanDataset: false,
@@ -353,8 +384,8 @@ export async function parseUploadedInput(options: {
     return { kind: 'netlog', result, events, rawData, rawDataId, dataset: unavailableNetlogDatasetState };
   }
 
-  const netlogData = typeof File !== 'undefined' && data instanceof File
-    ? await readKnownNonTraceText(data)
+  const netlogData = sourceFile
+    ? await readKnownNonTraceText(streamSession ?? sourceFile)
     : data;
   const parsedData = typeof netlogData === 'string'
     ? JSON.parse(netlogData)

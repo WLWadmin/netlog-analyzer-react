@@ -62,13 +62,25 @@ export function isTraceWorkerRequest(value: unknown): value is TraceWorkerReques
       && value.file instanceof File;
   }
   return hasOnlyKeys(value, [
-    'type', 'taskId', 'file', 'hint', 'keepWorkbenchAlive',
+    'type', 'taskId', 'file', 'stream', 'container', 'hint', 'keepWorkbenchAlive',
   ])
     && value.type === 'inspect-trace-upload'
     && (value.hint === 'trace' || value.hint === 'json-auto')
     && typeof value.keepWorkbenchAlive === 'boolean'
     && typeof File !== 'undefined'
-    && value.file instanceof File;
+    && value.file instanceof File
+    && (
+      value.stream === undefined
+      || (
+        isRecord(value.stream)
+        && typeof value.stream.getReader === 'function'
+      )
+    )
+    && (
+      value.container === undefined
+      || value.container === 'plain'
+      || value.container === 'gzip'
+    );
 }
 
 export function isTraceWorkerResponse(value: unknown): value is TraceWorkerResponse {

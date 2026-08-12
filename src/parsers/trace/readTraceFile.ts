@@ -45,6 +45,10 @@ export class TraceIntakeError extends Error {
 
 interface ReadTraceFileOptions {
   hint?: 'trace' | 'json-auto';
+  encoding?: TraceEncoding;
+  // Intake sessions provide the already container-decoded stream so the
+  // Trace Worker does not reopen the original File.
+  stream?: ReadableStream<Uint8Array>;
   onProgress?: (progress: TraceTaskProgress) => void;
   isCancelled?: () => boolean;
   yieldControl?: () => Promise<void>;
@@ -157,8 +161,10 @@ export async function readTraceFileForWorker(
   const sourceSniffBytes = options.sourceSniffBytes ?? TRACE_LIMITS.sourceSniffBytes;
   const hint = options.hint ?? 'trace';
   const parseJson = options.parseJson ?? JSON.parse;
-  const gzip = await hasGzipMagic(file);
-  const encoding: TraceEncoding = gzip ? 'gzip-json' : 'plain-json';
+  const encoding: TraceEncoding = options.encoding ?? (
+    await hasGzipMagic(file) ? 'gzip-json' : 'plain-json'
+  );
+  const gzip = encoding === 'gzip-json';
 
   if (gzip && file.size > maxCompressedBytes) {
     throwTraceError(
@@ -168,8 +174,8 @@ export async function readTraceFileForWorker(
     );
   }
 
-  let stream = fileBytes(file);
-  if (gzip) {
+  let stream = options.stream ?? fileBytes(file);
+  if (gzip && !options.stream) {
     const DecompressionStreamClass = (
       globalThis as typeof globalThis & {
         DecompressionStream?: DecompressionStreamConstructor;

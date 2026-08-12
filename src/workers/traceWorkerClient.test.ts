@@ -5,6 +5,14 @@ import {
   cancelActiveTraceWorkerTask,
   replaceActiveTraceWorkerTask,
 } from './traceWorkerRegistry';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
+
+beforeAll(() => {
+  Object.defineProperty(global, 'ReadableStream', {
+    configurable: true,
+    value: NodeReadableStream,
+  });
+});
 
 class FakeWorker {
   readonly listeners = new Map<string, Set<EventListener>>();
@@ -128,6 +136,85 @@ describe('traceWorkerClient', () => {
     });
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'reading-file' }));
     expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('transfers a prepared stream and its container fact to the Trace Worker', async () => {
+    const worker = new FakeWorker();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([123, 125]));
+        controller.close();
+      },
+    });
+    const file = new File([], 'large.trace');
+    const task = createTraceWorkerTask(
+      {
+        kind: 'file-stream-session',
+        file,
+        stream,
+        container: 'plain',
+      },
+      { hint: 'trace' },
+      () => worker as unknown as Worker,
+    );
+
+    expect(worker.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'inspect-trace-upload',
+        file,
+        stream,
+        container: 'plain',
+      }),
+      [stream],
+    );
+
+    worker.emit('message', messageEvent({
+      type: 'trace-analysis-result',
+      taskId: taskId(worker),
+      result: analysisResult(),
+    }));
+    await expect(task.promise).resolves.toEqual(expect.objectContaining({
+      kind: 'trace',
+    }));
+  });
+
+  it('falls back to the original File when stream transfer is unavailable', async () => {
+    const worker = new FakeWorker();
+    worker.postMessage.mockImplementationOnce(() => {
+      throw new DOMException('Transferable streams are unavailable', 'DataCloneError');
+    });
+    const cancel = jest.fn();
+    const stream = new ReadableStream<Uint8Array>({ cancel });
+    const file = new File([], 'large.trace.json');
+    const task = createTraceWorkerTask(
+      {
+        kind: 'file-stream-session',
+        file,
+        stream,
+        container: 'plain',
+      },
+      { hint: 'trace' },
+      () => worker as unknown as Worker,
+    );
+
+    expect(worker.postMessage).toHaveBeenCalledTimes(2);
+    expect(worker.postMessage.mock.calls[1][0]).toEqual(expect.objectContaining({
+      type: 'inspect-trace-upload',
+      file,
+      container: 'plain',
+    }));
+    expect(worker.postMessage.mock.calls[1][0]).not.toHaveProperty('stream');
+    expect(worker.postMessage.mock.calls[1]).toHaveLength(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    worker.emit('message', messageEvent({
+      type: 'trace-analysis-result',
+      taskId: taskId(worker),
+      result: analysisResult(),
+    }));
+    await expect(task.promise).resolves.toEqual(expect.objectContaining({
+      kind: 'trace',
+    }));
   });
 
   it('keeps the parsed Worker alive for an explicit Workbench session and closes it on release', async () => {

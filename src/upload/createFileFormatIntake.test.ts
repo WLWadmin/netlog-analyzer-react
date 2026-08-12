@@ -2,6 +2,26 @@ import {
   createExecutableFileFormatRegistry,
   createFileParseInput,
 } from './createFileFormatIntake';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
+import {
+  TextDecoder as NodeTextDecoder,
+  TextEncoder as NodeTextEncoder,
+} from 'util';
+
+beforeAll(() => {
+  Object.defineProperty(global, 'ReadableStream', {
+    configurable: true,
+    value: NodeReadableStream,
+  });
+  Object.defineProperty(global, 'TextDecoder', {
+    configurable: true,
+    value: NodeTextDecoder,
+  });
+  Object.defineProperty(global, 'TextEncoder', {
+    configurable: true,
+    value: NodeTextEncoder,
+  });
+});
 
 describe('createFileParseInput', () => {
   it('reuses one in-memory snapshot for small-file probing and parsing', async () => {
@@ -59,15 +79,51 @@ describe('createFileParseInput', () => {
   it('keeps the original File path for files above the snapshot threshold', async () => {
     const file = new File(['{}'], 'large.json');
     Object.defineProperty(file, 'size', { value: 20 * 1024 * 1024 + 1 });
-    const probeFile = jest.fn().mockResolvedValue({
-      container: 'plain',
-      verdicts: [],
+    const openStream = jest.fn(() => new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"events":[],"constants":{}}'));
+        controller.close();
+      },
+    }));
+    Object.defineProperty(file, 'stream', { value: openStream });
+
+    const input = await createFileParseInput(file, 'task-large');
+    const payload = input.payload as {
+      kind?: string;
+      file?: File;
+      stream?: ReadableStream<Uint8Array>;
+    };
+
+    expect(openStream).toHaveBeenCalledTimes(1);
+    expect(payload).toEqual(expect.objectContaining({
+      kind: 'file-stream-session',
+      file,
+      stream: expect.any(ReadableStream),
+    }));
+    expect(input.probeVerdicts).toContainEqual(expect.objectContaining({
+      kind: 'definite-match',
+      parserId: 'chromium-netlog@1',
+    }));
+  });
+
+  it('cancels the large-file source stream when probing is aborted', async () => {
+    const file = new File(['{}'], 'large.json');
+    Object.defineProperty(file, 'size', { value: 20 * 1024 * 1024 + 1 });
+    const cancelStream = jest.fn();
+    Object.defineProperty(file, 'stream', {
+      value: () => new ReadableStream<Uint8Array>({
+        cancel: cancelStream,
+      }),
+    });
+    const controller = new AbortController();
+
+    const input = createFileParseInput(file, 'task-aborted', {
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
     });
 
-    const input = await createFileParseInput(file, 'task-large', { probeFile });
-
-    expect(probeFile).toHaveBeenCalledWith(file, expect.any(Object));
-    expect(input.payload).toBe(file);
+    await expect(input).rejects.toMatchObject({ name: 'AbortError' });
+    expect(cancelStream).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   probeRegisteredFormat,
 } from './fileFormatRegistry';
 import type {
+  FileStreamParseSession,
   FileFormatAdapter,
   ParseContext,
   ParseInput,
@@ -100,6 +101,7 @@ export async function createFileParseInput(
         }
   );
   let reusableFile = file;
+  let streamSession: FileStreamParseSession | undefined;
   if (file.size <= FILE_SNAPSHOT_REUSE_MAX_BYTES) {
     options.onProgress?.({
       taskId,
@@ -119,6 +121,31 @@ export async function createFileParseInput(
       type: file.type,
       lastModified: file.lastModified,
     });
+  } else if (typeof file.stream === 'function') {
+    const { probeFileFormatStreamSession } = await import('./probeFileFormat');
+    const probed = await probeFileFormatStreamSession(file.stream(), {
+      fileSize: file.size,
+      signal: options.signal,
+      onProgress: onProbeProgress,
+    });
+    if (options.signal?.aborted) {
+      await probed.stream.cancel().catch(() => undefined);
+      throw new DOMException('文件预检已取消', 'AbortError');
+    }
+    streamSession = {
+      kind: 'file-stream-session',
+      file,
+      stream: probed.stream,
+      container: probed.outcome.container,
+    };
+    return {
+      taskId,
+      fileName: file.name,
+      container: probed.outcome.container,
+      value: undefined,
+      probeVerdicts: probed.outcome.verdicts,
+      payload: streamSession,
+    };
   }
   const outcome = await probeFile(reusableFile, {
     taskId,
@@ -173,6 +200,7 @@ export function createExecutableFileFormatRegistry(options: {
           isTextLog: probeAdapter.parserId === 'go-service-log@1',
           useWorker: options.useWorker,
           taskId: context.taskId,
+          containerHint: input.container,
           onStructuredProgress: context.onProgress,
         });
       },

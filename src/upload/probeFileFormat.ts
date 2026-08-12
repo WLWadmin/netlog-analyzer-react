@@ -57,9 +57,27 @@ export class FileFormatProbeError extends Error {
 }
 
 interface ProbeOptions {
+  signal?: AbortSignal;
   onProgress?(progress: FileFormatProbeProgress): void;
   decompress?(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array>;
   maxJsonProbeBytes?: number;
+}
+
+interface ProbeStreamSessionOptions extends ProbeOptions {
+  fileSize: number;
+}
+
+export interface FileFormatProbeStreamSession {
+  outcome: FileFormatProbeOutcome;
+  stream: ReadableStream<Uint8Array>;
+}
+
+async function cancelStreamBeforeThrow(
+  stream: ReadableStream<Uint8Array>,
+  error: Error,
+): Promise<never> {
+  await stream.cancel(error).catch(() => undefined);
+  throw error;
 }
 
 interface DecompressionStreamConstructor {
@@ -81,6 +99,7 @@ function blobArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
 }
 
 function fileBytes(file: File): ReadableStream<Uint8Array> {
+  if (typeof file.stream === 'function') return file.stream();
   let offset = 0;
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -93,6 +112,96 @@ function fileBytes(file: File): ReadableStream<Uint8Array> {
         await blobArrayBuffer(file.slice(offset, end)),
       ));
       offset = end;
+    },
+  });
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('文件预检已取消', 'AbortError');
+  }
+}
+
+async function cancelSourceIfAborted(
+  source: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal?.aborted) return;
+  await source.cancel(signal.reason).catch(() => undefined);
+  assertNotAborted(signal);
+}
+
+async function readSignaturePrefix(
+  stream: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<{
+  bytes: Uint8Array;
+  stream: ReadableStream<Uint8Array>;
+}> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (byteLength < 4) {
+      assertNotAborted(signal);
+      const { done, value } = await reader.read();
+      assertNotAborted(signal);
+      if (done) break;
+      chunks.push(value);
+      byteLength += value.byteLength;
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  }
+  const signature = new Uint8Array(Math.min(4, byteLength));
+  let offset = 0;
+  for (const chunk of chunks) {
+    if (offset >= signature.byteLength) break;
+    const length = Math.min(chunk.byteLength, signature.byteLength - offset);
+    signature.set(chunk.subarray(0, length), offset);
+    offset += length;
+  }
+  let replayedPrefix = false;
+  return {
+    bytes: signature,
+    stream: new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!replayedPrefix) {
+          replayedPrefix = true;
+          for (const chunk of chunks) controller.enqueue(chunk);
+          if (chunks.length > 0) return;
+        }
+        return reader.read().then(({ done, value }) => {
+          if (done) controller.close();
+          else controller.enqueue(value);
+        });
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      },
+    }),
+  };
+}
+
+function replayConsumedStream(
+  chunks: Uint8Array[],
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  let prefixIndex = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (prefixIndex < chunks.length) {
+        controller.enqueue(chunks[prefixIndex++]);
+        return;
+      }
+      return reader.read().then(({ done, value }) => {
+        if (done) controller.close();
+        else controller.enqueue(value);
+      });
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
     },
   });
 }
@@ -141,30 +250,33 @@ function classifyTextLog(prefix: string): boolean {
   return matches > 0 && matches / lines.length >= 0.5;
 }
 
-export async function probeFileFormat(
-  file: File,
-  options: ProbeOptions = {},
-): Promise<FileFormatProbeOutcome> {
+export async function probeFileFormatStreamSession(
+  source: ReadableStream<Uint8Array>,
+  options: ProbeStreamSessionOptions,
+): Promise<FileFormatProbeStreamSession> {
+  await cancelSourceIfAborted(source, options.signal);
   options.onProgress?.({ phase: 'container-check' });
-  const signature = new Uint8Array(await blobArrayBuffer(file.slice(0, 4)));
+  await cancelSourceIfAborted(source, options.signal);
+  const prefix = await readSignaturePrefix(source, options.signal);
+  const signature = prefix.bytes;
   if (ZIP_SIGNATURES.some(candidate => startsWith(signature, candidate))) {
-    throw new FileFormatProbeError(
+    return cancelStreamBeforeThrow(prefix.stream, new FileFormatProbeError(
       'ZIP_UNSUPPORTED',
       '不支持 ZIP 压缩包，请先解压后再选择诊断文件',
-    );
+    ));
   }
 
   const gzip = startsWith(signature, GZIP_SIGNATURE);
   const container = gzip ? 'gzip' : 'plain';
-  if (gzip && file.size > MAX_COMPRESSED_BYTES) {
-    throw new FileFormatProbeError(
+  if (gzip && options.fileSize > MAX_COMPRESSED_BYTES) {
+    return cancelStreamBeforeThrow(prefix.stream, new FileFormatProbeError(
       'GZIP_TOO_LARGE',
       '压缩文件超过 64 MiB 安全限制',
-    );
+    ));
   }
 
   let compressedBytesRead = 0;
-  let stream = fileBytes(file);
+  let stream = prefix.stream;
   if (gzip) {
     const DecompressionStreamClass = (
       globalThis as typeof globalThis & {
@@ -172,10 +284,10 @@ export async function probeFileFormat(
       }
     ).DecompressionStream;
     if (!options.decompress && !DecompressionStreamClass) {
-      throw new FileFormatProbeError(
+      return cancelStreamBeforeThrow(stream, new FileFormatProbeError(
         'GZIP_UNSUPPORTED',
         '当前浏览器不支持 gzip 预检',
-      );
+      ));
     }
     const counter = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -189,13 +301,17 @@ export async function probeFileFormat(
         ? options.decompress(countedStream)
         : countedStream.pipeThrough(new DecompressionStreamClass!('gzip'));
     } catch {
-      throw new FileFormatProbeError('GZIP_INVALID', 'gzip 文件已损坏');
+      return cancelStreamBeforeThrow(
+        stream,
+        new FileFormatProbeError('GZIP_INVALID', 'gzip 文件已损坏'),
+      );
     }
   }
 
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   const sniffer = new TraceSourceSniffer();
+  const consumedChunks: Uint8Array[] = [];
   const jsonProbeBudget = Math.max(
     1,
     options.maxJsonProbeBytes ?? DEFAULT_JSON_PROBE_BYTES,
@@ -207,8 +323,11 @@ export async function probeFileFormat(
 
   try {
     while (true) {
+      assertNotAborted(options.signal);
       const { done, value } = await reader.read();
+      assertNotAborted(options.signal);
       if (done) break;
+      consumedChunks.push(value);
       const remainingBudget = Math.max(0, jsonProbeBudget - decodedBytes);
       const probeValue = mode === 'text'
         ? value
@@ -229,12 +348,11 @@ export async function probeFileFormat(
         lastProgressAt = now;
         options.onProgress?.({
           phase: gzip ? 'decompressing' : mode === 'json' ? 'probing-format' : 'reading',
-          processedBytes: gzip ? compressedBytesRead : Math.min(decodedBytes, file.size),
-          totalBytes: gzip ? file.size : Math.min(file.size, jsonProbeBudget),
+          processedBytes: gzip ? compressedBytesRead : Math.min(decodedBytes, options.fileSize),
+          totalBytes: gzip ? options.fileSize : Math.min(options.fileSize, jsonProbeBudget),
         });
       }
       if (mode === 'text' && textPrefix.length >= MAX_LOG_PROBE_BYTES) {
-        await reader.cancel();
         break;
       }
       if (mode === 'json') {
@@ -243,16 +361,18 @@ export async function probeFileFormat(
         const evidenceCodes = sniffer.getEvidenceCodes();
         const sources = sniffer.getDetectedSources();
         if (strongSources(evidenceCodes).length === 1 && sources.length === 1) {
-          await reader.cancel();
           break;
         }
       }
       if (mode !== 'text' && decodedBytes >= jsonProbeBudget) {
-        await reader.cancel();
         break;
       }
     }
   } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
     if (error instanceof FileFormatProbeError) throw error;
     if (gzip) {
       throw new FileFormatProbeError('GZIP_INVALID', 'gzip 文件已损坏');
@@ -262,16 +382,20 @@ export async function probeFileFormat(
 
   options.onProgress?.({
     phase: 'probing-format',
-    processedBytes: gzip ? compressedBytesRead : Math.min(decodedBytes, file.size),
-    totalBytes: gzip ? file.size : Math.min(file.size, jsonProbeBudget),
+    processedBytes: gzip ? compressedBytesRead : Math.min(decodedBytes, options.fileSize),
+    totalBytes: gzip ? options.fileSize : Math.min(options.fileSize, jsonProbeBudget),
   });
 
+  const replayStream = replayConsumedStream(consumedChunks, reader);
   if (mode === 'text') {
     return {
-      container,
-      verdicts: classifyTextLog(textPrefix)
-        ? verdictsForSources(['log'], SOURCE_EVIDENCE.log)
-        : verdictsForSources([], []),
+      outcome: {
+        container,
+        verdicts: classifyTextLog(textPrefix)
+          ? verdictsForSources(['log'], SOURCE_EVIDENCE.log)
+          : verdictsForSources([], []),
+      },
+      stream: replayStream,
     };
   }
 
@@ -281,12 +405,30 @@ export async function probeFileFormat(
   const evidenceCodes = sniffer.getEvidenceCodes();
   if (gzip && (sources.length !== 1 || sources[0] !== 'trace')) {
     return {
-      container,
-      verdicts: verdictsForSources([], []),
+      outcome: {
+        container,
+        verdicts: verdictsForSources([], []),
+      },
+      stream: replayStream,
     };
   }
   return {
-    container,
-    verdicts: verdictsForSources(sources as SourceKind[], evidenceCodes),
+    outcome: {
+      container,
+      verdicts: verdictsForSources(sources as SourceKind[], evidenceCodes),
+    },
+    stream: replayStream,
   };
+}
+
+export async function probeFileFormat(
+  file: File,
+  options: ProbeOptions = {},
+): Promise<FileFormatProbeOutcome> {
+  const session = await probeFileFormatStreamSession(fileBytes(file), {
+    ...options,
+    fileSize: file.size,
+  });
+  await session.stream.cancel();
+  return session.outcome;
 }

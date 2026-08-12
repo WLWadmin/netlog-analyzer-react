@@ -22,6 +22,10 @@ import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2
 import type { JsonPathMatch, StructureNode } from '../parsers/shared/rawJsonPath';
 import type { AnalysisProgress } from '../upload/analysisProgress';
 import {
+  isFileStreamParseSession,
+  type FileStreamParseSession,
+} from '../upload/fileFormatTypes';
+import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
   RAW_EVIDENCE_SEARCH_MAX_RESULTS,
   RAW_EVIDENCE_STRUCTURE_OVERVIEW_MAX_DEPTH,
@@ -40,6 +44,13 @@ interface PendingTask {
   onProgress?: (phase: string, percent?: number) => void;
   onStructuredProgress?: (progress: AnalysisProgress) => void;
   timer?: ReturnType<typeof setTimeout>;
+}
+
+class WorkerDispatchError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'Worker message could not be sent');
+    this.name = 'WorkerDispatchError';
+  }
 }
 
 let worker: Worker | null = null;
@@ -94,7 +105,11 @@ function handleWorkerError(event: ErrorEvent) {
   terminateWorker();
 }
 
-function sendToWorker(request: WorkerRequest, options: WorkerClientOptions = {}): Promise<WorkerSuccessResponse> {
+function sendToWorker(
+  request: WorkerRequest,
+  options: WorkerClientOptions = {},
+  transfer: Transferable[] = [],
+): Promise<WorkerSuccessResponse> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
     const timeout = options.timeout ?? 60_000;
@@ -112,8 +127,42 @@ function sendToWorker(request: WorkerRequest, options: WorkerClientOptions = {})
       timer,
     });
 
-    w.postMessage(request);
+    try {
+      w.postMessage(request, transfer);
+    } catch (error) {
+      clearTimeout(timer);
+      pendingTasks.delete(request.id);
+      reject(new WorkerDispatchError(error));
+    }
   });
+}
+
+function streamTransfer(
+  payload: unknown,
+): Transferable[] {
+  return isFileStreamParseSession(payload)
+    ? [payload.stream as unknown as Transferable]
+    : [];
+}
+
+async function sendToWorkerWithStreamFallback(
+  request: WorkerRequest,
+  fallbackRequest: WorkerRequest,
+  input: File | FileStreamParseSession,
+  options: WorkerClientOptions,
+): Promise<WorkerSuccessResponse> {
+  if (!isFileStreamParseSession(input)) {
+    return sendToWorker(request, options);
+  }
+  try {
+    return await sendToWorker(request, options, streamTransfer(input));
+  } catch (error) {
+    if (!(error instanceof WorkerDispatchError)) throw error;
+    if (!input.stream.locked) {
+      await input.stream.cancel(error).catch(() => undefined);
+    }
+    return sendToWorker(fallbackRequest, options);
+  }
 }
 
 function nextId(): string {
@@ -649,10 +698,15 @@ export async function parseNetlogInWorker(
   options?: WorkerClientOptions
 ): Promise<NetlogParseResult> {
   const id = nextId();
-  const response = await sendToWorker(
-    { type: 'parse-netlog', id, payload: data },
-    options
-  );
+  const request: WorkerRequest = { type: 'parse-netlog', id, payload: data };
+  const response = isFileStreamParseSession(data)
+    ? await sendToWorkerWithStreamFallback(
+        request,
+        { type: 'parse-netlog', id, payload: data.file },
+        data,
+        options ?? {},
+      )
+    : await sendToWorker(request, options);
   return {
     events: response.events as ParsedEvent[],
     result: response.payload as AnalysisResult,
@@ -663,10 +717,11 @@ export async function parseNetlogInWorker(
 }
 
 export async function parseLargeNetlogFileInWorker(
-  file: File,
+  input: File | FileStreamParseSession,
   options?: WorkerClientOptions & { singleScanDataset?: boolean }
 ): Promise<NetlogParseResult> {
   const id = nextId();
+  const file = isFileStreamParseSession(input) ? input.file : input;
   const timeout = options?.timeout ?? largeNetlogTimeout(file.size);
   console.info('[netlog-large]', {
     taskId: id,
@@ -676,7 +731,18 @@ export async function parseLargeNetlogFileInWorker(
     timeout,
     singleScanDataset: Boolean(options?.singleScanDataset),
   });
-  const response = await sendToWorker(
+  const request: WorkerRequest = {
+    type: 'parse-large-netlog-file',
+    id,
+    payload: {
+      ...(isFileStreamParseSession(input) ? input : {}),
+      file,
+      debug: isLargeNetlogDebugEnabled(),
+      singleScanDataset: Boolean(options?.singleScanDataset),
+    },
+  };
+  const response = await sendToWorkerWithStreamFallback(
+    request,
     {
       type: 'parse-large-netlog-file',
       id,
@@ -686,7 +752,8 @@ export async function parseLargeNetlogFileInWorker(
         singleScanDataset: Boolean(options?.singleScanDataset),
       },
     },
-    { ...options, timeout }
+    input,
+    { ...options, timeout },
   );
   console.info('[netlog-large]', {
     taskId: id,
@@ -712,15 +779,20 @@ export async function parseLargeNetlogFileInWorker(
  * 在 Worker 中解析 HAR JSON
  */
 export async function parseHarInWorker(
-  data: string | unknown,
+  data: string | unknown | FileStreamParseSession,
   repairInfo?: unknown,
   options?: WorkerClientOptions
 ): Promise<HarParseResult> {
   const id = nextId();
-  const response = await sendToWorker(
-    { type: 'parse-har', id, payload: data, repairInfo },
-    options
-  );
+  const request: WorkerRequest = { type: 'parse-har', id, payload: data, repairInfo };
+  const response = isFileStreamParseSession(data)
+    ? await sendToWorkerWithStreamFallback(
+        request,
+        { type: 'parse-har', id, payload: data.file, repairInfo },
+        data,
+        options ?? {},
+      )
+    : await sendToWorker(request, options);
   return {
     result: response.payload as HarAnalysisResult,
     rawData: response.rawPayload,
@@ -733,14 +805,19 @@ export async function parseHarInWorker(
  * 在 Worker 中解析 Log 文本
  */
 export async function parseLogInWorker(
-  text: string | File,
+  text: string | File | FileStreamParseSession,
   options?: WorkerClientOptions
 ): Promise<LogParseResult> {
   const id = nextId();
-  const response = await sendToWorker(
-    { type: 'parse-log', id, payload: text },
-    options
-  );
+  const request: WorkerRequest = { type: 'parse-log', id, payload: text };
+  const response = isFileStreamParseSession(text)
+    ? await sendToWorkerWithStreamFallback(
+        request,
+        { type: 'parse-log', id, payload: text.file },
+        text,
+        options ?? {},
+      )
+    : await sendToWorker(request, options);
   return {
     result: response.payload as LogAnalysisResult,
     duration: response.duration,

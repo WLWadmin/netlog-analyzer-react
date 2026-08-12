@@ -17,6 +17,8 @@ export type TraceWorkerRequest =
       type: 'inspect-trace-upload';
       taskId: string;
       file: File;
+      stream?: ReadableStream<Uint8Array>;
+      container?: 'plain' | 'gzip';
       hint: TraceUploadHint;
       keepWorkbenchAlive: boolean;
     }

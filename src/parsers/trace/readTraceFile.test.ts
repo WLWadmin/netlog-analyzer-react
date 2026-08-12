@@ -7,7 +7,10 @@ import { readFileSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import path from 'path';
 import { ReadableStream as NodeReadableStream } from 'stream/web';
-import { TextDecoder as NodeTextDecoder } from 'util';
+import {
+  TextDecoder as NodeTextDecoder,
+  TextEncoder as NodeTextEncoder,
+} from 'util';
 
 beforeAll(() => {
   Object.defineProperty(global, 'ReadableStream', {
@@ -17,6 +20,10 @@ beforeAll(() => {
   Object.defineProperty(global, 'TextDecoder', {
     configurable: true,
     value: NodeTextDecoder,
+  });
+  Object.defineProperty(global, 'TextEncoder', {
+    configurable: true,
+    value: NodeTextEncoder,
   });
 });
 
@@ -76,6 +83,33 @@ describe('readTraceFile', () => {
         warnings: ['TRACE_EXTENSION_GZIP_MISMATCH'],
       }),
     });
+  });
+
+  it('uses preflight encoding and stream without reopening the File', async () => {
+    const file = makeFile([], 'large.trace.json');
+    const slice = jest.fn(() => {
+      throw new Error('preflight encoding must avoid gzip magic reads');
+    });
+    const stream = jest.fn(() => {
+      throw new Error('provided stream must avoid reopening the File');
+    });
+    Object.defineProperty(file, 'slice', { value: slice });
+    Object.defineProperty(file, 'stream', { value: stream });
+
+    const result = await readTraceFileForWorker(file, {
+      encoding: 'plain-json',
+      stream: streamBytes(new TextEncoder().encode('{"traceEvents":[]}')),
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'trace',
+      intake: expect.objectContaining({
+        encoding: 'plain-json',
+        eventCount: 0,
+      }),
+    }));
+    expect(slice).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
   });
 
   it.each([
