@@ -1,0 +1,57 @@
+.har-result-page {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.har-result-page > .ant-alert {
+  background: var(--workbench-surface);
+  border-color: var(--workbench-border);
+  border-radius: var(--radius-card);
+}
+
+.har-result-content {
+  min-width: 0;
+  padding: 16px;
+  background: var(--workbench-surface);
+  border: 1px solid var(--workbench-border);
+  border-radius: var(--radius-card);
+}
+
+.har-session-summary {
+  padding-top: 2px;
+}
+
+.har-session-summary__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.har-session-summary__heading span {
+  color: var(--accent-blue);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.har-session-summary__heading strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.har-repair-detail {
+  line-height: 1.6;
+}
+
+.har-repair-detail__dropped {
+  color: var(--accent-red);
+}
+
+.har-repair-detail__warning {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card } from 'antd';
 import { AnimatedNumber } from './AnimatedNumber';
+import './summaryCard.css';
 
 // ============================================================
 // 类型定义
@@ -47,6 +48,15 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
     }
   };
 
+  const cardStyle = {
+    '--summary-card-accent': color,
+    '--summary-card-background': bgGradient,
+    '--summary-card-value-color': valueColor || 'var(--text-primary)',
+    '--summary-card-border': onClick
+      ? `color-mix(in srgb, ${color} 42%, var(--workbench-border))`
+      : `color-mix(in srgb, ${color} 24%, var(--workbench-border))`,
+  } as React.CSSProperties;
+
   return (
     <Card
       className="summary-card"
@@ -55,114 +65,21 @@ export const SummaryCard: React.FC<SummaryCardProps> = ({
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? `${title}，查看相关详情` : undefined}
-      style={{
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.86))',
-        border: `1px solid ${onClick ? `${color}55` : 'rgba(148,163,184,0.24)'}`,
-        borderRadius: 14,
-        overflow: 'hidden',
-        cursor: onClick ? 'pointer' : 'default',
-        transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
-        boxShadow: '0 14px 34px rgba(15,23,42,0.06)',
-      }}
+      style={cardStyle}
       styles={{ body: { padding: 0 } }}
-      hoverable={Boolean(onClick)}
     >
-      <div style={{ padding: '16px 16px 15px', position: 'relative', minHeight: 126 }}>
-        {/* 渐变背景 */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: bgGradient,
-            opacity: 0.62,
-            pointerEvents: 'none',
-            borderRadius: 14,
-          }}
-        />
-        <div
-          className="summary-card-highlight"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'radial-gradient(circle at 80% 10%, rgba(255,255,255,0.72), transparent 32%)',
-            pointerEvents: 'none',
-          }}
-        />
-        {/* 图标 + 标题行 */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 12,
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          <span
-            className="summary-card-icon"
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: `linear-gradient(135deg, ${color}22, rgba(255,255,255,0.74))`,
-              border: `1px solid ${color}35`,
-              color,
-              fontSize: 15,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              transition: 'transform 0.2s ease',
-            }}
-          >
+      <div className="summary-card__body">
+        <div className="summary-card__heading">
+          <span className="summary-card-icon">
             {icon}
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              color: 'var(--text-secondary)',
-              fontWeight: 700,
-              letterSpacing: 0,
-              lineHeight: 1.3,
-            }}
-          >
-            {title}
-          </span>
+          <span className="summary-card__title">{title}</span>
         </div>
-        {/* 数值 — 双色调 */}
-        <div
-          style={{
-            fontSize: 30,
-            fontWeight: 850,
-            color: valueColor || 'var(--text-primary)',
-            lineHeight: 1.2,
-            position: 'relative',
-            zIndex: 1,
-            fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-            letterSpacing: 0,
-          }}
-        >
+        <div className="summary-card__value">
           {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
         </div>
-        {/* 辅助说明 */}
         {suffix && (
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--text-secondary)',
-              marginTop: 8,
-              position: 'relative',
-              zIndex: 1,
-              lineHeight: 1.45,
-              fontWeight: 500,
-            }}
-          >
-            {suffix}
-          </div>
+          <div className="summary-card__suffix">{suffix}</div>
         )}
       </div>
     </Card>

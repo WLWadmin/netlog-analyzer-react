@@ -10,9 +10,7 @@ import {
   MoonOutlined,
   VerticalAlignTopOutlined,
   GlobalOutlined,
-  QuestionCircleOutlined,
   FileTextOutlined,
-  CloudUploadOutlined,
   CodeOutlined,
   DownOutlined,
   FileSearchOutlined,
@@ -50,6 +48,7 @@ import { useTheme } from './theme';
 import { NavigationProvider, useNavigation } from './contexts/NavigationContext';
 import UploadZone from './components/netlog/UploadZone';
 import UploadEntry from './components/upload/UploadEntry';
+import UploadGuideLinks from './components/upload/UploadGuideLinks';
 import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
 import type { ParserMode } from './components/upload/ParserModeSelect';
@@ -66,14 +65,15 @@ import NetLogRequestList from './components/netlog/NetLogRequestList';
 import ConclusionActionTab from './components/netlog/ConclusionActionTab';
 import EvidenceChainTab from './components/netlog/EvidenceChainTab';
 import ExpertAnalysisTab from './components/netlog/ExpertAnalysisTab';
-import NetlogWorkbenchNav from './components/netlog/NetlogWorkbenchNav';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
+import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from './components/shared/ResultWorkbenchShell';
 import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
 import { downloadTextFile } from './utils/downloadTextFile';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
+import './appShell.css';
 
 const { Header, Content } = Layout;
 
@@ -1020,46 +1020,26 @@ const AppContent: React.FC = () => {
   ];
 
   const activeNetlogContent = tabItems.find(item => item.key === activeTab)?.children || tabItems[0].children;
+  const netlogNavItems: ResultWorkbenchNavItem[] = [
+    { key: 'conclusion', label: '结论与行动', icon: <MedicineBoxOutlined />, group: '诊断', count: 1 },
+    { key: 'requests', label: '请求详情', icon: <GlobalOutlined />, group: '诊断', count: result?.urlRequests.length },
+    { key: 'evidence', label: '证据链', icon: <RadarChartOutlined />, group: '诊断' },
+    { key: 'expert', label: '专家分析', icon: <CodeOutlined />, group: '深度核验' },
+    { key: 'raw', label: '原始事件', icon: <FileSearchOutlined />, group: '深度核验', count: result?.totalEvents.toLocaleString() },
+  ];
 
   return (
     <ErrorBoundary onReset={handleReset}>
       <LoadingOverlay visible={loading} phase={loadingText} message="请稍候，正在提取事件、统计指标和诊断信息" />
-      <Layout style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
-      {/* ====== Modern Header ====== */}
+      <Layout className="app-shell">
       <Header className="app-header">
         <div className="app-header-title">
-          {/* Logo icon - Network/Radar themed */}
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-              borderRadius: 14,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              flexShrink: 0,
-              boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
-            }}
-          >
-            <RadarChartOutlined style={{ color: '#fff', fontSize: 20 }} />
+          <div className="app-header-mark" aria-hidden="true">
+            <RadarChartOutlined />
           </div>
-          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: 18,
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                whiteSpace: 'nowrap',
-                letterSpacing: 0.3,
-                lineHeight: 1.3,
-              }}
-            >
-              浏览器诊断工作台
-            </h1>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+          <div className="app-header-copy">
+            <h1>浏览器诊断工作台</h1>
+            <div>
               {traceEnabled
                 ? '本地分析网络请求、页面性能与服务端日志'
                 : '本地分析网络请求与服务端日志'}
@@ -1068,29 +1048,10 @@ const AppContent: React.FC = () => {
         </div>
 
         <div className="app-header-actions">
-          {/* Theme Toggle Button */}
           <Button
             icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
             onClick={toggleTheme}
-            size="large"
-            style={{
-              background: mode === 'dark'
-                ? 'linear-gradient(135deg, #f59e0b, #fbbf24)'
-                : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              border: 'none',
-              color: '#fff',
-              fontWeight: 600,
-              fontSize: 15,
-              height: 40,
-              padding: '0 18px',
-              borderRadius: 10,
-              boxShadow: mode === 'dark'
-                ? '0 2px 12px rgba(245, 158, 11, 0.35)'
-                : '0 2px 12px rgba(99, 102, 241, 0.35)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
+            className="app-header-theme-toggle"
             title={mode === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
           >
             {mode === 'dark' ? '浅色' : '深色'}
@@ -1101,11 +1062,7 @@ const AppContent: React.FC = () => {
               <Button
                 icon={<ReloadOutlined />}
                 onClick={handleReset}
-                style={{
-                  background: 'var(--bg-elevated)',
-                  borderColor: 'var(--border-color)',
-                  color: 'var(--text-secondary)',
-                }}
+                className="app-header-secondary-action"
               >
                 重新上传
               </Button>
@@ -1123,12 +1080,7 @@ const AppContent: React.FC = () => {
                   <Button
                     type="primary"
                     icon={<DownloadOutlined />}
-                    style={{
-                      background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-                      border: 'none',
-                      fontWeight: 600,
-                      boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
-                    }}
+                    className="app-header-export-action"
                   >
                     导出报告 <DownOutlined />
                   </Button>
@@ -1139,8 +1091,7 @@ const AppContent: React.FC = () => {
         </div>
       </Header>
 
-      {/* ====== Main Content ====== */}
-      <Content style={{ width: '100%', boxSizing: 'border-box' }}>
+      <Content className="app-content">
         {!hasData ? (
           <div className="upload-page-shell">
             <UploadEntry
@@ -1165,188 +1116,23 @@ const AppContent: React.FC = () => {
               onContinue={intake.continueToResult}
             />
 
-            {/* 使用说明 */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <QuestionCircleOutlined style={{ fontSize: 16, color: 'var(--accent-blue)' }} />
-                <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>不知道如何获取文件？</span>
-              </div>
-              <div className="upload-guide-grid">
-                {/* HAR 文件 */}
-                <a
-                  href="https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'block',
-                    padding: '20px 24px',
-                    background: 'var(--bg-surface)',
-                    borderRadius: 14,
-                    border: '1px solid var(--border-color)',
-                    textDecoration: 'none',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = 'var(--accent-blue)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(14, 165, 233, 0.12)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.12))',
-                        border: '1px solid rgba(14, 165, 233, 0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <FileTextOutlined style={{ fontSize: 20, color: '#0ea5e9' }} />
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>HAR 文件获取指南</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    通过浏览器 DevTools → Network 面板导出网络请求记录
-                  </p>
-                  <span style={{ fontSize: 12, color: 'var(--accent-blue)', marginTop: 8, display: 'inline-block' }}>
-                    查看详细教程 →
-                  </span>
-                </a>
-
-                {/* NetLog 文件 */}
-                <a
-                  href="https://bytedance.larkoffice.com/docx/NfwtdMpCLoh04yx0xnec1PXCnnf"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'block',
-                    padding: '20px 24px',
-                    background: 'var(--bg-surface)',
-                    borderRadius: 14,
-                    border: '1px solid var(--border-color)',
-                    textDecoration: 'none',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = '#6366f1';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(99, 102, 241, 0.12)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12))',
-                        border: '1px solid rgba(99, 102, 241, 0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <CloudUploadOutlined style={{ fontSize: 20, color: '#6366f1' }} />
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>NetLog 文件获取指南</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    通过 chrome://net-export/ 或 edge://net-export/ 导出网络日志
-                  </p>
-                  <span style={{ fontSize: 12, color: '#6366f1', marginTop: 8, display: 'inline-block' }}>
-                    查看详细教程 →
-                  </span>
-                </a>
-
-                {/* Go 服务日志文件 */}
-                <a
-                  href="https://bytedance.larkoffice.com/wiki/O6UJwfl0UivPlBk7pCHcrzxfnJd"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'block',
-                    padding: '20px 24px',
-                    background: 'var(--bg-surface)',
-                    borderRadius: 14,
-                    border: '1px solid var(--border-color)',
-                    textDecoration: 'none',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = '#22d3ee';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(34, 211, 238, 0.12)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                    e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.12))',
-                        border: '1px solid rgba(34, 211, 238, 0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <CodeOutlined style={{ fontSize: 20, color: '#22d3ee' }} />
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Go 服务日志获取指南</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    从 Go 服务标准输出或日志文件导出结构化日志
-                  </p>
-                  <span style={{ fontSize: 12, color: '#22d3ee', marginTop: 8, display: 'inline-block' }}>
-                    查看详细教程 →
-                  </span>
-                </a>
-              </div>
-            </div>
+            <UploadGuideLinks />
           </div>
         ) : fileType === 'trace' && traceResult ? (
-          <div style={{ padding: '24px 28px' }}>
-            <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>
-              <TraceResultPage
-                result={traceResult}
-                workbenchClient={traceWorkbenchClient ?? undefined}
-                activeTab={resolveTraceTab(activeTab)}
-                onTabChange={(tab) => {
-                  setActiveTab(tab);
-                  setActiveSubTab(undefined);
-                  window.location.hash = buildAppHash('trace', tab);
-                }}
-              />
-            </Suspense>
-          </div>
+          <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>
+            <TraceResultPage
+              result={traceResult}
+              workbenchClient={traceWorkbenchClient ?? undefined}
+              activeTab={resolveTraceTab(activeTab)}
+              onTabChange={(tab) => {
+                setActiveTab(tab);
+                setActiveSubTab(undefined);
+                window.location.hash = buildAppHash('trace', tab);
+              }}
+            />
+          </Suspense>
         ) : fileType === 'har' && harResult ? (
-          <div style={{ padding: '24px 28px' }}>
+          <>
             <Suspense fallback={<LazyFallback text="正在加载 HAR 页面..." />}>
               <HarResultPage
                 result={harResult}
@@ -1362,57 +1148,64 @@ const AppContent: React.FC = () => {
             </Suspense>
             {/* 追加 NetLog，进入 NetLog 结论与证据链 */}
             {!result && (
-              <div style={{ marginTop: 24, padding: '20px 24px', background: 'var(--bg-surface)', borderRadius: 14, border: '1px dashed var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <RadarChartOutlined style={{ color: '#6366f1' }} />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>追加 NetLog，增强浏览器网络栈判断</span>
+              <div className="secondary-upload-panel">
+                <div className="secondary-upload-panel__heading">
+                  <RadarChartOutlined />
+                  <span>追加 NetLog，增强浏览器网络栈判断</span>
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                <p>
                   当前已加载 HAR。追加上传同一次问题复现导出的 NetLog 文件后，将自动进入 NetLog「结论与行动」，并可在「证据链」查看 HAR 与 NetLog 的关联证据。
                 </p>
                 <UploadZone onFileLoaded={handleSecondaryFileLoaded} compact />
               </div>
             )}
-          </div>
+          </>
         ) : fileType === 'log' && logResult ? (
-          <div style={{ padding: '24px 28px' }}>
-            <Suspense fallback={<LazyFallback text="正在加载日志页面..." />}>
-              <LogResultPage
-                result={logResult}
-                activeTab={activeTab}
-                onTabChange={(key) => {
-                  setActiveTab(key);
-                  setActiveSubTab(undefined);
-                  window.location.hash = buildAppHash('log', key);
-                }}
-              />
-            </Suspense>
-          </div>
+          <Suspense fallback={<LazyFallback text="正在加载日志页面..." />}>
+            <LogResultPage
+              result={logResult}
+              activeTab={activeTab}
+              onTabChange={(key) => {
+                setActiveTab(key);
+                setActiveSubTab(undefined);
+                window.location.hash = buildAppHash('log', key);
+              }}
+            />
+          </Suspense>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 28px' }}>
-            {result && <SummaryCards result={result} onNavigate={(tab, search) => {
-              if (search) {
-                navigateTo({
-                  tab,
-                  filters: search === 'net_error' ? { errorOnly: true } : { keyword: search },
-                  source: '概览卡片',
-                  reason: '点击摘要卡片',
-                });
-                return;
-              }
-              const parsed = parseAppHash(buildAppHash('netlog', tab));
-              const nextTab = parsed.tab || tab;
-              const nextSubTab = parsed.subTab || (nextTab === 'expert' ? 'events' : undefined);
-              setActiveTab(nextTab);
-              setActiveSubTab(nextSubTab);
-              window.location.hash = buildAppHash('netlog', nextTab, nextSubTab);
-            }} />}
-            <NetlogWorkbenchNav activeKey={activeTab} onChange={handleNetlogTabChange} />
+          <ResultWorkbenchShell
+            parser="netlog"
+            parserLabel="NetLog"
+            statusLabel={netlogDataset.status === 'ready' ? '全量索引可用' : '本地分析结果'}
+            activeKey={activeTab}
+            items={netlogNavItems}
+            onChange={handleNetlogTabChange}
+          >
             <div className="netlog-workbench-content">
               {activeNetlogContent}
             </div>
+            {activeTab === 'conclusion' && result ? (
+              <section className="netlog-session-summary" aria-label="会话概览">
+                <div className="netlog-session-summary__heading">
+                  <span>SESSION SUMMARY</span>
+                  <strong>会话概览</strong>
+                </div>
+                <SummaryCards result={result} onNavigate={(tab, search) => {
+                  if (search) {
+                    navigateTo({
+                      tab,
+                      filters: search === 'net_error' ? { errorOnly: true } : { keyword: search },
+                      source: '概览卡片',
+                      reason: '点击摘要卡片',
+                    });
+                    return;
+                  }
+                  handleNetlogTabChange(tab);
+                }} />
+              </section>
+            ) : null}
             <AnalysisDisclaimer variant="netlog" title="分析边界" />
-          </div>
+          </ResultWorkbenchShell>
         )}
       </Content>
 

@@ -1,4 +1,13 @@
 import { useMemo, useState } from 'react';
+import {
+  ApartmentOutlined,
+  DashboardOutlined,
+  FileSearchOutlined,
+  GlobalOutlined,
+  InteractionOutlined,
+  MedicineBoxOutlined,
+  NodeIndexOutlined,
+} from '@ant-design/icons';
 import type { TraceAnalysisResult } from '../../diagnosis/trace';
 import { buildTraceJsonExport, buildTraceMarkdownReport } from '../../parsers/trace/exportTraceReport';
 import { useNavigation } from '../../contexts/NavigationContext';
@@ -16,6 +25,7 @@ import TraceNetworkTab from './tabs/TraceNetworkTab';
 import TraceOverviewTab from './tabs/TraceOverviewTab';
 import TraceRenderingTab from './tabs/TraceRenderingTab';
 import TraceWorkbenchInternalPanel from './TraceWorkbenchInternalPanel';
+import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from '../shared/ResultWorkbenchShell';
 import './traceResultPage.css';
 
 interface TraceResultPageProps {
@@ -25,11 +35,14 @@ interface TraceResultPageProps {
   workbenchClient?: TraceWorkbenchClient;
 }
 
-const TABS: Array<{ tab: TraceTab; label: string }> = [
-  { tab: 'conclusion', label: '结论' }, { tab: 'overview', label: '概览' },
-  { tab: 'network', label: '网络' }, { tab: 'main-thread', label: '主线程' },
-  { tab: 'rendering', label: '渲染' }, { tab: 'interactions', label: '交互' },
-  { tab: 'evidence', label: '全部证据 · 高级' },
+const TABS: Array<ResultWorkbenchNavItem & { key: TraceTab }> = [
+  { key: 'conclusion', label: '结论', icon: <MedicineBoxOutlined />, group: '诊断' },
+  { key: 'overview', label: '概览', icon: <DashboardOutlined />, group: '诊断' },
+  { key: 'network', label: '网络', icon: <GlobalOutlined />, group: '事实' },
+  { key: 'main-thread', label: '主线程', icon: <ApartmentOutlined />, group: '事实' },
+  { key: 'rendering', label: '渲染', icon: <NodeIndexOutlined />, group: '事实' },
+  { key: 'interactions', label: '交互', icon: <InteractionOutlined />, group: '事实' },
+  { key: 'evidence', label: '全部证据', icon: <FileSearchOutlined />, group: '深度核验' },
 ];
 
 const TraceResultPage: React.FC<TraceResultPageProps> = ({
@@ -85,78 +98,73 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
       : '证据不足';
 
   return (
-    <section className="trace-result" aria-labelledby="trace-result-title">
-      <header className="trace-result-heading">
-        <div>
-          <div className="trace-result-identity">
-            <span>CHROMIUM PERFORMANCE TRACE</span>
-            <strong>Trace 分析 Beta</strong>
+    <ResultWorkbenchShell
+      parser="trace"
+      parserLabel="Trace"
+      statusLabel={`证据质量：${qualityLabel}`}
+      activeKey={activeTab}
+      items={TABS}
+      onChange={key => onTabChange?.(key as TraceTab)}
+    >
+      <section className="trace-result" aria-labelledby="trace-result-title">
+        <header className="trace-result-heading">
+          <div>
+            <div className="trace-result-identity">
+              <span>CHROMIUM PERFORMANCE TRACE</span>
+              <strong>Trace 分析 Beta</strong>
+            </div>
+            <h1 id="trace-result-title">性能诊断</h1>
+            <p>从页面加载、网络、主线程、渲染和交互事实中定位优先排查方向。</p>
           </div>
-          <h1 id="trace-result-title">性能诊断</h1>
-          <p>从页面加载、网络、主线程、渲染和交互事实中定位优先排查方向。</p>
-        </div>
-        <div className="trace-result-heading-actions">
-          <div className="trace-export-actions">
-            <button type="button" onClick={exportMarkdown}>导出 Markdown</button>
-            <button type="button" onClick={exportJson}>导出 JSON</button>
+          <div className="trace-result-heading-actions">
+            <div className="trace-export-actions">
+              <button type="button" onClick={exportMarkdown}>导出 Markdown</button>
+              <button type="button" onClick={exportJson}>导出 JSON</button>
+            </div>
+            <div className={`trace-quality-level is-${result.context.quality.level}`}>
+              <span>证据质量</span>
+              <strong>{qualityLabel}</strong>
+            </div>
           </div>
-          <div className={`trace-quality-level is-${result.context.quality.level}`}>
-            <span>证据质量</span>
-            <strong>{qualityLabel}</strong>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      {exportError && <div className="trace-export-error" role="alert">{exportError}</div>}
+        {exportError && <div className="trace-export-error" role="alert">{exportError}</div>}
 
-      <AnalysisDisclaimer
-        title="Trace 分析边界"
-        description="当前结论只基于本次录制窗口内的有限事实。缺失采集上下文、未校准时间域或弱关联线索不会被写成确定根因。"
-      />
+        {activeTab === 'conclusion' && (
+          <TraceConclusionTab
+            observationOnlyMessage={diagnosisViewModel.observationOnlyMessage}
+            primary={diagnosisViewModel.primary}
+            secondary={diagnosisViewModel.secondary}
+            onNavigateEvidence={navigateEvidence}
+            onNavigateFact={navigateFact}
+          />
+        )}
+        {activeTab === 'overview' && <TraceOverviewTab result={result} />}
+        {activeTab === 'network' && <TraceNetworkTab context={result.context} />}
+        {activeTab === 'main-thread' && <TraceMainThreadTab context={result.context} />}
+        {activeTab === 'rendering' && <TraceRenderingTab context={result.context} />}
+        {activeTab === 'interactions' && <TraceInteractionsTab context={result.context} />}
+        {activeTab === 'evidence' && (
+          <TraceEvidenceTab
+            context={result.context}
+            onReturnToConclusion={() => onTabChange?.('conclusion')}
+          />
+        )}
 
-      {isTraceWorkbenchEnabled() && (
-        <TraceWorkbenchInternalPanel
-          client={workbenchClient}
-          diagnoses={result.diagnosis.diagnoses}
-          findings={result.diagnosis.findings}
+        <AnalysisDisclaimer
+          title="Trace 分析边界"
+          description="当前结论只基于本次录制窗口内的有限事实。缺失采集上下文、未校准时间域或弱关联线索不会被写成确定根因。"
         />
-      )}
 
-      <nav className="trace-route-nav" aria-label="Trace 分析导航">
-        {TABS.map(item => (
-          <button
-            aria-current={item.tab === activeTab ? 'page' : undefined}
-            className={item.tab === activeTab ? 'is-active' : undefined}
-            key={item.tab}
-            onClick={() => onTabChange?.(item.tab)}
-            type="button"
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === 'conclusion' && (
-        <TraceConclusionTab
-          observationOnlyMessage={diagnosisViewModel.observationOnlyMessage}
-          primary={diagnosisViewModel.primary}
-          secondary={diagnosisViewModel.secondary}
-          onNavigateEvidence={navigateEvidence}
-          onNavigateFact={navigateFact}
-        />
-      )}
-      {activeTab === 'overview' && <TraceOverviewTab result={result} />}
-      {activeTab === 'network' && <TraceNetworkTab context={result.context} />}
-      {activeTab === 'main-thread' && <TraceMainThreadTab context={result.context} />}
-      {activeTab === 'rendering' && <TraceRenderingTab context={result.context} />}
-      {activeTab === 'interactions' && <TraceInteractionsTab context={result.context} />}
-      {activeTab === 'evidence' && (
-        <TraceEvidenceTab
-          context={result.context}
-          onReturnToConclusion={() => onTabChange?.('conclusion')}
-        />
-      )}
-    </section>
+        {isTraceWorkbenchEnabled() && (
+          <TraceWorkbenchInternalPanel
+            client={workbenchClient}
+            diagnoses={result.diagnosis.diagnoses}
+            findings={result.diagnosis.findings}
+          />
+        )}
+      </section>
+    </ResultWorkbenchShell>
   );
 };
 

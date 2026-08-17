@@ -1,0 +1,67 @@
+.summary-card {
+  overflow: hidden;
+  cursor: default;
+  background: var(--summary-card-background, var(--workbench-surface)) !important;
+  border-color: var(--summary-card-border, var(--workbench-border)) !important;
+  box-shadow: none !important;
+  transition: border-color 0.16s ease !important;
+}
+
+.summary-card[role="button"] {
+  cursor: pointer;
+}
+
+.summary-card[role="button"]:hover {
+  background: color-mix(in srgb, var(--summary-card-accent) 10%, var(--workbench-surface)) !important;
+  border-color: color-mix(in srgb, var(--summary-card-accent) 52%, var(--workbench-border)) !important;
+}
+
+.summary-card__body {
+  min-height: 108px;
+  padding: 13px 14px 12px;
+}
+
+.summary-card__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.summary-card-icon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--summary-card-accent);
+  font-size: 14px;
+  background: color-mix(in srgb, var(--summary-card-accent) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--summary-card-accent) 30%, transparent);
+  border-radius: 6px;
+}
+
+.summary-card__title {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.summary-card__value {
+  overflow-wrap: anywhere;
+  color: var(--summary-card-value-color);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.summary-card__suffix {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}

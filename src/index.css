@@ -30,6 +30,29 @@
   --accent-cyan: #22d3ee;
   --accent-orange: #fb923c;
 
+  /* Graphite evidence workbench */
+  --workbench-canvas: #0c1118;
+  --workbench-sidebar: #141a22;
+  --workbench-surface: #1a212b;
+  --workbench-border: #2d3744;
+  --workbench-border-strong: #465365;
+  --workbench-grid: rgba(114, 139, 168, 0.035);
+  --accent-blue-soft: #12375b;
+  --accent-blue-border: #285f91;
+  --accent-blue-strong: #d7ebff;
+  --surface-danger-soft: #351f23;
+  --surface-warning-soft: #342b1b;
+  --surface-success-soft: #173126;
+
+  /* Shape and spacing */
+  --radius-control: 7px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+  --space-xs: 6px;
+  --space-sm: 10px;
+  --space-md: 16px;
+  --space-lg: 24px;
+
   /* Font sizes */
   --font-size-xs: 12px;
   --font-size-sm: 13px;
@@ -80,6 +103,19 @@
   --accent-purple: #7c3aed;
   --accent-cyan: #0891b2;
   --accent-orange: #ea580c;
+
+  --workbench-canvas: #edf1f5;
+  --workbench-sidebar: #f8fafc;
+  --workbench-surface: #ffffff;
+  --workbench-border: #d5dde7;
+  --workbench-border-strong: #aeb9c7;
+  --workbench-grid: rgba(67, 96, 128, 0.04);
+  --accent-blue-soft: #e8f3ff;
+  --accent-blue-border: #a6cdef;
+  --accent-blue-strong: #075fae;
+  --surface-danger-soft: #fff0ef;
+  --surface-warning-soft: #fff7e7;
+  --surface-success-soft: #edf8f2;
 }
 
 body {
@@ -93,6 +129,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  min-width: 1024px;
 }
 
 code, pre, .mono {
@@ -118,13 +155,11 @@ code, pre, .mono {
 .ant-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 14px !important;
+  border-radius: var(--radius-card) !important;
   color: var(--text-primary) !important;
   transition: box-shadow 0.2s, border-color 0.2s;
 }
-.ant-card:hover {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-}
+.ant-card:hover { border-color: var(--border-light) !important; }
 
 .ant-card-head {
   background: var(--bg-elevated) !important;
@@ -253,7 +288,7 @@ a:focus-visible {
   padding: 2px 10px !important;
   border-radius: 6px !important;
   line-height: 20px !important;
-  transition: all 0.15s;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
 /* Alert */
@@ -347,7 +382,7 @@ a:focus-visible {
   color: var(--text-primary) !important;
   font-size: var(--font-size-base) !important;
   border-radius: 10px !important;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 /* Placeholder: adaptive color for both light and dark themes */
@@ -387,8 +422,8 @@ a:focus-visible {
 .ant-btn {
   font-size: var(--font-size-base) !important;
   font-weight: var(--font-weight-medium) !important;
-  border-radius: 10px !important;
-  transition: all 0.2s;
+  border-radius: var(--radius-control) !important;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 
 .ant-btn-default {
@@ -406,6 +441,7 @@ a:focus-visible {
   background: var(--accent-blue) !important;
   border-color: var(--accent-blue) !important;
   font-weight: var(--font-weight-semibold) !important;
+  color: #fff !important;
 }
 
 /* Upload */
@@ -623,7 +659,7 @@ a:focus-visible {
 /* 事件筛选标签交互反馈 */
 .event-filter-tag {
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 .event-filter-tag:hover {
   transform: scale(1.02);
@@ -720,8 +756,7 @@ a:focus-visible {
 /* NetLog 诊断内容深色模式可读性 */
 [data-theme="dark"] .final-diagnosis-panel.ant-card,
 [data-theme="dark"] .netlog-metric-explain-panel.ant-card,
-[data-theme="dark"] .netlog-combined-status-card.ant-card,
-[data-theme="dark"] .summary-card.ant-card {
+[data-theme="dark"] .netlog-combined-status-card.ant-card {
   --text-primary: #f8fafc;
   --text-secondary: #d7e3f4;
   --text-muted: #b8c7db;
@@ -730,15 +765,6 @@ a:focus-visible {
     linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.90)) !important;
   border-color: rgba(96, 165, 250, 0.20) !important;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.26) !important;
-}
-
-[data-theme="dark"] .summary-card-highlight {
-  background: radial-gradient(circle at 80% 10%, rgba(148, 163, 184, 0.14), transparent 32%) !important;
-}
-
-[data-theme="dark"] .summary-card-icon {
-  background: rgba(15, 23, 42, 0.44) !important;
-  border-color: rgba(148, 163, 184, 0.24) !important;
 }
 
 [data-theme="dark"] .final-diagnosis-action-panel,
@@ -918,32 +944,6 @@ a:focus-visible {
   }
 }
 
-/* App Header */
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: linear-gradient(135deg, var(--bg-elevated), var(--bg-surface));
-  border-bottom: 1px solid var(--border-color);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  backdrop-filter: blur(12px);
-}
-.app-header-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.app-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .export-btn {
   background: rgba(74, 158, 255, 0.12);
   border: 1px solid rgba(74, 158, 255, 0.25);
@@ -952,7 +952,7 @@ a:focus-visible {
   padding: 6px 16px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 .export-btn:hover {
   background: rgba(74, 158, 255, 0.2);

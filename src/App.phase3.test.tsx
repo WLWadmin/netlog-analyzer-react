@@ -280,7 +280,6 @@ jest.mock('./components/netlog/EvidenceChainTab', () => ({
   },
 }));
 jest.mock('./components/netlog/ExpertAnalysisTab', () => ({ __esModule: true, default: () => <div>ExpertAnalysisTab</div> }));
-jest.mock('./components/netlog/NetlogWorkbenchNav', () => ({ __esModule: true, default: () => <div>NetlogWorkbenchNav</div> }));
 jest.mock('./components/shared/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 jest.mock('./components/shared/AnalysisDisclaimer', () => ({ AnalysisDisclaimer: () => <div>AnalysisDisclaimer</div> }));
 jest.mock('./components/shared/LoadingOverlay', () => ({ LoadingOverlay: () => null }));

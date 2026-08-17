@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Tabs, Tag, Button } from 'antd';
+import { Tag, Button } from 'antd';
 import {
   DashboardOutlined,
   FileTextOutlined,
@@ -14,6 +14,8 @@ import LogFlowGroups from './LogFlowGroups';
 import LogRawList from './LogRawList';
 import LogPerformanceTab from './LogPerformanceTab';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
+import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from '../shared/ResultWorkbenchShell';
+import './logResultPage.css';
 
 interface LogResultPageProps {
   result: LogAnalysisResult;
@@ -85,6 +87,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
+              type="button"
               className="log-filter-btn"
               data-active={filterErrorOnly}
               onClick={() => setFilterErrorOnly(!filterErrorOnly)}
@@ -117,117 +120,30 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
       children: <LogRawList entries={entries} />,
     },
   ];
+  const activeContent = tabItems.find(item => item.key === activeTab)?.children ?? tabItems[0].children;
+  const navItems: ResultWorkbenchNavItem[] = [
+    { key: 'overview', label: '日志概览', icon: <DashboardOutlined />, group: '分析' },
+    { key: 'flows', label: '操作流程', icon: <BranchesOutlined />, group: '分析', count: groups.length },
+    { key: 'performance', label: '日志统计', icon: <DashboardOutlined />, group: '分析' },
+    { key: 'raw', label: '原始日志', icon: <FileTextOutlined />, group: '深度核验', count: entries.length },
+  ];
 
   return (
-    <div className="log-result-page">
-      <AnalysisDisclaimer variant="log" />
-
-      <div className="log-tabs-container">
-        <Tabs
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={tabItems}
-          type="card"
-          className="log-analysis-tabs"
-        />
+    <ResultWorkbenchShell
+      parser="log"
+      parserLabel="Log"
+      statusLabel={`${stats.total.toLocaleString()} 条日志`}
+      activeKey={activeTab}
+      items={navItems}
+      onChange={handleTabChange}
+    >
+      <div className="log-result-page">
+        <div className="log-result-content">
+          {activeContent}
+        </div>
+        <AnalysisDisclaimer variant="log" />
       </div>
-
-      <style>{`
-        .log-result-page {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          width: 100%;
-        }
-        .log-disclaimer-alert {
-          background: rgba(251, 191, 36, 0.06) !important;
-          border: 1px solid rgba(251, 191, 36, 0.2) !important;
-          border-radius: 12px !important;
-        }
-        .log-disclaimer-title {
-          font-weight: 600;
-          font-size: 14px;
-          color: var(--text-primary);
-        }
-        .log-disclaimer-desc {
-          font-size: 13px;
-          color: var(--text-secondary);
-          line-height: 1.6;
-        }
-        .log-tabs-container {
-          background: var(--bg-surface);
-          border-radius: 14px;
-          border: 1px solid var(--border-color);
-          overflow: hidden;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-        }
-        .log-analysis-tabs .ant-tabs-nav {
-          margin-bottom: 0 !important;
-          padding: 0 8px;
-          background: var(--bg-elevated);
-        }
-        .log-analysis-tabs .ant-tabs-nav-list {
-          gap: 4px;
-        }
-        .log-analysis-tabs .ant-tabs-tab {
-          border-radius: 8px 8px 0 0 !important;
-          border: 1px solid transparent !important;
-          border-bottom: none !important;
-          padding: 10px 20px !important;
-          font-size: 14px;
-          color: var(--text-secondary) !important;
-          transition: all 0.2s ease !important;
-          margin: 8px 2px 0 2px !important;
-        }
-        .log-analysis-tabs .ant-tabs-tab:hover {
-          color: var(--text-primary) !important;
-          background: rgba(24, 144, 255, 0.04);
-        }
-        .log-analysis-tabs .ant-tabs-tab-active {
-          background: var(--bg-surface) !important;
-          border-color: var(--border-color) !important;
-          border-bottom-color: var(--bg-surface) !important;
-        }
-        .log-analysis-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
-          color: #0ea5e9 !important;
-          font-weight: 600;
-        }
-        .log-analysis-tabs .ant-tabs-content {
-          padding: 24px 28px;
-        }
-        .log-analysis-tabs .ant-tabs-card {
-          border: none;
-        }
-        .log-filter-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          color: var(--text-secondary);
-          cursor: pointer;
-          padding: 6px 16px;
-          border-radius: 8px;
-          background: var(--bg-elevated);
-          border: 1px solid var(--border-color);
-          transition: all 0.2s ease;
-          font-family: inherit;
-          line-height: 1.4;
-        }
-        .log-filter-btn:hover {
-          color: var(--text-primary);
-          border-color: rgba(24, 144, 255, 0.4);
-          background: rgba(24, 144, 255, 0.04);
-        }
-        .log-filter-btn[data-active="true"] {
-          color: #ff4d4f;
-          background: rgba(255, 77, 79, 0.06);
-          border-color: rgba(255, 77, 79, 0.25);
-        }
-        .log-filter-btn[data-active="true"]:hover {
-          background: rgba(255, 77, 79, 0.1);
-        }
-      `}</style>
-    </div>
+    </ResultWorkbenchShell>
   );
 };
 

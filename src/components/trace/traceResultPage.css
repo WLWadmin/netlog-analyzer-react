@@ -82,15 +82,15 @@
 
 .trace-export-actions button {
   background: var(--bg-surface);
-  border: 1px solid #0e8fa3;
+  border: 1px solid var(--accent-blue);
   border-radius: 8px;
-  color: #0e8fa3;
+  color: var(--accent-blue);
   cursor: pointer;
   padding: 8px 12px;
 }
 
 .trace-export-actions button:focus-visible {
-  outline: 3px solid #22b8cf;
+  outline: 3px solid var(--accent-blue);
   outline-offset: 3px;
 }
 
@@ -297,27 +297,6 @@
   padding: 11px 0;
 }
 
-.trace-route-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.trace-route-nav button {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 8px 12px;
-}
-
-.trace-route-nav button.is-active {
-  border-color: #0e8fa3;
-  color: #0e8fa3;
-  font-weight: 600;
-}
-
 .trace-diagnosis-actions {
   display: flex;
   gap: 8px;
@@ -327,9 +306,9 @@
 .trace-diagnosis-actions button,
 .trace-load-more {
   background: transparent;
-  border: 1px solid #0e8fa3;
+  border: 1px solid var(--accent-blue);
   border-radius: 6px;
-  color: #0e8fa3;
+  color: var(--accent-blue);
   cursor: pointer;
   padding: 7px 10px;
 }
@@ -424,7 +403,7 @@
   color: var(--trace-incident-accent);
   font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.1em;
 }
 
@@ -918,7 +897,6 @@
   margin-top: 3px;
 }
 
-.trace-route-nav button:focus-visible,
 .trace-diagnosis-actions button:focus-visible,
 .trace-load-more:focus-visible,
 .trace-fact-items li:focus-visible,
@@ -926,7 +904,7 @@
 .trace-compact-table tr:focus-visible,
 .trace-expert-disclosure > button:focus-visible,
 .trace-evidence-association button:focus-visible {
-  outline: 3px solid #22b8cf;
+  outline: 3px solid var(--accent-blue);
   outline-offset: 3px;
 }
 

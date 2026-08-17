@@ -54,10 +54,10 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
       value: result.urlRequests.length,
       suffix: `完成: ${completedCount} / 失败: ${failedReqs}`,
       color: '#22d3ee',
-      valueColor: failedReqs > 0 ? '#f87171' : undefined,
+      valueColor: undefined,
       icon: <LinkOutlined />,
       bgGradient: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(14, 165, 233, 0.08))',
-      onClick: () => onNavigate?.('events', 'URL_REQUEST'),
+      onClick: () => onNavigate?.('requests', 'URL_REQUEST'),
     },
     {
       title: proxyLabel,
@@ -78,7 +78,7 @@ const SummaryCards: FC<SummaryCardsProps> = ({ result, onNavigate }) => {
       bgGradient: result.errors.length > 0
         ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.12), rgba(251, 146, 60, 0.08))'
         : 'linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(34, 211, 238, 0.08))',
-      onClick: result.errors.length > 0 ? () => onNavigate?.('events', 'net_error') : undefined,
+      onClick: result.errors.length > 0 ? () => onNavigate?.('requests', 'net_error') : undefined,
     },
     {
       title: '平均耗时',
