@@ -53,6 +53,7 @@ import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
 import type { ParserMode } from './components/upload/ParserModeSelect';
 import type { FileParserId } from './upload/fileFormatTypes';
+import { isFileStreamParseSession } from './upload/fileFormatTypes';
 import type { TraceAnalysisResult } from './diagnosis/trace';
 import type { TraceWorkbenchClient } from './workbench/client';
 import {
@@ -60,6 +61,10 @@ import {
   createFileParseInput,
 } from './upload/createFileFormatIntake';
 import { useAnalysisIntake } from './upload/useAnalysisIntake';
+import {
+  confirmFileParser,
+  prepareFileFormat,
+} from './upload/fileFormatGateway';
 import SummaryCards from './components/netlog/SummaryCards';
 import NetLogRequestList from './components/netlog/NetLogRequestList';
 import ConclusionActionTab from './components/netlog/ConclusionActionTab';
@@ -381,6 +386,11 @@ const AppContent: React.FC = () => {
     if (isActiveLoad(taskId)) setLoading(false);
   };
 
+  const intakeRegistry = useMemo(
+    () => createExecutableFileFormatRegistry({ useWorker, traceEnabled }),
+    [traceEnabled, useWorker],
+  );
+
   // 追加上传：支持在已有数据基础上追加另一类型文件
   const handleSecondaryFileLoaded = async (
     data: unknown,
@@ -406,16 +416,49 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      const parsed = await parseUploadedInput({
-        data,
-        isTextLog,
-        repairInfo,
-        fileTypeHint,
-        useWorker,
-        onProgress: (phase) => {
-          if (isActiveLoad(taskId)) setLoadingText(phase);
-        },
-      });
+      let parsed: UploadedParseResult;
+      if (data instanceof File && !fileTypeHint && !isTextLog) {
+        const gatewayTaskId = `secondary-${taskId}`;
+        const input = await createFileParseInput(data, gatewayTaskId, {
+          onProgress: progress => {
+            if (isActiveLoad(taskId)) setLoadingText(progress.label);
+          },
+        });
+        const prepared = await prepareFileFormat(input, intakeRegistry);
+        if (prepared.kind !== 'auto-ready' && prepared.kind !== 'expert-ready') {
+          if (isFileStreamParseSession(input.payload) && !input.payload.stream.locked) {
+            await input.payload.stream.cancel().catch(() => undefined);
+          }
+          throw new Error(
+            prepared.resolution.kind === 'unsupported'
+              ? '无法确认追加文件的格式'
+              : '追加文件同时匹配多种格式，未执行解析',
+          );
+        }
+        parsed = await confirmFileParser<UploadedParseResult>(
+          input,
+          prepared.parserId,
+          intakeRegistry,
+          {
+            taskId: gatewayTaskId,
+            isCancelled: () => !isActiveLoad(taskId),
+            onProgress: progress => {
+              if (isActiveLoad(taskId)) setLoadingText(progress.label);
+            },
+          },
+        );
+      } else {
+        parsed = await parseUploadedInput({
+          data,
+          isTextLog,
+          repairInfo,
+          fileTypeHint,
+          useWorker,
+          onProgress: (phase) => {
+            if (isActiveLoad(taskId)) setLoadingText(phase);
+          },
+        });
+      }
 
       if (!isActiveLoad(taskId)) {
         if (parsed.kind === 'trace') await parsed.workbench?.close();
@@ -550,11 +593,6 @@ const AppContent: React.FC = () => {
       message.error('追加文件解析失败: ' + (err as Error).message);
     }
   };
-
-  const intakeRegistry = useMemo(
-    () => createExecutableFileFormatRegistry({ useWorker, traceEnabled }),
-    [traceEnabled, useWorker],
-  );
 
   const commitIntakeResult = useCallback(async (
     value: unknown,

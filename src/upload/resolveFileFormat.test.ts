@@ -44,6 +44,16 @@ describe('file format registry and resolver', () => {
       'chromium-netlog@1',
     ],
     [
+      'legacy NetLog logEvents',
+      { logEvents: [{ source: { id: 1, type: 1 }, type: 1, time: '1' }] },
+      'chromium-netlog@1',
+    ],
+    [
+      'legacy top-level NetLog array',
+      [{ source: { id: 1, type: 1 }, type: 1, time: '1' }],
+      'chromium-netlog@1',
+    ],
+    [
       'Trace',
       {
         traceEvents: [{ name: 'RunTask', ph: 'X', ts: 1, pid: 1, tid: 1 }],

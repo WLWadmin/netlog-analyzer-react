@@ -98,6 +98,17 @@ describe('createNetlogStreamingAnalyzer', () => {
     expect(result.proxyEvents).toHaveLength(1);
     expect(result.http2Events).toHaveLength(1);
     expect(result.quicEvents).toHaveLength(1);
+    expect(result.protocols).toEqual({});
+  });
+
+  it('仅用 URL_REQUEST source 计算并发请求数', () => {
+    const analyzer = createNetlogStreamingAnalyzer();
+    analyzer.accept(event({ time: '0', type: 111, phase: 0, source: { id: 40, type: 1 }, params: { url: 'https://api.example.com/data' } }));
+    analyzer.accept(event({ time: '1', type: 395, phase: 0, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
+    analyzer.accept(event({ time: '2', type: 395, phase: 1, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
+    analyzer.accept(event({ time: '3', type: 2, phase: 1, source: { id: 40, type: 1 } }));
+
+    expect(analyzer.finish().result.peakConcurrency).toBe(1);
   });
 
   it('从 HOST_RESOLVER 真实字段结构提取 DNS 记录', () => {

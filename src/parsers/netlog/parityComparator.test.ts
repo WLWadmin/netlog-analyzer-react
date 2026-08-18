@@ -67,12 +67,12 @@ function currentStreamingCandidate(logData: ReturnType<typeof requestLifecycleFi
 }
 
 describe('NetLog full-vs-stream parity comparator', () => {
-  it('freezes a legacy-compatible fixture signature without exposing source text', () => {
+  it('freezes the request-level protocol fixture signature without exposing source text', () => {
     const full = parseLog(requestLifecycleFixture());
     const signature = buildNetlogParitySignature(full);
     const serialized = JSON.stringify(signature);
 
-    expect(hashNetlogParityValue(signature)).toBe('fnv1a32:3073fb80');
+    expect(hashNetlogParityValue(signature)).toBe('fnv1a32:3fe43f5c');
     expect(serialized).not.toContain('SECRET_VALUE');
     expect(serialized).not.toContain('parity.example.invalid');
   });

@@ -248,4 +248,12 @@ describe('harDiagnosisToCards redirect classification', () => {
 
     expect(cards.some(card => card.id.startsWith('har-browser-queue-pressure'))).toBe(false);
   });
+
+  it('generates stable diagnosis card IDs for the same input', () => {
+    const result = harResult([entry({ status: 302, redirect: { status: 302, location: '/next' } })]);
+    const diag = diagnosis();
+
+    expect(harDiagnosisToCards(result, diag).map(card => card.id))
+      .toEqual(harDiagnosisToCards(result, diag).map(card => card.id));
+  });
 });

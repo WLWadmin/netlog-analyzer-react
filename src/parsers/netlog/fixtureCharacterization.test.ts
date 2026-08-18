@@ -196,11 +196,40 @@ function recoveredInternalErrorFixture() {
 }
 
 describe('NetLog parser fixture characterization', () => {
+  test.each([
+    ['logEvents', { logEvents: [{ type: 1, time: '1', source: { id: 1, type: 1 } }] }],
+    ['top-level array', [{ type: 1, time: '1', source: { id: 1, type: 1 } }]],
+  ])('accepts the declared %s NetLog root', (_label, value) => {
+    expect(parseLog(value).result.totalEvents).toBe(1);
+  });
+
+  test('retains flattened source_id/source_type compatibility', () => {
+    const { events } = parseLog({
+      events: [{ type: 1, time: '1', source_id: 7, source_type: 2 }],
+    });
+
+    expect(events[0].source).toEqual(expect.objectContaining({ id: 7, type: 2 }));
+  });
+
+  test('rejects a malformed event with an indexed structure error', () => {
+    expect(() => parseLog({
+      constants: {},
+      events: [{ type: 1, time: '1', source: { id: 1, type: 1 } }, null],
+    })).toThrow('NetLog events[1] 缺少 source、type 或 time');
+  });
+
   test('rejects a root that also contains another strong format structure', () => {
     expect(() => parseLog({
       constants: {},
       events: [{ type: 1, time: '1', source: { id: 1, type: 1 } }],
       traceEvents: [],
+    })).toThrow('文件同时包含其他诊断格式结构');
+  });
+
+  test('rejects a HAR root that also contains legacy NetLog event structure', () => {
+    expect(() => parseLog({
+      log: { entries: [] },
+      logEvents: [{ type: 1, time: '1', source: { id: 1, type: 1 } }],
     })).toThrow('文件同时包含其他诊断格式结构');
   });
 
@@ -252,10 +281,7 @@ describe('NetLog parser fixture characterization', () => {
     expect(result.quicEvents).toHaveLength(1);
     expect(result.sslEvents).toHaveLength(1);
     expect(result.certIssues).toHaveLength(1);
-    expect(result.protocols).toEqual(expect.objectContaining({
-      'HTTP/2': 1,
-      QUIC: 1,
-    }));
+    expect(result.protocols).toEqual({});
   });
 
   it('does not treat protocol-local error_code as Chromium request failure', () => {
@@ -267,6 +293,7 @@ describe('NetLog parser fixture characterization', () => {
       status: '200',
     }));
     expect(result.urlRequests[0].error).toBeUndefined();
+    expect(result.protocols).toEqual({ 'HTTP/2': 1 });
   });
 
   it('does not keep recovered internal cache status as final request failure', () => {
@@ -275,6 +302,38 @@ describe('NetLog parser fixture characterization', () => {
     expect(result.connectionFailures).toEqual([]);
     expect(result.urlRequests[0].error).toBeUndefined();
     expect(result.urlRequests[0].statusCode).toBe(200);
+  });
+
+  it('counts only failed requests in a failed-domain bucket', () => {
+    const { result } = parseLog({
+      constants: {},
+      events: [
+        event({ time: '0', type: 111, phase: 0, source: { id: 80, type: 1 }, params: { url: 'https://api.example.com/ok' } }),
+        event({ time: '10', type: 181, source: { id: 80, type: 1 }, params: { status_code: 200 } }),
+        event({ time: '20', type: 2, phase: 1, source: { id: 80, type: 1 } }),
+        event({ time: '30', type: 111, phase: 0, source: { id: 81, type: 1 }, params: { url: 'https://api.example.com/fail' } }),
+        event({ time: '40', type: 1, source: { id: 81, type: 1 }, params: { net_error: -105 } }),
+        event({ time: '50', type: 2, phase: 1, source: { id: 81, type: 1 } }),
+      ],
+    });
+
+    expect(result.failedDomains).toEqual([
+      expect.objectContaining({ domain: 'api.example.com', count: 1 }),
+    ]);
+  });
+
+  it('measures peak request concurrency from URL_REQUEST sources only', () => {
+    const { result } = parseLog({
+      constants: {},
+      events: [
+        event({ time: '0', type: 111, phase: 0, source: { id: 90, type: 1 }, params: { url: 'https://api.example.com/data' } }),
+        event({ time: '1', type: 395, phase: 0, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
+        event({ time: '2', type: 395, phase: 1, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
+        event({ time: '3', type: 2, phase: 1, source: { id: 90, type: 1 } }),
+      ],
+    });
+
+    expect(result.peakConcurrency).toBe(1);
   });
 });
 

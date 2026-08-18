@@ -1,16 +1,45 @@
 type StrongRootFormat = 'har' | 'netlog' | 'trace';
 
-function isObject(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export interface NetlogEventRecord extends Record<string, unknown> {
+  source?: Record<string, unknown>;
+  source_id?: number;
+  source_type?: number;
+  type: number;
+  time: string | number;
+}
+
+export function isNetlogEventRecord(value: unknown): value is NetlogEventRecord {
+  if (!isRecord(value)) return false;
+  const source = value.source;
+  const hasSource = isRecord(source)
+    || (typeof value.source_id === 'number' && typeof value.source_type === 'number');
+  return hasSource
+    && typeof value.type === 'number'
+    && (typeof value.time === 'string' || typeof value.time === 'number');
+}
+
+export function netlogEventsFromRoot(value: unknown): unknown[] | undefined {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return undefined;
+  if (Array.isArray(value.events)) return value.events;
+  if (Array.isArray(value.logEvents)) return value.logEvents;
+  return undefined;
 }
 
 function hasHarRoot(value: Record<string, unknown>): boolean {
   const log = value.log;
-  return isObject(log) && Array.isArray(log.entries);
+  return isRecord(log) && Array.isArray(log.entries);
 }
 
-function hasNetLogRoot(value: Record<string, unknown>): boolean {
-  return isObject(value.constants) && Array.isArray(value.events);
+function hasNetLogRoot(value: unknown): boolean {
+  const events = netlogEventsFromRoot(value);
+  if (!events) return false;
+  if (isRecord(value) && isRecord(value.constants)) return true;
+  return events.some(isNetlogEventRecord);
 }
 
 /**
@@ -21,7 +50,7 @@ export function assertNoCompetingRootFormat(
   value: unknown,
   expected: StrongRootFormat,
 ): void {
-  if (!isObject(value)) return;
+  if (!isRecord(value)) return;
   const detected: StrongRootFormat[] = [];
   if (hasHarRoot(value)) detected.push('har');
   if (hasNetLogRoot(value)) detected.push('netlog');

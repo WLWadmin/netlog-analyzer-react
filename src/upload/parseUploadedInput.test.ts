@@ -381,7 +381,7 @@ describe('parseUploadedInput', () => {
 
     const promise = parseUploadedInput({
       data: new File(['{"traceEvents":[]}'], 'sample.json'),
-      fileTypeHint: 'json-auto',
+      fileTypeHint: 'trace',
       useWorker: true,
     });
 
@@ -396,10 +396,9 @@ describe('parseUploadedInput', () => {
     expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['har', parseHarInWorkerMock],
-    ['netlog', parseNetlogInWorkerMock],
-  ])('json-auto 将 %s 正常分流回现有解析链', async (source, parserMock) => {
+  it.each(['har', 'netlog'] as const)(
+    '绑定 Trace 后若完整结构属于 %s，明确失败且不切换解析器',
+    async source => {
     inspectTraceUploadInWorkerMock.mockReturnValue({
       promise: Promise.resolve({
         kind: 'detected-source',
@@ -408,53 +407,25 @@ describe('parseUploadedInput', () => {
       }),
       cancel: jest.fn(),
     });
-    parserMock.mockResolvedValue(source === 'har'
-      ? { result: { totalRequests: 0 }, rawData: { log: { entries: [] } } }
-      : { result: { totalEvents: 0 }, events: [], rawData: { events: [] } });
     const contents = source === 'har'
       ? '{"log":{"entries":[]}}'
       : '{"events":[]}';
 
-    const result = await parseUploadedInput({
+    await expect(parseUploadedInput({
       data: new File([contents], 'sample.json'),
-      fileTypeHint: 'json-auto',
+      fileTypeHint: 'trace',
       useWorker: true,
-    });
+    })).rejects.toThrow(`文件结构属于 ${source}，与已绑定的 Trace 解析器不匹配`);
 
-    expect(result.kind).toBe(source);
-  });
-
-  it.each(['har', 'netlog'] as const)(
-    'flag off 时 json-auto 仍将 %s 分流到现有解析链',
-    async source => {
-      delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
-      inspectTraceUploadInWorkerMock.mockReturnValue({
-        promise: Promise.resolve({
-          kind: 'detected-source',
-          source,
-          encoding: 'plain-json',
-        }),
-        cancel: jest.fn(),
-      });
-      const parserMock = source === 'har' ? parseHarInWorkerMock : parseNetlogInWorkerMock;
-      parserMock.mockResolvedValue(source === 'har'
-        ? { result: { totalRequests: 0 }, rawData: { log: { entries: [] } } }
-        : { result: { totalEvents: 0 }, events: [], rawData: { events: [] } });
-
-      await expect(parseUploadedInput({
-        data: new File([
-          source === 'har' ? '{"log":{"entries":[]}}' : '{"events":[]}',
-        ], 'sample.json'),
-        fileTypeHint: 'json-auto',
-        useWorker: true,
-      })).resolves.toEqual(expect.objectContaining({ kind: source }));
+      expect(parseHarInWorkerMock).not.toHaveBeenCalled();
+      expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
     },
   );
 
   it('在读取正文或启动 Worker 前拒绝 ZIP', async () => {
     const error = await parseUploadedInput({
       data: new File(['not inspected'], 'trace.zip'),
-      fileTypeHint: 'json-auto',
+      fileTypeHint: 'trace',
       useWorker: true,
     }).catch(reason => reason);
 
@@ -478,57 +449,9 @@ describe('parseUploadedInput', () => {
 
     await expect(parseUploadedInput({
       data: file,
-      fileTypeHint: 'json-auto',
+      fileTypeHint: 'trace',
       useWorker: true,
     })).resolves.toEqual({ kind: 'trace', result: {} });
-  });
-
-  it('json-auto 识别大 NetLog 后仍走现有大文件 Worker', async () => {
-    inspectTraceUploadInWorkerMock.mockReturnValue({
-      promise: Promise.resolve({
-        kind: 'detected-source',
-        source: 'netlog',
-        encoding: 'plain-json',
-      }),
-      cancel: jest.fn(),
-    });
-    parseLargeNetlogFileInWorkerMock.mockResolvedValue({
-      events: [],
-      result: { totalEvents: 0, largeFileMode: { enabled: true } },
-    });
-    const file = new File(['{"events":[]}'], 'large.json');
-    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
-
-    const result = await parseUploadedInput({
-      data: file,
-      fileTypeHint: 'json-auto',
-      useWorker: true,
-    });
-
-    expect(result.kind).toBe('netlog');
-    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalled();
-  });
-
-  it('json-auto 大型未知 JSON 停止且不调用 NetLog parser', async () => {
-    inspectTraceUploadInWorkerMock.mockReturnValue({
-      promise: Promise.resolve({
-        kind: 'source-unresolved',
-      }),
-      cancel: jest.fn(),
-    });
-    const file = new File(['{}'], 'large.json');
-    Object.defineProperty(file, 'size', { value: 500 * 1024 * 1024 });
-
-    await expect(parseUploadedInput({
-      data: file,
-      fileTypeHint: 'json-auto',
-      useWorker: true,
-    })).rejects.toMatchObject({
-      name: 'TraceWorkerError',
-      detail: { code: 'TRACE_SOURCE_UNKNOWN' },
-    });
-    expect(parseLargeNetlogFileInWorkerMock).not.toHaveBeenCalled();
-    expect(parseNetlogInWorkerMock).not.toHaveBeenCalled();
   });
 
   it('超过 100MB 的 NetLog 默认走 single scan Dataset worker 且不返回 rawDataId', async () => {

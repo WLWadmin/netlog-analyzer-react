@@ -12,6 +12,12 @@ describe('harParser', () => {
     })).toThrow('文件同时包含其他诊断格式结构');
   });
 
+  test('rejects malformed entries before producing partial HAR requests', () => {
+    expect(() => parseHar({
+      log: { entries: [{ request: {}, response: {} }, null] },
+    })).toThrow('HAR log.entries[1] 缺少 request 或 response 对象');
+  });
+
   test('parseHar should parse basic entry and server-timing', () => {
     const data = {
       log: {
@@ -633,5 +639,20 @@ describe('harParser', () => {
         loadMs: 456,
       },
     ]);
+  });
+
+  test('parseHar keeps a missing request start time unavailable instead of using Unix epoch', () => {
+    const result = parseHar({
+      log: {
+        entries: [{
+          time: 10,
+          request: { method: 'GET', url: 'https://example.com/no-time', headers: [], queryString: [] },
+          response: { status: 200, statusText: 'OK', headers: [], content: { size: 0, mimeType: 'text/plain' } },
+          timings: { send: 1, wait: 8, receive: 1 },
+        }],
+      },
+    } as any);
+
+    expect(Number.isNaN(result.entries[0].startMs)).toBe(true);
   });
 });

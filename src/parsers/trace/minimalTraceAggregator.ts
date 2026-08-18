@@ -634,7 +634,6 @@ function clipSpans(
 
 function finalizeNavigations(
   state: ScanState,
-  frames: Map<string, MutableFrame>,
   outermost: Map<string, string>,
   frameSpans: Map<string, TraceFrameProcessSpan[]>,
 ): TraceNavigationFacts[] {
@@ -835,7 +834,6 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
     }
     const navigations = finalizeNavigations(
       state,
-      hierarchy.frames,
       hierarchy.outermost,
       frameSpans,
     );

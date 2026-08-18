@@ -424,6 +424,25 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(result.headline.some(item => item.title.includes('检测到代理服务器配置') && item.kind === 'confirmed')).toBe(false);
   });
 
+  it('fromNetlog includes protocol-class TLS failures that have no certificate issue', () => {
+    const sslEvent = netlogEvent({
+      time: 100,
+      typeName: 'SSL_CONNECT_JOB',
+      source: { id: 30, type: 5, typeName: 'SSL_CONNECT_JOB' },
+      params: { host: 'tls.example.com', error_code: -107 },
+    });
+    const diagnosis = buildNetlogDiagnosisSummary(analysisResult({
+      sslEvents: [sslEvent],
+      sslIssues: [{ event: sslEvent, error: -107, host: 'tls.example.com', category: 'protocol' }],
+      certIssues: [],
+    }), [], [sslEvent]);
+
+    expect(diagnosis.cards).toContainEqual(expect.objectContaining({
+      category: 'tls',
+      title: 'TLS/证书问题 (1 个)',
+    }));
+  });
+
   it('fromNetlog 生成的协议状态卡片不能输出 confirmed', () => {
     const result = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(analysisResult({
       totalEvents: 100,

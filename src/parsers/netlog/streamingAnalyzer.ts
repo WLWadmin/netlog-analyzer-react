@@ -1,5 +1,5 @@
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
-import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription } from './constants';
+import { EVENT_TYPES, SOURCE_TYPES, PHASE } from './constants';
 import { classifySslIssueCategory } from './errorClassifier';
 import type {
   AnalysisResult,
@@ -12,6 +12,8 @@ import type {
 import {
   addDnsRecordsFromEvent,
   addProxyEvent,
+  countRequestProtocols,
+  extractFailedDomains,
   shouldAnalyzeProxyEvent,
 } from './parser';
 import { truncateUrl } from '../../utils/format';
@@ -767,8 +769,8 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
     sourceIds.add(sourceId);
     if (parsed.time < result.timeRange.start) result.timeRange.start = parsed.time;
     if (parsed.time > result.timeRange.end) result.timeRange.end = parsed.time;
-    if (parsed.phaseName === 'BEGIN') activeSources.add(sourceId);
-    if (parsed.phaseName === 'END') activeSources.delete(sourceId);
+    if (parsed.source.typeName === 'URL_REQUEST' && parsed.phaseName === 'BEGIN') activeSources.add(sourceId);
+    if (parsed.source.typeName === 'URL_REQUEST' && parsed.phaseName === 'END') activeSources.delete(sourceId);
     result.peakConcurrency = Math.max(result.peakConcurrency, activeSources.size);
 
     if (isKeyEvent(parsed) && eventsPreview.length < MAX_EVENTS_PREVIEW) {
@@ -795,22 +797,16 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
         addBounded(result.sslIssues, issue);
         if (issue.category === 'cert') addBounded(result.certIssues, issue);
       }
-        if (parsed.params.encrypted_protocol || parsed.params.version) {
-          const key = `TLS_${parsed.params.encrypted_protocol || parsed.params.version}`;
-          result.protocols[key] = (result.protocols[key] || 0) + 1;
-        }
     }
     if (parsed.typeName.includes('QUIC_')) {
         trackCategoryEvent('quic', parsed);
       addBounded(result.quicEvents, parsed);
-      result.protocols.QUIC = (result.protocols.QUIC || 0) + 1;
         const issue = buildQuicEventIssue(parsed);
         if (issue) result.errors.push(issue);
     }
     if (parsed.source.typeName === 'HTTP2_SESSION' || parsed.typeName.includes('HTTP2_') || parsed.typeName.includes('HTTP/2_')) {
         trackCategoryEvent('http2', parsed);
       addBounded(result.http2Events, parsed);
-      result.protocols['HTTP/2'] = (result.protocols['HTTP/2'] || 0) + 1;
         const issue = buildHttp2GoawayIssue(parsed);
         if (issue) {
           result.errors.push(issue);
@@ -861,6 +857,7 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
     const requestOutput = requestAccumulator.finish();
     result.urlRequests = requestOutput.requests;
     result.connectionFailures = requestOutput.connectionFailures;
+    result.protocols = countRequestProtocols(result.urlRequests);
 
     meta.diagnostics = {
       topEventTypes: topCounts(eventTypeCounts, 30),
@@ -888,33 +885,9 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
           time: req.startTime,
         });
       }
-      if (req.url.startsWith('https://')) req.protocol = req.protocol || 'HTTP/1.1';
     }
 
-    const domainMap = new Map<string, any>();
-    for (const req of result.urlRequests) {
-      try {
-        const domain = new URL(req.url).hostname;
-        if (!domainMap.has(domain)) {
-          domainMap.set(domain, { domain, urls: [], errors: [], errorCodes: [], ips: [], resolvedIp: null, remoteIp: null, count: 0, firstTime: req.startTime, lastTime: req.startTime });
-        }
-        const entry = domainMap.get(domain);
-        entry.urls.push(req.url);
-        entry.count++;
-        entry.firstTime = Math.min(entry.firstTime, req.startTime);
-        entry.lastTime = Math.max(entry.lastTime, req.startTime);
-        entry.resolvedIp = entry.resolvedIp || req.resolvedIp;
-        entry.remoteIp = entry.remoteIp || req.remoteIp;
-        if (req.error !== undefined) {
-          entry.errors.push({ code: req.error, desc: req.errorDesc || getNetErrorDescription(req.error), time: req.startTime });
-          if (!entry.errorCodes.includes(req.error)) entry.errorCodes.push(req.error);
-        }
-      } catch {}
-    }
-    result.failedDomains = Array.from(domainMap.values())
-      .filter(entry => entry.errors.length > 0)
-      .map(entry => ({ ...entry, urls: Array.from(new Set(entry.urls)) }))
-      .sort((a, b) => b.count - a.count);
+    extractFailedDomains(result);
 
     for (const fail of result.connectionFailures) {
         result.errors.push(buildConnectionFailureIssue(fail, result.timeTickOffset));

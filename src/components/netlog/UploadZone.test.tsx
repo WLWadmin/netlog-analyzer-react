@@ -3,11 +3,24 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import UploadZone from './UploadZone';
 
 jest.mock('antd', () => {
-  const React = require('react');
-  const Upload = ({ children, accept }: {
+  const Upload = ({ children, accept, customRequest }: {
     children: React.ReactNode;
     accept?: string;
-  }) => <div data-testid="upload" data-accept={accept}>{children}</div>;
+    customRequest?: (options: unknown) => void;
+  }) => (
+    <div data-testid="upload" data-accept={accept}>
+      {children}
+      <button
+        type="button"
+        onClick={() => customRequest?.({
+          file: new File(['{"log":{"entries":[]}}'], 'misleading.json'),
+          onSuccess: jest.fn(),
+        })}
+      >
+        choose compact test file
+      </button>
+    </div>
+  );
   Upload.Dragger = ({ children, accept, customRequest }: {
     children: React.ReactNode;
     accept?: string;
@@ -36,7 +49,6 @@ jest.mock('antd', () => {
 });
 
 jest.mock('@ant-design/icons', () => {
-  const React = require('react');
   return new Proxy({}, { get: () => () => <span /> });
 });
 
@@ -81,5 +93,17 @@ describe('UploadZone Trace feature flag', () => {
     await waitFor(() => expect(onFilesSelected).toHaveBeenCalledTimes(1));
     expect(onFilesSelected.mock.calls[0][0][0]).toBeInstanceOf(File);
     expect(onFileLoaded).not.toHaveBeenCalled();
+  });
+
+  it('passes compact uploads as Files without binding a parser from the extension', async () => {
+    const onFileLoaded = jest.fn();
+    render(<UploadZone onFileLoaded={onFileLoaded} compact />);
+
+    fireEvent.click(screen.getByText('choose compact test file'));
+
+    await waitFor(() => expect(onFileLoaded).toHaveBeenCalledTimes(1));
+    expect(onFileLoaded.mock.calls[0]).toEqual([
+      expect.any(File),
+    ]);
   });
 });

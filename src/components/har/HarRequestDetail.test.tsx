@@ -40,7 +40,6 @@ jest.mock('antd', () => {
 });
 
 jest.mock('@ant-design/icons', () => {
-  const React = require('react');
   const Icon = () => <span />;
   return new Proxy({}, { get: () => Icon });
 });

@@ -1,5 +1,6 @@
 import type { SocketsStateView } from './netlogDatasetViews';
 import { hasNetlogSourceDependencyMarker } from './netlogEventJsonProbe';
+import { normalizeNetlogErrorValue } from './netlogErrorValue';
 
 interface EventSeed {
   eventId: number;
@@ -57,8 +58,7 @@ function firstString(...values: unknown[]): string | undefined {
 
 function errorValue(params: Record<string, unknown> | undefined): number | string | undefined {
   const value = params?.net_error ?? params?.error_code ?? params?.error ?? params?.os_error ?? params?.ssl_error;
-  if (typeof value === 'number' || typeof value === 'string') return value;
-  return undefined;
+  return normalizeNetlogErrorValue(value);
 }
 
 function detailValue(params: Record<string, unknown> | undefined): string | undefined {
@@ -182,7 +182,7 @@ function probeSocketParams(seed: EventSeed): SocketParamsSnapshot | undefined {
   if (dependencySourceIds === undefined) return undefined;
   const peerAddress = firstString(extractJsonStringOrNumber(seed.eventJson, ['peer_address', 'peerAddress', 'address', 'remote_address', 'ip_endpoint']));
   const pool = firstString(extractJsonStringOrNumber(seed.eventJson, ['group_name', 'groupName', 'pool_name', 'poolName', 'socket_pool', 'socketPool']));
-  const error = extractJsonStringOrNumber(seed.eventJson, ['net_error', 'error_code', 'error', 'os_error', 'ssl_error']);
+  const error = normalizeNetlogErrorValue(extractJsonStringOrNumber(seed.eventJson, ['net_error', 'error_code', 'error', 'os_error', 'ssl_error']));
   const details = firstString(extractJsonStringOrNumber(seed.eventJson, ['details', 'description', 'reason', 'net_error_details']));
   return {
     dependencySourceIds: dependencySourceIds.filter(id => id !== seed.sourceId),

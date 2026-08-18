@@ -164,7 +164,7 @@ export function maskEvidenceValue(value: string): string {
   }
 
   // 脱敏 key=value 形式的敏感片段，兼容 URL、Header、日志片段
-  masked = masked.replace(SENSITIVE_KEY_PATTERN, (match, key) => `${key}=***`);
+  masked = masked.replace(SENSITIVE_KEY_PATTERN, (_match, key) => `${key}=***`);
   // Header 与 JSON 常使用 key: value；保留 key 和原有引号，避免破坏结构。
   masked = masked.replace(
     SENSITIVE_COLON_KEY_PATTERN,

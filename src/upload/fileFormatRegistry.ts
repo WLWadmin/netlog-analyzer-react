@@ -4,6 +4,10 @@ import type {
   ProbeInput,
   ProbeVerdict,
 } from './fileFormatTypes';
+import {
+  isNetlogEventRecord,
+  netlogEventsFromRoot,
+} from '../parsers/shared/rootFormatGuard';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -50,19 +54,21 @@ function harProbe(input: ProbeInput): ProbeVerdict {
 
 function netlogProbe(input: ProbeInput): ProbeVerdict {
   const parserId: FileParserId = 'chromium-netlog@1';
-  if (!isRecord(input.value) || !Array.isArray(input.value.events)) {
+  const events = netlogEventsFromRoot(input.value);
+  if (!events) {
     return verdict('no-match', parserId, ['NETLOG_EVENTS_MISSING']);
   }
-  const events = input.value.events;
-  const hasConstants = isRecord(input.value.constants);
+  const hasConstants = isRecord(input.value)
+    && isRecord(input.value.constants);
   const firstEvent = events[0];
-  const hasEventSemantics = isRecord(firstEvent)
-    && isRecord(firstEvent.source)
-    && firstEvent.type !== undefined
-    && firstEvent.time !== undefined;
+  const hasEventSemantics = isNetlogEventRecord(firstEvent);
   if (hasConstants || hasEventSemantics) {
     return verdict('definite-match', parserId, [
-      'NETLOG_EVENTS_ARRAY',
+      Array.isArray(input.value)
+        ? 'NETLOG_ROOT_ARRAY'
+        : isRecord(input.value) && Array.isArray(input.value.logEvents)
+          ? 'NETLOG_LOG_EVENTS_ARRAY'
+          : 'NETLOG_EVENTS_ARRAY',
       hasConstants ? 'NETLOG_CONSTANTS_OBJECT' : 'NETLOG_EVENT_SEMANTICS',
     ]);
   }

@@ -664,7 +664,7 @@ export function generateSuggestions(r: AnalysisResult): Suggestion[] {
     suggestions.push({
       icon: '📡',
       title: `检测到 HTTP/2 GOAWAY 帧 (${goawayCount} 个)`,
-      detail: '服务器主动发送了 HTTP/2 GOAWAY 帧，关闭了连接。根据 oncall 经验，GOAWAY 帧携带的错误码如果是 0x1（协议错误），可能是服务端或中间节点（如 TLB）的问题。',
+      detail: '记录到 HTTP/2 GOAWAY 帧，可能是本端发送或从对端接收。错误码如果是 0x1（协议错误），可能与服务端、中间节点（如 TLB）或客户端连接生命周期有关。',
       conclusion: '检测到 HTTP/2 GOAWAY。GOAWAY 可以是正常优雅关闭，也可能携带协议或内部错误；需要先查看错误码、last_stream_id 和请求是否成功重试。',
       actions: [
         '检查 GOAWAY 帧的错误码（0x1 表示协议错误）',

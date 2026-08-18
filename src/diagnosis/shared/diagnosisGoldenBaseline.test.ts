@@ -448,9 +448,9 @@ describe('Diagnosis Golden Baseline', () => {
     const cards = combinedDiagnosisToCards(har, netlog);
 
     // Diagnosis Batch 2: query value 不再参与请求关联；同 origin + pathname + method 可作为强关联。
-    // Diagnosis Batch 3: 双源融合会追加 HAR/NetLog observation 证据。
+    // 同域 DNS aggregate 未绑定到 URL_REQUEST source，只能保持中置信度。
     expect(cardSignature(cards).slice(0, 1)).toEqual([
-      { source: 'combined', category: 'dns', severity: 'critical', confidence: 'high', evidenceCount: 7, limitationCount: 3 },
+      { source: 'combined', category: 'dns', severity: 'critical', confidence: 'medium', evidenceCount: 7, limitationCount: 3 },
     ]);
     expectNoSensitiveLeak(cards);
     expectNoConfirmedRootCause(cards);
@@ -471,6 +471,7 @@ describe('Diagnosis Golden Baseline', () => {
     }]);
     const netlog = netlogResult({
       urlRequests: [urlRequest({ id: 101, duration: 100, status: 'error' })],
+      connectionFailures: [{ requestId: 101, url: 'https://api.example.test/v1/resource', error: -105, time: 1200 }],
       failedDomains: [{
         domain: 'api.example.test',
         urls: ['https://api.example.test/v1/resource'],

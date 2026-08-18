@@ -377,7 +377,7 @@ const PerformanceTab: React.FC<PerformanceTabProps> = ({ result }) => {
         <span>{v}</span>
       </div>
     )},
-    { title: '影响请求数', dataIndex: 'affectedRequests', key: 'affected', width: 110, align: 'right', render: (v: number, r: BottleneckRank) => (
+    { title: '影响请求数', dataIndex: 'affectedRequests', key: 'affected', width: 110, align: 'right', render: (v: number) => (
       <span>{v} / {completedReqs.length} ({((v / completedReqs.length) * 100).toFixed(0)}%)</span>
     )},
     { title: '平均耗时', dataIndex: 'avgDuration', key: 'avg', width: 100, align: 'right', render: (v: number) => <span style={{ fontFamily: 'var(--font-mono)' }}>{formatDuration(v)}</span> },

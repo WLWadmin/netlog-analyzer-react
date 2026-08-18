@@ -233,7 +233,7 @@ export function buildNetlogObservations(result: AnalysisResult, options?: { data
       id: `netlog:connection:${index}:${failure.error}`,
       source: 'netlog',
       category,
-      subject: { domain: parts.domain, safePath: parts.safePath },
+      subject: { domain: parts.domain, safePath: parts.safePath, sourceId: failure.requestId },
       timeRange: Number.isFinite(failure.time) ? { startMs: failure.time, endMs: failure.time, clock: 'relative' } : undefined,
       severity: 'critical',
       evidenceLevel: 'confirmed-observation',
@@ -247,12 +247,12 @@ export function buildNetlogObservations(result: AnalysisResult, options?: { data
       explanationState: 'explained',
     });
   });
-  result.certIssues.forEach(issue => {
+  result.sslIssues.forEach(issue => {
     observations.push({
       id: `netlog:tls:${issue.host}:${issue.error}`,
       source: 'netlog',
       category: 'tls',
-      subject: { domain: issue.host, eventIds: [`${issue.event.source.id}:${issue.event.typeName}`] },
+      subject: { domain: issue.host, sourceId: issue.event.source.id, eventIds: [`${issue.event.source.id}:${issue.event.typeName}`] },
       timeRange: Number.isFinite(issue.event.time) ? { startMs: issue.event.time, endMs: issue.event.time, clock: 'relative' } : undefined,
       severity: 'critical',
       evidenceLevel: 'confirmed-observation',

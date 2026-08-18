@@ -2,7 +2,11 @@ import { EVENT_TYPES, SOURCE_TYPES, PHASE, getNetErrorDescription, isHttp2Goaway
 import { classifySslIssueCategory } from './errorClassifier';
 import { truncateUrl } from '../../utils/format';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
-import { assertNoCompetingRootFormat } from '../shared/rootFormatGuard';
+import {
+  assertNoCompetingRootFormat,
+  isNetlogEventRecord,
+  netlogEventsFromRoot,
+} from '../shared/rootFormatGuard';
 import { hashStableValue, netlogEventIdentity } from './stableFingerprint';
 import { createRequestAccumulator } from './requestAccumulator';
 import {
@@ -276,21 +280,8 @@ export function parseLog(
     dohCandidates: [],
   };
 
-  // Extract events
-  let events: any[] = [];
-  if (logData.events) events = logData.events;
-  else if (logData.logEvents) events = logData.logEvents;
-  else if (Array.isArray(logData)) events = logData;
-  else {
-    for (const key of Object.keys(logData)) {
-      if (Array.isArray(logData[key]) && logData[key].length > 0 && logData[key][0].type !== undefined) {
-        events = logData[key];
-        break;
-      }
-    }
-  }
-
-  if (!events.length) throw new Error('未找到有效的网络事件数据');
+  const events = netlogEventsFromRoot(logData);
+  if (!events?.length) throw new Error('未找到有效的网络事件数据');
 
   const constants = logData.constants || {};
   const timeTickOffset = Number(constants.timeTickOffset);
@@ -359,12 +350,24 @@ export function parseLog(
 
   let processedEventCount = 0;
   let lastProgressAt = 0;
-  for (const evt of events) {
-    const sourceType = evt.source?.type || evt.source_type || 0;
-    const sourceId = evt.source?.id || evt.source_id || 0;
+  for (const [eventIndex, evt] of events.entries()) {
+    if (!isNetlogEventRecord(evt)) {
+      throw new Error(`NetLog events[${eventIndex}] 缺少 source、type 或 time`);
+    }
+    const sourceType = typeof evt.source?.type === 'number'
+      ? evt.source.type
+      : typeof evt.source_type === 'number' ? evt.source_type : 0;
+    const sourceId = typeof evt.source?.id === 'number'
+      ? evt.source.id
+      : typeof evt.source_id === 'number' ? evt.source_id : 0;
+    const phase = typeof evt.phase === 'number' ? evt.phase : 0;
+    const params = evt.params !== null && typeof evt.params === 'object'
+      && !Array.isArray(evt.params)
+      ? evt.params
+      : {};
 
     const parsed: ParsedEvent = {
-      time: parseFloat(evt.time) || 0,
+      time: Number.parseFloat(String(evt.time)) || 0,
       type: evt.type,
       typeName: eventNames[evt.type] || EVENT_TYPES[evt.type] || ("UNKNOWN_" + evt.type),
       source: {
@@ -372,9 +375,9 @@ export function parseLog(
         type: sourceType,
         typeName: sourceNames[sourceType] || SOURCE_TYPES[sourceType] || "UNKNOWN_SRC",
       },
-      phase: evt.phase,
-      phaseName: PHASE[evt.phase] || `PHASE_${evt.phase}`,
-      params: evt.params || {},
+      phase,
+      phaseName: PHASE[phase] || `PHASE_${phase}`,
+      params,
     };
 
     parsedEvents.push(parsed);
@@ -404,6 +407,7 @@ export function parseLog(
   const requestOutput = requestAccumulator.finish();
   result.urlRequests = requestOutput.requests;
   result.connectionFailures = requestOutput.connectionFailures;
+  result.protocols = countRequestProtocols(result.urlRequests);
 
   for (const evt of parsedEvents) {
     categorizeEvent(evt, result);
@@ -1033,6 +1037,7 @@ function calculatePeakConcurrency(events: ParsedEvent[]): number {
   const sorted = [...events].sort((a, b) => a.time - b.time);
 
   for (const evt of sorted) {
+    if (evt.source.typeName !== 'URL_REQUEST') continue;
     const sid = evt.source.id;
     const wasActive = sourceStates.get(sid) || false;
 
@@ -1070,16 +1075,11 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
         r.certIssues.push(issue);
       }
     }
-    if (p.encrypted_protocol || p.version) {
-      const key = "TLS_" + (p.encrypted_protocol || p.version);
-      r.protocols[key] = (r.protocols[key] || 0) + 1;
-    }
   }
 
   // ---- QUIC events ----
   if (tn.includes("QUIC_")) {
     r.quicEvents.push(evt);
-    r.protocols["QUIC"] = (r.protocols["QUIC"] || 0) + 1;
       const issue = buildQuicEventIssue(evt);
       if (issue) r.errors.push(issue);
   }
@@ -1087,7 +1087,6 @@ function categorizeEvent(evt: ParsedEvent, r: AnalysisResult) {
   // ---- HTTP/2 events ----
   if (stn === "HTTP2_SESSION" || tn.includes("HTTP2_") || tn.includes("HTTP/2_")) {
     r.http2Events.push(evt);
-    r.protocols["HTTP/2"] = (r.protocols["HTTP/2"] || 0) + 1;
       const issue = buildHttp2GoawayIssue(evt);
       if (issue) r.errors.push(issue);
   }
@@ -1308,11 +1307,22 @@ function analyzeProxyEvent(evt: ParsedEvent, pi: ProxyInfo) {
   }
 }
 
-function extractFailedDomains(r: AnalysisResult) {
-  const domainMap = new Map<string, FailedDomain>();
+export function countRequestProtocols(requests: URLRequest[]): Record<string, number> {
+  const protocols: Record<string, number> = {};
+  for (const request of requests) {
+    if (!request.protocol) continue;
+    protocols[request.protocol] = (protocols[request.protocol] || 0) + 1;
+  }
+  return protocols;
+}
 
-  // Build domain map from all URL requests (not just failures)
+export function extractFailedDomains(r: AnalysisResult) {
+  const domainMap = new Map<string, FailedDomain>();
+  const requestIdsWithError = new Set<number>();
+
+  // Failed-domain counts describe failures, not all requests to the same domain.
   for (const req of r.urlRequests) {
+    if (req.error === undefined) continue;
     try {
       const url = new URL(req.url);
       const domain = url.hostname;
@@ -1347,26 +1357,25 @@ function extractFailedDomains(r: AnalysisResult) {
         entry.remoteIp = req.remoteIp;
       }
 
-      // Collect errors from request
-      if (req.error !== undefined) {
-        const errCode = req.error;
-        const errDesc = req.errorDesc || getNetErrorDescription(errCode);
-        entry.errors.push({
-          code: errCode,
-          desc: errDesc,
-          time: req.startTime,
-        });
-        if (!entry.errorCodes.includes(errCode)) {
-          entry.errorCodes.push(errCode);
-        }
+      const errCode = req.error;
+      const errDesc = req.errorDesc || getNetErrorDescription(errCode);
+      entry.errors.push({
+        code: errCode,
+        desc: errDesc,
+        time: req.startTime,
+      });
+      if (!entry.errorCodes.includes(errCode)) {
+        entry.errorCodes.push(errCode);
       }
+      requestIdsWithError.add(req.id);
     } catch {
       // Invalid URL
     }
   }
 
-  // Also process connection failures for any domains not in urlRequests
+  // Some failures are not retained on URLRequest; merge those without double-counting.
   for (const fail of r.connectionFailures) {
+    if (fail.requestId !== undefined && requestIdsWithError.has(fail.requestId)) continue;
     try {
       const url = new URL(fail.url);
       const domain = url.hostname;
@@ -1387,6 +1396,18 @@ function extractFailedDomains(r: AnalysisResult) {
           lastTime: fail.time,
           count: 1,
         });
+      } else {
+        const entry = domainMap.get(domain)!;
+        entry.urls.push(fail.url);
+        entry.errors.push({
+          code: fail.error,
+          desc: getNetErrorDescription(fail.error),
+          time: fail.time,
+        });
+        if (!entry.errorCodes.includes(fail.error)) entry.errorCodes.push(fail.error);
+        entry.count += 1;
+        entry.firstTime = Math.min(entry.firstTime, fail.time);
+        entry.lastTime = Math.max(entry.lastTime, fail.time);
       }
     } catch {
       // Invalid URL

@@ -313,7 +313,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
       key: 'context',
       width: 80,
       align: 'center' as const,
-      render: (_: unknown, row: IndexedEvent, index: number) => (
+      render: (_: unknown, row: IndexedEvent) => (
         <Button
           size="small"
           type="link"

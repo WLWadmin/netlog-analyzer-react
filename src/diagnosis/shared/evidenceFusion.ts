@@ -43,6 +43,21 @@ function isNetworkLayer(category: string): boolean {
   return ['dns', 'connect', 'tls', 'proxy', 'protocol', 'network-change'].includes(category);
 }
 
+function hasSourceBoundCorrelation(
+  har: DiagnosisObservation,
+  netlog: DiagnosisObservation,
+  correlations: RequestCorrelation[]
+): boolean {
+  if (har.subject.requestId === undefined || netlog.subject.sourceId === undefined) return false;
+  const requestId = har.subject.requestId;
+  const sourceId = netlog.subject.sourceId;
+  return correlations.some(item =>
+    item.harRequestId === requestId &&
+    item.score >= 0.9 &&
+    item.netlogSourceIds.includes(sourceId)
+  );
+}
+
 function buildConflictNotes(har: DiagnosisObservation[], netlog: DiagnosisObservation[], correlations: RequestCorrelation[]): string[] {
   const notes: string[] = [];
   const strongCorrelations = correlations.filter(item => item.score >= 0.9);
@@ -81,18 +96,19 @@ function buildCounterEvidence(har: DiagnosisObservation[], netlog: DiagnosisObse
 }
 
 function buildConfidenceFactors(
-  har: DiagnosisObservation[],
-  netlog: DiagnosisObservation[],
   correlations: RequestCorrelation[],
+  supportingPairCount: number,
   counterEvidence: DiagnosticEvidence[],
   conflictNotes: string[]
 ): DiagnosticConfidenceFactor[] {
   const factors: DiagnosticConfidenceFactor[] = [];
-  if (har.length > 0 && netlog.length > 0) {
-    factors.push({ label: '双源证据', impact: 'positive', detail: 'HAR 与 NetLog 都提供了可引用的 observation。' });
+  if (supportingPairCount > 0) {
+    factors.push({ label: '双源证据', impact: 'positive', detail: 'HAR 与 NetLog 都提供了绑定到同一请求的 observation。' });
   }
-  if (correlations.some(item => item.score >= 0.9)) {
+  if (supportingPairCount > 0 && correlations.some(item => item.score >= 0.9)) {
     factors.push({ label: '强请求关联', impact: 'positive', detail: '存在 method + origin + pathname 级别的强关联。' });
+  } else if (correlations.some(item => item.score >= 0.9)) {
+    factors.push({ label: '双源证据未绑定', impact: 'neutral', detail: '请求关联较强，但 NetLog observation 缺少属于该请求的 sourceId，不能提升置信度。' });
   } else if (correlations.some(item => item.score > 0)) {
     factors.push({ label: '弱请求关联', impact: 'neutral', detail: '仅存在 host、host+path 或时间邻近级别的弱关联。' });
   }
@@ -113,8 +129,9 @@ export function fuseDiagnosisEvidence(input: {
 }): EvidenceFusionResult {
   const { harObservations, netlogObservations, correlations, baseConfidence = 'medium' } = input;
   const supportingPairs = harObservations.flatMap(har => netlogObservations.filter(netlog => {
-    const stronglyCorrelated = correlations.some(item => item.harRequestId === har.subject.requestId && item.score >= 0.9);
-    return sameDomain(har.subject.domain, netlog.subject.domain) && sameCategory(har, netlog) && stronglyCorrelated;
+    return sameDomain(har.subject.domain, netlog.subject.domain) &&
+      sameCategory(har, netlog) &&
+      hasSourceBoundCorrelation(har, netlog, correlations);
   }).map(netlog => ({ har, netlog })));
 
   const supportingEvidence = [
@@ -123,11 +140,14 @@ export function fuseDiagnosisEvidence(input: {
   ];
   const counterEvidence = buildCounterEvidence(harObservations, netlogObservations, correlations);
   const conflictNotes = buildConflictNotes(harObservations, netlogObservations, correlations);
-  const confidenceFactors = buildConfidenceFactors(harObservations, netlogObservations, correlations, counterEvidence, conflictNotes);
+  const confidenceFactors = buildConfidenceFactors(correlations, supportingPairs.length, counterEvidence, conflictNotes);
 
   let score = CONFIDENCE_SCORE[baseConfidence];
   if (supportingPairs.length > 0) score += 1;
-  if (correlations.some(item => item.score >= 0.9)) score += 0.5;
+  if (supportingPairs.length > 0 && correlations.some(item => item.score >= 0.9)) score += 0.5;
+  if (supportingPairs.length === 0 && harObservations.length > 0 && netlogObservations.length > 0) {
+    score = Math.min(score, CONFIDENCE_SCORE.medium);
+  }
   if (counterEvidence.length > 0) score -= 1;
   if (conflictNotes.length > 0) score -= 0.5;
 

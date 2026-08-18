@@ -77,9 +77,3 @@ export function useNetlogDiagnosisSummary(
 
   return state;
 }
-
-export function clearNetlogDiagnosisSummaryCacheForTest(result?: AnalysisResult) {
-  if (result) {
-    summaryCache.delete(result);
-  }
-}

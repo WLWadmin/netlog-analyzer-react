@@ -3,7 +3,7 @@ import { buildTraceDiagnosisReleaseGateReport } from './traceDiagnosisReleaseGat
 
 describe('traceDiagnosisReleaseGate', () => {
   it('reports exactly the user-specified seven metrics', () => {
-    const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus());
+    const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus(), { hasRealSampleValidationArtifacts: true });
     expect(report.passed).toBe(true);
     expect(report.blockers).toEqual([]);
     expect(report.metrics).toEqual({
@@ -16,6 +16,13 @@ describe('traceDiagnosisReleaseGate', () => {
       deterministicOrderPassed: true,
     });
     expect(Object.keys(report.metrics)).toHaveLength(7);
+  });
+
+  it('blocks release when real-sample validation artifacts are absent', () => {
+    const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus());
+
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('尚未提供 Trace 真实样本验证记录');
   });
 
   it('folds all structured expectation failures into corpusPassed', () => {

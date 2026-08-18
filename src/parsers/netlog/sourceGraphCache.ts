@@ -28,13 +28,3 @@ export function getCachedEventsBySourceId(events: ParsedEvent[]): Map<number, Pa
   eventsBySourceIdCache.set(events, map);
   return map;
 }
-
-export function clearSourceGraphCache(events?: ParsedEvent[]) {
-  if (!events) return;
-  sourceGraphCache.delete(events);
-}
-
-export function clearEventsBySourceIdCache(events?: ParsedEvent[]) {
-  if (!events) return;
-  eventsBySourceIdCache.delete(events);
-}

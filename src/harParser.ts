@@ -4,7 +4,10 @@
 // 可视化所需的结构化数据。
 // ============================================================
 
-import { assertNoCompetingRootFormat } from './parsers/shared/rootFormatGuard';
+import {
+  assertNoCompetingRootFormat,
+  isRecord,
+} from './parsers/shared/rootFormatGuard';
 
 export interface HarTiming {
   blocked: number;
@@ -736,7 +739,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     contentSize: optionalNonNegativeSize(content.size) ?? -1,
     time,
     startedDateTime: entry.startedDateTime || '',
-    startMs: entry.startedDateTime ? (new Date(entry.startedDateTime).getTime() || 0) : 0,
+    startMs: entry.startedDateTime ? new Date(entry.startedDateTime).getTime() : Number.NaN,
     pageRef: optionalString(entry.pageref),
     timings: {
       blocked: num(t.blocked),
@@ -800,8 +803,14 @@ export function parseHar(
   assertNoCompetingRootFormat(data, 'har');
   const log = data.log || {};
   const rawEntries: any[] = Array.isArray(log.entries) ? log.entries : [];
-  const totalResponseBodyChars = rawEntries.reduce((sum, entry) => {
-    const text = entry?.response?.content?.text;
+  const totalResponseBodyChars = rawEntries.reduce((sum, entry, index) => {
+    if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
+      throw new Error(`HAR log.entries[${index}] 缺少 request 或 response 对象`);
+    }
+    const content = isRecord(entry.response.content)
+      ? entry.response.content
+      : undefined;
+    const text = content?.text;
     return sum + (typeof text === 'string' ? text.length : 0);
   }, 0);
   const optimizeResponseBodies = totalResponseBodyChars > HAR_BODY_TOTAL_OPTIMIZE_THRESHOLD;
@@ -885,61 +894,6 @@ export function parseHar(
         : undefined,
     },
   };
-}
-
-// 解码响应体（处理 base64）并尝试 JSON 格式化
-export function decodeResponseBody(entry: HarRequestEntry): { text: string; isJson: boolean; parsed?: any; isImage: boolean; isMedia: boolean; imageSrc?: string } {
-  let raw = entry.responseBody || '';
-  const mimeType = (entry.mimeType || '').toLowerCase();
-  const isImage = mimeType.startsWith('image/');
-  const isMedia = mimeType.startsWith('video/') || mimeType.startsWith('audio/');
-
-  // 图片和媒体：base64 编码时直接生成 data URL
-  if (entry.responseEncoding === 'base64' && raw) {
-    if (isImage) {
-      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: `data:${entry.mimeType};base64,${raw}` };
-    }
-    if (isMedia) {
-      return { text: '', isJson: false, isImage: false, isMedia: true, imageSrc: `data:${entry.mimeType};base64,${raw}` };
-    }
-    try {
-      raw = new TextDecoder().decode(Uint8Array.from(window.atob(raw), c => c.charCodeAt(0)));
-    } catch {
-      try { raw = window.atob(raw); } catch { /* keep raw */ }
-    }
-  }
-
-  // 非 base64 的图片/媒体（如 data URL 或空）
-  if (isImage && raw) {
-    // 如果已经是 data URL 或可解码内容
-    if (raw.startsWith('data:')) {
-      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: raw };
-    }
-    // 尝试作为 base64 解码
-    try {
-      window.atob(raw); // 验证是否为有效 base64
-      const src = `data:${entry.mimeType};base64,${raw}`;
-      return { text: '', isJson: false, isImage: true, isMedia: false, imageSrc: src };
-    } catch { /* fall through */ }
-  }
-
-  if (!raw) return { text: '', isJson: false, isImage: false, isMedia: false };
-  try {
-    const obj = JSON.parse(raw);
-    return { text: JSON.stringify(obj, null, 2), isJson: true, parsed: obj, isImage: false, isMedia: false };
-  } catch {
-    return { text: raw, isJson: false, isImage: false, isMedia: false };
-  }
-}
-
-// 状态码颜色
-export function statusColor(status: number): string {
-  if (status === 0) return '#fb7185';
-  if (status >= 500) return '#fb7185';
-  if (status >= 400) return '#fb923c';
-  if (status >= 300) return '#22d3ee';
-  if (status >= 200) return '#4ade80';
-  return '#8892a4';
 }
 
 // 类型标签颜色

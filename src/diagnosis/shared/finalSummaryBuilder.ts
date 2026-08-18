@@ -647,7 +647,6 @@ function buildClusterFromEpisode(
 function buildConclusion(
   cluster: RootCauseCluster,
   mode: FinalDiagnosisMode,
-  summary: DiagnosisSummary,
   displayRank: number,
   missingInfo: MissingInfoItem[]
 ): FinalConclusion {
@@ -766,7 +765,7 @@ export function buildFinalDiagnosisSummary(
   const headline = clusters
     .filter((cluster, index) => index === 0 || cluster.kind !== clusters[0].kind || cluster.category !== clusters[0].category)
     .slice(0, 3)
-    .map((cluster, index) => buildConclusion(cluster, mode, diagnosisSummary, index + 1, missingInfo));
+    .map((cluster, index) => buildConclusion(cluster, mode, index + 1, missingInfo));
 
   const finalMissingInfo = dedupeMissingInfo([
     ...preliminaryMissing,

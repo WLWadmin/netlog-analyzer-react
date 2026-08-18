@@ -122,6 +122,7 @@ const passingInput = {
   },
   copyTextSamples: ['DNS 失败现象明确，不能确认本机 DNS 配置错误。'],
   hasBrowserAcceptanceArtifacts: true,
+  hasRealSampleValidationArtifacts: true,
 };
 
 describe('diagnosisReleaseGate', () => {
@@ -216,17 +217,19 @@ describe('diagnosisReleaseGate', () => {
     ]));
   });
 
-  it('warns but does not block when manual UI artifacts are not provided to the pure gate', () => {
+  it('blocks when product, browser, or real-sample acceptance artifacts are missing', () => {
     const report = buildDiagnosisReleaseGateReport({
       ...passingInput,
       productAcceptance: undefined,
       hasBrowserAcceptanceArtifacts: false,
+      hasRealSampleValidationArtifacts: false,
     });
 
-    expect(report.passed).toBe(true);
-    expect(report.warnings).toEqual(expect.arrayContaining([
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toEqual(expect.arrayContaining([
       '尚未提供 5 名非网络专业用户验收结果',
       '尚未记录桌面/窄屏浏览器验收截图',
+      '尚未提供真实故障样本验证记录',
     ]));
   });
 

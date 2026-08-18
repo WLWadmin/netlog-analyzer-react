@@ -18,6 +18,7 @@ import { netlogLifecycleToCards } from './fromNetlogLifecycle';
 import { getCachedEventsBySourceId, getCachedSourceGraph } from '../../parsers/netlog/sourceGraphCache';
 import { collectRelatedSourceIdsFromGraph } from '../../parsers/netlog/requestLifecycle';
 import { diagnosticContextEventAt } from '../../parsers/netlog/diagnosticContextIndex';
+import { formatNetlogWallTime } from '../../utils/netlogTime';
 import type {
   DiagnosticCard,
   DiagnosticCategory,
@@ -121,7 +122,7 @@ function emitTimingJson(
 }
 
 function generateId(prefix: string, index: number): string {
-  return `${prefix}-${index}-${Date.now().toString(36)}`;
+  return `${prefix}-${index}`;
 }
 
 function mapErrorCategoryToDiagnostic(errorCat: string): DiagnosticCategory {
@@ -799,13 +800,13 @@ export function netlogToCards(
 
   const tlsDetailStart = performance.now();
   // ========== 批次 C 增强：TLS/证书诊断卡片 ==========
-  if (result.certIssues.length > 0 && !cards.some(c => c.category === 'tls')) {
-    const certHosts = [...new Set(result.certIssues.map(si => si.host))].slice(0, 10);
-    const timeoutCerts = result.certIssues.filter(si => si.category === 'timeout');
-    const certCerts = result.certIssues.filter(si => si.category === 'cert');
-    const protocolCerts = result.certIssues.filter(si => si.category === 'protocol');
+  if (result.sslIssues.length > 0 && !cards.some(c => c.category === 'tls')) {
+    const certHosts = [...new Set(result.sslIssues.map(si => si.host))].slice(0, 10);
+    const timeoutCerts = result.sslIssues.filter(si => si.category === 'timeout');
+    const certCerts = result.sslIssues.filter(si => si.category === 'cert');
+    const protocolCerts = result.sslIssues.filter(si => si.category === 'protocol');
 
-    let conclusion = `${result.certIssues.length} 个 SSL/TLS 问题涉及 ${certHosts.length} 个主机`;
+    let conclusion = `${result.sslIssues.length} 个 SSL/TLS 问题涉及 ${certHosts.length} 个主机`;
     if (timeoutCerts.length > 0) {
       conclusion += `，其中 ${timeoutCerts.length} 个为握手超时（可能是网络问题而非证书问题）`;
     }
@@ -819,9 +820,9 @@ export function netlogToCards(
       category: 'tls',
       severity: certCerts.length > 0 ? 'critical' : 'warning',
       confidence: 'high',
-      title: `TLS/证书问题 (${result.certIssues.length} 个)`,
+      title: `TLS/证书问题 (${result.sslIssues.length} 个)`,
       conclusion,
-      scope: buildScope(result.certIssues.length, certHosts.length, certHosts.length > 1 ? 'multi-domain' : 'single-domain'),
+      scope: buildScope(result.sslIssues.length, certHosts.length, certHosts.length > 1 ? 'multi-domain' : 'single-domain'),
       evidence: [
         {
           label: '涉及主机',
@@ -870,7 +871,7 @@ export function netlogToCards(
       ],
     });
   }
-  recordTiming(debugTiming, timingRows, 'tls detail cards', tlsDetailStart, undefined, { certIssues: result.certIssues.length, cards: cards.length });
+  recordTiming(debugTiming, timingRows, 'tls detail cards', tlsDetailStart, undefined, { sslIssues: result.sslIssues.length, cards: cards.length });
 
   const stalledStart = performance.now();
   // ========== 批次 C 增强：连接池/排队诊断卡片 ==========
@@ -982,7 +983,7 @@ export function netlogToCards(
   );
   if (networkChangeCount > 0 && !cards.some(c => c.category === 'network-change')) {
     const changeTimes = result.networkChanges.map(e => ({
-      time: new Date(e.time).toLocaleString(),
+      time: formatNetlogWallTime(e.time, result.timeTickOffset),
       type: e.params?.change_type || e.params?.type || e.phaseName || '未知',
     }));
     cards.push({

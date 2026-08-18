@@ -150,7 +150,9 @@ function harFacts(sourceId: string, parsed: ReturnType<typeof parseHar>): CrossS
       ...(previousByRequestId.has(entry.id)
         ? { redirectFromEntityId: `${sourceId}:request:${previousByRequestId.get(entry.id)}` }
         : {}),
-      startUs: entry.startMs * 1_000,
+      ...(Number.isFinite(entry.startMs) && entry.startMs > 0
+        ? { startUs: entry.startMs * 1_000 }
+        : {}),
       durationUs: Math.max(0, entry.time * 1_000),
       deliveryType: entry.cacheInfo?.fromServiceWorker
         ? 'service-worker'

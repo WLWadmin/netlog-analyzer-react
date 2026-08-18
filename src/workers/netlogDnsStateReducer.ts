@@ -1,6 +1,7 @@
 import { normalizeIp } from '../diagnosis/ipEvidence';
 import { extractDnsAnswerCandidates } from '../parsers/netlog/dnsAnswerCandidates';
 import type { DnsStateView } from './netlogDatasetViews';
+import { normalizeNetlogErrorValue } from './netlogErrorValue';
 
 interface EventSeed {
   eventId: number;
@@ -144,22 +145,23 @@ export function createNetlogDnsStateReducer() {
         });
       }
       if (candidate.sourceKind === 'dnsTaskResult') {
+        const candidateError = normalizeNetlogErrorValue(candidate.error);
         taskResults.set(`${candidate.host}-${candidate.queryType || ''}-${seed.eventId}`, {
           host: candidate.host,
           queryType: candidate.queryType,
           ips: candidate.ips,
           aliases: candidate.aliases || [],
-          error: candidate.error,
+          error: typeof candidateError === 'number' ? candidateError : undefined,
           sourceId: seed.sourceId,
           eventId: seed.eventId,
           byteStart: seed.byteStart,
           byteEnd: seed.byteEnd,
         });
-        if (candidate.error !== undefined) {
-          dnsErrors.set(`${candidate.host}-${candidate.queryType || ''}-${candidate.error}-${seed.eventId}`, {
+        if (typeof candidateError === 'number') {
+          dnsErrors.set(`${candidate.host}-${candidate.queryType || ''}-${candidateError}-${seed.eventId}`, {
             host: candidate.host,
             queryType: candidate.queryType,
-            error: candidate.error,
+            error: candidateError,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
             byteStart: seed.byteStart,
@@ -182,22 +184,23 @@ export function createNetlogDnsStateReducer() {
             : typeof value.net_error === 'number'
               ? value.net_error
               : undefined;
-        if (error !== undefined) {
+        const normalizedError = normalizeNetlogErrorValue(error);
+        if (typeof normalizedError === 'number') {
           taskResults.set(`${host}-${value.query_type || ''}-${seed.eventId}`, {
             host,
             queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
             ips: [],
             aliases: [],
-            error,
+            error: normalizedError,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
             byteStart: seed.byteStart,
             byteEnd: seed.byteEnd,
           });
-          dnsErrors.set(`${host}-${value.query_type || ''}-${error}-${seed.eventId}`, {
+          dnsErrors.set(`${host}-${value.query_type || ''}-${normalizedError}-${seed.eventId}`, {
             host,
             queryType: typeof value.query_type === 'string' ? value.query_type : undefined,
-            error,
+            error: normalizedError,
             sourceId: seed.sourceId,
             eventId: seed.eventId,
             byteStart: seed.byteStart,

@@ -144,15 +144,22 @@ export function correlateHarRequestToNetlog(
   }
 
   const sameLevel = compared.filter(item => item.level === best.level);
+  const ambiguous = sameLevel.length > 1;
   return {
     harRequestId: harEntry.id,
     netlogSourceIds: sameLevel.map(item => item.request.id),
     primaryNetlogSourceId: best.request.id,
     candidateCount: compared.length,
     level: best.level,
-    score: best.score,
-    reasons: Array.from(new Set(best.reasons)),
-    conflicts: Array.from(new Set(sameLevel.flatMap(item => item.conflicts))).slice(0, 5),
+    score: ambiguous ? Math.min(best.score, LEVEL_SCORE['same-host-path']) : best.score,
+    reasons: Array.from(new Set([
+      ...best.reasons,
+      ...(ambiguous ? [`存在 ${sameLevel.length} 个同等级候选，未唯一定位到 NetLog 请求`] : []),
+    ])),
+    conflicts: Array.from(new Set([
+      ...sameLevel.flatMap(item => item.conflicts),
+      ...(ambiguous ? ['同等级候选不唯一，不能作为强请求关联'] : []),
+    ])).slice(0, 5),
     timeDeltaMs: best.timeDeltaMs,
     safeKey: best.safeKey,
   };

@@ -136,6 +136,8 @@ describe('requestCorrelation', () => {
     expect(correlation.primaryNetlogSourceId).toBe(10);
     expect(correlation.netlogSourceIds).toEqual([10, 11]);
     expect(correlation.candidateCount).toBe(3);
+    expect(correlation.score).toBe(0.75);
+    expect(correlation.conflicts).toContain('同等级候选不唯一，不能作为强请求关联');
   });
 
   it('does not attach conflicts from weaker unrelated candidates to a strong match', () => {

@@ -7,7 +7,6 @@ import IncidentEpisodeList from './IncidentEpisodeList';
 import FinalDiagnosisPanel from './FinalDiagnosisPanel';
 
 jest.mock('antd', () => {
-  const React = require('react');
   const Collapse = ({ items, children }: { items?: Array<{ key: string; label: React.ReactNode; children: React.ReactNode }>; children?: React.ReactNode }) => (
     <section>
       {items?.map(item => <div key={item.key}><h4>{item.label}</h4></div>)}
@@ -27,7 +26,6 @@ jest.mock('antd', () => {
 });
 
 jest.mock('@ant-design/icons', () => {
-  const React = require('react');
   const Icon = () => <span />;
   return new Proxy({}, { get: () => Icon });
 });

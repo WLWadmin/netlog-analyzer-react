@@ -1,4 +1,5 @@
 import type { QuicStateView } from './netlogDatasetViews';
+import { normalizeNetlogErrorValue } from './netlogErrorValue';
 
 interface EventSeed {
   eventId: number;
@@ -48,8 +49,7 @@ function addString(target: Set<string>, value?: string) {
 
 function errorValue(params: Record<string, unknown> | undefined): number | string | undefined {
   const value = params?.net_error ?? params?.error_code ?? params?.quic_error ?? params?.quic_error_code ?? params?.error;
-  if (typeof value === 'number' || typeof value === 'string') return value;
-  return undefined;
+  return normalizeNetlogErrorValue(value);
 }
 
 function detailsValue(params: Record<string, unknown> | undefined): string | undefined {

@@ -26,7 +26,17 @@ const SOURCE_PARSER: Record<SourceKind, FileParserId> = {
 
 const SOURCE_EVIDENCE: Record<SourceKind, string[]> = {
   har: ['HAR_LOG_OBJECT', 'HAR_ENTRIES_ARRAY'],
-  netlog: ['NETLOG_CONSTANTS_OBJECT', 'NETLOG_EVENTS_ARRAY'],
+  netlog: [
+    'NETLOG_CONSTANTS_OBJECT',
+    'NETLOG_EVENTS_ARRAY',
+    'NETLOG_LOG_EVENTS_ARRAY',
+    'NETLOG_ROOT_ARRAY',
+    'NETLOG_EVENT_SOURCE_OBJECT',
+    'NETLOG_EVENT_SOURCE_ID_FIELD',
+    'NETLOG_EVENT_SOURCE_TYPE_FIELD',
+    'NETLOG_EVENT_TYPE_FIELD',
+    'NETLOG_EVENT_TIME_FIELD',
+  ],
   trace: ['TRACE_EVENTS_ARRAY'],
   log: ['GO_LOG_TEXT', 'GO_LOG_LINE_SYNTAX'],
 };
@@ -212,9 +222,26 @@ function noMatch(parserId: FileParserId, code: string): ProbeVerdict {
 
 function strongSources(evidenceCodes: readonly string[]): SourceKind[] {
   const evidence = new Set(evidenceCodes);
-  return (Object.keys(SOURCE_EVIDENCE) as SourceKind[]).filter(source => (
-    SOURCE_EVIDENCE[source].every(code => evidence.has(code))
-  ));
+  return (Object.keys(SOURCE_EVIDENCE) as SourceKind[]).filter(source => {
+    if (source === 'netlog') {
+      const hasSourceEvidence = evidence.has('NETLOG_EVENT_SOURCE_OBJECT')
+        || (
+          evidence.has('NETLOG_EVENT_SOURCE_ID_FIELD')
+          && evidence.has('NETLOG_EVENT_SOURCE_TYPE_FIELD')
+        );
+      const eventSemantics = hasSourceEvidence
+        && evidence.has('NETLOG_EVENT_TYPE_FIELD')
+        && evidence.has('NETLOG_EVENT_TIME_FIELD');
+      return (
+        evidence.has('NETLOG_EVENTS_ARRAY')
+        && (evidence.has('NETLOG_CONSTANTS_OBJECT') || eventSemantics)
+      ) || (
+        (evidence.has('NETLOG_LOG_EVENTS_ARRAY') || evidence.has('NETLOG_ROOT_ARRAY'))
+        && eventSemantics
+      );
+    }
+    return SOURCE_EVIDENCE[source].every(code => evidence.has(code));
+  });
 }
 
 function verdictsForSources(
@@ -339,7 +366,19 @@ export async function probeFileFormatStreamSession(
       }
       if (mode === 'unknown') {
         const first = textPrefix.match(/\S/)?.[0];
-        if (first) mode = first === '{' ? 'json' : 'text';
+        if (first === '{') {
+          mode = 'json';
+        } else if (first === '[') {
+          const bracketIndex = textPrefix.indexOf('[');
+          const firstArrayValue = textPrefix.slice(bracketIndex + 1).match(/\S/)?.[0];
+          if (firstArrayValue) {
+            mode = firstArrayValue === '{' || firstArrayValue === ']'
+              ? 'json'
+              : 'text';
+          }
+        } else if (first) {
+          mode = 'text';
+        }
       }
       if (mode === 'json') sniffer.feed(text);
 

@@ -44,6 +44,7 @@ export interface DiagnosisReleaseGateInput {
   productAcceptance?: ProductAcceptanceMetrics;
   copyTextSamples?: string[];
   hasBrowserAcceptanceArtifacts?: boolean;
+  hasRealSampleValidationArtifacts?: boolean;
 }
 
 export interface DiagnosisReleaseGateReport {
@@ -182,11 +183,14 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
       if ((value as number) < 0.8) blockers.push(`产品验收未达 80%：${label}`);
     });
   } else {
-    warnings.push('尚未提供 5 名非网络专业用户验收结果');
+    blockers.push('尚未提供 5 名非网络专业用户验收结果');
   }
 
   if (!input.hasBrowserAcceptanceArtifacts) {
-    warnings.push('尚未记录桌面/窄屏浏览器验收截图');
+    blockers.push('尚未记录桌面/窄屏浏览器验收截图');
+  }
+  if (!input.hasRealSampleValidationArtifacts) {
+    blockers.push('尚未提供真实故障样本验证记录');
   }
 
   return {

@@ -27,7 +27,7 @@ import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } 
 // ========== 工具函数 ==========
 
 function generateId(prefix: string, index: number): string {
-  return `${prefix}-${index}-${Date.now().toString(36)}`;
+  return `${prefix}-${index}`;
 }
 
 function mapAttributionTypeToCategory(type: AttributionItem['type']): DiagnosticCategory {

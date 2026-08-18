@@ -162,12 +162,25 @@ describe('diagnosisObservation', () => {
         lastTime: 1200,
       }],
       certIssues: [{ event: event({}), error: -202, host: 'tls.example.test', category: 'cert' }],
+      sslIssues: [{ event: event({}), error: -202, host: 'tls.example.test', category: 'cert' }],
       slowRequests: [request({})],
     }));
 
     expect(observations.map(item => item.category).sort()).toEqual(['dns', 'performance', 'tls']);
     expect(observations.every(item => item.primary || item.category === 'quality')).toBe(true);
     expectNoSensitiveLeak(observations);
+  });
+
+  it('keeps non-certificate TLS failures as diagnostic observations', () => {
+    const observations = buildNetlogObservations(netlogResult({
+      sslIssues: [{ event: event({ source: { id: 19, type: 1, typeName: 'SSL_CONNECT_JOB' } }), error: -107, host: 'tls.example.test', category: 'protocol' }],
+      certIssues: [],
+    }));
+
+    expect(observations).toContainEqual(expect.objectContaining({
+      category: 'tls',
+      subject: expect.objectContaining({ domain: 'tls.example.test', sourceId: 19 }),
+    }));
   });
 
   it('marks preview NetLog dataset as incomplete evidence', () => {

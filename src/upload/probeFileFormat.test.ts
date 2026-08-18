@@ -132,13 +132,27 @@ describe('probeFileFormat', () => {
     ]);
   });
 
-  it('keeps a generic events array as a possible NetLog match', async () => {
+  it.each([
+    ['events', '{"events":[{"type":1,"time":"1","source":{"id":1,"type":1}}]}'],
+    ['logEvents', '{"logEvents":[{"type":1,"time":"1","source":{"id":1,"type":1}}]}'],
+    ['top-level array', '[{"type":1,"time":"1","source":{"id":1,"type":1}}]'],
+  ])('recognizes NetLog %s when event semantics are present', async (_label, json) => {
     const outcome = await probeFileFormat(new File([
-      '{"events":[{"type":1,"time":"1","source":{"id":1,"type":1}}]}',
+      json,
     ], 'sample.json'));
 
     expect(parserKinds(outcome)).toEqual([
-      ['chromium-netlog@1', 'possible-match'],
+      ['chromium-netlog@1', 'definite-match'],
+    ]);
+  });
+
+  it('recognizes flattened NetLog source fields', async () => {
+    const outcome = await probeFileFormat(new File([
+      '[{"type":1,"time":"1","source_id":7,"source_type":2}]',
+    ], 'flattened.json'));
+
+    expect(parserKinds(outcome)).toEqual([
+      ['chromium-netlog@1', 'definite-match'],
     ]);
   });
 

@@ -12,6 +12,8 @@ describe('TraceSourceSniffer', () => {
     ['\uFEFF  {"traceEvents":[]}', 'trace'],
     ['{"log":{"entries":[]}}', 'har'],
     ['{"constants":{},"events":[]}', 'netlog'],
+    ['{"logEvents":[{"source":{"id":1},"type":1,"time":"1"}]}', 'netlog'],
+    ['[{"source":{"id":1},"type":1,"time":"1"}]', 'netlog'],
   ])('detects structural source signatures', (json, source) => {
     expect(sniff(json)).toEqual({ kind: 'detected', source });
   });
@@ -39,7 +41,7 @@ describe('TraceSourceSniffer', () => {
     });
   });
 
-  it('rejects raw arrays and conflicting signatures in either field order', () => {
+  it('rejects unknown raw arrays and conflicting signatures in either field order', () => {
     expect(sniff(' [ {} ]')).toEqual({
       kind: 'error',
       code: 'TRACE_TOP_LEVEL_ARRAY_UNSUPPORTED',

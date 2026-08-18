@@ -95,7 +95,7 @@ export function buildHttp2GoawaySummary(
     severity: 'warning',
     category: 'HTTP/2',
     message: `检测到 ${count} 个 HTTP/2 GOAWAY 帧`,
-    detail: '服务器主动关闭了 HTTP/2 连接，可能存在连接复用问题或服务器重启。',
+    detail: '记录到 HTTP/2 GOAWAY，可能是本端发送或从对端接收；需结合方向、错误码、last_stream_id 与请求重试结果判断影响。',
     time: firstTime,
   };
 }

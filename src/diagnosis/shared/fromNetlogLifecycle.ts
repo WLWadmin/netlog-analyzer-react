@@ -32,7 +32,7 @@ const lifecycleStageOrder: LifecycleStageName[] = [
 ];
 
 function generateId(prefix: string, seed: string | number) {
-  return `${prefix}-${seed}-${Date.now().toString(36)}`;
+  return `${prefix}-${seed}`;
 }
 
 function stageToCategory(stage: LifecycleStageName): DiagnosticCategory {

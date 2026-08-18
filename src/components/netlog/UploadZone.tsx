@@ -11,7 +11,6 @@ import type { UploadFileTypeHint } from '../../upload/parseUploadedInput';
 import {
   isSupportedUploadName,
   isTraceAnalysisEnabled,
-  uploadHintForFileName,
   uploadAccept,
 } from '../../upload/traceUploadFeature';
 
@@ -56,54 +55,6 @@ const UploadZone: React.FC<UploadZoneProps> = ({
   const dropRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
 
-  const readSingleFile = (file: File): Promise<{ content: string; fileName: string; isTextLog: boolean }> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        const fileName = file.name.toLowerCase();
-        const isTextLog = fileName.endsWith('.log');
-        resolve({ content, fileName, isTextLog });
-      };
-      reader.onerror = () => reject(new Error('文件读取失败'));
-      reader.readAsText(file);
-    });
-  };
-
-  const parseSingleFile = async (
-    content: string,
-    fileName: string,
-    isTextLog: boolean,
-    onSuccess?: any
-  ) => {
-    try {
-      if (!onFileLoaded) {
-        throw new Error('追加上传处理器未配置');
-      }
-      if (isTextLog) {
-        await onFileLoaded(content, true, undefined, 'log');
-        onSuccess?.('ok');
-        return;
-      }
-
-      if (fileName.endsWith('.har')) {
-        await onFileLoaded(content, false, undefined, 'har');
-        onSuccess?.('ok');
-        return;
-      }
-
-      await onFileLoaded(content, false, undefined, 'netlog');
-      onSuccess?.('ok');
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (fileName.endsWith('.json') && msg.includes('不是标准 HAR')) {
-        message.error('解析失败: 该文件不是标准 HAR 格式，请确认是否为 NetLog 或 HAR 文件');
-      } else {
-        message.error('解析失败: ' + msg);
-      }
-    }
-  };
-
   const customRequest = ({ file, onSuccess }: any) => {
     setReading(true);
 
@@ -122,15 +73,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({
           throw new Error('追加上传处理器未配置');
         }
         for (const f of fileList) {
-          const uploadHint = uploadHintForFileName(f.name);
-          if (uploadHint === 'trace' || uploadHint === 'json-auto') {
-            await compactFileLoader(f, false, undefined, uploadHint);
-            onSuccess?.('ok');
-            continue;
-          }
-
-          const { content, fileName, isTextLog } = await readSingleFile(f);
-          await parseSingleFile(content, fileName, isTextLog, onSuccess);
+          await compactFileLoader(f);
+          onSuccess?.('ok');
         }
 
         setTimeout(() => {

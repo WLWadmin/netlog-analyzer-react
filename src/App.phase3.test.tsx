@@ -9,7 +9,6 @@ import { message } from 'antd';
 import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 
 jest.mock('antd', () => {
-  const React = require('react');
   const Layout = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
   Layout.Header = ({ children }: { children: React.ReactNode }) => <header>{children}</header>;
   Layout.Content = ({ children }: { children: React.ReactNode }) => <main>{children}</main>;
@@ -35,7 +34,6 @@ jest.mock('antd', () => {
 });
 
 jest.mock('@ant-design/icons', () => {
-  const React = require('react');
   const Icon = () => <span />;
   return new Proxy({}, { get: () => Icon });
 });
@@ -179,13 +177,14 @@ jest.mock('./workers/traceWorkerRegistry', () => ({
 
 jest.mock('./components/netlog/UploadZone', () => ({
   __esModule: true,
-  default: ({ onFileLoaded, compact }: { onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log' | 'trace' | 'json-auto') => void; compact?: boolean }) => (
+  default: ({ onFileLoaded, compact }: { onFileLoaded: (data: unknown, isTextLog?: boolean, repairInfo?: unknown, fileTypeHint?: 'netlog' | 'har' | 'log' | 'trace') => void; compact?: boolean }) => (
     <div>
       <button onClick={() => onFileLoaded({ events: [] }, false, undefined, 'netlog')}>{compact ? '追加 NetLog' : '上传 NetLog'}</button>
       <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'large-netlog.json', { type: 'application/json' }), false, undefined, 'netlog')}>上传大 NetLog 文件</button>
       <button onClick={() => onFileLoaded({ log: { entries: [] } }, false, undefined, 'har')}>{compact ? '追加 HAR' : '上传 HAR'}</button>
       <button onClick={() => onFileLoaded('[worker] Success GET:https://example.com +10ms', true, undefined, 'log')}>上传 Log</button>
       <button onClick={() => onFileLoaded(new File(['{}'], 'sample.trace'), false, undefined, 'trace')}>{compact ? '追加 Trace' : '上传 Trace'}</button>
+      {compact && <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'misleading.json'))}>追加未绑定 JSON</button>}
     </div>
   ),
 }));
@@ -678,6 +677,38 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('追加 NetLog'));
 
     await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
+  });
+
+  it('追加 JSON 先经过格式 gateway 绑定解析器', async () => {
+    parseUploadedInputMock
+      .mockResolvedValueOnce({
+        kind: 'har',
+        result: { totalRequests: 1, entries: [] },
+      })
+      .mockResolvedValueOnce({
+        kind: 'netlog',
+        events: [],
+        result: {
+          totalEvents: 0,
+          uniqueSources: 0,
+          peakConcurrency: 0,
+          urlRequests: [],
+          errors: [],
+          warnings: [],
+          info: [],
+          slowRequests: [],
+        },
+      });
+
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 HAR'));
+    await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+    await userEvent.click(screen.getByText('追加未绑定 JSON'));
+
+    await waitFor(() => expect(parseUploadedInputMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fileTypeHint: 'netlog' }),
+    ));
+    expect(window.location.hash).toBe('#netlog/conclusion');
   });
 
   it('worker supported 时替换同类型 NetLog 会释放旧 rawDataId', async () => {

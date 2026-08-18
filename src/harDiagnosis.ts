@@ -8,11 +8,11 @@
 
 import type {
   HarAnalysisResult,
-  HarTiming,
   HarCategory,
 } from './harParser';
 import { formatHarTime } from './harParser';
 import { HAR_DIAG_THRESHOLDS } from './diagnosis/shared/harThresholds';
+import { getHarTimingPhase, normalizeHarTiming } from './diagnosis/shared/harTimingNormalization';
 
 // 兼容既有代码变量名，实际阈值统一收口到 HAR_DIAG_THRESHOLDS。
 const THRESHOLDS = HAR_DIAG_THRESHOLDS;
@@ -174,10 +174,15 @@ export interface HarDiagnosisResult {
 
 // ========== 工具函数 ==========
 
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.ceil((sorted.length - 1) * p);
   return sorted[Math.min(idx, sorted.length - 1)];
+}
+
+function max(values: number[]): number {
+  return values.reduce((current, value) => Math.max(current, value), 0);
 }
 
 function avg(arr: number[]): number {
@@ -300,15 +305,18 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   for (const e of entries) {
     // timings
     const t = e.timings;
+    const normalizedTiming = normalizeHarTiming(e);
+    const tcpMs = getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs;
+    const sslMs = getHarTimingPhase(normalizedTiming, 'ssl')?.durationMs;
     if (t.dns > 0) dnsArr.push(t.dns);
-    if (t.connect > 0) connectArr.push(t.connect);
-    if (t.ssl > 0) sslArr.push(t.ssl);
+    if (tcpMs !== undefined && tcpMs > 0) connectArr.push(tcpMs);
+    if (sslMs !== undefined && sslMs > 0) sslArr.push(sslMs);
     if (t.wait > 0) waitArr.push(t.wait);
     if (t.receive > 0) receiveArr.push(t.receive);
 
     if (t.dns > THRESHOLDS.dnsSlow) dnsSlow++;
-    if (t.connect > THRESHOLDS.connectSlow) connectSlow++;
-    if (t.ssl > THRESHOLDS.sslSlow) sslSlow++;
+    if (tcpMs !== undefined && tcpMs > THRESHOLDS.connectSlow) connectSlow++;
+    if (sslMs !== undefined && sslMs > THRESHOLDS.sslSlow) sslSlow++;
     if (t.wait > THRESHOLDS.ttfbSlow) ttfbSlow++;
     if (t.receive > THRESHOLDS.receiveSlow) receiveSlow++;
     if (t.blocked > THRESHOLDS.blockedSlow) blockedSlow++;
@@ -376,13 +384,6 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     catStatsMap.set(cat, cs);
   }
 
-  // ---- 排序 timings 用于 percentile ----
-  dnsArr.sort((a, b) => a - b);
-  connectArr.sort((a, b) => a - b);
-  sslArr.sort((a, b) => a - b);
-  waitArr.sort((a, b) => a - b);
-  receiveArr.sort((a, b) => a - b);
-
   const avgDns = avg(dnsArr);
   const avgConnect = avg(connectArr);
   const avgSsl = avg(sslArr);
@@ -397,11 +398,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 网络状态 ----
   const networkStatus: NetworkPhaseStatus[] = [
-    getPhaseStatus(avgDns, dnsArr[dnsArr.length - 1] || 0, p95Dns, dnsSlow, total, THRESHOLDS.dnsSlow, 'DNS'),
-    getPhaseStatus(avgConnect, connectArr[connectArr.length - 1] || 0, p95Connect, connectSlow, total, THRESHOLDS.connectSlow, 'TCP'),
-    getPhaseStatus(avgSsl, sslArr[sslArr.length - 1] || 0, p95Ssl, sslSlow, total, THRESHOLDS.sslSlow, 'TLS'),
-    getPhaseStatus(avgWait, waitArr[waitArr.length - 1] || 0, p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'TTFB'),
-    getPhaseStatus(avgReceive, receiveArr[receiveArr.length - 1] || 0, p95Receive, receiveSlow, total, THRESHOLDS.receiveSlow, '下载'),
+    getPhaseStatus(avgDns, max(dnsArr), p95Dns, dnsSlow, total, THRESHOLDS.dnsSlow, 'DNS'),
+    getPhaseStatus(avgConnect, max(connectArr), p95Connect, connectSlow, total, THRESHOLDS.connectSlow, 'TCP'),
+    getPhaseStatus(avgSsl, max(sslArr), p95Ssl, sslSlow, total, THRESHOLDS.sslSlow, 'TLS'),
+    getPhaseStatus(avgWait, max(waitArr), p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'TTFB'),
+    getPhaseStatus(avgReceive, max(receiveArr), p95Receive, receiveSlow, total, THRESHOLDS.receiveSlow, '下载'),
   ];
 
   // 填充慢域名
@@ -410,7 +411,12 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     const threshold = ns.label === 'DNS' ? THRESHOLDS.dnsSlow : ns.label === 'TCP' ? THRESHOLDS.connectSlow : ns.label === 'TLS' ? THRESHOLDS.sslSlow : ns.label === 'TTFB' ? THRESHOLDS.ttfbSlow : THRESHOLDS.receiveSlow;
     const slowMap = new Map<string, number>();
     for (const e of entries) {
-      const val = e.timings[key as keyof HarTiming] as number;
+      const normalizedTiming = normalizeHarTiming(e);
+      const val = ns.label === 'TCP'
+        ? getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs || 0
+        : ns.label === 'TLS'
+          ? getHarTimingPhase(normalizedTiming, 'ssl')?.durationMs || 0
+          : e.timings[key as 'dns' | 'wait' | 'receive'];
       if (val > threshold) {
         slowMap.set(e.domain, (slowMap.get(e.domain) || 0) + 1);
       }

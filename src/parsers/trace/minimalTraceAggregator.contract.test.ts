@@ -43,6 +43,7 @@ describe('MinimalTraceAggregator collector contract fixes', () => {
     expect(redirects.map(item => [item.redirectPreviousRequestId, item.redirectNextRequestId])).toEqual([
       [undefined, redirects[1].id], [redirects[0].id, redirects[2].id], [redirects[1].id, undefined],
     ]);
+    expect(redirects.map(item => item.result)).toEqual(['success', 'success', 'success']);
   });
 
   it('builds complete B/E nodes into per-node self-time categories', async () => {

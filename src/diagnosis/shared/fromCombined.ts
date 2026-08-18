@@ -133,7 +133,7 @@ function buildAlignmentIndex(netlogResult: AnalysisResult): AlignmentIndex {
     if (isDnsErrorDomain(domain)) bucket.dnsFailures.push(domain);
   });
 
-  netlogResult.certIssues.forEach(issue => {
+  netlogResult.sslIssues.forEach(issue => {
     const host = normalizeHost(issue.host);
     if (!host || host === 'unknown') return;
     ensureHostIndex(index, host).tlsIssues.push(issue);
@@ -272,6 +272,8 @@ function buildCorrelatedFailureCards(
     const netlog = netlogObservations.find(item =>
       item.evidenceLevel === 'confirmed-observation' &&
       item.subject.domain === har.subject.domain &&
+      item.subject.sourceId !== undefined &&
+      correlation.netlogSourceIds.includes(item.subject.sourceId) &&
       ['dns', 'connect', 'tls', 'proxy', 'protocol', 'network-change', 'security'].includes(item.category) &&
       (har.category === 'unknown' || item.category === har.category)
     );

@@ -767,13 +767,6 @@ const logParsers: LogParserStrategy[] = [
 ];
 
 /**
- * 判断内容是否为可解析的日志格式
- */
-export function isLogFile(content: string): boolean {
-  return logParsers.some(p => p.canParse(content));
-}
-
-/**
  * 解析日志内容
  */
 export function parseLogFile(

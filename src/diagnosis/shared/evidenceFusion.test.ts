@@ -105,6 +105,24 @@ describe('evidenceFusion', () => {
     expect(fusion.supportingEvidence.some(item => item.originalSource === 'netlog')).toBe(false);
   });
 
+  it('does not raise confidence from a same-domain observation bound to another NetLog source', () => {
+    const fusion = fuseDiagnosisEvidence({
+      harObservations: [observation({})],
+      netlogObservations: [observation({
+        id: 'other-source',
+        source: 'netlog',
+        category: 'performance',
+        subject: { sourceId: 99, domain: 'api.example.test', safePath: '/v1/resource', method: 'GET' },
+        evidence: [{ label: '耗时', value: '1800ms', source: 'netlog', sourceIds: [99] }],
+      })],
+      correlations: [correlation({ netlogSourceIds: [10], primaryNetlogSourceId: 10 })],
+      baseConfidence: 'medium',
+    });
+
+    expect(fusion.confidence).toBe('medium');
+    expect(fusion.supportingEvidence.some(item => item.originalSource === 'netlog')).toBe(false);
+  });
+
   it('records conflicts for weak or conflicting correlations', () => {
     const fusion = fuseDiagnosisEvidence({
       harObservations: [observation({})],

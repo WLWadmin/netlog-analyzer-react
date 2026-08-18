@@ -174,6 +174,7 @@ function sensitiveLeakCount(corpus: readonly TraceGoldenCorpusCase[]): number {
 
 export function buildTraceDiagnosisReleaseGateReport(
   corpus: readonly TraceGoldenCorpusCase[],
+  options: { hasRealSampleValidationArtifacts?: boolean } = {},
 ): TraceDiagnosisReleaseGateReport {
   const corpusPassed = hasFixedCorpusShape(corpus) && corpus.every(caseStructurePassed);
   const forbiddenCount = forbiddenConclusionCount(corpus);
@@ -201,5 +202,6 @@ export function buildTraceDiagnosisReleaseGateReport(
   if (metrics.sensitiveLeakCount > 0) blockers.push('Trace 完整诊断文本存在敏感泄漏');
   if (metrics.disabledRuleCoverage < 1) blockers.push('Trace disabled 规则覆盖率未达到 100%');
   if (!metrics.deterministicOrderPassed) blockers.push('Trace 诊断排序不确定');
+  if (!options.hasRealSampleValidationArtifacts) blockers.push('尚未提供 Trace 真实样本验证记录');
   return { passed: blockers.length === 0, blockers, metrics };
 }

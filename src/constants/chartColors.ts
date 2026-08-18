@@ -4,7 +4,3 @@ export const CHART_COLORS = {
   semantic: { success: '#34d399', warning: '#fbbf24', error: '#f87171', info: '#4a9eff' },
   phases: { dns: '#a78bfa', connect: '#22d3ee', ssl: '#34d399', send: '#fbbf24', wait: '#4a9eff', download: '#fb923c' },
 };
-
-export function getChartColor(index: number): string {
-  return CHART_COLORS.primary[index % CHART_COLORS.primary.length];
-}

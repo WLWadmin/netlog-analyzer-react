@@ -40,6 +40,7 @@ export class TraceSourceSniffer {
   private stack: Context[] = [];
   private rootStarted = false;
   private rootArray = false;
+  private finished = false;
   private sources = new Set<TraceDetectedSource>();
   private evidenceCodes = new Set<string>();
 
@@ -58,6 +59,7 @@ export class TraceSourceSniffer {
 
   finish(): SourceSniffResult {
     if (this.mode === 'primitive') this.consumeToken({ type: 'primitive' });
+    this.finished = true;
     return this.result();
   }
 
@@ -80,13 +82,15 @@ export class TraceSourceSniffer {
   }
 
   private result(): SourceSniffResult {
-    if (this.rootArray) {
-      return { kind: 'error', code: 'TRACE_TOP_LEVEL_ARRAY_UNSUPPORTED' };
-    }
     if (this.sources.size > 1) {
       return { kind: 'error', code: 'TRACE_SOURCE_AMBIGUOUS' };
     }
     const source = [...this.sources][0];
+    if (this.rootArray && !source) {
+      return this.finished
+        ? { kind: 'error', code: 'TRACE_TOP_LEVEL_ARRAY_UNSUPPORTED' }
+        : { kind: 'pending' };
+    }
     return source ? { kind: 'detected', source } : { kind: 'pending' };
   }
 
@@ -167,6 +171,11 @@ export class TraceSourceSniffer {
       this.rootStarted = true;
       if (token.value === '[') {
         this.rootArray = true;
+        this.stack.push({
+          type: 'array',
+          path: ['$root-array'],
+          state: 'value-or-end',
+        });
         return;
       }
       if (token.value === '{') {
@@ -247,6 +256,36 @@ export class TraceSourceSniffer {
   }
 
   private recordSignature(path: string[], key: string, token: Token): void {
+    if (
+      path.length === 1
+      && (path[0] === '$root-array' || path[0] === 'events' || path[0] === 'logEvents')
+    ) {
+      if (key === 'source' && token.type === 'punctuation' && token.value === '{') {
+        this.evidenceCodes.add('NETLOG_EVENT_SOURCE_OBJECT');
+      } else if (key === 'source_id') {
+        this.evidenceCodes.add('NETLOG_EVENT_SOURCE_ID_FIELD');
+      } else if (key === 'source_type') {
+        this.evidenceCodes.add('NETLOG_EVENT_SOURCE_TYPE_FIELD');
+      } else if (key === 'type') {
+        this.evidenceCodes.add('NETLOG_EVENT_TYPE_FIELD');
+      } else if (key === 'time') {
+        this.evidenceCodes.add('NETLOG_EVENT_TIME_FIELD');
+      }
+      const hasSourceEvidence = this.evidenceCodes.has('NETLOG_EVENT_SOURCE_OBJECT')
+        || (
+          this.evidenceCodes.has('NETLOG_EVENT_SOURCE_ID_FIELD')
+          && this.evidenceCodes.has('NETLOG_EVENT_SOURCE_TYPE_FIELD')
+        );
+      if (
+        hasSourceEvidence
+        && this.evidenceCodes.has('NETLOG_EVENT_TYPE_FIELD')
+        && this.evidenceCodes.has('NETLOG_EVENT_TIME_FIELD')
+      ) {
+        if (path[0] === '$root-array') this.evidenceCodes.add('NETLOG_ROOT_ARRAY');
+        this.sources.add('netlog');
+      }
+      return;
+    }
     if (token.type !== 'punctuation') return;
     if (path.length === 0 && key === 'traceEvents' && token.value === '[') {
       this.sources.add('trace');
@@ -255,6 +294,10 @@ export class TraceSourceSniffer {
     if (path.length === 0 && key === 'events' && token.value === '[') {
       this.sources.add('netlog');
       this.evidenceCodes.add('NETLOG_EVENTS_ARRAY');
+    }
+    if (path.length === 0 && key === 'logEvents' && token.value === '[') {
+      this.sources.add('netlog');
+      this.evidenceCodes.add('NETLOG_LOG_EVENTS_ARRAY');
     }
     if (path.length === 0 && key === 'constants' && token.value === '{') {
       this.evidenceCodes.add('NETLOG_CONSTANTS_OBJECT');

@@ -1,4 +1,5 @@
 import type { Http2StateView } from './netlogDatasetViews';
+import { normalizeNetlogErrorValue } from './netlogErrorValue';
 
 interface EventSeed {
   eventId: number;
@@ -73,8 +74,7 @@ function addString(target: Set<string>, value?: string) {
 
 function errorValue(params: Record<string, unknown> | undefined): number | string | undefined {
   const value = params?.net_error ?? params?.error_code ?? params?.error ?? params?.http2_error ?? params?.http2_error_code;
-  if (typeof value === 'number' || typeof value === 'string') return value;
-  return undefined;
+  return normalizeNetlogErrorValue(value);
 }
 
 function extractSourceIdFromObject(value: Record<string, unknown>): number | undefined {
@@ -289,8 +289,8 @@ export function createNetlogHttp2StateReducer() {
       }
     }
 
+    const kind = impactKind(seed.typeName, error);
     if (error !== undefined) {
-      const kind = impactKind(seed.typeName, error);
       errors.push({
         eventId: seed.eventId,
         sourceId: seed.sourceId,
@@ -304,28 +304,28 @@ export function createNetlogHttp2StateReducer() {
         time: seedTime,
         sourceDependencyIds: dependencySourceIds,
       });
-      if (kind) {
-        const requestScoped = streamSourceId !== undefined && (sessionSourceId !== undefined || dependencySourceIds.length > 0);
-        impactSummaries.push({
-          sessionSourceId,
-          streamSourceId,
-          streamId,
-          kind,
-          eventId: seed.eventId,
-          byteStart: seed.byteStart,
-          byteEnd: seed.byteEnd,
-          time: seedTime,
-          requestScoped,
-          unresolvedReason: requestScoped ? undefined : '缺少 stream->session 或 source_dependency 锚点，不能安全外推到具体请求。',
-          summary: [
-            seed.typeName,
-            streamSourceId !== undefined ? `streamSource=${streamSourceId}` : undefined,
-            sessionSourceId !== undefined ? `sessionSource=${sessionSourceId}` : undefined,
-            streamId !== undefined ? `streamId=${streamId}` : undefined,
-            error !== undefined ? `error=${error}` : undefined,
-          ].filter(Boolean).join('；'),
-        });
-      }
+    }
+    if (kind) {
+      const requestScoped = streamSourceId !== undefined && (sessionSourceId !== undefined || dependencySourceIds.length > 0);
+      impactSummaries.push({
+        sessionSourceId,
+        streamSourceId,
+        streamId,
+        kind,
+        eventId: seed.eventId,
+        byteStart: seed.byteStart,
+        byteEnd: seed.byteEnd,
+        time: seedTime,
+        requestScoped,
+        unresolvedReason: requestScoped ? undefined : '缺少 stream->session 或 source_dependency 锚点，不能安全外推到具体请求。',
+        summary: [
+          seed.typeName,
+          streamSourceId !== undefined ? `streamSource=${streamSourceId}` : undefined,
+          sessionSourceId !== undefined ? `sessionSource=${sessionSourceId}` : undefined,
+          streamId !== undefined ? `streamId=${streamId}` : undefined,
+          error !== undefined ? `error=${error}` : undefined,
+        ].filter(Boolean).join('；'),
+      });
     }
   };
 

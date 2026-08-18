@@ -18,7 +18,7 @@ export interface HarNoviceDiagnosis {
   relatedRequestIds: number[];
 }
 
-function categoryAction(category: HarIssueCategory, cluster: HarIssueCluster): DiagnosticAction[] {
+function categoryAction(category: HarIssueCategory): DiagnosticAction[] {
   switch (category) {
     case 'dns':
       return [
@@ -130,8 +130,8 @@ export function buildHarNoviceDiagnosis(result: HarAnalysisResult): HarNoviceDia
   const secondaryClusters = clusters.slice(1, 5);
   const impact = `${primaryCluster.affectedRequestCount} 个请求 / ${primaryCluster.affectedDomainCount} 个域名${primaryCluster.maxDurationMs ? ` / 最慢 ${Math.round(primaryCluster.maxDurationMs)}ms` : ''}`;
   const immediateActions = uniqueActions([
-    ...categoryAction(primaryCluster.category, primaryCluster),
-    ...secondaryClusters.flatMap(cluster => categoryAction(cluster.category, cluster).slice(0, 1)),
+    ...categoryAction(primaryCluster.category),
+    ...secondaryClusters.flatMap(cluster => categoryAction(cluster.category).slice(0, 1)),
   ]);
   const handoffRoles = Array.from(new Set(primaryCluster.roleHints)).map(role => ({
     role,

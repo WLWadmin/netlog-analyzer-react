@@ -624,6 +624,9 @@ export class Batch3FactCollector {
         return;
       }
       const previous = this.requestsById.get(requestId);
+      if (previous?.statusCode !== undefined && previous.statusCode >= 300 && previous.statusCode < 400) {
+        previous.endUs = timestampUs;
+      }
       const request: MutableRequest = {
         requestId,
         redirectIndex: previous ? previous.redirectIndex + 1 : 0,
@@ -800,7 +803,39 @@ export class Batch3FactCollector {
         id: `trace:request:${navigation?.key ?? 'unassigned'}:${publicRequestId}:${request.redirectIndex}:${request.startUs}:event:${request.send.eventIndex}`,
       };
     });
-    return resolved.map(({ request, navigation, publicRequestId, id }, index) => {
+    type ResolvedRequest = typeof resolved[number];
+    const resolvedByRequestId = new Map<string, ResolvedRequest[]>();
+    for (const item of resolved) {
+      const chain = resolvedByRequestId.get(item.request.requestId) ?? [];
+      chain.push(item);
+      resolvedByRequestId.set(item.request.requestId, chain);
+    }
+    const previousById = new Map<string, ResolvedRequest>();
+    const nextById = new Map<string, ResolvedRequest>();
+    for (const chain of resolvedByRequestId.values()) {
+      chain.forEach((item, index) => {
+        const previous = chain[index - 1];
+        const next = chain[index + 1];
+        if (previous) previousById.set(item.id, previous);
+        if (next) nextById.set(item.id, next);
+      });
+    }
+    const mainThreadBusyByNavigation = new Map<string, Array<{ start: number; end: number }>>();
+    for (const navigation of navigations) {
+      const intervals = navigation.processSpans.flatMap(span => {
+        if (span.mainThreadId === undefined) return [];
+        return this.completeEvents.filter(item => item.name === 'RunTask'
+          && item.processId === span.processId
+          && item.threadId === span.mainThreadId
+          && item.endUs > span.startUs
+          && item.startUs < span.endUs).map(item => ({
+          start: Math.max(item.startUs, span.startUs) / 1000,
+          end: Math.min(item.endUs, span.endUs) / 1000,
+        }));
+      });
+      mainThreadBusyByNavigation.set(navigation.key, intervals);
+    }
+    return resolved.map(({ request, navigation, publicRequestId, id }) => {
       const overlapsNavigation = request.failed === true && navigation !== undefined
         && navigations.some(item => item.key !== navigation.key
           && item.frameId === navigation.frameId
@@ -815,16 +850,21 @@ export class Batch3FactCollector {
         hasFinish: request.endUs !== undefined,
         traceEnded: captureEndUs !== undefined,
       });
-      const previous = [...resolved].slice(0, index).reverse().find(item => (
-        item.request.requestId === request.requestId
-      ));
-      const next = resolved.slice(index + 1).find(item => (
-        item.request.requestId === request.requestId
-      ));
-      const initiator = request.initiatorRequestId
-        ? [...resolved].reverse().find(item => item.request.requestId === request.initiatorRequestId
-          && item.request.startUs <= request.startUs)
+      const previous = previousById.get(id);
+      const next = nextById.get(id);
+      let initiator: ResolvedRequest | undefined;
+      const initiatorCandidates = request.initiatorRequestId
+        ? resolvedByRequestId.get(request.initiatorRequestId)
         : undefined;
+      for (let candidateIndex = (initiatorCandidates?.length ?? 0) - 1;
+        candidateIndex >= 0;
+        candidateIndex -= 1) {
+        const candidate = initiatorCandidates![candidateIndex];
+        if (candidate.request.startUs <= request.startUs) {
+          initiator = candidate;
+          break;
+        }
+      }
       const limitations = request.url ? [] : ['request-url-unavailable'];
       const hasTimingInput = request.calibratedNetworkSendMs !== undefined
         || request.calibratedNetworkResponseMs !== undefined
@@ -861,17 +901,9 @@ export class Batch3FactCollector {
             && request.rendererTimeDomain !== request.traceTimeDomain))) {
         limitations.push('request-time-domains-differ');
       }
-      const mainThreadBusyIntervals = navigation?.processSpans.flatMap(span => {
-        if (span.mainThreadId === undefined) return [];
-        return this.completeEvents.filter(item => item.name === 'RunTask'
-          && item.processId === span.processId
-          && item.threadId === span.mainThreadId
-          && item.endUs > span.startUs
-          && item.startUs < span.endUs).map(item => ({
-            start: Math.max(item.startUs, span.startUs) / 1000,
-            end: Math.min(item.endUs, span.endUs) / 1000,
-          }));
-      }) ?? [];
+      const mainThreadBusyIntervals = navigation
+        ? mainThreadBusyByNavigation.get(navigation.key) ?? []
+        : [];
       const dispatch = request.calibratedNetworkResponseMs === undefined
         || request.rendererResponseEventMs === undefined
         ? undefined

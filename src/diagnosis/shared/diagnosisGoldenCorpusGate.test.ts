@@ -172,6 +172,7 @@ describe('diagnosisGoldenCorpusGate', () => {
         identifyOwnerRate: 0.8,
       },
       hasBrowserAcceptanceArtifacts: true,
+      hasRealSampleValidationArtifacts: true,
       copyTextSamples: [],
     });
 
@@ -199,6 +200,7 @@ describe('diagnosisGoldenCorpusGate', () => {
         identifyOwnerRate: 0.8,
       },
       hasBrowserAcceptanceArtifacts: true,
+      hasRealSampleValidationArtifacts: true,
       copyTextSamples: [],
     });
 

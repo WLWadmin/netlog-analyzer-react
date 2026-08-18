@@ -710,8 +710,6 @@ export function createRequestAccumulator(options: RequestAccumulatorOptions = {}
         request.protocol = 'QUIC';
       } else if (flags?.http2) {
         request.protocol = 'HTTP/2';
-      } else {
-        request.protocol = 'HTTP/1.1';
       }
     }
 

@@ -11,10 +11,9 @@ import type { CollectionQuality } from '../../diagnosis/shared/types';
 
 interface CollectionQualityAlertProps {
   quality: CollectionQuality;
-  onViewDetails?: () => void;
 }
 
-const CollectionQualityAlert: React.FC<CollectionQualityAlertProps> = ({ quality, onViewDetails }) => {
+const CollectionQualityAlert: React.FC<CollectionQualityAlertProps> = ({ quality }) => {
   const hasWarnings = quality.issues.some(i => i.severity === 'warning');
   const hasInfo = quality.issues.some(i => i.severity === 'info');
 

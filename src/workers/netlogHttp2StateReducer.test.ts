@@ -85,7 +85,7 @@ describe('createNetlogHttp2StateReducer', () => {
         goawayCount: 1,
         rstStreamCount: 1,
         windowUpdateCount: 1,
-        errorCount: 2,
+        errorCount: 1,
         firstEventId: 1,
         lastEventId: 5,
         firstByteStart: 10,
@@ -120,12 +120,8 @@ describe('createNetlogHttp2StateReducer', () => {
         details: 'rst by peer',
         time: 30,
       }),
-      expect.objectContaining({
-        eventId: 4,
-        sourceId: 100,
-        error: 0,
-      }),
     ]));
+    expect(view.errors).toHaveLength(1);
     expect(view.sourceLinks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         fromSourceId: 200,

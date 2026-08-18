@@ -1,4 +1,5 @@
 import type { ProxyStateView } from './netlogDatasetViews';
+import { normalizeNetlogErrorValue } from './netlogErrorValue';
 
 const PROXY_CONTEXT_KEYS = ['proxy', 'pac', 'proxies'];
 const PAC_KEYS = ['pac', 'pacurl', 'pac_url', 'pacscript', 'pacscripturl'];
@@ -91,8 +92,7 @@ function firstString(...values: unknown[]): string | undefined {
 
 function firstError(params: Record<string, unknown>): number | string | undefined {
   const value = params.net_error ?? params.error ?? params.error_code ?? params.result;
-  if (typeof value === 'number' || typeof value === 'string') return value;
-  return undefined;
+  return normalizeNetlogErrorValue(value);
 }
 
 function proxyEventKind(typeName: string): ProxyStateView['proxyEvents'][number]['kind'] | undefined {

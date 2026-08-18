@@ -81,7 +81,7 @@ async function readKnownNonTraceText(
   });
 }
 
-export type UploadFileTypeHint = 'netlog' | 'har' | 'log' | 'trace' | 'json-auto';
+export type UploadFileTypeHint = 'netlog' | 'har' | 'log' | 'trace';
 
 function isSingleScanDatasetEnabled(): boolean {
   if (process.env.REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET === '1') return true;
@@ -140,14 +140,13 @@ export async function parseUploadedInput(options: {
     data,
     isTextLog = false,
     repairInfo,
-    fileTypeHint: initialFileTypeHint,
+    fileTypeHint,
     containerHint,
     useWorker,
     taskId = 'upload-task',
     onProgress,
     onStructuredProgress,
   } = options;
-  let fileTypeHint = initialFileTypeHint;
   const streamSession = isFileStreamParseSession(data) ? data : undefined;
   const sourceFile = streamSession
     ? streamSession.file
@@ -182,7 +181,7 @@ export async function parseUploadedInput(options: {
     return { kind: 'log', result: parseLogFile(text) };
   }
 
-  if (fileTypeHint === 'trace' || fileTypeHint === 'json-auto') {
+  if (fileTypeHint === 'trace') {
     if (!sourceFile) {
       throw new Error('Trace 上传必须以 File 交给专用 Worker');
     }
@@ -192,7 +191,7 @@ export async function parseUploadedInput(options: {
     const { inspectTraceUploadInWorker } = await import('../workers/traceWorkerClient');
     const traceStartedAt = Date.now();
     const task = inspectTraceUploadInWorker(streamSession ?? sourceFile, {
-      hint: fileTypeHint,
+      hint: 'trace',
       container: streamSession?.container ?? containerHint,
       enableWorkbench: isTraceWorkbenchEnabled(),
       onProgress: (progress: TraceTaskProgress) => {
@@ -238,61 +237,11 @@ export async function parseUploadedInput(options: {
         ...(outcome.workbench ? { workbench: outcome.workbench } : {}),
       };
     }
-    if (outcome.kind === 'source-unresolved') {
-      throw new TraceWorkerError({
-        code: 'TRACE_SOURCE_UNKNOWN',
-        stage: 'sniffing-source',
-        message: '无法确认 JSON 文件类型，请确认文件来自受支持的诊断工具。',
-        recoverable: false,
-      });
-    } else {
-      if (outcome.encoding !== 'plain-json') {
-        throw new Error('当前不支持 gzip 压缩的 HAR 或 NetLog');
-      }
-      if (outcome.source === 'har') {
-        const text = await readKnownNonTraceText(sourceFile);
-        if (useWorker) {
-          const { result, rawData, rawDataId } = await parseHarInWorker(
-            text,
-            repairInfo,
-            { onProgress, onStructuredProgress },
-          );
-          return { kind: 'har', result, rawData, rawDataId };
-        }
-        const parsedData: unknown = JSON.parse(text);
-        const result = parseHar(parsedData);
-        if (repairInfo) result.repairInfo = repairInfo;
-        return { kind: 'har', result, rawData: parsedData };
-      }
-      if (sourceFile.size >= LARGE_NETLOG_STREAM_BYTES) {
-        fileTypeHint = 'netlog';
-      } else {
-        const text = await readKnownNonTraceText(sourceFile);
-        if (useWorker) {
-          const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
-            text,
-            { onProgress, onStructuredProgress },
-          );
-          return {
-            kind: 'netlog',
-            result,
-            events,
-            rawData,
-            rawDataId,
-            dataset: unavailableNetlogDatasetState,
-          };
-        }
-        const parsedData: unknown = JSON.parse(text);
-        const { events, result } = parseLog(parsedData);
-        return {
-          kind: 'netlog',
-          result,
-          events,
-          rawData: parsedData,
-          dataset: unavailableNetlogDatasetState,
-        };
-      }
-    }
+    throw new Error(
+      outcome.kind === 'detected-source'
+        ? `文件结构属于 ${outcome.source}，与已绑定的 Trace 解析器不匹配`
+        : '文件结构与已绑定的 Trace 解析器不匹配',
+    );
   }
 
   if (!fileTypeHint) {

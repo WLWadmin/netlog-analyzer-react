@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom';
+import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
 import HarCodeViewer from './HarCodeViewer';
 
 jest.mock('antd', () => {
-  const React = require('react');
   return {
-    Button: ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => <button onClick={onClick}>{children}</button>,
-    Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    Button: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => <button onClick={onClick}>{children}</button>,
+    Tag: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
   };
 });
 
