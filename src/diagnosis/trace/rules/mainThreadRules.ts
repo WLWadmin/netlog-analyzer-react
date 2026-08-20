@@ -1,7 +1,13 @@
 import type { TraceCpuHotspot, TraceTaskFacts } from '../../../parsers/trace/types';
 import { TRACE_RULE_THRESHOLDS, severityForThreshold } from '../traceRuleThresholds';
 import type { TraceDiagnosisRule } from '../types';
-import { disabled, insufficientQuality, matched, notMatched } from './ruleSupport';
+import {
+  disabled,
+  insufficientQuality,
+  matched,
+  missingRequiredEventFamilies,
+  notMatched,
+} from './ruleSupport';
 
 function taskHotspot(tasks: readonly TraceTaskFacts[]) {
   return tasks.flatMap(task => (['script', 'gc'] as const).flatMap(category => {
@@ -28,6 +34,8 @@ export const mainThreadRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'M1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'M1', ['main-thread']);
+    if (family) return [family];
     if (context.quality.rendererMainThread === 'missing') return [disabled('M1', 'CAPABILITY_DISABLED')];
     if (!context.tasks?.length) return [disabled('M1', 'REQUIRED_FACTS_MISSING')];
     const longTasks = context.tasks.filter(item => item.durationMs >= TRACE_RULE_THRESHOLDS.longTaskMs.warning);
@@ -54,6 +62,13 @@ export const mainThreadRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'M2');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(
+      context,
+      'M2',
+      ['main-thread', 'cpu-profile'],
+      'any',
+    );
+    if (family) return [family];
     const hotspots = [...(context.cpuHotspots ?? [])]
       .sort((a, b) => b.sampleTimeMs - a.sampleTimeMs);
     const hotspot = hotspots.find(isAttributableCpuHotspot);

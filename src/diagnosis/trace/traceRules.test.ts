@@ -59,6 +59,34 @@ describe('Trace diagnosis rules', () => {
     ]);
   });
 
+  it('disables rules when their required event families were not captured', () => {
+    const missingFamilies = context({ eventFamilies: ['metadata'] });
+
+    expect(evaluation(loadingRules, 'L1', missingFamilies)).toEqual({
+      ruleId: 'L1', status: 'disabled', reason: 'CAPABILITY_DISABLED',
+    });
+    expect(evaluation(networkDispatchRules, 'N1', missingFamilies)).toEqual({
+      ruleId: 'N1', status: 'disabled', reason: 'CAPABILITY_DISABLED',
+    });
+    expect(evaluation(mainThreadRules, 'M1', missingFamilies)).toEqual({
+      ruleId: 'M1', status: 'disabled', reason: 'CAPABILITY_DISABLED',
+    });
+    expect(evaluation(renderingRules, 'R2', missingFamilies)).toEqual({
+      ruleId: 'R2', status: 'disabled', reason: 'CAPABILITY_DISABLED',
+    });
+    expect(evaluation(interactionRules, 'I1', missingFamilies)).toEqual({
+      ruleId: 'I1', status: 'disabled', reason: 'CAPABILITY_DISABLED',
+    });
+  });
+
+  it('allows M2 when either task or CPU profile events are available', () => {
+    expect(evaluation(mainThreadRules, 'M2', context({
+      eventFamilies: ['cpu-profile'],
+    }))).toEqual({
+      ruleId: 'M2', status: 'disabled', reason: 'REQUIRED_FACTS_MISSING',
+    });
+  });
+
   it('Q1 reports incomplete collection without claiming FCP or LCP did not exist', () => {
     const diagnosis = matched(evaluation(qualityRules, 'Q1', context({
       quality: { ...context().quality, level: 'partial', captureWindow: 'partial' },

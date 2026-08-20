@@ -1,4 +1,4 @@
-import type { HarRequestEntry } from '../../harParser';
+import { parseHar, type HarRequestEntry } from '../../harParser';
 import { buildHarRequestCopyText, sanitizeHarUrl } from './buildHarRequestCopyText';
 
 function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
@@ -40,6 +40,15 @@ function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
     isFailed: true,
     isSlow: true,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: {
+        entries: [{
+          request: { method: 'GET', url: 'https://example.test/', headers: [] },
+          response: { status: overrides.status ?? 0, headers: [], content: {} },
+          timings: { send: 0, wait: 0, receive: 0 },
+        }],
+      },
+    }).entries[0].standard,
   };
 }
 

@@ -1,7 +1,7 @@
 import type { DiagnosticCard, DiagnosticCategory } from './types';
 import { calculateImpactScope } from './impactScope';
 import { getHarRequestImportance } from './requestImportance';
-import type { HarRequestEntry } from '../../harParser';
+import { parseHar, type HarRequestEntry } from '../../harParser';
 
 function card(overrides: Partial<DiagnosticCard> & { category: DiagnosticCategory; id?: string; domain?: string }): DiagnosticCard {
   const domain = overrides.domain || 'api.example.test';
@@ -52,6 +52,13 @@ function harEntry(category: HarRequestEntry['category'], url: string): HarReques
     xLscSourceIp: '',
     isFailed: true,
     isSlow: false,
+    standard: parseHar({
+      log: { entries: [{
+        request: { method: 'GET', url: 'https://example.test/', headers: [] },
+        response: { status: 200, headers: [], content: {} },
+        timings: { send: 0, wait: 0, receive: 0 },
+      }] },
+    }).entries[0].standard,
   };
 }
 

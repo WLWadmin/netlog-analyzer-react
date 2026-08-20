@@ -511,7 +511,7 @@ export function combinedDiagnosisToCards(
     });
   }
 
-  // 4. 反证/解释：HAR 慢但 NetLog 无同 host 错误，提醒可能偏服务端或采集不匹配。
+  // 4. 反证/解释：HAR Waiting 异常但 NetLog 无同 host 错误，只能收窄补证方向。
   const slowWithoutNetlogCause = slowAligned.filter(a =>
     a.alignLevel !== 'none' &&
     timingMs(a.harEntry, 'wait') > HAR_DIAG_THRESHOLDS.ttfbSlow &&
@@ -526,8 +526,8 @@ export function combinedDiagnosisToCards(
       category: 'server',
       severity: 'info',
       confidence: 'medium',
-      title: '联合诊断：HAR TTFB 慢但 NetLog 未发现同域名网络错误',
-      conclusion: `HAR 中 ${slowWithoutNetlogCause.length} 个请求主要慢在 TTFB，NetLog 未发现同域名 DNS/TLS/连接错误，更像服务端处理、回源、CDN 或采集时间不完全重合`,
+      title: '联合诊断：HAR Waiting 异常但 NetLog 未发现同域名网络错误',
+      conclusion: `HAR 中 ${slowWithoutNetlogCause.length} 个请求主要慢在 Waiting；同次 NetLog 未发现同域名 DNS/TLS/连接错误。这是反证线索，仍需核验服务端日志，并排除采集窗口或请求对应关系偏差`,
       scope: {
         type: hosts.length > 1 ? 'multi-domain' : 'single-domain',
         summary: `影响 ${hosts.length} 个域名`,
@@ -535,12 +535,12 @@ export function combinedDiagnosisToCards(
         affectedDomainCount: hosts.length,
       },
       evidence: [
-        { label: 'HAR TTFB 慢请求', value: `${slowWithoutNetlogCause.length} 个`, source: 'har', requestIds: collectRequestIds(slowWithoutNetlogCause) },
+        { label: 'HAR Waiting 异常请求', value: `${slowWithoutNetlogCause.length} 个`, source: 'har', requestIds: collectRequestIds(slowWithoutNetlogCause) },
         { label: 'NetLog 同域名错误', value: '未发现 DNS/TLS/连接错误', source: 'netlog' },
         { label: '对齐方式', value: buildAlignmentEvidence(slowWithoutNetlogCause), source: 'derived' },
       ],
       actions: [
-        { role: 'backend', title: '查询服务端耗时', detail: '结合 x-tt-logid / server-timing 查询网关、应用、数据库和下游依赖耗时' },
+        { role: 'backend', title: '核验服务端耗时', detail: '结合请求时间、脱敏关联标识、Server-Timing 和服务端日志核验具体处理阶段' },
         { role: 'user', title: '补采同次复现日志', detail: '若怀疑采集不匹配，重新同时采集 HAR 与 NetLog 后复现' },
       ],
       limitations: [

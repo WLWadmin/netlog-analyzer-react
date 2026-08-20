@@ -1,6 +1,12 @@
 import { TRACE_RULE_THRESHOLDS, severityForThreshold } from '../traceRuleThresholds';
 import type { TraceDiagnosisRule } from '../types';
-import { disabled, insufficientQuality, matched, notMatched } from './ruleSupport';
+import {
+  disabled,
+  insufficientQuality,
+  matched,
+  missingRequiredEventFamilies,
+  notMatched,
+} from './ruleSupport';
 
 export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   id: 'N1', category: 'network', requiredFacts: ['requests.statusCode'],
@@ -8,6 +14,8 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'N1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'N1', ['network']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('N1', 'REQUIRED_FACTS_MISSING')];
     const errors = context.requests.filter(item => (item.statusCode ?? 0) >= 400);
     if (!errors.length) return [notMatched('N1', '未记录 HTTP 4xx/5xx。')];
@@ -29,6 +37,8 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'N2');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'N2', ['network']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('N2', 'REQUIRED_FACTS_MISSING')];
     const failures = context.requests.filter(item => item.result === 'transport-failed' && item.statusCode === undefined);
     if (!failures.length) return [notMatched('N2', '未记录无 HTTP 响应的传输失败。')];
@@ -49,6 +59,8 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'N3');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'N3', ['network', 'main-thread']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('N3', 'REQUIRED_FACTS_MISSING')];
     const calibrated = context.requests.filter(item => item.dispatch
       && !item.limitations.includes('dispatch-time-domain-unavailable'));
@@ -84,6 +96,8 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'C1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'C1', ['network', 'navigation']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('C1', 'REQUIRED_FACTS_MISSING')];
     const cancelled = context.requests.filter(item => item.result === 'cancelled');
     if (!cancelled.length) return [notMatched('C1', '未记录取消请求。')];
@@ -105,6 +119,8 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'S1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'S1', ['network']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('S1', 'REQUIRED_FACTS_MISSING')];
     const observations = context.requests.filter(item => item.statusCode === 401 || item.statusCode === 403);
     if (!observations.length) return [notMatched('S1', '未记录明确的认证或拒绝状态。')];

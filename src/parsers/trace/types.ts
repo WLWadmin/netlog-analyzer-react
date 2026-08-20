@@ -385,6 +385,7 @@ export interface TraceFactCounts {
 }
 
 export interface TraceContextFacts {
+  eventFamilies?: TraceEventFamily[];
   processes: TraceProcessFacts[];
   threads: TraceThreadFacts[];
   frames: TraceFrameFacts[];

@@ -1,5 +1,5 @@
 import type { HarRequestEntry, HarTimingPhaseKey } from '../../harParser';
-import { formatHarTime } from '../../harParser';
+import { formatHarTime, getHarResponseStatus } from '../../harParser';
 import { getHarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
 
 const ROLE_LABELS = {
@@ -43,8 +43,10 @@ function formatTiming(entry: HarRequestEntry, key: HarTimingPhaseKey): string {
 }
 
 function formatStatus(entry: HarRequestEntry): string {
-  if (entry.status === 0) return '浏览器未拿到 HTTP 响应（不是服务端返回了 0）';
-  return cleanInline(`${entry.status} ${entry.statusText}`);
+  const status = getHarResponseStatus(entry);
+  if (status === undefined) return '未记录可用的 HTTP 状态码';
+  if (status === 0) return '浏览器未拿到 HTTP 响应（不是服务端返回了 0）';
+  return cleanInline(`${status} ${entry.statusText}`);
 }
 
 function formatServerTiming(entry: HarRequestEntry): string {

@@ -11,7 +11,7 @@ import {
   shouldLookupIp,
 } from './ipLookupClient';
 import { parseManualIps } from './manualIpInput';
-import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import type { DnsIpEvidenceSummary } from './ipEvidenceTypes';
 import type { IpLookupResult } from './ipLookupTypes';
@@ -48,6 +48,13 @@ function harEntry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
     isFailed: true,
     isSlow: false,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: { entries: [{
+        request: { method: 'GET', url: 'https://example.test/', headers: [] },
+        response: { status: overrides.status ?? 200, headers: [], content: {} },
+        timings: { send: 0, wait: 0, receive: 0 },
+      }] },
+    }).entries[0].standard,
   };
 }
 
@@ -62,6 +69,7 @@ function harResult(entries: HarRequestEntry[]): HarAnalysisResult {
     creator: 'test',
     typeCounts: {} as HarAnalysisResult['typeCounts'],
     bodyRetention: { mode: 'full', omittedCount: 0, omittedBytes: 0 },
+    standard: parseHar({ log: { entries: [] } }).standard,
   };
 }
 

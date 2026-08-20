@@ -58,6 +58,9 @@ describe('MinimalTraceAggregator Batch 3 collectors', () => {
       } } },
       { name: 'capture-end', ts: 120_000 },
     ]);
+    expect(result.facts.context.eventFamilies).toEqual(
+      result.facts.intake.availableFamilies,
+    );
     const facts = result.facts.context;
 
     expect(facts.requests![0]).toEqual(expect.objectContaining({

@@ -62,6 +62,12 @@ export interface LogAnalysisResult {
   groups: LogFlowGroup[];
   stats: LogStats;
   insight: LogInsight;
+  totalNonEmptyLines: number;
+  parsedLines: number;
+  skippedLines: number;
+  parseCoverage: number;
+  skippedLineSamples: string[];
+  skippedLineEntries: Array<{ lineNumber: number; rawLine: string }>;
 }
 
 // 日志解析策略接口
@@ -84,6 +90,23 @@ const STATUS_CODE_REGEX = /^\s*statusCode:(\d+)\s*/;
 const RETRYING_REGEX = new RegExp(`^\\s*\\[(\\d+)\\]\\s*(${HTTP_METHOD_PATTERN}):(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i');
 const NETWORK_ERROR_REGEX = new RegExp(`^\\s*(?:Error\\s+)?(${HTTP_METHOD_PATTERN}):(.+?)\\s*->\\s*(.+?)\\s*\\+\\s*(\\d+)(ms|s)\\s*$`, 'i');
 const SUFFIX_DURATION_REGEX = (prefix: string) => new RegExp(`\\${prefix}(\\d+)(ms|s)\\s*$`);
+const LOG_PREFIX_PATTERN = /^\[[^\]]+\]\s+(Info|Error|Warn|Debug)\b/;
+const MAX_SKIPPED_LINE_SAMPLES = 20;
+const MAX_SKIPPED_LINE_SAMPLE_LENGTH = 2000;
+const SKIPPED_LINE_TRUNCATION_SUFFIX = '…（已截断）';
+
+function skippedLineSample(line: string): string {
+  if (line.length <= MAX_SKIPPED_LINE_SAMPLE_LENGTH) return line;
+  return `${line.slice(
+    0,
+    MAX_SKIPPED_LINE_SAMPLE_LENGTH - SKIPPED_LINE_TRUNCATION_SUFFIX.length,
+  )}${SKIPPED_LINE_TRUNCATION_SUFFIX}`;
+}
+
+function parseCoveragePercent(parsedLines: number, totalNonEmptyLines: number): number {
+  if (totalNonEmptyLines === 0) return 0;
+  return Math.round((parsedLines / totalNonEmptyLines) * 1000) / 10;
+}
 
 function parseDuration(numText: string, unit: string): number {
   const num = parseInt(numText, 10);
@@ -275,9 +298,11 @@ class GoServiceLogParser implements LogParserStrategy {
   private entryIdCounter = 0;
 
   canParse(content: string): boolean {
-    const firstLine = content.split(/\r?\n/).find(l => l.trim());
-    if (!firstLine) return false;
-    return firstLine.startsWith("[") && /^\[[^\]]+\]\s+(Info|Error|Warn|Debug)\b/.test(firstLine);
+    return content
+      .split(/\r?\n/)
+      .filter(line => line.trim())
+      .slice(0, 64)
+      .some(line => LOG_PREFIX_PATTERN.test(line));
   }
 
   parse(
@@ -286,14 +311,26 @@ class GoServiceLogParser implements LogParserStrategy {
   ): LogAnalysisResult {
     this.entryIdCounter = 0;
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const lines = normalized.split('\n').filter(line => line.trim());
+    const lines = normalized
+      .split('\n')
+      .map((rawLine, index) => ({ rawLine, lineNumber: index + 1 }))
+      .filter(line => line.rawLine.trim());
     const entries: LogEntry[] = [];
+    const skippedLineSamples: string[] = [];
+    const skippedLineEntries: Array<{ lineNumber: number; rawLine: string }> = [];
 
     let processedLines = 0;
     let lastProgressAt = 0;
     for (const line of lines) {
-      const entry = this.parseLine(line);
-      if (entry) entries.push(entry);
+      const entry = this.parseLine(line.rawLine);
+      if (entry) {
+        entries.push(entry);
+      } else {
+        skippedLineEntries.push(line);
+        if (skippedLineSamples.length < MAX_SKIPPED_LINE_SAMPLES) {
+          skippedLineSamples.push(skippedLineSample(line.rawLine));
+        }
+      }
       processedLines += 1;
       const now = Date.now();
       if (
@@ -310,11 +347,26 @@ class GoServiceLogParser implements LogParserStrategy {
 
     entries.sort((a, b) => a.timestampMs - b.timestampMs);
 
+    const totalNonEmptyLines = lines.length;
+    const parsedLines = entries.length;
+    const skippedLines = totalNonEmptyLines - parsedLines;
+    const parseCoverage = parseCoveragePercent(parsedLines, totalNonEmptyLines);
     const groups = this.groupEntries(entries);
     const stats = this.calculateStats(entries);
-    const insight = this.generateInsight(entries, stats);
+    const insight = this.generateInsight(entries, stats, skippedLines);
 
-    return { entries, groups, stats, insight };
+    return {
+      entries,
+      groups,
+      stats,
+      insight,
+      totalNonEmptyLines,
+      parsedLines,
+      skippedLines,
+      parseCoverage,
+      skippedLineSamples,
+      skippedLineEntries,
+    };
   }
 
   private parseLine(line: string): LogEntry | null {
@@ -705,12 +757,30 @@ class GoServiceLogParser implements LogParserStrategy {
     };
   }
 
-  private generateInsight(entries: LogEntry[], stats: LogStats): LogInsight {
+  private generateInsight(
+    entries: LogEntry[],
+    stats: LogStats,
+    skippedLines: number,
+  ): LogInsight {
+    const coverageDetail = skippedLines > 0
+      ? `另有 ${skippedLines} 行未识别；未识别行未参与成功率和请求统计。`
+      : '全部非空行均已识别。';
+
+    if (stats.total === 0) {
+      return {
+        summary: `未成功解析出请求；共有 ${skippedLines} 行未识别。`,
+        severity: 'warning',
+        detail: '当前文件没有可用于请求统计的已识别记录，请查看未识别原始行并确认日志格式。',
+      };
+    }
+
     if (stats.error === 0) {
       return {
-        summary: `所有请求均成功完成，共 ${stats.total} 个请求`,
-        severity: 'success',
-        detail: '当前视图仅基于日志文本统计成功、失败、耗时和分布情况。',
+        summary: `已成功解析的 ${stats.total} 条请求中未发现失败；另有 ${skippedLines} 行未识别。`,
+        severity: skippedLines > 0 ? 'warning' : 'success',
+        detail: skippedLines > 0
+          ? coverageDetail
+          : '当前结论仅覆盖已识别日志记录，不代表文件外或未采集请求。',
       };
     }
 
@@ -730,7 +800,7 @@ class GoServiceLogParser implements LogParserStrategy {
       return {
         summary: `共发现 ${errorCodes.length} 种不同状态码，失败 ${stats.error} 次`,
         severity: 'warning',
-        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。${coverageDetail}`,
       };
     }
 
@@ -739,7 +809,7 @@ class GoServiceLogParser implements LogParserStrategy {
       return {
         summary: `状态码 ${code} 出现 ${stats.error} 次失败`,
         severity: stats.successRate < 80 ? 'error' : 'warning',
-        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。${coverageDetail}`,
       };
     }
 
@@ -748,14 +818,14 @@ class GoServiceLogParser implements LogParserStrategy {
       return {
         summary: `错误文本 “${errorTexts[0]}” 出现 ${stats.error} 次`,
         severity: stats.successRate < 80 ? 'error' : 'warning',
-        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。`,
+        detail: `涉及 ${errorDomains.length || 0} 个域名${topErrorDomain ? `，失败最多的是 ${topErrorDomain[0]}（${topErrorDomain[1]} 次）` : ''}。${coverageDetail}`,
       };
     }
 
     return {
       summary: `检测到 ${stats.error} 次失败记录`,
       severity: stats.successRate < 80 ? 'error' : 'warning',
-      detail: `当前仅展示日志中的状态、域名、耗时和原始内容，不基于 log 文件单独判断网络根因。`,
+      detail: `当前仅展示日志中的状态、域名、耗时和原始内容，不基于 log 文件单独判断网络根因。${coverageDetail}`,
     };
   }
 }

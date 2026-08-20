@@ -1,6 +1,6 @@
 import { buildHarDiagnosisSummary, harDiagnosisToCards } from './fromHar';
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
-import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import type { HarDiagnosisResult } from '../../harDiagnosis';
 
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
@@ -35,6 +35,13 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
     isFailed: false,
     isSlow: false,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: { entries: [{
+        request: { method: 'GET', url: 'https://example.test/', headers: [] },
+        response: { status: overrides.status ?? 304, headers: [], content: {} },
+        timings: { send: 0, wait: 0, receive: 0 },
+      }] },
+    }).entries[0].standard,
   };
 }
 
@@ -49,6 +56,7 @@ function harResult(entries: HarRequestEntry[]): HarAnalysisResult {
     creator: 'Chrome',
     typeCounts: { xhr: entries.length, doc: 0, css: 0, js: 0, font: 0, img: 0, media: 0, other: 0 },
     bodyRetention: { mode: 'full', omittedCount: 0, omittedBytes: 0 },
+    standard: parseHar({ log: { entries: [] } }).standard,
   };
 }
 

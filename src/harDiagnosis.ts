@@ -10,7 +10,7 @@ import type {
   HarAnalysisResult,
   HarCategory,
 } from './harParser';
-import { formatHarTime } from './harParser';
+import { formatHarTime, getHarResponseStatus } from './harParser';
 import { HAR_DIAG_THRESHOLDS } from './diagnosis/shared/harThresholds';
 import { getHarTimingPhase, normalizeHarTiming } from './diagnosis/shared/harTimingNormalization';
 
@@ -115,7 +115,7 @@ export interface TopRequest {
   name: string;
   url: string;
   domain: string;
-  status: number;
+  status?: number;
   time: number;
   size: number;
   category: HarCategory;
@@ -303,6 +303,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const catStatsMap = new Map<HarCategory, { count: number; totalSize: number; totalTime: number; failedCount: number }>();
 
   for (const e of entries) {
+    const responseStatus = getHarResponseStatus(e);
     // timings
     const t = e.timings;
     const normalizedTiming = normalizeHarTiming(e);
@@ -322,11 +323,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     if (t.blocked > THRESHOLDS.blockedSlow) blockedSlow++;
 
     // HTTP status
-    if (e.status >= 200 && e.status < 300) count2xx++;
-    else if (e.status >= 300 && e.status < 400) count3xx++;
-    else if (e.status >= 400 && e.status < 500) count4xx++;
-    else if (e.status >= 500) count5xx++;
-    else if (e.status === 0) count0++;
+    if (responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300) count2xx++;
+    else if (responseStatus !== undefined && responseStatus >= 300 && responseStatus < 400) count3xx++;
+    else if (responseStatus !== undefined && responseStatus >= 400 && responseStatus < 500) count4xx++;
+    else if (responseStatus !== undefined && responseStatus >= 500) count5xx++;
+    else if (responseStatus === 0) count0++;
 
     // security
     if (e.url.startsWith('https:')) httpsCount++;
@@ -337,7 +338,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
     // cache
     const cc = e.responseHeaders.find(h => h.name.toLowerCase() === 'cache-control')?.value || '';
-    if (cc.includes('max-age') || cc.includes('immutable') || e.status === 304) cachedCount++;
+    if (cc.includes('max-age') || cc.includes('immutable') || responseStatus === 304) cachedCount++;
 
     // compression
     const ce = e.responseHeaders.find(h => h.name.toLowerCase() === 'content-encoding')?.value || '';
@@ -401,14 +402,14 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     getPhaseStatus(avgDns, max(dnsArr), p95Dns, dnsSlow, total, THRESHOLDS.dnsSlow, 'DNS'),
     getPhaseStatus(avgConnect, max(connectArr), p95Connect, connectSlow, total, THRESHOLDS.connectSlow, 'TCP'),
     getPhaseStatus(avgSsl, max(sslArr), p95Ssl, sslSlow, total, THRESHOLDS.sslSlow, 'TLS'),
-    getPhaseStatus(avgWait, max(waitArr), p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'TTFB'),
+    getPhaseStatus(avgWait, max(waitArr), p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'Waiting'),
     getPhaseStatus(avgReceive, max(receiveArr), p95Receive, receiveSlow, total, THRESHOLDS.receiveSlow, '下载'),
   ];
 
   // 填充慢域名
   for (const ns of networkStatus) {
-    const key = ns.label === 'DNS' ? 'dns' : ns.label === 'TCP' ? 'connect' : ns.label === 'TLS' ? 'ssl' : ns.label === 'TTFB' ? 'wait' : 'receive';
-    const threshold = ns.label === 'DNS' ? THRESHOLDS.dnsSlow : ns.label === 'TCP' ? THRESHOLDS.connectSlow : ns.label === 'TLS' ? THRESHOLDS.sslSlow : ns.label === 'TTFB' ? THRESHOLDS.ttfbSlow : THRESHOLDS.receiveSlow;
+    const key = ns.label === 'DNS' ? 'dns' : ns.label === 'TCP' ? 'connect' : ns.label === 'TLS' ? 'ssl' : ns.label === 'Waiting' ? 'wait' : 'receive';
+    const threshold = ns.label === 'DNS' ? THRESHOLDS.dnsSlow : ns.label === 'TCP' ? THRESHOLDS.connectSlow : ns.label === 'TLS' ? THRESHOLDS.sslSlow : ns.label === 'Waiting' ? THRESHOLDS.ttfbSlow : THRESHOLDS.receiveSlow;
     const slowMap = new Map<string, number>();
     for (const e of entries) {
       const normalizedTiming = normalizeHarTiming(e);
@@ -454,13 +455,13 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     .filter(e => e.isFailed)
     .sort((a, b) => b.time - a.time)
     .slice(0, 10)
-    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
+    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   const slowRequests: TopRequest[] = entries
     .filter(e => e.isSlow)
     .sort((a, b) => b.time - a.time)
     .slice(0, 10)
-    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
+    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 域名统计（O(N) 计算 avgTime） ----
   const domainStats: DomainStats[] = [];
@@ -517,7 +518,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     .filter(e => e.size > 0)
     .sort((a, b) => b.size - a.size)
     .slice(0, 10)
-    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
+    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 缓存统计 ----
   const cacheStats: CacheStats = {
@@ -542,14 +543,19 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     })
     .sort((a, b) => b.size - a.size)
     .slice(0, 10)
-    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: e.status, time: e.time, size: e.size, category: e.category }));
+    .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 安全与协议统计 ----
   const missingSecurityHeaders: string[] = [];
   const securityHeaderTarget = entries.find(e =>
-    e.category === 'doc' && e.url.startsWith('https:') && e.status >= 200 && e.status < 400
+    e.category === 'doc'
+      && e.url.startsWith('https:')
+      && (getHarResponseStatus(e) ?? 0) >= 200
+      && (getHarResponseStatus(e) ?? 0) < 400
   ) || entries.find(e =>
-    e.url.startsWith('https:') && e.status >= 200 && e.status < 400
+    e.url.startsWith('https:')
+      && (getHarResponseStatus(e) ?? 0) >= 200
+      && (getHarResponseStatus(e) ?? 0) < 400
   );
   if (securityHeaderTarget) {
     const respHeaders = securityHeaderTarget.responseHeaders.map(h => h.name.toLowerCase());
@@ -598,13 +604,13 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   // ---- 核心发现 ----
   const findings: string[] = [];
   if (httpStatus.countFailed > 0) findings.push(`存在 ${httpStatus.countFailed} 个异常请求，其中 ${httpStatus.count5xx} 个为 5xx 服务端错误`);
-  if (result.slowCount > 0) findings.push(`存在 ${result.slowCount} 个慢请求，P95 TTFB 为 ${formatHarTime(p95Wait)}`);
+  if (result.slowCount > 0) findings.push(`存在 ${result.slowCount} 个慢请求，P95 Waiting 为 ${formatHarTime(p95Wait)}`);
   if (networkStatus.some(n => n.status === 'critical')) {
     const critical = networkStatus.filter(n => n.status === 'critical').map(n => n.label).join('、');
     findings.push(`${critical} 阶段严重偏高`);
   }
   if (duplicateRequests.length > 0) findings.push(`检测到 ${duplicateRequests.length} 个 URL 被重复请求`);
-  if (ipStats.some(i => i.type === 'private')) findings.push(`检测到内网 IP 请求，可能位于企业内网环境`);
+  if (ipStats.some(i => i.type === 'private')) findings.push('HAR 记录到私有地址范围的远端连接地址；该字段本身不说明网络归属或故障责任');
   if (uncompressedLargeResources.length > 0) findings.push(`检测到 ${uncompressedLargeResources.length} 个大资源未启用压缩`);
   if (findings.length === 0) findings.push('网络状态良好，未发现明显异常');
 
@@ -613,38 +619,38 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   // ---- 问题归因 ----
   const attributions: AttributionItem[] = [];
 
-  // 服务端问题
+  // Waiting 与 HTTP 状态异常提示；HAR 不能单独确认服务端内部根因。
   if (ttfbSlow > 3 || httpStatus.count5xx > 0) {
     attributions.push({
       type: 'server',
       severity: httpStatus.count5xx > 0 ? 'critical' : 'warning',
-      title: '疑似服务端响应慢',
-      description: `TTFB 偏慢请求 ${ttfbSlow} 个，5xx 错误 ${httpStatus.count5xx} 个`,
+      title: 'Waiting / HTTP 5xx 异常提示',
+      description: `Waiting 超过参考阈值的请求 ${ttfbSlow} 个，HTTP 5xx 响应 ${httpStatus.count5xx} 个；需结合同次服务端日志核验`,
       evidence: entries.filter(e => e.timings.wait > THRESHOLDS.ttfbSlow).slice(0, 3).map(e => `${e.domain}${e.name} - ${formatHarTime(e.timings.wait)}`),
       priority: 0,
     });
   }
 
-  // 网络问题
+  // 浏览器侧 Timing 异常提示；阈值不能确认用户网络质量。
   if (dnsSlow > 3 || connectSlow > 3) {
     attributions.push({
       type: 'network',
       severity: 'warning',
-      title: '疑似用户网络质量较差',
-      description: `DNS 偏慢 ${dnsSlow} 个，TCP 建连偏慢 ${connectSlow} 个`,
+      title: 'DNS / Connect 阶段耗时异常提示',
+      description: `浏览器记录到 DNS 阶段耗时异常 ${dnsSlow} 个、Connect 阶段耗时异常 ${connectSlow} 个；需补充同次 NetLog 核验网络栈证据`,
       evidence: entries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).slice(0, 3).map(e => `${e.domain} - DNS ${formatHarTime(e.timings.dns)}`),
       priority: 1,
     });
   }
 
-  // CDN 问题
+  // 多个远端地址不等于 CDN，也不能标识具体故障节点。
   const cdnIssues = domainStats.filter(d => d.ips.length > 1 && d.failedCount > 0);
   if (cdnIssues.length > 0) {
     attributions.push({
-      type: 'cdn',
+      type: 'network',
       severity: 'warning',
-      title: '疑似 CDN 节点异常',
-      description: `${cdnIssues.length} 个域名命中多个 IP 且存在失败请求`,
+      title: '同域名记录到多个远端地址且存在失败',
+      description: `${cdnIssues.length} 个域名记录到多个远端连接地址且存在失败请求；HAR 不能据此确认 CDN、源站或故障节点归属`,
       evidence: cdnIssues.slice(0, 3).map(d => `${d.domain} - ${d.ips.length} 个 IP，${d.failedCount} 个失败`),
       priority: 1,
     });
@@ -680,10 +686,10 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     suggestions.push({ priority: 0, title: '优先排查 5xx 服务端错误', detail: `检测到 ${httpStatus.count5xx} 个 5xx 错误，建议检查服务端日志和接口稳定性` });
   }
   if (ttfbSlow > 5) {
-    suggestions.push({ priority: 0, title: '优化服务端响应时间', detail: `${ttfbSlow} 个请求 TTFB 超过 ${THRESHOLDS.ttfbSlow}ms，建议优化数据库查询、缓存策略或接口逻辑` });
+    suggestions.push({ priority: 0, title: '核验 Waiting 异常请求', detail: `${ttfbSlow} 个请求的 Waiting 超过 ${THRESHOLDS.ttfbSlow}ms；请结合同次服务端日志和 Server-Timing 核验处理阶段，不能仅凭 HAR 确认内部瓶颈` });
   }
   if (cdnIssues.length > 0) {
-    suggestions.push({ priority: 1, title: '检查 CDN 节点健康度', detail: `${cdnIssues.length} 个域名命中多个 IP 且存在失败，建议排查 CDN 节点状态` });
+    suggestions.push({ priority: 1, title: '核对远端地址与失败请求', detail: `${cdnIssues.length} 个域名记录到多个远端地址且存在失败；请按请求时间、域名和地址与同次 NetLog 或服务端记录交叉核验` });
   }
   if (duplicateRequests.length > 0) {
     suggestions.push({ priority: 1, title: '消除重复请求', detail: `检测到 ${duplicateRequests.length} 个 URL 被重复请求，建议检查前端缓存策略` });

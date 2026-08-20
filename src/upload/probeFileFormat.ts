@@ -430,7 +430,7 @@ export async function probeFileFormatStreamSession(
     return {
       outcome: {
         container,
-        verdicts: classifyTextLog(textPrefix)
+        verdicts: !gzip && classifyTextLog(textPrefix)
           ? verdictsForSources(['log'], SOURCE_EVIDENCE.log)
           : verdictsForSources([], []),
       },

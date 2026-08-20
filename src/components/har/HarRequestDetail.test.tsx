@@ -2,7 +2,7 @@ import React from 'react';
 import '@testing-library/jest-dom';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { HarRequestEntry } from '../../harParser';
+import { parseHar, type HarRequestEntry } from '../../harParser';
 import HarRequestDetail from './HarRequestDetail';
 import { loadHarResponseBody } from './harResponseBodyGateway';
 
@@ -82,6 +82,15 @@ function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
     isFailed: false,
     isSlow: false,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: {
+        entries: [{
+          request: { method: 'GET', url: 'https://example.test/', headers: [] },
+          response: { status: overrides.status ?? 200, headers: [], content: {} },
+          timings: { send: 0, wait: 0, receive: 0 },
+        }],
+      },
+    }).entries[0].standard,
   };
 }
 
@@ -159,5 +168,65 @@ describe('HarRequestDetail', () => {
 
     expect(screen.getByText('new-response-body')).toBeInTheDocument();
     expect(screen.queryByText('old-response-body')).not.toBeInTheDocument();
+  });
+
+  it('shows request evidence facts with their raw HAR paths', async () => {
+    (loadHarResponseBody as jest.Mock).mockResolvedValueOnce({ state: 'missing' });
+    const parsed = parseHar({ log: { entries: [{
+      request: { method: 'GET', url: 'https://example.test/', headers: [] },
+      response: { status: 0, headers: [], content: {} },
+      _netError: -105,
+      timings: { send: 0, wait: 0, receive: 0 },
+    }] } }).entries[0];
+
+    render(<HarRequestDetail entry={parsed} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: '诊断' }));
+
+    expect(screen.getByText('HTTP 响应状态')).toBeInTheDocument();
+    expect(screen.getByText('$.log.entries[0].response.status')).toBeInTheDocument();
+    expect(screen.getByText('$.log.entries[0]._netError')).toBeInTheDocument();
+  });
+
+  it('does not present a missing status as status=0', async () => {
+    (loadHarResponseBody as jest.Mock).mockResolvedValueOnce({ state: 'missing' });
+    const parsed = parseHar({ log: { entries: [{
+      request: { method: 'GET', url: 'https://example.test/', headers: [] },
+      response: { headers: [], content: {} },
+      timings: {},
+    }] } }).entries[0];
+
+    render(<HarRequestDetail entry={parsed} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('未记录')).toBeInTheDocument();
+    expect(screen.queryByText('失败/未完成')).not.toBeInTheDocument();
+    expect(screen.queryByText('status=0 未拿到响应')).not.toBeInTheDocument();
+  });
+
+  it('shows every anomaly hint with value, threshold, state, source and supplement', async () => {
+    (loadHarResponseBody as jest.Mock).mockResolvedValueOnce({ state: 'missing' });
+    const parsed = parseHar({ log: { entries: [{
+      request: { method: 'GET', url: 'https://example.test/', headers: [] },
+      response: { status: 200, headers: [], content: {} },
+      timings: { blocked: -1, dns: -1, connect: -1, ssl: -1, send: 0, wait: 1100, receive: 100 },
+    }] } }).entries[0];
+
+    render(<HarRequestDetail entry={parsed} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: '诊断' }));
+
+    expect(screen.getByText('Waiting：超过参考阈值')).toBeInTheDocument();
+    expect(screen.getByText(/实际值：1100 ms · 参考阈值：800 ms · 证据等级：异常提示/)).toBeInTheDocument();
+    expect(screen.getByText('DNS：不适用（HAR 记录为 -1）')).toBeInTheDocument();
+    expect(screen.getByText('$.log.entries[0].timings.wait')).toBeInTheDocument();
+    expect(screen.getAllByText(/同次服务端日志/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^Send：/)).not.toBeInTheDocument();
   });
 });

@@ -19,6 +19,11 @@ import { decodeHarResponseBody, sanitizeHarHtmlForPreview, type DecodedHarBody }
 import type { HarResponseBodyPayload } from '../../workers/protocols';
 import { buildHarIssueClusters, getHarEvidenceLevelLabel, getHarRoleLabel } from '../../diagnosis/shared/harIssueClusters';
 import { buildHarClusterCopyText } from './buildHarClusterCopyText';
+import {
+  buildHarRequestEvidenceConclusion,
+  getHarRequestAnomalyHints,
+  type HarRequestAnomalyHint,
+} from '../../diagnosis/shared/harRequestEvidence';
 
 interface HarRequestDetailProps {
   entry: HarRequestEntry;
@@ -53,6 +58,19 @@ const tooltipInnerStyle = {
   boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
   wordBreak: 'break-all' as const,
   lineHeight: 1.5,
+};
+
+const ANOMALY_STATE_LABELS: Record<HarRequestAnomalyHint['state'], string> = {
+  anomaly: '超过参考阈值',
+  'within-reference': '未超过参考阈值',
+  'not-applicable': '不适用（HAR 记录为 -1）',
+  missing: '字段缺失',
+  invalid: '字段值无效',
+};
+
+const EVIDENCE_LEVEL_LABELS: Record<HarRequestAnomalyHint['evidenceLevel'], string> = {
+  'anomaly-hint': '异常提示',
+  'needs-evidence': '需要补证',
 };
 
 const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.CSSProperties }> = ({ text, threshold = 100, style }) => {
@@ -251,6 +269,25 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
   const [bodyError, setBodyError] = useState<string | null>(null);
   const bodyRequestVersion = useRef(0);
   const issue = useMemo(() => getHarRequestIssue(entry), [entry]);
+  const evidenceConclusion = useMemo(
+    () => buildHarRequestEvidenceConclusion(entry),
+    [entry],
+  );
+  const anomalyHints = useMemo(() => getHarRequestAnomalyHints(entry), [entry]);
+  const responseStatus = entry.standard.response.status;
+  const recordedStatus = responseStatus.state === 'value' ? responseStatus.value : undefined;
+  const statusLabel = responseStatus.state === 'missing'
+    ? '未记录'
+    : responseStatus.state === 'invalid'
+      ? '无效值'
+      : responseStatus.state === 'not-available'
+        ? '不适用'
+        : responseStatus.value === 0
+          ? '失败/未完成'
+          : String(responseStatus.value);
+  const recordedStatusStyle = recordedStatus === undefined
+    ? { color: 'var(--text-secondary)', bg: 'var(--bg-surface)' }
+    : statusStyle(recordedStatus);
   const issueClusters = useMemo(() => buildHarIssueClusters(allEntries), [allEntries]);
   const issueCluster = useMemo(
     () => issueClusters.find(cluster => cluster.affectedRequestIds.includes(entry.id)),
@@ -343,14 +380,14 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
         <GeneralRow label="Status Code">
           <Tag
             style={{
-              color: statusStyle(entry.status).color,
-              background: statusStyle(entry.status).bg,
+              color: recordedStatusStyle.color,
+              background: recordedStatusStyle.bg,
               border: 'none',
               fontWeight: 700,
               fontFamily: 'var(--font-mono)',
             }}
           >
-            {entry.status === 0 ? '失败/未完成' : entry.status} {entry.statusText}
+            {statusLabel} {entry.statusText}
           </Tag>
         </GeneralRow>
         <GeneralRow label="主问题">
@@ -369,7 +406,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
           <GeneralRow label="失败原因">
             <span style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               {issue.kind === 'status-zero'
-                ? '浏览器没有拿到 HTTP 响应，不是服务端返回了 0。'
+                ? '浏览器没有取得 HTTP 响应，不是服务端返回状态码 0。'
                 : issue.kind === 'net-error' && entry.netErrorText
                   ? `${entry.netErrorText}：${issue.detail}`
                   : issue.kind === 'blocked' && entry.blockedReason
@@ -614,7 +651,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
                 {entry.postData.params.map((p, i) => (
                   <Fragment key={i}>
                     <TruncatedText text={p.name} threshold={50} style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }} />
-                    <TruncatedText text={p.value} threshold={80} style={{ color: 'var(--text-primary)' }} />
+                    <TruncatedText text={p.value ?? '-'} threshold={80} style={{ color: 'var(--text-primary)' }} />
                   </Fragment>
                 ))}
               </div>
@@ -897,16 +934,63 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
         </div>
       )}
       <div>
+        {sectionTitle('证据结论')}
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          <div>{evidenceConclusion.summary}</div>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color)' }}>
+            {anomalyHints.map(hint => (
+              <div
+                key={hint.key}
+                style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}
+              >
+                <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                  {hint.label}：{ANOMALY_STATE_LABELS[hint.state]}
+                </div>
+                <div>
+                  实际值：{hint.actualValue === undefined ? '—' : `${hint.actualValue} ${hint.unit}`}
+                  {' · '}参考阈值：{hint.thresholdValue} {hint.unit}
+                  {' · '}证据等级：{EVIDENCE_LEVEL_LABELS[hint.evidenceLevel]}
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  {hint.sourcePath}
+                </div>
+                <div>建议补充：{hint.supplement}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color)' }}>
+            {evidenceConclusion.facts.map(fact => (
+              <div
+                key={`${fact.label}:${fact.sourcePath}`}
+                style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}
+              >
+                <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{fact.label}</div>
+                <div>{fact.detail}</div>
+                <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  {fact.sourcePath}
+                </div>
+              </div>
+            ))}
+          </div>
+          {evidenceConclusion.requiredEvidence.map(item => (
+            <div key={item}>需要补证：{item}</div>
+          ))}
+        </div>
+      </div>
+      <div>
         {sectionTitle('关键字段速查')}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {diagItem('Remote Address', entry.remoteAddress, '源站/边缘节点 IP')}
+          {diagItem('Remote Address', entry.remoteAddress, '浏览器记录的远端连接地址，不代表源站或故障节点归属')}
           {diagItem('x-tt-logid', entry.xTtLogid, '可用于后端链路排查')}
           {diagItem('x-tt-cip', entry.xTtCip, '客户端出口 IP')}
           {diagItem('x-lsc-source-ip', entry.xLscSourceIp, 'LSC 回源 IP')}
         </div>
       </div>
       <div>
-        {sectionTitle('Server-Timing（CDN / 源站耗时）')}
+        {sectionTitle('Server-Timing（服务端自报指标）')}
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+          服务端通过响应头提供的自报指标，需与同次服务端日志交叉核验。
+        </div>
         {entry.serverTiming.length ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {entry.serverTiming.map((st, i) => (

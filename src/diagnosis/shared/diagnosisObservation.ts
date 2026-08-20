@@ -107,7 +107,7 @@ function harTimingEvidence(entry: HarRequestEntry, issue: HarRequestIssue): Diag
     dns: 'DNS',
     tcp: 'TCP',
     ssl: 'TLS',
-    wait: 'TTFB',
+    wait: 'Waiting',
     receive: 'Download',
   };
   const normalized = normalizeHarTiming(entry);

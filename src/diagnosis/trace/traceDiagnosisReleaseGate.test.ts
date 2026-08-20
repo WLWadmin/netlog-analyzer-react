@@ -1,9 +1,20 @@
 import { buildTraceGoldenCorpus } from './traceGoldenCorpus';
 import { buildTraceDiagnosisReleaseGateReport } from './traceDiagnosisReleaseGate';
+import { buildRealSampleValidationGateReport } from '../shared/realSampleValidationGate';
+
+const traceRealSampleValidation = buildRealSampleValidationGateReport({
+  TRACE_SAMPLE_MANIFEST_PATH: 'configured',
+  TRACE_PLAIN_SAMPLE_PATH: 'configured',
+  TRACE_GZIP_SAMPLE_PATH: 'configured',
+}, {
+  trace: { executed: true, passed: true },
+});
 
 describe('traceDiagnosisReleaseGate', () => {
   it('reports exactly the user-specified seven metrics', () => {
-    const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus(), { hasRealSampleValidationArtifacts: true });
+    const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus(), {
+      realSampleValidation: traceRealSampleValidation,
+    });
     expect(report.passed).toBe(true);
     expect(report.blockers).toEqual([]);
     expect(report.metrics).toEqual({
@@ -22,7 +33,7 @@ describe('traceDiagnosisReleaseGate', () => {
     const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus());
 
     expect(report.passed).toBe(false);
-    expect(report.blockers).toContain('尚未提供 Trace 真实样本验证记录');
+    expect(report.blockers).toContain('尚未提供已执行且通过的 Trace 真实样本验证记录');
   });
 
   it('folds all structured expectation failures into corpusPassed', () => {

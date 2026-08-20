@@ -64,7 +64,7 @@ const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
     action('network-change', 'user', 'network-change-stability', '确认网络切换时机', '确认问题发生时是否切换 Wi-Fi、VPN、休眠唤醒或弱网重连。', '稳定网络下现象消失，只提高网络切换相关性；仍需与失败请求时间和 source chain 对齐。', '继续采集稳定网络下的 HAR/NetLog 对照。'),
   ],
   server: [
-    action('server', 'backend', 'server-logid-check', '查询服务端日志和耗时', '使用 logid、Server-Timing 或请求时间点查询网关、应用和下游依赖耗时。', '服务端日志能解释 5xx 或 TTFB 慢。', '如果服务端无异常，继续用同时间 NetLog 排查网络层反证。', 'safe', 'low', undefined, ['har']),
+    action('server', 'backend', 'server-logid-check', '核验服务端日志和耗时', '使用脱敏关联标识、Server-Timing 或请求时间点查询网关、应用和下游依赖耗时。', '服务端日志可用于解释 5xx 或 Waiting 异常对应的处理阶段。', '如果服务端无异常，继续用同时间 NetLog 排查网络层反证。', 'safe', 'low', undefined, ['har']),
   ],
   cors: [
     action('cors', 'frontend', 'cors-preflight-check', '检查预检和跨域策略', '核对 OPTIONS 预检、Access-Control-Allow-* 响应头、登录态和接口约定。', '预检通过且响应头符合浏览器策略。', '与后端确认跨域配置、Cookie SameSite 和鉴权约定。'),
@@ -73,7 +73,7 @@ const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
     action('client', 'frontend', 'client-auth-contract', '检查请求参数和鉴权约定', '核对 4xx、401/403 的接口约定、登录态和前端调用方式。', '请求符合接口契约，登录态有效。', '继续由后端确认鉴权策略或错误响应。'),
   ],
   performance: [
-    action('performance', 'backend', 'download-ttfb-cdn', '区分 TTFB、下载和 CDN', '查看 Server-Timing、资源大小、缓存命中和 CDN 回源情况。', '能区分是服务端处理慢、资源过大还是 CDN/缓存问题。', '跨网络对比并重新采集 HAR。'),
+    action('performance', 'backend', 'download-ttfb-cdn', '区分 Waiting、下载和服务端自报阶段', '查看 Server-Timing、资源大小、缓存命中，并与同次服务端日志交叉核验。', '用于区分浏览器等待、资源传输和服务端自报阶段，但不单独确认责任方。', '跨网络对比并重新采集 HAR。'),
   ],
   'browser-queue': [
     action('browser-queue', 'user', 'queue-browser-retry', '停止批量加载后重试', '先停止批量预览或下载，减少一次打开的内容数量，再重新执行刚才的操作。', '减少加载数量后恢复，说明同一时间请求过多是关键影响因素。', '如果仍未恢复，请前端继续检查请求并发、统一超时和取消逻辑。'),

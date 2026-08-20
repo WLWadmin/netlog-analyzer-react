@@ -137,7 +137,9 @@ describe('combinedBaselineComparator', () => {
       'combined-baseline-new-episodes',
       'combined-baseline-new-top-conclusions',
     ]));
-    expect(JSON.stringify(cards)).not.toContain('SECRET');
+    const visibleOutput = JSON.stringify(cards);
+    expect(visibleOutput).not.toContain('SECRET');
+    expect(visibleOutput).not.toMatch(/70%\s*以上|90%\s*以上|大概率|已确认(?:代理|防火墙|安全软件|服务端).*根因/);
   });
 
   it('does not fabricate comparison when request sets have no overlap', () => {

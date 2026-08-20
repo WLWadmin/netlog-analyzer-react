@@ -13,6 +13,7 @@ import LogStatsCharts from './LogStatsCharts';
 import LogFlowGroups from './LogFlowGroups';
 import LogRawList from './LogRawList';
 import LogPerformanceTab from './LogPerformanceTab';
+import LogParseCoveragePanel from './LogParseCoveragePanel';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from '../shared/ResultWorkbenchShell';
 import './logResultPage.css';
@@ -31,7 +32,14 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
   const activeTab = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveTab;
   const [filterErrorOnly, setFilterErrorOnly] = useState(false);
 
-  const { insight, stats, groups, entries } = result;
+  const {
+    insight,
+    stats,
+    groups,
+    entries,
+    parsedLines,
+    totalNonEmptyLines,
+  } = result;
 
   const handleTabChange = (key: string) => {
     setInternalActiveTab(key);
@@ -49,6 +57,7 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
       ),
       children: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <LogParseCoveragePanel result={result} />
           <LogInsightBanner insight={insight} />
           <LogSummaryCards
             stats={stats}
@@ -117,7 +126,12 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
           原始日志
         </span>
       ),
-      children: <LogRawList entries={entries} />,
+      children: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <LogParseCoveragePanel result={result} />
+          <LogRawList entries={entries} />
+        </div>
+      ),
     },
   ];
   const activeContent = tabItems.find(item => item.key === activeTab)?.children ?? tabItems[0].children;
@@ -125,14 +139,14 @@ const LogResultPage: React.FC<LogResultPageProps> = ({ result, activeTab: extern
     { key: 'overview', label: '日志概览', icon: <DashboardOutlined />, group: '分析' },
     { key: 'flows', label: '操作流程', icon: <BranchesOutlined />, group: '分析', count: groups.length },
     { key: 'performance', label: '日志统计', icon: <DashboardOutlined />, group: '分析' },
-    { key: 'raw', label: '原始日志', icon: <FileTextOutlined />, group: '深度核验', count: entries.length },
+    { key: 'raw', label: '原始日志', icon: <FileTextOutlined />, group: '深度核验', count: totalNonEmptyLines },
   ];
 
   return (
     <ResultWorkbenchShell
       parser="log"
       parserLabel="Log"
-      statusLabel={`${stats.total.toLocaleString()} 条日志`}
+      statusLabel={`${parsedLines.toLocaleString()} / ${totalNonEmptyLines.toLocaleString()} 行已识别`}
       activeKey={activeTab}
       items={navItems}
       onChange={handleTabChange}

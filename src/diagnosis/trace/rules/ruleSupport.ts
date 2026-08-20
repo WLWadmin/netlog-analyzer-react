@@ -1,4 +1,4 @@
-import type { TraceContextFacts } from '../../../parsers/trace/types';
+import type { TraceContextFacts, TraceEventFamily } from '../../../parsers/trace/types';
 import { scoreTraceDiagnosis } from '../traceScoring';
 import type {
   RuleEvaluation,
@@ -17,6 +17,20 @@ export function coverage(context: TraceContextFacts) {
 
 export function disabled(ruleId: TraceRuleId, reason: TraceRuleDisabledReason): RuleEvaluation {
   return { ruleId, status: 'disabled', reason };
+}
+
+export function missingRequiredEventFamilies(
+  context: TraceContextFacts,
+  ruleId: TraceRuleId,
+  required: readonly TraceEventFamily[],
+  mode: 'all' | 'any' = 'all',
+): RuleEvaluation | undefined {
+  if (!context.eventFamilies) return undefined;
+  const available = new Set(context.eventFamilies);
+  const supported = mode === 'all'
+    ? required.every(family => available.has(family))
+    : required.some(family => available.has(family));
+  return supported ? undefined : disabled(ruleId, 'CAPABILITY_DISABLED');
 }
 
 export function insufficientQuality(

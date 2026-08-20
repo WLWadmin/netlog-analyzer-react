@@ -2,6 +2,7 @@ import type { DiagnosticCard } from './types';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
 import type { DiagnosisCoverage } from './diagnosisCoverage';
 import { buildDiagnosisReleaseGateReport } from './diagnosisReleaseGate';
+import { buildRealSampleValidationGateReport } from './realSampleValidationGate';
 
 function card(overrides: Partial<DiagnosticCard> = {}): DiagnosticCard {
   return {
@@ -122,7 +123,24 @@ const passingInput = {
   },
   copyTextSamples: ['DNS 失败现象明确，不能确认本机 DNS 配置错误。'],
   hasBrowserAcceptanceArtifacts: true,
-  hasRealSampleValidationArtifacts: true,
+  realSampleValidation: buildRealSampleValidationGateReport({
+    RUN_HAR_REAL_SAMPLES: '1',
+    HAR_REAL_SAMPLE_DIR: 'configured',
+    NETLOG_PARITY_SAMPLE_DIR: 'configured',
+    TRACE_SAMPLE_MANIFEST_PATH: 'configured',
+    TRACE_PLAIN_SAMPLE_PATH: 'configured',
+    TRACE_GZIP_SAMPLE_PATH: 'configured',
+    DIAGNOSIS_COMBINED_SAMPLE_MANIFEST_PATH: 'configured',
+    DIAGNOSIS_LARGE_FILE_SAMPLE_MANIFEST_PATH: 'configured',
+    DIAGNOSIS_ACCEPTANCE_RECORD_PATH: 'configured',
+  }, {
+    har: { executed: true, passed: true },
+    netlog: { executed: true, passed: true },
+    trace: { executed: true, passed: true },
+    combined: { executed: true, passed: true },
+    'large-file': { executed: true, passed: true },
+    acceptance: { executed: true, passed: true },
+  }),
 };
 
 describe('diagnosisReleaseGate', () => {
@@ -222,7 +240,7 @@ describe('diagnosisReleaseGate', () => {
       ...passingInput,
       productAcceptance: undefined,
       hasBrowserAcceptanceArtifacts: false,
-      hasRealSampleValidationArtifacts: false,
+      realSampleValidation: undefined,
     });
 
     expect(report.passed).toBe(false);
@@ -231,6 +249,58 @@ describe('diagnosisReleaseGate', () => {
       '尚未记录桌面/窄屏浏览器验收截图',
       '尚未提供真实故障样本验证记录',
     ]));
+  });
+
+  it('reports incomplete real-sample areas without including external paths', () => {
+    const report = buildDiagnosisReleaseGateReport({
+      ...passingInput,
+      realSampleValidation: {
+        passed: false,
+        configuredAreaCount: 4,
+        executedAreaCount: 4,
+        passedAreaCount: 4,
+        requiredAreaCount: 6,
+        areas: [
+          { area: 'har', configured: true, executed: true, passed: true, missingEnvironmentVariables: [] },
+          { area: 'netlog', configured: true, executed: true, passed: true, missingEnvironmentVariables: [] },
+          { area: 'trace', configured: true, executed: true, passed: true, missingEnvironmentVariables: [] },
+          { area: 'combined', configured: false, executed: false, passed: false, missingEnvironmentVariables: ['DIAGNOSIS_COMBINED_SAMPLE_MANIFEST_PATH'] },
+          { area: 'large-file', configured: false, executed: false, passed: false, missingEnvironmentVariables: ['DIAGNOSIS_LARGE_FILE_SAMPLE_MANIFEST_PATH'] },
+          { area: 'acceptance', configured: true, executed: true, passed: true, missingEnvironmentVariables: [] },
+        ],
+      },
+    });
+
+    expect(report.blockers).toContain('真实样本矩阵未完成：combined, large-file');
+    expect(JSON.stringify(report)).not.toContain('/private/');
+  });
+
+  it('does not accept the removed legacy real-sample boolean as a bypass', () => {
+    const report = buildDiagnosisReleaseGateReport({
+      ...passingInput,
+      realSampleValidation: undefined,
+      hasRealSampleValidationArtifacts: true,
+    } as any);
+
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('尚未提供真实故障样本验证记录');
+  });
+
+  it('does not trust a self-declared pass with an incomplete area matrix', () => {
+    const report = buildDiagnosisReleaseGateReport({
+      ...passingInput,
+      realSampleValidation: {
+        passed: true,
+        configuredAreaCount: 1,
+        executedAreaCount: 1,
+        passedAreaCount: 1,
+        requiredAreaCount: 1,
+        areas: [{ area: 'trace', configured: true, executed: true, passed: true, missingEnvironmentVariables: [] }],
+      },
+    });
+
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain('真实样本矩阵报告结构不完整或计数不一致');
   });
 
   it('blocks a corpus row whose execution result is missing', () => {

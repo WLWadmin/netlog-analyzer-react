@@ -79,7 +79,7 @@ export function calculateImpactScope(input: {
   let type: DiagnosticScopeType;
   if (categories.size === 1 && categories.has('server') && affectedDomainCount <= 1) {
     type = 'server-side';
-    counterEvidenceSummary.push('HTTP 5xx/TTFB 集中在单服务域名，不归为客户端全局网络问题。');
+    counterEvidenceSummary.push('HTTP 5xx/Waiting 异常集中在单服务域名，不归为客户端全局网络问题；具体处理阶段仍需服务端证据。');
   } else if (hasHttpsOnlyEvidence(cards)) {
     type = 'https-only';
   } else if (affectedRequestCount <= 1 && hasCounterSuccess) {

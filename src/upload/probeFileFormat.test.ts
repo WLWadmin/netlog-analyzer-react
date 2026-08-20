@@ -37,6 +37,24 @@ function parserKinds(outcome: Awaited<ReturnType<typeof probeFileFormat>>) {
     .map(verdict => [verdict.parserId, verdict.kind]);
 }
 
+function decompressWithGunzip(
+  stream: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = stream.getReader();
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      controller.enqueue(new Uint8Array(gunzipSync(Buffer.concat(chunks))));
+      controller.close();
+    },
+  });
+}
+
 describe('probeFileFormat', () => {
   it('replays the consumed prefix and remaining bytes from one source stream', async () => {
     const bytes = new TextEncoder().encode(
@@ -121,6 +139,36 @@ describe('probeFileFormat', () => {
     expect(JSON.stringify(outcome)).not.toContain('traceEvents');
   });
 
+  it('returns no parser candidate for an empty file', async () => {
+    const outcome = await probeFileFormat(new File([], 'empty.json'));
+
+    expect(outcome.container).toBe('plain');
+    expect(parserKinds(outcome)).toEqual([]);
+  });
+
+  it.each([
+    ['NetLog content with a HAR extension', '{"constants":{},"events":[]}', 'capture.har', 'chromium-netlog@1'],
+    ['HAR content with a log extension', '{"log":{"entries":[]}}', 'service.log', 'har@1'],
+    ['Go log content with a JSON extension', '[worker] Info 2026-01-01 Got Success GET:https://example.invalid/ +1ms', 'capture.json', 'go-service-log@1'],
+  ])('uses structure instead of the file name for %s', async (
+    _label,
+    content,
+    fileName,
+    parserId,
+  ) => {
+    const outcome = await probeFileFormat(new File([content], fileName));
+
+    expect(parserKinds(outcome)).toEqual([[parserId, 'definite-match']]);
+  });
+
+  it('does not infer a parser from an extension when content is unsupported', async () => {
+    const outcome = await probeFileFormat(new File([
+      '{"metadata":"unknown"}',
+    ], 'capture.har'));
+
+    expect(parserKinds(outcome)).toEqual([]);
+  });
+
   it('keeps conflicting JSON signatures ambiguous', async () => {
     const outcome = await probeFileFormat(new File([
       '{"traceEvents":[],"events":[]}',
@@ -130,6 +178,36 @@ describe('probeFileFormat', () => {
       ['chromium-netlog@1', 'possible-match'],
       ['chromium-performance-trace@1', 'possible-match'],
     ]);
+  });
+
+  it.each([
+    [
+      'HAR and NetLog',
+      '{"log":{"entries":[]},"events":[],"constants":{}}',
+      [['har@1', 'possible-match'], ['chromium-netlog@1', 'possible-match']],
+    ],
+    [
+      'HAR and Trace',
+      '{"log":{"entries":[]},"traceEvents":[]}',
+      [['har@1', 'possible-match'], ['chromium-performance-trace@1', 'possible-match']],
+    ],
+    [
+      'HAR, NetLog and Trace',
+      '{"log":{"entries":[]},"events":[],"constants":{},"traceEvents":[]}',
+      [
+        ['har@1', 'possible-match'],
+        ['chromium-netlog@1', 'possible-match'],
+        ['chromium-performance-trace@1', 'possible-match'],
+      ],
+    ],
+  ])('keeps competing %s root signatures ambiguous', async (
+    _label,
+    content,
+    expected,
+  ) => {
+    const outcome = await probeFileFormat(new File([content], 'capture.json'));
+
+    expect(parserKinds(outcome)).toEqual(expected);
   });
 
   it.each([
@@ -200,19 +278,7 @@ describe('probeFileFormat', () => {
       new File([compressed], 'sample.json'),
       {
         onProgress,
-        decompress: stream => new ReadableStream<Uint8Array>({
-          async start(controller) {
-            const reader = stream.getReader();
-            const chunks: Uint8Array[] = [];
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunks.push(value);
-            }
-            controller.enqueue(new Uint8Array(gunzipSync(Buffer.concat(chunks))));
-            controller.close();
-          },
-        }),
+        decompress: decompressWithGunzip,
       },
     );
 
@@ -224,6 +290,36 @@ describe('probeFileFormat', () => {
       phase: 'probing-format',
       totalBytes: compressed.byteLength,
     }));
+  });
+
+  it('rejects a damaged gzip instead of trying another parser', async () => {
+    const damaged = new Uint8Array(gzipSync('{"traceEvents":[]}'));
+    damaged[damaged.length - 1] ^= 0xff;
+
+    await expect(probeFileFormat(
+      new File([damaged], 'capture.json.gz'),
+      { decompress: decompressWithGunzip },
+    )).rejects.toMatchObject({
+      code: 'GZIP_INVALID',
+    });
+  });
+
+  it.each([
+    ['HAR', '{"log":{"entries":[]}}'],
+    ['NetLog', '{"constants":{},"events":[]}'],
+    ['Go log', '[worker] Info 2026-01-01 Got Success GET:https://example.invalid/ +1ms'],
+  ])('does not route gzip %s content to another parser', async (
+    _label,
+    content,
+  ) => {
+    const compressed = gzipSync(content);
+    const outcome = await probeFileFormat(
+      new File([compressed], 'capture.gz'),
+      { decompress: decompressWithGunzip },
+    );
+
+    expect(outcome.container).toBe('gzip');
+    expect(parserKinds(outcome)).toEqual([]);
   });
 
   it('rejects ZIP before reading its contents', async () => {

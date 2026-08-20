@@ -4,10 +4,30 @@ import {
   generateNextStepInfo,
   generateSuggestions,
 } from '../../parsers/netlog/diagnosis';
+import { assessProtocolHealth } from '../../components/netlog/ProtocolTab';
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
 import { buildNetlogDiagnosisSummary } from './fromNetlog';
+import { compareNetlogBaselines } from './netlogBaselineComparator';
 import { buildNetlogExpertEvidencePackage } from './netlogExpertEvidenceExport';
+
+jest.mock('antd', () => ({
+  Card: () => null,
+  Table: () => null,
+  Tag: () => null,
+}));
+jest.mock('@ant-design/icons', () => ({
+  ApiOutlined: () => null,
+  SwapOutlined: () => null,
+}));
+jest.mock('recharts', () => ({
+  Bar: () => null,
+  BarChart: () => null,
+  ResponsiveContainer: () => null,
+  Tooltip: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+}));
 
 const ERROR_CODES = [-2, -21, -101, -105, -107, -111, -337, -356];
 
@@ -92,6 +112,34 @@ function result(): AnalysisResult {
 describe('NetLog forbidden conclusions', () => {
   it('普通页、专家页、行动建议与导出不暴露无样本概率或责任方断言', () => {
     const analysis = result();
+    analysis.http2Events = [{
+      time: 1,
+      type: 1,
+      typeName: 'HTTP2_SESSION_SEND_GOAWAY',
+      source: { id: 1, type: 1, typeName: 'HTTP2_SESSION' },
+      phase: 0,
+      phaseName: 'PHASE_NONE',
+      params: { error_code: 1 },
+    }];
+    analysis.quicEvents = [{
+      time: 2,
+      type: 2,
+      typeName: 'QUIC_SESSION_CLOSED',
+      source: { id: 2, type: 2, typeName: 'QUIC_SESSION' },
+      phase: 0,
+      phaseName: 'PHASE_NONE',
+      params: { net_error: -356 },
+    }];
+    const baseline = result();
+    baseline.dnsServers = [];
+    baseline.connectionFailures = [];
+    baseline.failedDomains = [];
+    baseline.proxyInfo = {
+      ...baseline.proxyInfo,
+      hasProxy: false,
+      proxyType: null,
+      proxyList: [],
+    };
     const suggestions = generateSuggestions(analysis);
     const diagnosis = buildNetlogDiagnosisSummary(analysis, suggestions, []);
     const finalSummary = buildFinalDiagnosisSummary(diagnosis, 'netlog');
@@ -102,6 +150,8 @@ describe('NetLog forbidden conclusions', () => {
       finalSummary,
       markdown: exportReport(analysis),
       expertEvidence: buildNetlogExpertEvidencePackage({ result: analysis, datasetReady: false }),
+      baselineComparison: compareNetlogBaselines(baseline, analysis),
+      protocolHealth: assessProtocolHealth(analysis),
     });
 
     const forbidden = [

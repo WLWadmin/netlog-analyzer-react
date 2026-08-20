@@ -15,6 +15,7 @@ import { compareBaselines } from './baselineComparator';
 import { buildTimeAlignmentContext } from './timeAlignment';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
 import type { DiagnosisCoverage } from './diagnosisCoverage';
+import { buildRealSampleValidationGateReport } from './realSampleValidationGate';
 
 function emptySummary(): FinalDiagnosisSummary {
   return {
@@ -41,6 +42,25 @@ const coverage: DiagnosisCoverage = {
   unexplainedSourceIds: [],
   reasons: [],
 };
+
+const realSampleValidation = buildRealSampleValidationGateReport({
+  RUN_HAR_REAL_SAMPLES: '1',
+  HAR_REAL_SAMPLE_DIR: 'configured',
+  NETLOG_PARITY_SAMPLE_DIR: 'configured',
+  TRACE_SAMPLE_MANIFEST_PATH: 'configured',
+  TRACE_PLAIN_SAMPLE_PATH: 'configured',
+  TRACE_GZIP_SAMPLE_PATH: 'configured',
+  DIAGNOSIS_COMBINED_SAMPLE_MANIFEST_PATH: 'configured',
+  DIAGNOSIS_LARGE_FILE_SAMPLE_MANIFEST_PATH: 'configured',
+  DIAGNOSIS_ACCEPTANCE_RECORD_PATH: 'configured',
+}, {
+  har: { executed: true, passed: true },
+  netlog: { executed: true, passed: true },
+  trace: { executed: true, passed: true },
+  combined: { executed: true, passed: true },
+  'large-file': { executed: true, passed: true },
+  acceptance: { executed: true, passed: true },
+});
 
 function rawHarEntry(overrides: Record<string, any> = {}) {
   const response = overrides.response || {};
@@ -146,7 +166,7 @@ const matrix: GoldenCorpusCaseResult[] = [
   evaluateGoldenCorpusCase({ id: 'TCP timeout/refused', output: netlogOutput(-102), requiredMatches: ['ERR_CONNECTION_REFUSED', 'connect'], forbiddenMatches: ['说明存在 DNS 劫持'] }),
   evaluateGoldenCorpusCase({ id: 'TLS certificate error', output: netlogOutput(-202), requiredMatches: ['ERR_CERT_AUTHORITY_INVALID', 'tls'], forbiddenMatches: ['90%'] }),
   evaluateGoldenCorpusCase({ id: 'Proxy 407/PAC failure', output: harOutput({ response: { status: 407, statusText: 'Proxy Authentication Required' } }), requiredMatches: ['407', 'auth'], forbiddenMatches: ['已确认代理根因'] }),
-  evaluateGoldenCorpusCase({ id: 'status=0 无 netError', output: harOutput({ response: { status: 0, statusText: '' }, timings: { blocked: 0, dns: -1, connect: -1, ssl: -1, send: 0, wait: 0, receive: 0 } }), requiredMatches: ['浏览器没有拿到 HTTP 响应', 'NetLog'], forbiddenMatches: ['服务端状态码 0'] }),
+  evaluateGoldenCorpusCase({ id: 'status=0 无 netError', output: harOutput({ response: { status: 0, statusText: '' }, timings: { blocked: 0, dns: -1, connect: -1, ssl: -1, send: 0, wait: 0, receive: 0 } }), requiredMatches: ['浏览器没有取得 HTTP 响应', 'NetLog'], forbiddenMatches: ['服务端状态码 0'] }),
   evaluateGoldenCorpusCase({ id: 'blockedReason/CORS', output: harOutput({ _blockedReason: 'cors', response: { status: 0, statusText: '' } }), requiredMatches: ['CORS', 'blocked'], forbiddenMatches: ['已确认 CORS 根因'] }),
   evaluateGoldenCorpusCase({ id: '5xx + 高 TTFB', output: harOutput({ time: 2500, response: { status: 500, statusText: 'Server Error' }, timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 2498, receive: 1 } }), requiredMatches: ['HTTP 500', 'server-error'], forbiddenMatches: ['网络根因'] }),
   evaluateGoldenCorpusCase({ id: 'Network change/offline', output: netlogOutput(-106), requiredMatches: ['ERR_INTERNET_DISCONNECTED', '网络已断开'], forbiddenMatches: ['DNS 问题进一步排查'] }),
@@ -172,7 +192,7 @@ describe('diagnosisGoldenCorpusGate', () => {
         identifyOwnerRate: 0.8,
       },
       hasBrowserAcceptanceArtifacts: true,
-      hasRealSampleValidationArtifacts: true,
+      realSampleValidation,
       copyTextSamples: [],
     });
 
@@ -200,7 +220,7 @@ describe('diagnosisGoldenCorpusGate', () => {
         identifyOwnerRate: 0.8,
       },
       hasBrowserAcceptanceArtifacts: true,
-      hasRealSampleValidationArtifacts: true,
+      realSampleValidation,
       copyTextSamples: [],
     });
 

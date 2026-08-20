@@ -1,6 +1,12 @@
 import { TRACE_RULE_THRESHOLDS, severityForThreshold } from '../traceRuleThresholds';
 import type { TraceDiagnosisRule } from '../types';
-import { disabled, insufficientQuality, matched, notMatched } from './ruleSupport';
+import {
+  disabled,
+  insufficientQuality,
+  matched,
+  missingRequiredEventFamilies,
+  notMatched,
+} from './ruleSupport';
 
 const RENDERING_BOTTLENECK_NAMES = new Set(['Layout', 'Paint', 'RasterTask']);
 
@@ -10,6 +16,8 @@ export const renderingRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'R1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'R1', ['rendering']);
+    if (family) return [family];
     if (!context.forcedReflowClues?.length) return [disabled('R1', 'REQUIRED_FACTS_MISSING')];
     return context.forcedReflowClues.map(clue => matched({
       context, ruleId: 'R1', category: 'rendering', severity: 'warning',
@@ -32,6 +40,8 @@ export const renderingRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'R2');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'R2', ['rendering']);
+    if (family) return [family];
     const summary = context.animationFrameSummary;
     if (summary && context.animationFrames?.length) {
       const ratio = summary.totalCount === 0 ? 0 : summary.overBudgetCount / summary.totalCount;

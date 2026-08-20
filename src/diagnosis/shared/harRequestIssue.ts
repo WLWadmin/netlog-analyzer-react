@@ -39,7 +39,7 @@ const SLOW_PHASE_RULES: PhaseRule[] = [
   { phase: 'dns', normalizedPhase: 'dns', threshold: HAR_DIAG_THRESHOLDS.dnsSlow, label: 'DNS 慢', detailName: '域名解析' },
   { phase: 'connect', normalizedPhase: 'tcp', threshold: HAR_DIAG_THRESHOLDS.connectSlow, label: 'TCP 建连慢', detailName: 'TCP 建连' },
   { phase: 'ssl', normalizedPhase: 'ssl', threshold: HAR_DIAG_THRESHOLDS.sslSlow, label: 'TLS 慢', detailName: 'TLS 握手' },
-  { phase: 'wait', normalizedPhase: 'wait', threshold: HAR_DIAG_THRESHOLDS.ttfbSlow, label: 'TTFB 慢', detailName: 'Waiting for server response' },
+  { phase: 'wait', normalizedPhase: 'wait', threshold: HAR_DIAG_THRESHOLDS.ttfbSlow, label: 'Waiting 慢', detailName: 'Waiting' },
   { phase: 'receive', normalizedPhase: 'receive', threshold: HAR_DIAG_THRESHOLDS.receiveSlow, label: '下载慢', detailName: 'Content Download' },
 ];
 
@@ -96,7 +96,7 @@ function getSlowPhaseIssue(entry: HarRequestEntry): HarRequestIssue | undefined 
   if (primary) {
     return {
       label: `${primary.label} ${formatHarTime(primary.durationMs)}`,
-      detail: `${primary.detailName} 阶段耗时 ${formatHarTime(primary.durationMs)}，建议优先排查该阶段相关链路。HAR 只能说明请求现象，必要时补充 NetLog 确认。`,
+      detail: `${primary.detailName} 阶段耗时 ${formatHarTime(primary.durationMs)}，超过异常提示参考阈值。HAR 只能说明请求现象；Waiting 需结合服务端日志，网络阶段需补充同次 NetLog 核验。`,
       severity: 'warning',
       kind: 'slow',
       roleHint: primary.phase === 'wait' ? 'backend' : primary.phase === 'blocked' ? 'frontend' : 'it',
@@ -119,6 +119,9 @@ function getSlowPhaseIssue(entry: HarRequestEntry): HarRequestIssue | undefined 
 }
 
 export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
+  const statusField = entry.standard.response.status;
+  const status = statusField.state === 'value' ? statusField.value : undefined;
+
   if (isAbortedRequest(entry)) {
     const slowIssue = getSlowPhaseIssue(entry);
     if (slowIssue) {
@@ -131,7 +134,7 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
       label: '请求已取消（ERR_ABORTED）',
       detail: '浏览器记录到请求被取消。HAR 无法区分前端主动取消、页面生命周期变化或统一超时，需要结合前端日志或 NetLog 确认。',
       severity: 'warning',
-      kind: entry.status === 0 ? 'status-zero' : 'unknown-failure',
+      kind: status === 0 ? 'status-zero' : 'unknown-failure',
       roleHint: 'frontend',
     };
   }
@@ -157,27 +160,27 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
     };
   }
 
-  if (entry.status >= 500 && entry.status < 600) {
+  if (status !== undefined && status >= 500 && status < 600) {
     return {
-      label: `HTTP ${entry.status} 服务端错误`,
-      detail: `服务端返回 HTTP ${entry.status}，建议结合服务端日志、接口稳定性和请求时间点排查。`,
+      label: `HTTP ${status} 服务端错误`,
+      detail: `服务端返回 HTTP ${status}，建议结合服务端日志、接口稳定性和请求时间点排查。`,
       severity: 'critical',
       kind: 'server-error',
       roleHint: 'backend',
     };
   }
 
-  if (entry.status === 401 || entry.status === 403) {
+  if (status === 401 || status === 403) {
     return {
-      label: `HTTP ${entry.status} 鉴权或权限问题`,
-      detail: `服务端返回 HTTP ${entry.status}，建议优先检查登录态、鉴权、权限配置或前后端接口约定。`,
+      label: `HTTP ${status} 鉴权或权限问题`,
+      detail: `服务端返回 HTTP ${status}，建议优先检查登录态、鉴权、权限配置或前后端接口约定。`,
       severity: 'warning',
       kind: 'auth',
       roleHint: 'frontend',
     };
   }
 
-  if (entry.status === 407) {
+  if (status === 407) {
     return {
       label: 'HTTP 407 代理鉴权问题',
       detail: '代理要求鉴权，建议优先检查企业代理、VPN、PAC 或代理账号配置。',
@@ -187,30 +190,30 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
     };
   }
 
-  if (entry.status >= 400 && entry.status < 500) {
+  if (status !== undefined && status >= 400 && status < 500) {
     return {
-      label: `HTTP ${entry.status} 请求错误`,
-      detail: `服务端返回 HTTP ${entry.status}，建议检查请求路径、参数、权限或接口约定。`,
+      label: `HTTP ${status} 请求错误`,
+      detail: `服务端返回 HTTP ${status}，建议检查请求路径、参数、权限或接口约定。`,
       severity: 'warning',
       kind: 'http-error',
       roleHint: 'frontend',
     };
   }
 
-  if (entry.status === 0 && hasCorsPreflightSignal(entry)) {
+  if (status === 0 && hasCorsPreflightSignal(entry)) {
     return {
       label: 'CORS 预检疑似失败',
-      detail: '浏览器没有拿到 HTTP 响应，不是服务端返回了 0。当前请求带有 CORS 或预检线索，建议优先检查跨域配置，并补充 NetLog 确认网络栈原因。',
+      detail: '浏览器没有取得 HTTP 响应，不是服务端返回状态码 0。当前请求带有 CORS 或预检线索，建议优先检查跨域配置，并补充 NetLog 确认网络栈原因。',
       severity: 'warning',
       kind: 'cors',
       roleHint: 'frontend',
     };
   }
 
-  if (entry.status === 0) {
+  if (status === 0) {
     return {
       label: 'status=0 未拿到响应',
-      detail: '浏览器没有拿到 HTTP 响应，不是服务端返回了 0。HAR 只能说明请求现象，建议补充 NetLog 确认 DNS、TLS、代理或系统网络栈原因。',
+      detail: '浏览器没有取得 HTTP 响应，不是服务端返回状态码 0。HAR 只能说明请求现象，建议补充 NetLog 确认 DNS、TLS、代理或系统网络栈原因。',
       severity: 'warning',
       kind: 'status-zero',
       roleHint: 'user',

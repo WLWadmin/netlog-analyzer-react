@@ -3,7 +3,7 @@
  * 将 harDiagnosis.ts 的输出转换为统一 DiagnosticCard 结构
  */
 
-import { formatBytes, formatHarTime } from '../../harParser';
+import { formatBytes, formatHarTime, getHarResponseStatus } from '../../harParser';
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
 import type { HarDiagnosisResult, AttributionItem, NetworkPhaseStatus } from '../../harDiagnosis';
 import type {
@@ -263,8 +263,8 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
         },
         {
           role: 'backend',
-          title: '查询服务端日志',
-          detail: '根据 x-tt-logid 查询服务端日志，检查数据库、缓存、下游依赖耗时',
+          title: '核验服务端日志',
+          detail: '根据脱敏关联标识和请求时间查询服务端日志，核验网关、应用和下游阶段；HAR 本身不确认内部瓶颈',
         },
         {
           role: 'user',
@@ -292,8 +292,8 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
         },
         {
           role: 'it',
-          title: '检查企业 DNS 配置',
-          detail: '检查企业 DNS / PAC / 防火墙策略是否影响域名解析',
+          title: '补充 DNS 与网络栈证据',
+          detail: '使用同次 NetLog 核验解析结果、PAC/代理选择和网络栈错误；HAR Timing 不能确认责任方',
         }
       );
       break;
@@ -314,8 +314,8 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
         },
         {
           role: 'it',
-          title: '排查网络链路',
-          detail: '检查企业网络策略、防火墙、代理配置',
+          title: '核验网络链路',
+          detail: '结合同次 NetLog 和受控端点测试核验连接、TLS、代理等阶段，不从 HAR Timing 直接归因',
         }
       );
       break;
@@ -337,13 +337,13 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
       actions.push(
         {
           role: 'backend',
-          title: '检查 CDN 节点状态',
-          detail: '排查 CDN 节点健康度，检查是否有节点异常',
+          title: '核对远端地址与服务记录',
+          detail: '按域名、请求时间和远端地址与服务端或调度记录交叉核验；HAR 不能确认地址属于 CDN 或源站',
         },
         {
           role: 'it',
-          title: '确认 CDN 配置',
-          detail: '检查 CDN 缓存策略、回源配置是否正确',
+          title: '补充地址归属证据',
+          detail: '使用批准的资产或调度记录确认地址归属后再检查对应配置，不能仅凭多个地址推断节点异常',
         }
       );
       break;
@@ -531,7 +531,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   const candidates = Array.from(byDomain.entries()).map(([domain, domainEntries]) => {
     const blockedEntries = domainEntries.filter(entry => browserQueueTimingMs(entry) > HAR_DIAG_THRESHOLDS.blockedSlow);
     const abortedNearThirtySeconds = domainEntries.filter(entry => (
-      entry.status === 0
+      getHarResponseStatus(entry) === 0
       && isAbortedRequest(entry)
       && entry.time >= 29000
       && entry.time <= 31000
@@ -556,7 +556,10 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   const primary = candidates[0];
   if (!primary) return null;
 
-  const successfulGets = primary.entries.filter(entry => entry.method === 'GET' && entry.status >= 200 && entry.status < 300);
+  const successfulGets = primary.entries.filter(entry => {
+    const status = getHarResponseStatus(entry);
+    return entry.method === 'GET' && status !== undefined && status >= 200 && status < 300;
+  });
   const optionsCount = primary.entries.filter(entry => entry.method === 'OPTIONS').length;
   const getCount = primary.entries.filter(entry => entry.method === 'GET').length;
   const http11Count = primary.entries.filter(entry => entry.protocol.toLowerCase() === 'http/1.1').length;
@@ -595,7 +598,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   if (successfulGets.length > 0) {
     evidence.push({
       label: '成功 GET 响应',
-      value: `TTFB P95 ${formatHarTime(ttfbP95)}；下载 P95 ${formatHarTime(receiveP95)}；传输 ${formatBytes(successfulBytes)}`,
+      value: `Waiting P95 ${formatHarTime(ttfbP95)}；下载 P95 ${formatHarTime(receiveP95)}；传输 ${formatBytes(successfulBytes)}`,
       source: 'har',
       requestIds: successfulGets.slice(0, 20).map(entry => entry.id),
     });
@@ -694,7 +697,7 @@ export function harDiagnosisToCards(
       'DNS': 'dns',
       'TCP': 'connect',
       'TLS': 'tls',
-      'TTFB': 'server',
+      'Waiting': 'server',
       '下载': 'performance',
     };
 
@@ -721,7 +724,7 @@ export function harDiagnosisToCards(
           if (phase.label === 'DNS') return timingPhaseMs(e, 'dns') > dnsSlow;
           if (phase.label === 'TCP') return timingPhaseMs(e, 'tcp') > connectSlow;
           if (phase.label === 'TLS') return timingPhaseMs(e, 'ssl') > sslSlow;
-          if (phase.label === 'TTFB') return timingPhaseMs(e, 'wait') > ttfbSlow;
+          if (phase.label === 'Waiting') return timingPhaseMs(e, 'wait') > ttfbSlow;
           if (phase.label === '下载') return timingPhaseMs(e, 'receive') > receiveSlow;
           return false;
         })
@@ -1036,7 +1039,7 @@ export function harDiagnosisToCards(
 
   // ========== 批次 B 增强：CORS 诊断 ==========
   const corsFailedEntries = entries.filter(e =>
-    e.status === 0 && e.method === 'OPTIONS' && e.isFailed
+    getHarResponseStatus(e) === 0 && e.method === 'OPTIONS' && e.isFailed
   );
   const corsBlockedEntries = entries.filter(e => {
     const hasCorsHeaders = e.responseHeaders.some(h =>
@@ -1150,9 +1153,9 @@ export function harDiagnosisToCards(
         source: 'har',
         category: 'server',
         severity: 'info',
-        confidence: 'high',
-        title: `Server-Timing 慢请求分析 (${slowServerTimings.length} 个)`,
-        conclusion: `${slowServerTimings.length} 个请求的 Server-Timing 显示服务端内部处理耗时超过 ${serverTimingSlow}ms，可据此定位服务端瓶颈`,
+        confidence: 'medium',
+        title: `Server-Timing 自报耗时异常提示 (${slowServerTimings.length} 个)`,
+        conclusion: `${slowServerTimings.length} 个请求的 Server-Timing 自报指标合计超过 ${serverTimingSlow}ms，需结合同次服务端日志核验具体阶段`,
         scope: buildScope(slowServerTimings.length, undefined, 'server-side'),
         evidence: slowServerTimings.slice(0, 5).map((e, i) => ({
           label: `慢请求 ${i + 1}`,
@@ -1163,13 +1166,13 @@ export function harDiagnosisToCards(
         actions: [
           {
             role: 'backend',
-            title: '根据 Server-Timing 定位瓶颈',
-            detail: 'Server-Timing 已标记各阶段耗时，据此排查数据库查询、缓存读取、业务逻辑等环节',
+            title: '核验 Server-Timing 指标',
+            detail: '将响应头中的自报指标与同次服务端日志对照，确认指标含义和对应处理阶段',
           },
         ],
         limitations: [
           'Server-Timing 依赖服务端主动返回，如果服务端未配置则无法获取',
-          'Server-Timing 数据可能因网络传输被截断或不完整',
+          '指标名称和持续时间由服务端定义，不能单独确认内部组件、责任方或根因',
         ],
       });
     }

@@ -29,7 +29,7 @@ const TIMING_ROWS: TimingRow[] = [
   { group: 'Service Worker', key: 'service-worker-preparation', label: 'ServiceWorker Preparation', help: 'Service Worker 准备阶段，可能与标准 timing 重叠', color: '#14b8a6' },
   { group: 'Service Worker', key: 'service-worker-request', label: 'Request to ServiceWorker', help: '请求交给 Service Worker 的阶段，可能与标准 timing 重叠', color: '#0d9488' },
   { group: 'Request / Response', key: 'send', label: 'Request sent', help: '发送请求', color: '#7dd3fc' },
-  { group: 'Request / Response', key: 'wait', label: 'Waiting for server response', help: '等待服务端首字节响应，TTFB', color: '#4ade80' },
+  { group: 'Request / Response', key: 'wait', label: 'Waiting for response', help: '从请求发送完成到响应开始的浏览器侧等待时间，不能单独确认服务端内部瓶颈', color: '#4ade80' },
   { group: 'Request / Response', key: 'receive', label: 'Content Download', help: '下载响应内容', color: '#16a34a' },
 ];
 

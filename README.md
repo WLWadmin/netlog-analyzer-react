@@ -342,6 +342,20 @@ git diff --check
 - Trace 多样本门禁通过 `TRACE_SAMPLE_MANIFEST_PATH` 指向仓库外 manifest。
 - 未提供这些环境变量时，对应测试会跳过，不能据此宣称真实样本已经验收。
 
+统一真实样本门禁使用：
+
+```bash
+npm run diagnosis:real-sample-gate
+```
+
+该命令会实际执行 HAR、NetLog、Trace 的仓库外样本测试；缺少环境变量、测试被跳过或测试失败都会阻塞门禁。联合诊断、大文件和人工验收通过以下仓库外 JSON 记录接入：
+
+- `DIAGNOSIS_COMBINED_SAMPLE_MANIFEST_PATH`
+- `DIAGNOSIS_LARGE_FILE_SAMPLE_MANIFEST_PATH`
+- `DIAGNOSIS_ACCEPTANCE_RECORD_PATH`
+
+三类记录均使用 `{ area, executed: true, passed: true, cases }`，每个 case 至少包含非空 `id`、`passed: true`、`expectedFacts: []` 和 `forbiddenConclusions: []`。可通过 `DIAGNOSIS_REAL_SAMPLE_GATE_REPORT_PATH` 将脱敏门禁报告写到仓库外；报告不包含样本路径或样本内容。
+
 ## 部署
 
 `.github/workflows/deploy.yml` 在 `master` 分支 push 或手动触发时：

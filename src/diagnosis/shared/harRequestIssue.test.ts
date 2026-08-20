@@ -1,4 +1,4 @@
-import type { HarRequestEntry } from '../../harParser';
+import { parseHar, type HarRequestEntry } from '../../harParser';
 import { getHarRequestIssue } from './harRequestIssue';
 
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
@@ -34,6 +34,13 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
     isFailed: false,
     isSlow: false,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: { entries: [{
+        request: { method: 'GET', url: 'https://example.test/', headers: [] },
+        response: { status: overrides.status ?? 200, headers: [], content: {} },
+        timings: { send: 0, wait: 0, receive: 0 },
+      }] },
+    }).entries[0].standard,
   };
 }
 
@@ -135,7 +142,25 @@ describe('harRequestIssue', () => {
   test('generic status=0 is classified as status-zero', () => {
     const issue = getHarRequestIssue(entry({ status: 0, statusText: '', isFailed: true }));
     expect(issue.kind).toBe('status-zero');
-    expect(issue.detail).toContain('浏览器没有拿到 HTTP 响应');
+    expect(issue.detail).toContain('浏览器没有取得 HTTP 响应');
+    expect(issue.detail).toContain('不是服务端返回状态码 0');
+  });
+
+  test.each([
+    ['missing', undefined],
+    ['invalid', 'invalid'],
+  ])('does not treat a %s response status as status=0', (_label, rawStatus) => {
+    const parsed = parseHar({ log: { entries: [{
+      request: { method: 'GET', url: 'https://example.test/', headers: [] },
+      response: { ...(rawStatus === undefined ? {} : { status: rawStatus }), headers: [], content: {} },
+      timings: {},
+    }] } }).entries[0];
+
+    const issue = getHarRequestIssue(parsed);
+
+    expect(issue.kind).toBe('normal');
+    expect(issue.detail).not.toContain('没有取得 HTTP 响应');
+    expect(parsed.isFailed).toBe(false);
   });
 
   test('slow phase uses the largest phase over threshold', () => {
@@ -162,7 +187,7 @@ describe('harRequestIssue', () => {
       timings: { blocked: 600, dns: 0, connect: 0, ssl: 0, send: 0, wait: 0, receive: 0 },
     }));
 
-    expect(ttfb.label).toContain('TTFB 慢');
+    expect(ttfb.label).toContain('Waiting 慢');
     expect(queueing.label).toContain('Stalled 慢');
   });
 

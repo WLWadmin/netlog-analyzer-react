@@ -91,7 +91,7 @@ const PHASE_LABELS: Record<HarTimingPhaseKey, string> = {
   connect: 'TCP 建连',
   ssl: 'TLS',
   send: '请求发送',
-  wait: 'TTFB',
+  wait: 'Waiting',
   receive: '下载',
 };
 
@@ -268,7 +268,7 @@ const SlowBreakdownBars: React.FC<{ diag: HarDiagnosisResult }> = ({ diag }) => 
     { label: 'DNS 解析', count: slowBreakdown.dnsSlow, color: CHART_COLORS.phases.dns },
     { label: 'TCP 建连', count: slowBreakdown.connectSlow, color: CHART_COLORS.phases.connect },
     { label: 'TLS 握手', count: slowBreakdown.sslSlow, color: CHART_COLORS.phases.ssl },
-    { label: 'TTFB', count: slowBreakdown.ttfbSlow, color: CHART_COLORS.phases.wait },
+    { label: 'Waiting', count: slowBreakdown.ttfbSlow, color: CHART_COLORS.phases.wait },
     { label: '下载', count: slowBreakdown.receiveSlow, color: CHART_COLORS.phases.download },
     { label: '排队', count: slowBreakdown.blockedSlow, color: CHART_COLORS.phases.send },
   ].filter(i => i.count > 0);
@@ -323,7 +323,10 @@ function useTopRequestColumns(): ColumnsType<TopRequest> {
       key: 'status',
       width: 70,
       align: 'center',
-      render: (s: number) => {
+      render: (s?: number) => {
+        if (s === undefined) {
+          return <Tag style={{ border: 'none', fontWeight: 600, fontSize: 12 }}>未记录</Tag>;
+        }
         const st = statusStyle(s);
         return <Tag style={{ color: st.color, background: st.bg, border: 'none', fontWeight: 600, fontSize: 12 }}>{s === 0 ? '失败' : s}</Tag>;
       },

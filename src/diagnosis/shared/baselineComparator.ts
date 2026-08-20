@@ -3,7 +3,7 @@
 // 用户上传两个同源文件（baseline + current），自动 diff 并生成对比诊断卡片
 // ============================================================
 
-import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { getHarResponseStatus, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import type {
   DiagnosticCard,
   DiagnosticAction,
@@ -33,7 +33,7 @@ const COMPARED_PHASES: { key: PhaseKey; category: DiffCategory; label: string }[
   { key: 'dns', category: 'dns', label: 'DNS' },
   { key: 'tcp', category: 'connect', label: 'TCP 连接' },
   { key: 'ssl', category: 'tls', label: 'TLS 握手' },
-  { key: 'wait', category: 'server', label: 'TTFB/服务端等待' },
+  { key: 'wait', category: 'server', label: 'Waiting（浏览器侧等待响应）' },
   { key: 'receive', category: 'performance', label: '下载接收' },
   { key: 'queueing', category: 'performance', label: '浏览器排队' },
   { key: 'stalled', category: 'performance', label: '连接等待' },
@@ -87,7 +87,12 @@ function safeRequestShape(entry: HarRequestEntry): RequestShape {
   } catch {
     path = entry.name || '/';
   }
-  const statusClass = entry.status === 0 ? 'status-0' : `${Math.floor(entry.status / 100)}xx`;
+  const status = getHarResponseStatus(entry);
+  const statusClass = status === undefined
+    ? 'status-unavailable'
+    : status === 0
+      ? 'status-0'
+      : `${Math.floor(status / 100)}xx`;
   const cacheInfo = entry.cacheInfo;
   const cacheSource = cacheInfo?.source || (cacheInfo?.fromCache ? 'cache' : 'network');
   return {

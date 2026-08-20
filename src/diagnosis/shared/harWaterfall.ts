@@ -158,7 +158,7 @@ const SEGMENT_STYLES: Record<HarDisplayTimingPhaseKey | 'unaccounted', { label: 
   'service-worker-preparation': { label: 'SW Prep', color: 'rgba(20, 184, 166, 0.42)' },
   'service-worker-request': { label: 'SW Request', color: 'rgba(13, 148, 136, 0.42)' },
   send: { label: 'Send', color: 'rgba(125, 211, 252, 0.78)' },
-  wait: { label: 'TTFB', color: 'rgba(74, 222, 128, 0.72)' },
+  wait: { label: 'Waiting', color: 'rgba(74, 222, 128, 0.72)' },
   receive: { label: 'Download', color: 'rgba(22, 163, 74, 0.78)' },
   unaccounted: { label: 'Unaccounted', color: 'rgba(148, 163, 184, 0.24)', striped: true },
 };

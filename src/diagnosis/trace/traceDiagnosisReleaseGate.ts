@@ -1,4 +1,5 @@
 import { findSensitiveDataLeaks } from '../shared/maskedExport';
+import type { RealSampleValidationGateReport } from '../shared/realSampleValidationGate';
 import { TRACE_DIAGNOSIS_RULES } from './traceDiagnosisRules';
 import {
   TRACE_GOLDEN_CORPUS_IDS,
@@ -174,7 +175,7 @@ function sensitiveLeakCount(corpus: readonly TraceGoldenCorpusCase[]): number {
 
 export function buildTraceDiagnosisReleaseGateReport(
   corpus: readonly TraceGoldenCorpusCase[],
-  options: { hasRealSampleValidationArtifacts?: boolean } = {},
+  options: { realSampleValidation?: RealSampleValidationGateReport } = {},
 ): TraceDiagnosisReleaseGateReport {
   const corpusPassed = hasFixedCorpusShape(corpus) && corpus.every(caseStructurePassed);
   const forbiddenCount = forbiddenConclusionCount(corpus);
@@ -202,6 +203,12 @@ export function buildTraceDiagnosisReleaseGateReport(
   if (metrics.sensitiveLeakCount > 0) blockers.push('Trace 完整诊断文本存在敏感泄漏');
   if (metrics.disabledRuleCoverage < 1) blockers.push('Trace disabled 规则覆盖率未达到 100%');
   if (!metrics.deterministicOrderPassed) blockers.push('Trace 诊断排序不确定');
-  if (!options.hasRealSampleValidationArtifacts) blockers.push('尚未提供 Trace 真实样本验证记录');
+  const traceValidation = options.realSampleValidation?.areas.find(area => area.area === 'trace');
+  if (
+    !traceValidation?.configured
+    || !traceValidation.executed
+    || !traceValidation.passed
+    || traceValidation.missingEnvironmentVariables.length > 0
+  ) blockers.push('尚未提供已执行且通过的 Trace 真实样本验证记录');
   return { passed: blockers.length === 0, blockers, metrics };
 }

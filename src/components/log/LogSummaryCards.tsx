@@ -25,7 +25,7 @@ const LogSummaryCards: React.FC<LogSummaryCardsProps> = ({ stats, onFilterError 
 
   const cards = [
     {
-      title: '总请求数',
+      title: '已解析请求',
       value: stats.total,
       icon: <GlobalOutlined />,
       color: '#1890ff',

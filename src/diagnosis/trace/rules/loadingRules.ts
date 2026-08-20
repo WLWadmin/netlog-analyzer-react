@@ -1,6 +1,12 @@
 import { TRACE_RULE_THRESHOLDS, severityForThreshold } from '../traceRuleThresholds';
 import type { TraceDiagnosisRule } from '../types';
-import { disabled, insufficientQuality, matched, notMatched } from './ruleSupport';
+import {
+  disabled,
+  insufficientQuality,
+  matched,
+  missingRequiredEventFamilies,
+  notMatched,
+} from './ruleSupport';
 
 export const loadingRules: readonly TraceDiagnosisRule[] = [{
   id: 'L1', category: 'loading', requiredFacts: ['navigations', 'milestones'],
@@ -8,6 +14,8 @@ export const loadingRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'L1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'L1', ['navigation']);
+    if (family) return [family];
     if (!context.milestones?.length) return [disabled('L1', 'REQUIRED_FACTS_MISSING')];
     const candidates = context.milestones.filter(item => (
       severityForThreshold(item.relativeUs / 1000, TRACE_RULE_THRESHOLDS.pageMilestoneMs)
@@ -37,6 +45,8 @@ export const loadingRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'L2');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'L2', ['navigation', 'network']);
+    if (family) return [family];
     if (!context.requests?.length) return [disabled('L2', 'REQUIRED_FACTS_MISSING')];
     // 请求 initiator 链不包含 CPU 阻塞边，不能冒充 PRD 定义的 Network + CPU 关键路径。
     return [disabled('L2', 'DEPENDENCY_PATH_INCOMPLETE')];

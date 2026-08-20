@@ -16,7 +16,7 @@ interface ProtocolTabProps {
 // Protocol Health Assessment
 // ============================================================
 
-function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
+export function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
   const findings: HealthAssessment['findings'] = [];
   const suggestions: string[] = [];
   let score = 100;

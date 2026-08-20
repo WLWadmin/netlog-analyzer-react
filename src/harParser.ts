@@ -40,6 +40,7 @@ export type HarTimingPhaseKey =
 export interface HarHeader {
   name: string;
   value: string;
+  comment?: string;
 }
 
 export interface HarServerTiming {
@@ -53,12 +54,22 @@ export type HarCategory = 'xhr' | 'doc' | 'css' | 'js' | 'font' | 'img' | 'media
 export interface HarQueryParam {
   name: string;
   value: string;
+  comment?: string;
+}
+
+export interface HarPostDataParam {
+  name: string;
+  value?: string;
+  fileName?: string;
+  contentType?: string;
+  comment?: string;
 }
 
 export interface HarPostData {
   mimeType: string;
   text: string;
-  params?: { name: string; value: string }[];
+  params?: HarPostDataParam[];
+  comment?: string;
 }
 
 export interface HarCookie {
@@ -148,6 +159,137 @@ export interface HarPageMarker {
   loadMs?: number;
 }
 
+export type HarNumericField =
+  | { state: 'missing' }
+  | { state: 'not-available'; value: -1 }
+  | { state: 'value'; value: number }
+  | { state: 'invalid' };
+
+export type HarBodyTextField =
+  | { state: 'missing' }
+  | { state: 'invalid' }
+  | { state: 'inline'; originalLength: number; valueSource: 'responseBody' }
+  | { state: 'deferred'; originalLength: number };
+
+export interface HarStandardCreator {
+  name?: string;
+  version?: string;
+  comment?: string;
+}
+
+export interface HarStandardPageTimings {
+  onContentLoad: HarNumericField;
+  onLoad: HarNumericField;
+  comment?: string;
+}
+
+export interface HarStandardPage {
+  id?: string;
+  title?: string;
+  startedDateTime?: string;
+  pageTimings: HarStandardPageTimings;
+  comment?: string;
+  jsonPath: string;
+}
+
+export interface HarStandardCacheEntry {
+  expires?: string;
+  lastAccess?: string;
+  eTag?: string;
+  hitCount: HarNumericField;
+  comment?: string;
+}
+
+export interface HarStandardCache {
+  beforeRequest?: HarStandardCacheEntry;
+  afterRequest?: HarStandardCacheEntry;
+  comment?: string;
+}
+
+export interface HarStandardContent {
+  size: HarNumericField;
+  compression: HarNumericField;
+  mimeType?: string;
+  text: HarBodyTextField;
+  encoding?: string;
+  comment?: string;
+}
+
+export interface HarStandardTimings {
+  send: HarNumericField;
+  wait: HarNumericField;
+  receive: HarNumericField;
+  blocked: HarNumericField;
+  dns: HarNumericField;
+  connect: HarNumericField;
+  ssl: HarNumericField;
+  comment?: string;
+}
+
+export interface HarStandardRequest {
+  method?: string;
+  url?: string;
+  httpVersion?: string;
+  headers: HarHeader[];
+  queryString: HarQueryParam[];
+  cookies: HarCookie[];
+  headersSize: HarNumericField;
+  bodySize: HarNumericField;
+  postData?: HarPostData;
+  comment?: string;
+}
+
+export interface HarStandardResponse {
+  status: HarNumericField;
+  statusText?: string;
+  httpVersion?: string;
+  headers: HarHeader[];
+  cookies: HarCookie[];
+  content: HarStandardContent;
+  redirectURL?: string;
+  headersSize: HarNumericField;
+  bodySize: HarNumericField;
+  comment?: string;
+}
+
+export interface HarStandardEntry {
+  pageref?: string;
+  startedDateTime?: string;
+  time: HarNumericField;
+  request: HarStandardRequest;
+  response: HarStandardResponse;
+  cache?: HarStandardCache;
+  timings: HarStandardTimings;
+  serverIPAddress?: string;
+  connection?: string;
+  comment?: string;
+  jsonPath: string;
+}
+
+export interface HarChromiumExtensions {
+  error?: string;
+  netError?: string | number;
+  netErrorSourcePath?: string;
+  errorText?: string;
+  blockedReason?: string;
+  blockedReasonSourcePath?: string;
+  initiator?: HarInitiatorInfo;
+  priority?: string;
+  resourceType?: string;
+  transferSize?: number;
+  timing?: HarChromeTimingEvidence;
+}
+
+export interface HarStandardLog {
+  version?: string;
+  creator?: HarStandardCreator;
+  browser?: HarStandardCreator;
+  pages: HarStandardPage[];
+  entryCount: number;
+  comment?: string;
+  jsonPath: '$.log';
+}
+
 export interface HarRequestEntry {
   id: number;
   name: string;
@@ -203,6 +345,8 @@ export interface HarRequestEntry {
   xLscSourceIp: string;
   isFailed: boolean;
   isSlow: boolean;
+  standard: HarStandardEntry;
+  extensions?: HarChromiumExtensions;
 }
 
 export interface HarAnalysisResult {
@@ -215,6 +359,7 @@ export interface HarAnalysisResult {
   creator: string;
   typeCounts: Record<HarCategory, number>;
   pageMarkers?: HarPageMarker[];
+  standard: HarStandardLog;
   /** 响应体保留策略，用于解释大 HAR 的内存降峰行为 */
   bodyRetention: {
     mode: 'full' | 'optimized';
@@ -232,6 +377,11 @@ export interface HarAnalysisResult {
     reason: string;
     warnings: string[];
   };
+}
+
+export function getHarResponseStatus(entry: HarRequestEntry): number | undefined {
+  const field = entry.standard.response.status;
+  return field.state === 'value' ? field.value : undefined;
 }
 
 // 慢请求阈值（毫秒）
@@ -364,6 +514,17 @@ function firstNonEmptyString(values: any[]): string | undefined {
   return undefined;
 }
 
+function firstExtensionValue<T>(
+  candidates: Array<{ value: unknown; sourcePath: string }>,
+  parse: (value: unknown) => T | undefined,
+): { value: T; sourcePath: string } | undefined {
+  for (const candidate of candidates) {
+    const value = parse(candidate.value);
+    if (value !== undefined) return { value, sourcePath: candidate.sourcePath };
+  }
+  return undefined;
+}
+
 function firstFiniteNumber(values: any[]): number | undefined {
   for (const value of values) {
     const n = Number(value);
@@ -392,6 +553,89 @@ function optionalNumber(value: any): number | undefined {
 
 function optionalBoolean(value: any): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function own(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function parseNumericField(record: Record<string, unknown>, key: string): HarNumericField {
+  if (!own(record, key)) return { state: 'missing' };
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) return { state: 'invalid' };
+  if (value === -1) return { state: 'not-available', value: -1 };
+  if (value < 0) return { state: 'invalid' };
+  return { state: 'value', value };
+}
+
+function parseStandardCreator(value: unknown): HarStandardCreator | undefined {
+  if (!isRecord(value)) return undefined;
+  const creator: HarStandardCreator = {
+    name: optionalString(value.name),
+    version: optionalString(value.version),
+    comment: optionalString(value.comment),
+  };
+  return Object.values(creator).some(item => item !== undefined) ? creator : undefined;
+}
+
+function parseStandardCacheEntry(value: unknown): HarStandardCacheEntry | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    expires: optionalString(value.expires),
+    lastAccess: optionalString(value.lastAccess),
+    eTag: optionalString(value.eTag),
+    hitCount: parseNumericField(value, 'hitCount'),
+    comment: optionalString(value.comment),
+  };
+}
+
+function parseStandardCache(value: unknown): HarStandardCache | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    beforeRequest: parseStandardCacheEntry(value.beforeRequest),
+    afterRequest: parseStandardCacheEntry(value.afterRequest),
+    comment: optionalString(value.comment),
+  };
+}
+
+function parseBodyTextField(
+  content: Record<string, unknown>,
+  keepResponseBody: boolean,
+): HarBodyTextField {
+  if (!own(content, 'text')) return { state: 'missing' };
+  if (typeof content.text !== 'string') return { state: 'invalid' };
+  return keepResponseBody
+    ? {
+      state: 'inline',
+      originalLength: content.text.length,
+      valueSource: 'responseBody',
+    }
+    : { state: 'deferred', originalLength: content.text.length };
+}
+
+function parseStandardPages(value: unknown): HarStandardPage[] {
+  if (!Array.isArray(value)) return [];
+  return value.reduce<HarStandardPage[]>((pages, rawPage, index) => {
+    if (!isRecord(rawPage)) return pages;
+    const timings = asRecord(rawPage.pageTimings);
+    pages.push({
+      id: optionalString(rawPage.id),
+      title: optionalString(rawPage.title),
+      startedDateTime: optionalString(rawPage.startedDateTime),
+      pageTimings: {
+        onContentLoad: parseNumericField(timings, 'onContentLoad'),
+        onLoad: parseNumericField(timings, 'onLoad'),
+        comment: optionalString(timings.comment),
+      },
+      comment: optionalString(rawPage.comment),
+      jsonPath: '$.log.pages[' + index + ']',
+    });
+    return pages;
+  }, []);
 }
 
 function optionalNonNegativeNumber(value: any): number | undefined {
@@ -621,12 +865,26 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const resp = entry.response || {};
   const content = resp.content || {};
   const t = entry.timings || {};
+  const responseRecord = asRecord(resp);
+  const responseStatusField = parseNumericField(responseRecord, 'status');
+  const hasRecordedStatusZero = responseStatusField.state === 'value'
+    && responseStatusField.value === 0;
+  const hasRecordedHttpError = responseStatusField.state === 'value'
+    && responseStatusField.value >= 400;
 
   const requestHeaders: HarHeader[] = Array.isArray(req.headers)
-    ? req.headers.map((h: any) => ({ name: String(h?.name || ''), value: String(h?.value || '') }))
+    ? req.headers.map((h: any) => ({
+      name: String(h?.name || ''),
+      value: String(h?.value || ''),
+      comment: optionalString(h?.comment),
+    }))
     : [];
   const responseHeaders: HarHeader[] = Array.isArray(resp.headers)
-    ? resp.headers.map((h: any) => ({ name: String(h?.name || ''), value: String(h?.value || '') }))
+    ? resp.headers.map((h: any) => ({
+      name: String(h?.name || ''),
+      value: String(h?.value || ''),
+      comment: optionalString(h?.comment),
+    }))
     : [];
 
   const mimeType = content.mimeType || '';
@@ -644,7 +902,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const status = num(resp.status);
   const time = num(entry.time);
   const isSlow = time >= HAR_SLOW_THRESHOLD_MS;
-  const rawResponseBody = content.text || '';
+  const rawResponseBody = typeof content.text === 'string' ? content.text : '';
   const keepResponseBody = shouldKeepResponseBody(rawResponseBody, mimeType, status, options);
 
   const serverTiming = parseServerTiming(getHeader(responseHeaders, 'server-timing'));
@@ -654,7 +912,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     entry.errorText,
     resp._error,
     resp.error,
-    status === 0 || status >= 400 ? resp.statusText : '',
+    hasRecordedStatusZero || hasRecordedHttpError ? resp.statusText : '',
   ]);
   const explicitNetErrorText = firstNonEmptyString([
     entry._netError,
@@ -670,14 +928,26 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     resp.netError,
     extractNetErrorCode(failureText),
   ]);
-  const blockedReason = firstNonEmptyString([
-    entry._blockedReason,
-    entry.blockedReason,
-    resp._blockedReason,
-    resp.blockedReason,
-  ]);
-  const isFailed = status === 0
-    || status >= 400
+  const entryJsonPath = '$.log.entries[' + id + ']';
+  const netErrorExtension = firstExtensionValue([
+    { value: entry._netError, sourcePath: `${entryJsonPath}._netError` },
+    { value: entry.netError, sourcePath: `${entryJsonPath}.netError` },
+    { value: resp._netError, sourcePath: `${entryJsonPath}.response._netError` },
+    { value: resp.netError, sourcePath: `${entryJsonPath}.response.netError` },
+  ], value => (
+    typeof value === 'string' || typeof value === 'number' ? value : undefined
+  ));
+  const blockedReasonExtension = firstExtensionValue([
+    { value: entry._blockedReason, sourcePath: `${entryJsonPath}._blockedReason` },
+    { value: entry.blockedReason, sourcePath: `${entryJsonPath}.blockedReason` },
+    { value: resp._blockedReason, sourcePath: `${entryJsonPath}.response._blockedReason` },
+    { value: resp.blockedReason, sourcePath: `${entryJsonPath}.response.blockedReason` },
+  ], value => (
+    typeof value === 'string' && value.trim() ? value.trim() : undefined
+  ));
+  const blockedReason = blockedReasonExtension?.value;
+  const isFailed = hasRecordedStatusZero
+    || hasRecordedHttpError
     || Boolean(netErrorText)
     || netErrorCode !== undefined
     || Boolean(blockedReason)
@@ -709,17 +979,93 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     ? req.queryString.map((q: any) => ({
       name: String(q?.name || ''),
       value: String(q?.value || ''),
+      comment: optionalString(q?.comment),
     }))
     : [];
 
   const postDataRaw = req.postData || {};
-  const postData: HarPostData | undefined = postDataRaw.text || postDataRaw.params ? {
+  const postData: HarPostData | undefined = req.postData && typeof req.postData === 'object' ? {
     mimeType: String(postDataRaw.mimeType || ''),
     text: String(postDataRaw.text || ''),
     params: Array.isArray(postDataRaw.params)
-      ? postDataRaw.params.map((p: any) => ({ name: String(p?.name || ''), value: String(p?.value || '') }))
+      ? postDataRaw.params.map((p: any) => ({
+        name: String(p?.name || ''),
+        value: optionalRawString(p?.value),
+        fileName: optionalString(p?.fileName),
+        contentType: optionalString(p?.contentType),
+        comment: optionalString(p?.comment),
+      }))
       : undefined,
+    comment: optionalString(postDataRaw.comment),
   } : undefined;
+
+  const requestRecord = asRecord(req);
+  const contentRecord = asRecord(content);
+  const timingRecord = asRecord(t);
+  const standard: HarStandardEntry = {
+    pageref: optionalString(entry.pageref),
+    startedDateTime: optionalString(entry.startedDateTime),
+    time: parseNumericField(asRecord(entry), 'time'),
+    request: {
+      method: optionalString(req.method),
+      url: optionalRawString(req.url),
+      httpVersion: optionalString(req.httpVersion),
+      headers: requestHeaders,
+      queryString,
+      cookies: requestCookies,
+      headersSize: parseNumericField(requestRecord, 'headersSize'),
+      bodySize: parseNumericField(requestRecord, 'bodySize'),
+      postData,
+      comment: optionalString(req.comment),
+    },
+    response: {
+      status: responseStatusField,
+      statusText: optionalRawString(resp.statusText),
+      httpVersion: optionalString(resp.httpVersion),
+      headers: responseHeaders,
+      cookies: responseCookies,
+      content: {
+        size: parseNumericField(contentRecord, 'size'),
+        compression: parseNumericField(contentRecord, 'compression'),
+        mimeType: optionalString(content.mimeType),
+        text: parseBodyTextField(contentRecord, keepResponseBody),
+        encoding: optionalString(content.encoding),
+        comment: optionalString(content.comment),
+      },
+      redirectURL: optionalRawString(resp.redirectURL),
+      headersSize: parseNumericField(responseRecord, 'headersSize'),
+      bodySize: parseNumericField(responseRecord, 'bodySize'),
+      comment: optionalString(resp.comment),
+    },
+    cache: parseStandardCache(entry.cache),
+    timings: {
+      send: parseNumericField(timingRecord, 'send'),
+      wait: parseNumericField(timingRecord, 'wait'),
+      receive: parseNumericField(timingRecord, 'receive'),
+      blocked: parseNumericField(timingRecord, 'blocked'),
+      dns: parseNumericField(timingRecord, 'dns'),
+      connect: parseNumericField(timingRecord, 'connect'),
+      ssl: parseNumericField(timingRecord, 'ssl'),
+      comment: optionalString(t.comment),
+    },
+    serverIPAddress: remoteAddress,
+    connection: harConnection,
+    comment: optionalString(entry.comment),
+    jsonPath: entryJsonPath,
+  };
+  const extensions: HarChromiumExtensions = {
+    error: firstNonEmptyString([entry._error, resp._error]),
+    netError: netErrorExtension?.value,
+    netErrorSourcePath: netErrorExtension?.sourcePath,
+    errorText: firstNonEmptyString([entry.errorText, resp.errorText]),
+    blockedReason,
+    blockedReasonSourcePath: blockedReasonExtension?.sourcePath,
+    initiator,
+    priority,
+    resourceType: optionalString(entry._resourceType),
+    transferSize: optionalNumber(resp._transferSize ?? entry._transferSize),
+    timing: chromeTiming,
+  };
 
   return {
     id,
@@ -790,6 +1136,10 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     xLscSourceIp,
     isFailed,
     isSlow,
+    standard,
+    extensions: Object.values(extensions).some(value => value !== undefined)
+      ? extensions
+      : undefined,
   };
 }
 
@@ -861,6 +1211,7 @@ export function parseHar(
 
   const totalTime = minStart !== Infinity && maxEnd > minStart ? maxEnd - minStart : 0;
   const creator = log.creator ? `${log.creator.name || ''} ${log.creator.version || ''}`.trim() : '';
+  const standardPages = parseStandardPages(log.pages);
   const pageMarkers = Array.isArray(log.pages)
     ? log.pages.map((page: any): HarPageMarker => {
       const startedDateTime = optionalString(page.startedDateTime);
@@ -885,6 +1236,15 @@ export function parseHar(
     creator,
     typeCounts,
     pageMarkers,
+    standard: {
+      version: optionalString(log.version),
+      creator: parseStandardCreator(log.creator),
+      browser: parseStandardCreator(log.browser),
+      pages: standardPages,
+      entryCount: entries.length,
+      comment: optionalString(log.comment),
+      jsonPath: '$.log',
+    },
     bodyRetention: {
       mode: optimizeResponseBodies ? 'optimized' : 'full',
       omittedCount,

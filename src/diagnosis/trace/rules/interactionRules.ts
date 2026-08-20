@@ -1,6 +1,12 @@
 import { TRACE_RULE_THRESHOLDS, severityForThreshold } from '../traceRuleThresholds';
 import type { TraceDiagnosisRule } from '../types';
-import { disabled, insufficientQuality, matched, notMatched } from './ruleSupport';
+import {
+  disabled,
+  insufficientQuality,
+  matched,
+  missingRequiredEventFamilies,
+  notMatched,
+} from './ruleSupport';
 
 export const interactionRules: readonly TraceDiagnosisRule[] = [{
   id: 'I1', category: 'interaction', requiredFacts: ['interactions with three timing phases'],
@@ -8,6 +14,8 @@ export const interactionRules: readonly TraceDiagnosisRule[] = [{
   evaluate: context => {
     const quality = insufficientQuality(context, 'I1');
     if (quality) return [quality];
+    const family = missingRequiredEventFamilies(context, 'I1', ['interaction']);
+    if (family) return [family];
     if (!context.interactions?.length) return [disabled('I1', 'REQUIRED_FACTS_MISSING')];
     const slow = context.interactions.filter(item => severityForThreshold(
       item.totalLatencyMs, TRACE_RULE_THRESHOLDS.interactionLatencyMs,

@@ -2,6 +2,10 @@ import type { FinalDiagnosisSummary } from './finalSummaryTypes';
 import type { DiagnosisCoverage } from './diagnosisCoverage';
 import { buildDiagnosisEvidenceGuardReport, scanConfirmedTextForForbiddenEvidence } from './diagnosisEvidenceGuardReport';
 import { findSensitiveDataLeaks } from './maskedExport';
+import {
+  isCompleteRealSampleValidationGateReport,
+  type RealSampleValidationGateReport,
+} from './realSampleValidationGate';
 
 export interface DiagnosisPerformanceMetrics {
   harObservationClusterCoverageMs?: number;
@@ -44,7 +48,7 @@ export interface DiagnosisReleaseGateInput {
   productAcceptance?: ProductAcceptanceMetrics;
   copyTextSamples?: string[];
   hasBrowserAcceptanceArtifacts?: boolean;
-  hasRealSampleValidationArtifacts?: boolean;
+  realSampleValidation?: RealSampleValidationGateReport;
 }
 
 export interface DiagnosisReleaseGateReport {
@@ -189,8 +193,15 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
   if (!input.hasBrowserAcceptanceArtifacts) {
     blockers.push('尚未记录桌面/窄屏浏览器验收截图');
   }
-  if (!input.hasRealSampleValidationArtifacts) {
+  if (!input.realSampleValidation) {
     blockers.push('尚未提供真实故障样本验证记录');
+  } else if (!isCompleteRealSampleValidationGateReport(input.realSampleValidation)) {
+    const missingAreas = input.realSampleValidation.areas
+      .filter(area => !area.passed)
+      .map(area => area.area);
+    blockers.push(missingAreas.length > 0
+      ? `真实样本矩阵未完成：${missingAreas.join(', ')}`
+      : '真实样本矩阵报告结构不完整或计数不一致');
   }
 
   return {

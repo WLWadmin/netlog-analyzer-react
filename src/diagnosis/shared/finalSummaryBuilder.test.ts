@@ -2,7 +2,7 @@ import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
 import { buildNetlogDiagnosisSummary } from './fromNetlog';
 import { buildCombinedDiagnosisSummary } from './fromCombined';
 import type { DiagnosticCard, DiagnosisSummary } from './types';
-import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import type { AnalysisResult, ParsedEvent, ProxyInfo, URLRequest } from '../../parsers/netlog/parser';
 
 function card(overrides: Partial<DiagnosticCard>): DiagnosticCard {
@@ -154,6 +154,13 @@ function harEntry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
     isFailed: false,
     isSlow: true,
     ...overrides,
+    standard: overrides.standard ?? parseHar({
+      log: { entries: [{
+        request: { method: 'GET', url: 'https://example.test/', headers: [] },
+        response: { status: overrides.status ?? 200, headers: [], content: {} },
+        timings: { send: 0, wait: 0, receive: 0 },
+      }] },
+    }).entries[0].standard,
   };
 }
 
@@ -170,6 +177,7 @@ function harResult(overrides: Partial<HarAnalysisResult> = {}): HarAnalysisResul
     typeCounts: { xhr: entries.length, doc: 0, css: 0, js: 0, font: 0, img: 0, media: 0, other: 0 },
     bodyRetention: { mode: 'full', omittedCount: 0, omittedBytes: 0 },
     ...overrides,
+    standard: overrides.standard ?? parseHar({ log: { entries: [] } }).standard,
   };
 }
 

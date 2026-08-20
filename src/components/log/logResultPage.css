@@ -14,6 +14,112 @@
   border-radius: var(--radius-card);
 }
 
+.log-parse-coverage {
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+}
+
+.log-parse-coverage[data-status="partial"] {
+  background: var(--surface-warning-soft);
+  border-color: color-mix(in srgb, var(--accent-yellow) 34%, var(--border-color));
+}
+
+.log-parse-coverage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.log-parse-coverage-counts,
+.log-parse-coverage-note,
+.log-skipped-lines p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-parse-coverage-status {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.log-parse-coverage-progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 10px 0 0;
+  overflow: hidden;
+  appearance: none;
+  background: var(--border-color);
+  border: 0;
+  border-radius: 3px;
+}
+
+.log-parse-coverage-progress::-webkit-progress-bar {
+  background: var(--border-color);
+}
+
+.log-parse-coverage-progress::-webkit-progress-value {
+  background: var(--accent-blue);
+}
+
+.log-parse-coverage-progress::-moz-progress-bar {
+  background: var(--accent-blue);
+}
+
+.log-parse-coverage[data-status="partial"] .log-parse-coverage-progress::-webkit-progress-value {
+  background: var(--accent-yellow);
+}
+
+.log-parse-coverage[data-status="partial"] .log-parse-coverage-progress::-moz-progress-bar {
+  background: var(--accent-yellow);
+}
+
+.log-skipped-lines {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.log-skipped-lines summary {
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.log-skipped-lines ol {
+  max-height: 260px;
+  margin: 10px 0 0;
+  padding-left: 26px;
+  overflow: auto;
+}
+
+.log-skipped-lines li {
+  margin-bottom: 6px;
+}
+
+.log-skipped-lines code {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-skipped-lines-more {
+  padding: 6px 10px;
+  color: var(--accent-blue);
+  font: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
 .log-disclaimer-alert {
   background: var(--surface-warning-soft) !important;
   border: 1px solid color-mix(in srgb, var(--accent-yellow) 34%, var(--border-color)) !important;

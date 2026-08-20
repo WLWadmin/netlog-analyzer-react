@@ -11,6 +11,7 @@ import {
   filterTagStyle,
   formatBytes,
   formatHarTime,
+  getHarResponseStatus,
   statusStyle,
 } from '../../harParser';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -36,6 +37,11 @@ import type { HarResponseBodySource } from './harResponseBodyGateway';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
+function recordedStatusColor(entry: HarRequestEntry): string {
+  const status = getHarResponseStatus(entry);
+  return status === undefined ? 'var(--text-muted)' : statusStyle(status).color;
+}
+
 interface HarRequestTableProps {
   result: HarAnalysisResult;
   statusFilter?: StatusFilter;
@@ -54,7 +60,7 @@ const STATUS_FILTERS: { key: StatusFilter; label: string; color: string; bg: str
 const ISSUE_FILTERS: { key: HarIssueFilter; label: string }[] = [
   { key: 'all', label: '全部主问题' },
   { key: 'slow', label: '慢请求' },
-  { key: 'ttfb', label: 'TTFB 慢' },
+  { key: 'ttfb', label: 'Waiting 慢' },
   { key: 'queueing', label: 'Queueing 慢' },
   { key: 'dns', label: 'DNS 慢' },
   { key: 'tls', label: 'TLS 慢' },
@@ -321,14 +327,20 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       dataIndex: 'status',
       key: 'status',
       width: 80,
-      sorter: (a, b) => a.status - b.status,
-      render: (s: number, r) => (
-        <StatusTag statusCode={s}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-            {s === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : s}
-          </span>
-        </StatusTag>
-      ),
+      sorter: (a, b) => (getHarResponseStatus(a) ?? -1) - (getHarResponseStatus(b) ?? -1),
+      render: (_s: number, r) => {
+        const status = getHarResponseStatus(r);
+        if (status === undefined) {
+          return <Tag style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>未记录</Tag>;
+        }
+        return (
+          <StatusTag statusCode={status}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {status === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : status}
+            </span>
+          </StatusTag>
+        );
+      },
     },
     {
       title: '主问题',
@@ -988,7 +1000,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                <Badge color={statusStyle(selected.status).color} />
+                <Badge color={recordedStatusColor(selected)} />
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',

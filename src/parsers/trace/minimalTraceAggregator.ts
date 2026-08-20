@@ -950,6 +950,7 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       facts.map(fact => ({ ...fact, evidenceIds: filterEvidenceIds(fact.evidenceIds) }))
     );
     const contextWithoutQuality = {
+      eventFamilies: [...state.families].sort(),
       processes,
       threads,
       frames,
@@ -990,7 +991,7 @@ export class MinimalTraceAggregator implements TraceAggregatorPort<TraceContextR
       eventCount: total,
       ...(state.captureStartUs === undefined ? {} : { captureStartUs: state.captureStartUs }),
       ...(state.captureEndUs === undefined ? {} : { captureEndUs: state.captureEndUs }),
-      availableFamilies: [...state.families].sort(),
+      availableFamilies: context.eventFamilies ?? [],
       warnings: [...this.intakeSeed.warnings].sort(),
     };
     return {
