@@ -320,13 +320,14 @@ describe('ipEvidence', () => {
     expect(shouldLookupIp('2001:db8::1')).toBe(false);
   });
 
-  it('海外公共 DNS server 输出 DNS 调度 warning', () => {
+  it('公共 DNS server 地址只输出解析入口背景', () => {
     const conclusions = buildIpLookupConclusions(lookupSummary({
       dnsServers: [classifyDnsServer('8.8.8.8')],
     }), new Map());
 
-    expect(conclusions.some(item => item.title.includes('DNS'))).toBe(true);
-    expect(conclusions[0].level).toBe('warning');
+    expect(conclusions[0].title).toContain('DNS server 地址仅作解析入口背景');
+    expect(conclusions[0].detail).toContain('不能证明解析结果、CDN 节点选择或请求故障');
+    expect(conclusions[0].level).toBe('info');
   });
 
   it('SIP 为海外时输出跨境线索', () => {

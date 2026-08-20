@@ -30,6 +30,10 @@ import type {
   CollectionQuality,
   DiagnosisSummary,
 } from './types';
+import {
+  MAINLAND_CHINA_DNS_COMPARISON_LIST,
+  MAINLAND_CHINA_DNS_NON_DEFAULT_LIST,
+} from './networkTroubleshootingExperience';
 
 type ContextEventKind = '网络切换' | '代理决策' | '缓存事件' | 'TLS 事件' | 'QUIC 事件' | 'HTTP/2 事件';
 
@@ -655,10 +659,10 @@ function buildActionsFromSuggestion(suggestion: Suggestion, category: Diagnostic
         actions.push({
           role: 'user',
           title: 'DNS 解析测试',
-          detail: '使用 nslookup 测试域名解析',
+          detail: `先记录当前解析结果；中国大陆网络可用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 逐个做临时对照，修改系统 DNS 前记录原配置并在测试后恢复`,
           command: 'nslookup example.com',
           platform: 'all',
-          expectedResult: '应返回正确的 IP 地址',
+          expectedResult: `记录响应状态、地址和解析器；首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}，差异不自动证明根因`,
         });
       }
       break;
@@ -691,10 +695,10 @@ function buildActionsFromSuggestion(suggestion: Suggestion, category: Diagnostic
         actions.push({
           role: 'user',
           title: '网络连通性测试',
-          detail: '使用 ping 测试网络连通性',
-          command: 'ping example.com -n 20',
+          detail: '使用 ping 记录 ICMP 响应和往返时间，再用 curl/connect 验证实际业务端口',
+          command: 'ping example.com',
           platform: 'all',
-          expectedResult: '丢包率应 < 5%，延迟应 < 200ms',
+          expectedResult: '目标不响应 ICMP 不等于 HTTP/TCP 不可达；应结合 curl、tracert/traceroute 和 NetLog 判断',
         });
       }
       break;
@@ -710,8 +714,10 @@ function buildActionsFromSuggestion(suggestion: Suggestion, category: Diagnostic
  */
 function inferRoleFromAction(actionText: string): DiagnosticRole {
   const text = actionText.toLowerCase();
-  // 优先级 1：IT 相关
-  if (text.includes('it') || text.includes('防火墙') || text.includes('代理') || text.includes('dns') || text.includes('vpn')) return 'it';
+  // 只有明确要求专业人员处理时才归入 IT；DNS、代理、VPN 等关键词本身
+  // 也会出现在用户可执行的查询和对比动作中，不能直接用来判角色。
+  if (/(?:由|联系|交给)\s*it\b|网络管理员|检查企业|核对企业|管理员策略|团队按/i.test(actionText)) return 'it';
+  if (/【自查】|nslookup|\bdig\b|\bping\b|tracert|traceroute|\bcurl\b|openssl|手机热点|切换(?:到|网络)|临时关闭|查看同一|打开失败/i.test(text)) return 'user';
   // 优先级 2：后端相关
   if (text.includes('后端') || text.includes('服务端') || text.includes('数据库') || text.includes('服务器') || text.includes('证书')) return 'backend';
   // 优先级 3：前端相关
@@ -742,11 +748,14 @@ export function netlogToCards(
     cards.push(proxyCard);
   }
 
-  // 添加 DNS 劫持卡片（如果检测到但未生成）
+  // 解析到 loopback/空地址只说明本地或策略性映射，不能直接命名为劫持。
   const hijackedDomains = result.failedDomains.filter(d =>
     d.ips.some(ip => ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1')
   );
-  if (hijackedDomains.length > 0 && !cards.some(c => c.title.includes('劫持'))) {
+  const hasLocalAddressDnsCard = cards.some(card =>
+    card.category === 'dns' && /解析到(?:本机|本地|空地址)|loopback/i.test(`${card.title} ${card.conclusion}`)
+  );
+  if (hijackedDomains.length > 0 && !hasLocalAddressDnsCard) {
     const dnsHijackCard = buildDnsHijackCard(hijackedDomains);
     cards.push(dnsHijackCard);
   }
@@ -778,11 +787,11 @@ export function netlogToCards(
         actions: [
           {
             role: 'user',
-            title: '更换 DNS 测试',
-            detail: '国内用户修改 DNS 为 223.5.5.5 或 119.29.29.29；海外用户修改为 8.8.8.8 或 1.1.1.1',
+            title: '对照 DNS 解析结果',
+            detail: `先记录当前解析器的返回状态和地址；中国大陆网络可用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 逐个对照。临时修改系统 DNS 前记录原配置，测试后恢复。`,
             command: 'nslookup example.com 223.5.5.5',
             platform: 'all',
-            expectedResult: '应返回正确的 IP 地址',
+            expectedResult: `记录两侧返回状态与地址；首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}，不同结果仍需结合 Split DNS、CDN 和企业策略解释。`,
           },
           {
             role: 'it',
@@ -862,12 +871,12 @@ export function netlogToCards(
         ...(timeoutCerts.length > 0 ? [{
           role: 'user' as const,
           title: '区分超时与证书问题',
-          detail: 'TLS 超时（如 -118）通常是网络问题导致握手未完成，而非证书本身有问题。建议先排查网络连通性',
+          detail: '如果 SSL 事件关联到 -118，它表示连接尝试超时，不是 ERR_SSL_PROTOCOL_ERROR；需回到 socket/source chain 确认超时发生阶段。',
         }] : []),
       ],
       limitations: [
         'NetLog 的 SSL 事件可能不包含完整的证书链信息',
-        '-118 (ERR_SSL_PROTOCOL_ERROR) 在 NetLog 中常被误归为证书问题，实际可能是握手超时',
+        '-118 是 ERR_CONNECTION_TIMED_OUT；出现在 SSL 相关 source 上也不能改写为证书或 TLS 协议错误',
       ],
     });
   }
@@ -908,71 +917,13 @@ export function netlogToCards(
         },
         {
           role: 'frontend',
-          title: '启用 HTTP/2',
-          detail: 'HTTP/2 支持多路复用，可消除浏览器对同一域名的连接数限制（Chrome 限制 6 个）',
+          title: '核对排队原因',
+          detail: '检查连接池、请求优先级、重复请求和协议 stream 限制；HTTP/2 也受 SETTINGS_MAX_CONCURRENT_STREAMS 和流控约束。',
         },
       ],
     });
   }
   recordTiming(debugTiming, timingRows, 'stalled cards', stalledStart, undefined, { stalledRequests: result.stalledRequests.length, cards: cards.length });
-
-  const protocolStart = performance.now();
-  // ========== 批次 C 增强：HTTP/2 与 QUIC 诊断卡片 ==========
-  const protocolCounts = result.protocols;
-  const h2Count = (protocolCounts['HTTP/2'] || 0) + (protocolCounts['h2'] || 0);
-  const quicCount = (protocolCounts['QUIC'] || 0) + (protocolCounts['h3'] || 0);
-  const h11Count = (protocolCounts['HTTP/1.1'] || 0) + (protocolCounts['http/1.1'] || 0);
-  const totalWithProtocol = h2Count + quicCount + h11Count;
-
-  if (totalWithProtocol > 10 && h11Count > totalWithProtocol * 0.5) {
-    cards.push({
-      id: generateId('netlog-protocol', 0),
-      source: 'netlog',
-      category: 'protocol',
-      severity: 'info',
-      confidence: 'high',
-      title: 'HTTP/2 协议覆盖率偏低',
-      conclusion: `${h11Count} 个请求 (${((h11Count / totalWithProtocol) * 100).toFixed(0)}%) 仍使用 HTTP/1.1，建议启用 HTTP/2 以利用多路复用减少连接开销`,
-      scope: buildScope(h11Count, undefined, 'global'),
-      evidence: [
-        { label: 'HTTP/1.1', value: `${h11Count} 个`, source: 'netlog' },
-        { label: 'HTTP/2', value: `${h2Count} 个`, source: 'netlog' },
-        { label: 'QUIC/HTTP3', value: `${quicCount} 个`, source: 'netlog' },
-      ],
-      actions: [
-        {
-          role: 'backend',
-          title: '启用 HTTP/2',
-          detail: '在服务端配置 HTTP/2 支持（Nginx: listen 443 http2; Node.js: 使用 http2 模块）',
-        },
-        {
-          role: 'backend',
-          title: '考虑启用 QUIC',
-          detail: 'QUIC (HTTP/3) 可进一步减少连接建立延迟，尤其对高延迟网络效果显著',
-        },
-      ],
-    });
-  }
-
-  if (quicCount > 0 && !cards.some(c => c.category === 'protocol')) {
-    cards.push({
-      id: generateId('netlog-quic', 0),
-      source: 'netlog',
-      category: 'protocol',
-      severity: 'info',
-      confidence: 'high',
-      title: `QUIC/HTTP3 协议使用 (${quicCount} 个请求)`,
-      conclusion: `${quicCount} 个请求使用 QUIC 协议，可享受 0-RTT 连接建立和多路复用优势`,
-      scope: buildScope(quicCount, undefined, 'global'),
-      evidence: [
-        { label: 'QUIC 请求', value: `${quicCount} 个`, source: 'netlog' },
-        { label: 'HTTP/2 请求', value: `${h2Count} 个`, source: 'netlog' },
-        { label: 'HTTP/1.1 请求', value: `${h11Count} 个`, source: 'netlog' },
-      ],
-      actions: [],
-    });
-  }
-  recordTiming(debugTiming, timingRows, 'protocol cards', protocolStart, undefined, { h2Count, quicCount, h11Count, cards: cards.length });
 
   const networkChangeStart = performance.now();
   // ========== 批次 C 增强：网络切换诊断卡片 ==========
@@ -993,9 +944,7 @@ export function netlogToCards(
       severity: networkChangeCount > 3 ? 'warning' : 'info',
       confidence: 'high',
       title: `检测到网络切换 (${networkChangeCount} 次)`,
-      conclusion: networkChangeCount > 3
-        ? `采集期间发生 ${networkChangeCount} 次网络切换，频繁切换可能导致请求失败或超时`
-        : `采集期间发生 ${networkChangeCount} 次网络切换，部分请求失败可能与网络切换有关`,
+      conclusion: `采集期间记录到 ${networkChangeCount} 次网络切换；只有与失败请求时间和 source chain 对齐时，才能把它作为请求异常的关联线索。`,
       scope: buildScope(networkChangeCount, undefined, 'global'),
       evidence: changeTimes.slice(0, 5).map((c, i) => ({
         label: `切换 ${i + 1}`,
@@ -1014,6 +963,7 @@ export function netlogToCards(
           detail: '检查 WiFi/有线网络切换策略、VPN 连接稳定性、网络设备配置',
         },
       ],
+      limitations: ['网络切换计数只能证明采集期间环境变化，不能单独确认它导致了请求失败或超时。'],
     });
   }
   recordTiming(debugTiming, timingRows, 'network change cards', networkChangeStart, undefined, { networkChanges: networkChangeCount, cards: cards.length });
@@ -1406,7 +1356,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
     severity: protocolErrorCount > 0 || goawayCount > 0 ? 'warning' : 'info',
     confidence: 'medium',
     title: '协议选择与降级线索',
-    conclusion: `协议分布为 ${protocolSummary}；HTTP/2 事件 ${http2EventCount} 条，QUIC 事件 ${quicEventCount} 条，协议错误 ${protocolErrorCount} 条，可用于判断是否存在 H2/QUIC 降级、GOAWAY 或代理阻断`,
+    conclusion: `协议分布为 ${protocolSummary}；HTTP/2 事件 ${http2EventCount} 条，QUIC 事件 ${quicEventCount} 条，协议错误 ${protocolErrorCount} 条，可用于核验 H2/QUIC 路径变化、GOAWAY 和回退事实，不能单独确认代理阻断`,
     scope: { type: 'global', summary: `协议统计覆盖 ${result.urlRequests.length} 个请求，不代表这些请求均受协议问题影响` },
     evidence: [
       { label: '协议分布', value: protocolSummary, source: 'netlog' as const },
@@ -1429,7 +1379,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
       {
         role: 'it',
         title: '核对代理对协议的影响',
-        detail: '企业代理或 VPN 可能阻断 QUIC/UDP 或终止 TLS，导致协议回退到 HTTP/1.1',
+        detail: '对照代理/VPN 状态、协议错误和回退结果；只有同一请求链与开关对比对齐时，才提高代理路径相关性',
       },
     ],
     relatedSourceIds: [...result.http2Events, ...result.quicEvents].slice(0, 20).map(e => e.source.id),
@@ -1513,15 +1463,15 @@ function buildProxyCard(proxyInfo: ProxyInfo, result: AnalysisResult): Diagnosti
     confidence: 'high',
     title: proxyInfo.isVPN ? '检测到 VPN 环境' : '检测到代理服务器配置',
     conclusion: proxyInfo.isVPN
-      ? '日志中检测到 VPN 使用迹象，VPN 可能导致网络延迟增加或 DNS 被接管'
-      : `当前配置了代理（模式: ${proxyInfo.proxyType}），代理可能导致请求被拦截或延迟增加`,
+      ? '日志中检测到 VPN 使用迹象；这说明网络路径可能被改变，但不能单独证明 VPN 导致请求失败或变慢'
+      : `当前配置了代理（模式: ${proxyInfo.proxyType}）；配置存在是环境事实，不等于代理故障`,
     scope: buildScope(result.urlRequests.length, undefined, 'global'),
     evidence,
     actions: [
       {
         role: 'user',
         title: '临时关闭代理对比',
-        detail: '在公司安全策略允许的情况下，临时关闭代理/VPN 后对比测试',
+        detail: '在公司安全策略允许的情况下，临时关闭代理/VPN 后对比同一请求；测试后恢复原设置，恢复只提高代理路径相关性',
       },
       {
         role: 'it',
@@ -1543,7 +1493,7 @@ function buildDnsHijackCard(hijackedDomains: FailedDomain[]): DiagnosticCard {
     conclusion: 'NetLog 记录到域名解析为 127.0.0.1、0.0.0.0 或 ::1，可能来自 hosts、广告过滤、安全软件、企业 DNS 或本机代理策略，需要先核对该解析是否符合预期。',
     scope: buildScope(hijackedDomains.reduce((s, d) => s + d.count, 0), hijackedDomains.length, 'multi-domain'),
     evidence: hijackedDomains.map((d, i) => ({
-      label: `劫持域名 ${i + 1}`,
+      label: `本地地址映射 ${i + 1}`,
       value: `${d.domain} → ${d.ips.filter(ip => ip === '127.0.0.1' || ip === '0.0.0.0').join(', ')}`,
       source: 'netlog',
     })),
@@ -1551,15 +1501,15 @@ function buildDnsHijackCard(hijackedDomains: FailedDomain[]): DiagnosticCard {
       {
         role: 'user',
         title: '对比当前与公共 DNS 解析',
-        detail: '先使用当前 DNS 和一组可信公共 DNS 对比解析结果；不要在未确认企业策略前直接修改系统 DNS。',
+        detail: `先使用当前 DNS 和 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 对比解析结果；临时修改系统 DNS 前记录原配置，测试后恢复。`,
         command: 'nslookup example.com 223.5.5.5',
         platform: 'all',
-        expectedResult: '对比结果可以确认本机/企业解析是否与公共 DNS 不同；内网域名解析到私网或本机地址仍可能符合预期。',
+        expectedResult: `对比结果只能说明本机/企业解析是否不同；首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}，内网域名解析到私网或本机地址仍可能符合预期。`,
       },
       {
         role: 'it',
-        title: '修改企业 DNS 配置',
-        detail: '联系公司 IT 修改 DHCP 出口 DNS，避免使用问题 DNS 服务器',
+        title: '核对企业解析策略',
+        detail: '联系 IT 确认 DHCP、Split DNS、hosts 下发和安全过滤是否有意返回本地/空地址；只有确认配置错误后再变更。',
       },
     ],
     limitations: [

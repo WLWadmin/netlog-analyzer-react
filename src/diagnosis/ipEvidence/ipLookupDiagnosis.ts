@@ -138,11 +138,11 @@ export function buildIpLookupConclusions(
   const overseasDns = summary.dnsServers.filter(item => item.type === 'overseas-public-dns');
   if (overseasDns.length > 0) {
     conclusions.push({
-      level: 'warning',
-      title: 'DNS 解析入口可能影响 CDN 就近调度',
-      detail: `检测到海外公共 DNS：${overseasDns.map(item => `${item.ip} (${item.label})`).join('、')}。访问国内业务时可能导致解析到非最优节点。`,
+      level: 'info',
+      title: 'DNS server 地址仅作解析入口背景',
+      detail: `记录到公共 DNS server：${overseasDns.map(item => `${item.ip} (${item.label})`).join('、')}。地址或地域本身不能证明解析结果、CDN 节点选择或请求故障。`,
       evidence: overseasDns.map(item => `${item.ip} ${item.label}`),
-      nextAction: '切换运营商 DNS / 企业 DNS 后重新抓取 HAR 或 NetLog 对比。',
+      nextAction: '只有请求或 DNS task 指向解析问题时，再对比当前与组织批准的解析器，并记录 DNS answer 和同一请求结果。',
     });
   }
 

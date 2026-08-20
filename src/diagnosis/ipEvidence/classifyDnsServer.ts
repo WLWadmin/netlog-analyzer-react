@@ -28,7 +28,7 @@ export function classifyDnsServer(ip: string): DnsServerEvidence {
       risk: 'low',
       label: '本地网关 DNS',
       explanation: '本地网关 DNS。真实上游 DNS 需要在路由器、系统或企业网络配置中继续确认。',
-      action: '查看系统、路由器或企业网络配置，确认真实上游 DNS；如怀疑 DNS/CDN 调度异常，切换运营商/企业 DNS 后复测。',
+      action: '查看系统、路由器或企业网络配置，确认真实上游 DNS；存在 DNS 错误时再对比组织批准的解析器。',
     };
   }
 
@@ -37,10 +37,10 @@ export function classifyDnsServer(ip: string): DnsServerEvidence {
     return {
       ip,
       type: 'overseas-public-dns',
-      risk: 'medium',
+      risk: 'none',
       label: overseasLabel,
-      explanation: '海外公共 DNS。访问国内业务时可能影响 CDN 就近解析，形成跨境或跨运营商调度线索。',
-      action: '切换运营商 DNS / 企业 DNS 后重新抓取 HAR 或 NetLog 对比。',
+      explanation: '已识别为公共 DNS。服务地址和地域本身不代表故障；解析结果可能受 ECS、Anycast、CDN 和出口位置影响。',
+      action: '仅在存在 DNS 或调度异常证据时，与组织批准的企业/运营商解析器对比返回结果。',
     };
   }
 
@@ -51,8 +51,8 @@ export function classifyDnsServer(ip: string): DnsServerEvidence {
       type: 'public-dns',
       risk: 'low',
       label: chinaPublicLabel,
-      explanation: '公共 DNS。它不一定代表当前运营商本地最优解析；如问题表现为跨省、跨运营商、跨境或 CDN 节点异常，建议与运营商 DNS / 企业 DNS 结果对比。',
-      action: '对比运营商 DNS / 企业 DNS 与当前公共 DNS 的解析结果。',
+      explanation: '已识别为公共 DNS。仅凭服务地址不能评价解析质量、合规性或 CDN 调度结果。',
+      action: '存在 DNS 错误时，再与组织批准的企业/运营商解析器对比返回状态和地址。',
     };
   }
 

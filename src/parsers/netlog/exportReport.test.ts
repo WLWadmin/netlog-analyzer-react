@@ -130,7 +130,18 @@ describe('exportReport', () => {
     expect(report).not.toContain('data?a=');
   });
 
-  it('检测到海外公共 DNS 时输出境内 DNS 建议', () => {
+  it('只有 DNS server 地址、没有 DNS 错误时只作为背景', () => {
+    const report = exportReport(result({
+      dnsServers: ['8.8.8.8'],
+    }));
+
+    expect(report).toContain('NetLog 记录到 DNS server：8.8.8.8；地址本身不等于故障');
+    expect(report).not.toContain('## DNS 建议');
+    expect(report).not.toContain('223.5.5.5');
+    expect(report).not.toContain('119.29.29.29');
+  });
+
+  it('DNS 错误保留国内公共解析器对照、回退和证据边界', () => {
     const report = exportReport(result({
       dnsServers: ['8.8.8.8'],
       failedDomains: [{
@@ -148,9 +159,42 @@ describe('exportReport', () => {
       errorSources: { '-105': 1 },
     }));
 
-    expect(report).toContain('阿里云 DNS：223.5.5.5 / 223.6.6.6');
-    expect(report).toContain('百度 DNS：180.76.76.76');
-    expect(report).toContain('腾讯云 DNSPod：119.29.29.29 / 182.254.116.116');
+    expect(report).toContain('NetLog 记录到 DNS server：8.8.8.8；地址本身不等于故障');
+    expect(report).toContain('不要仅凭 DNS server 地址或地域直接修改系统 DNS');
+    expect(report).toContain('223.5.5.5');
+    expect(report).toContain('223.6.6.6');
+    expect(report).toContain('119.29.29.29');
+    expect(report).toContain('180.76.76.76');
+    expect(report).toContain('测试后恢复');
+    expect(report).toContain('首轮不默认选择 8.8.8.8、114.114.114.114');
+    expect(report).toContain('不能单独证明唯一根因');
+    expect(report).not.toMatch(/(?:推荐|首选|优先使用).*(?:8\.8\.8\.8|114\.114\.114\.114)/);
+  });
+
+  it('-101 导出保留安全软件、白名单和工区网络排查动作', () => {
+    const report = exportReport(result({
+      connectionFailures: [{ url: 'https://api.example.com/data', error: -101, time: 1 }],
+      failedDomains: [{
+        domain: 'api.example.com',
+        urls: ['https://api.example.com/data'],
+        errors: [{ code: -101, desc: 'ERR_CONNECTION_RESET', time: 1 }],
+        errorCodes: [-101],
+        ips: [],
+        resolvedIp: null,
+        remoteIp: null,
+        count: 1,
+        firstTime: 1,
+        lastTime: 1,
+      }],
+      errorSources: { '-101': 1 },
+    }));
+
+    expect(report).toContain('深信服');
+    expect(report).toContain('火绒');
+    expect(report).toContain('白名单');
+    expect(report).toContain('不代表已确认拦截');
+    expect(report).toContain('优先检查工区网络路径');
+    expect(report).not.toMatch(/深信服(?:导致|已拦截)|火绒(?:导致|已拦截)/);
   });
 
   it('传入 IP 查询结论时导出 IP 归属结论和处理建议', () => {
@@ -175,10 +219,11 @@ describe('exportReport', () => {
 
     expect(report).toContain('## IP 归属结论');
     expect(report).toContain('检测到跨境访问线索');
-    expect(report).toContain('关闭 VPN / 代理');
-    expect(report).toContain('检查 DNS 是否为境内节点');
+    expect(report).toContain('记录 VPN / 代理开关前后的出口、目标 IP 和同一请求结果');
+    expect(report).toContain('确认该地域/线路是否符合 CDN 或业务调度预期');
     expect(report).toContain('客户端出口线索与服务端目标运营商不同');
-    expect(report).toContain('配置同运营商网络线路');
+    expect(report).toContain('运营商不同只作为路径线索');
+    expect(report).not.toContain('配置同运营商网络线路');
   });
 
   it('只有代理配置和协议状态时不导出失败域名或连接失败结论', () => {

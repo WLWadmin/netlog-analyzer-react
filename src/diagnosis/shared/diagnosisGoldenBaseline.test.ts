@@ -312,6 +312,30 @@ describe('Diagnosis Golden Baseline', () => {
     expect(categories).not.toContain('🌐 DNS 问题进一步排查');
   });
 
+  it('keeps DNS self-check actions in the user role', () => {
+    const result = netlogResult({
+      connectionFailures: [{ url: 'https://api.example.test/v1/resource', error: -105, time: 1100 }],
+    });
+    const cards = netlogToCards(result, generateSuggestions(result), []);
+    const dnsCard = cards.find(card => card.title.includes('ERR_NAME_NOT_RESOLVED'));
+    const lookupAction = dnsCard?.actions.find(action => action.detail.includes('nslookup/dig'));
+
+    expect(lookupAction?.role).toBe('user');
+    expect(lookupAction?.detail).toContain('223.5.5.5');
+  });
+
+  it('uses ping as supporting evidence without fixed quality thresholds', () => {
+    const result = netlogResult({
+      connectionFailures: [{ url: 'https://api.example.test/v1/resource', error: -104, time: 1100 }],
+    });
+    const cards = netlogToCards(result, generateSuggestions(result), []);
+    const pingAction = cards.flatMap(card => card.actions).find(action => action.command === 'ping example.com');
+
+    expect(pingAction?.role).toBe('user');
+    expect(pingAction?.expectedResult).toContain('不等于 HTTP/TCP 不可达');
+    expect(JSON.stringify(pingAction)).not.toMatch(/丢包率\s*[<＜]\s*5%|延迟\s*[<＜]\s*200ms/);
+  });
+
   it('does not classify a mixed failed-domain summary as DNS root cause', () => {
     const result = netlogResult({
       failedDomains: [{
@@ -352,10 +376,15 @@ describe('Diagnosis Golden Baseline', () => {
       }],
     });
     const suggestion = generateSuggestions(result).find(item => item.title.includes('本地地址'));
+    const cards = netlogToCards(result, generateSuggestions(result), []);
+    const localAddressCards = cards.filter(card =>
+      card.category === 'dns' && /解析到(?:本机|本地|空地址)|loopback/i.test(`${card.title} ${card.conclusion}`)
+    );
 
     expect(suggestion?.severity).toBe('warning');
     expect(suggestion?.title).not.toContain('劫持');
     expect(suggestion?.conclusion).toContain('不能单独确认运营商 DNS 故障');
+    expect(localAddressCards).toHaveLength(1);
   });
 
   it('does not turn cache event count into affected request count', () => {

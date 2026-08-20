@@ -110,6 +110,16 @@ describe('troubleshootingSop', () => {
     expect(getRelevantRoleTasks(plan, session).map(task => task.role)).toEqual(['it']);
   });
 
+  it('DNS 对照未恢复时要求还原网络和原 DNS 设置', () => {
+    const plan = buildTroubleshootingPlan(summary({
+      userActions: [action('dns-compare', '临时对照国内公共 DNS', 'dns-card')],
+    }));
+    const result = recordTroubleshootingOutcome(plan, createTroubleshootingSession(plan), 'unchanged');
+
+    expect(result.state).toBe('ROLLBACK_REQUIRED');
+    expect(plan.steps[0].rollback).toContain('恢复测试前记录的原 DNS 设置');
+  });
+
   it('恢复方向没有对应专业任务时不展示其他方向的角色任务', () => {
     const plan = buildTroubleshootingPlan(summary({ includeProxyIt: false }));
     const session = recordTroubleshootingOutcome(plan, createTroubleshootingSession(plan), 'improved');

@@ -476,9 +476,9 @@ function buildCommonNetworkInfoMissingInfo(): MissingInfoItem[] {
       recommendation: '收集客户端 IP / DNS 出口、明确打不开或请求慢的域名、域名对应的 DNS / IP 连通性 / 丢包率 / 路由信息，以及上网方式和环境信息',
       detailGroups: [
         {
-          title: 'IP / DNS 出口',
+          title: '网络环境与出口',
           items: [
-            '访问 `https://ip.skk.moe/` 并提供截图。',
+            '记录上网方式、VPN/代理状态、客户端出口 IP 和复现时间；使用组织批准的工具获取出口信息。',
           ],
         },
         {
@@ -490,10 +490,10 @@ function buildCommonNetworkInfoMissingInfo(): MissingInfoItem[] {
         },
         {
           title: '域名解析与链路信息',
-          items: [
-            'Windows：打开终端，执行 `nslookup [问题域名]`、`ping [问题域名]`、`tracert [问题域名]`。',
-            'Mac：打开终端，执行 `dig [问题域名]`、`ping [问题域名]`、`traceroute [问题域名]`。',
-            '详情可见文档：[网络信息收集说明](https://bytedance.larkoffice.com/docx/FOmKdpdCfoIl4WxV8eqc37BOnO1)',
+            items: [
+              'Windows：打开终端，执行 `nslookup [问题域名]`、`ping [问题域名]`、`tracert [问题域名]`。',
+              'Mac：打开终端，执行 `dig [问题域名]`、`ping [问题域名]`、`traceroute [问题域名]`。',
+              'ping 或中间路由节点不响应 ICMP 不等于业务端口不可达；同时记录 curl/connect 结果。',
           ],
         },
         {

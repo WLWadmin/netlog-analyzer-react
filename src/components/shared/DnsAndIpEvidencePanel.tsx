@@ -839,7 +839,7 @@ const DnsAndIpEvidencePanel: React.FC<DnsAndIpEvidencePanelProps> = ({ summary, 
             type="info"
             showIcon
             message="DNS server 决定解析入口，DNS answer 是文件中记录到的解析结果。"
-            description="Secure DNS / DoH 候选是安全 DNS 配置线索，不等同系统 DNS server。若 DNS server 是海外公共 DNS，或 DNS answer 指向海外 IP，可能影响 CDN 就近调度；该结论只是定位线索，需结合 MTR / traceroute / 出口 IP 确认。"
+            description="Secure DNS / DoH 候选是安全 DNS 配置线索，不等同系统 DNS server。DNS server 地址或地域不能单独证明解析异常、CDN 节点选择或请求故障；应结合 DNS task、DNS answer、同一请求结果和必要的路径对比。"
           />
         </div>
 

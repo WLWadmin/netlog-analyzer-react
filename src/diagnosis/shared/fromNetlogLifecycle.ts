@@ -117,7 +117,7 @@ function buildActionsForStage(stage: LifecycleStageName, host: string): Diagnost
     case 'http2':
     case 'quic':
       return [
-        { role: 'frontend', title: '验证协议回退', detail: '必要时禁用 QUIC/HTTP2 对比，确认是否协议层异常' },
+        { role: 'it', title: '核对协议错误与回退', detail: '查看具体错误码、方向、连接/stream 和自动回退结果；受控降级只能证明协议路径相关' },
       ];
     case 'response':
       return [

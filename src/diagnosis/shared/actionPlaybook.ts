@@ -1,4 +1,8 @@
 import type { DiagnosticAction, DiagnosticCard, DiagnosticCategory, DiagnosticRole } from './types';
+import {
+  MAINLAND_CHINA_DNS_COMPARISON_LIST,
+  MAINLAND_CHINA_DNS_NON_DEFAULT_LIST,
+} from './networkTroubleshootingExperience';
 
 export interface PlaybookAction extends DiagnosticAction {
   id: string;
@@ -40,11 +44,12 @@ function action(
 
 const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
   dns: [
-    action('dns', 'user', 'dns-switch-network', '切换网络验证 DNS', '切到手机热点或另一条网络后重新访问问题域名。', '同一页面或接口恢复访问，DNS/网络出口方向置信度上升。', '继续执行 nslookup/dig，并把结果交给 IT 检查 DNS 策略。'),
-    action('dns', 'it', 'dns-lookup', '查询域名解析结果', `使用 nslookup/dig 查询 ${HOST_PLACEHOLDER}，对比公司 DNS 与公共 DNS 返回。`, '应返回稳定且可达的 IP。', '检查企业 DNS、DoH、Split DNS、代理/VPN DNS 策略。', 'safe', 'low', `nslookup ${HOST_PLACEHOLDER}`),
+    action('dns', 'user', 'dns-switch-network', '切换网络验证 DNS', '用同一设备切到手机热点或另一条网络后重新访问问题域名，至少重复一次。', '热点多次正常、工区网络多次失败时，后续优先检查工区 DNS、出口和安全策略，但不锁定具体设备。', '切回原网络，继续执行 nslookup/dig，并把结果交给 IT 检查 DNS 策略。'),
+    action('dns', 'user', 'dns-public-resolver-compare', '临时对照国内公共 DNS', `先记录当前解析结果；中国大陆网络可依次查询 ${MAINLAND_CHINA_DNS_COMPARISON_LIST}，必要时在符合组织策略的前提下临时修改系统 DNS。`, '记录对照前后的返回状态、地址和同一请求结果；恢复只提高原解析器或其路径的相关性。', `测试完成后恢复原 DNS；项目首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}。`, 'needs-approval', 'low', `nslookup ${HOST_PLACEHOLDER} 223.5.5.5`, ['both']),
+    action('dns', 'it', 'dns-lookup', '查询域名解析结果', `使用 nslookup/dig 查询 ${HOST_PLACEHOLDER}，对比公司 DNS 与公共 DNS 返回。`, '记录响应状态、地址、TTL 和解析器差异，并按业务调度预期核验。', '检查企业 DNS、DoH、Split DNS、代理/VPN DNS 策略。', 'safe', 'low', `nslookup ${HOST_PLACEHOLDER}`),
   ],
   connect: [
-    action('connect', 'user', 'connect-network-compare', '切换网络对比连接', '换网络后复现同一操作，观察连接失败是否消失。', '切换网络后连接恢复，说明本机出口、运营商或网络策略方向值得继续查。', '检查防火墙、代理、安全软件和目标端口。'),
+    action('connect', 'user', 'connect-network-compare', '切换网络对比连接', '用同一设备、同一目标切换手机热点或其他网络，重复复现并记录结果。', '热点多次正常、工区网络多次失败时，后续优先检查工区接入、网关、防火墙、代理和安全准入；仍不确认具体设备。', '切回原网络，并把两组结果交给 IT 按复现时间检查策略和日志。'),
     action('connect', 'it', 'connect-port-policy', '检查出口和目标端口策略', `核对 ${HOST_PLACEHOLDER} 的防火墙、网关、目标端口和安全设备日志。`, '目标端口应允许访问，网关没有拒绝或重置记录。', '升级到网络团队排查路由、ACL 或安全策略。', 'needs-approval', 'medium'),
   ],
   tls: [
@@ -52,11 +57,11 @@ const PLAYBOOK: Record<DiagnosticCategory, PlaybookAction[]> = {
     action('tls', 'it', 'tls-inspection-check', '检查 HTTPS inspection', `确认安全网关、VPN、代理或终端安全软件是否对 ${HOST_PLACEHOLDER} 做 TLS 解密。`, '可信业务域名不应被错误替换证书或阻断握手。', '按策略加入绕过或修复根证书下发。', 'needs-approval', 'medium'),
   ],
   proxy: [
-    action('proxy', 'user', 'proxy-bypass-compare', '临时关闭代理/VPN后重试', '在公司安全策略允许的情况下，临时关闭代理/VPN，或切换到不经过该代理的网络后重新访问。', '关闭代理后访问恢复，说明代理/VPN路径是导致问题的关键变量。', '如果仍未恢复，请重新开启公司要求的代理/VPN，再继续检查 DNS、连接或证书。', 'needs-approval'),
+    action('proxy', 'user', 'proxy-bypass-compare', '临时关闭代理/VPN后重试', '在公司安全策略允许的情况下，临时关闭代理/VPN，或切换到不经过该代理的网络后重新访问。', '关闭代理后访问恢复，只说明代理/VPN 路径与现象相关，仍需 PAC、CONNECT 或代理日志确认。', '如果仍未恢复，请重新开启公司要求的代理/VPN，再继续检查 DNS、连接或证书。', 'needs-approval'),
     action('proxy', 'it', 'proxy-pac-check', '检查 PAC 和 CONNECT 隧道', `核对 PAC 对 ${HOST_PLACEHOLDER} 的返回、代理认证、CONNECT tunnel 和白名单。`, 'PAC 返回符合预期，代理允许目标域名和端口。', '修复 PAC 或代理策略后重新采集 HAR/NetLog。', 'needs-approval', 'medium'),
   ],
   'network-change': [
-    action('network-change', 'user', 'network-change-stability', '确认网络切换时机', '确认问题发生时是否切换 Wi-Fi、VPN、休眠唤醒或弱网重连。', '复现时避免网络切换后问题消失，说明网络切换是关键变量。', '继续采集稳定网络下的 HAR/NetLog 对照。'),
+    action('network-change', 'user', 'network-change-stability', '确认网络切换时机', '确认问题发生时是否切换 Wi-Fi、VPN、休眠唤醒或弱网重连。', '稳定网络下现象消失，只提高网络切换相关性；仍需与失败请求时间和 source chain 对齐。', '继续采集稳定网络下的 HAR/NetLog 对照。'),
   ],
   server: [
     action('server', 'backend', 'server-logid-check', '查询服务端日志和耗时', '使用 logid、Server-Timing 或请求时间点查询网关、应用和下游依赖耗时。', '服务端日志能解释 5xx 或 TTFB 慢。', '如果服务端无异常，继续用同时间 NetLog 排查网络层反证。', 'safe', 'low', undefined, ['har']),

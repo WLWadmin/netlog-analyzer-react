@@ -2,6 +2,11 @@ import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { classifyNetError, type NetErrorCategoryName } from '../../parsers/netlog/errorClassifier';
 import type { DiagnosticCard, DiagnosticRole } from './types';
 import type { ActionGroup, FinalAction } from './finalSummaryTypes';
+import {
+  CONNECTION_RESET_SECURITY_EXAMPLES,
+  MAINLAND_CHINA_DNS_COMPARISON_LIST,
+  MAINLAND_CHINA_DNS_NON_DEFAULT_LIST,
+} from './networkTroubleshootingExperience';
 
 interface KnowledgeAction extends FinalAction {
   role: DiagnosticRole;
@@ -13,7 +18,7 @@ interface ErrorContext {
   codesByCategory: Map<NetErrorCategoryName, number[]>;
   hosts: string[];
   sourceCardId: string;
-  hasConfirmedProxy: boolean;
+  hasProxyConfiguration: boolean;
 }
 
 const ROLE_TITLES: Record<DiagnosticRole, string> = {
@@ -75,7 +80,7 @@ function extractHosts(cards: DiagnosticCard[]): string[] {
   return Array.from(hosts).slice(0, 6);
 }
 
-function hasConfirmedProxySignal(cards: DiagnosticCard[]): boolean {
+function hasProxyConfigurationSignal(cards: DiagnosticCard[]): boolean {
   return cards.some(card => {
     if (card.category !== 'proxy') return false;
     const text = cardText(card);
@@ -108,7 +113,7 @@ function createContext(cards: DiagnosticCard[]): ErrorContext {
     codesByCategory,
     hosts: extractHosts(cards),
     sourceCardId: cards[0]?.id || 'net-error-knowledge',
-    hasConfirmedProxy: hasConfirmedProxySignal(cards),
+    hasProxyConfiguration: hasProxyConfigurationSignal(cards),
   };
 }
 
@@ -120,27 +125,9 @@ function hostText(ctx: ErrorContext): string {
   return ctx.hosts.length > 0 ? ctx.hosts.join('、') : '问题域名';
 }
 
-function hostDisplayParts(host: string): { base: string; prefix?: string; raw: string } {
-  const parts = host.split('.').filter(Boolean);
-  if (parts.length < 3) return { base: host, raw: host };
-  const base = parts.slice(-2).join('.');
-  const prefix = parts.slice(0, -2).join('.');
-  return { base: `*.${base}`, prefix: prefix && prefix !== 'www' ? prefix : undefined, raw: host };
-}
-
 function displayHostText(ctx: ErrorContext): string {
   if (ctx.hosts.length === 0) return '问题域名';
-  const seenBase = new Set<string>();
-  const displayItems: string[] = [];
-
-  ctx.hosts.forEach(host => {
-    const item = hostDisplayParts(host);
-    if (seenBase.has(item.base)) return;
-    seenBase.add(item.base);
-    displayItems.push(displayItems.length === 0 && item.prefix ? `${item.base}（${item.raw}）` : item.base);
-  });
-
-  return displayItems.join('、');
+  return ctx.hosts.join('、');
 }
 
 function sortCodesByTroubleshootingPriority(codes: number[]): number[] {
@@ -185,28 +172,28 @@ function addExactCodeActions(ctx: ErrorContext, actions: KnowledgeAction[]) {
 
   if (codes.has(-202)) {
     actions.push(
-      action(ctx, 'user', 'cert-authority-network-compare', '切换网络判断是否为企业证书替换', `检测到 -202 ${getNetErrorDescription(-202)}。先用手机热点或非公司网络访问 ${hosts}；如果换网络后正常，优先怀疑公司网关、代理、VPN、防火墙或安全软件做了 HTTPS 解密/证书替换。`, 40),
-      action(ctx, 'user', 'cert-authority-view-cert', '查看证书颁发者和证书链', '打开浏览器证书详情，记录证书颁发者、证书链、有效期和证书指纹。若颁发者是企业 CA、安全软件或异常 CA，说明客户端信任链或 HTTPS 解密策略需要 IT 介入。', 41),
-      action(ctx, 'it', 'cert-authority-it-inspection', '检查 HTTPS 解密和企业根证书策略', `核对防火墙、VPN、代理、终端安全软件是否对 ${hosts} 启用了 TLS inspection / HTTPS inspection；如是可信业务域名，评估加入 HTTPS 解密绕过或证书信任策略。`, 1, 'needs-approval', 'medium'),
-      action(ctx, 'backend', 'cert-authority-server-chain', '核验服务端证书链和 CA 信任', `确认 ${hosts} 使用公开可信 CA 签发的证书，服务端返回完整中间证书链，证书未使用自签名或未被客户端信任的私有 CA。`, 1, 'safe', 'medium')
+      action(ctx, 'user', 'cert-authority-view-cert', '查看证书颁发者和证书链', `检测到 -202 ${getNetErrorDescription(-202)}。记录 ${hosts} 的证书 SAN、颁发者、证书链、有效期和指纹；这些字段用于确认实际对端和信任链。`, 40),
+      action(ctx, 'user', 'cert-authority-network-compare', '切换网络对比证书链', `在另一网络访问 ${hosts} 并比较证书指纹与颁发者。只有证书链随网络路径变化时，才提高代理或 HTTPS Inspection 的关联置信度。`, 41),
+      action(ctx, 'it', 'cert-authority-it-inspection', '检查 HTTPS 解密和企业根证书策略', `如果实际颁发者指向企业 CA 或证书链随网络变化，核对 ${hosts} 的 TLS inspection / HTTPS inspection 和根证书下发策略。`, 1, 'needs-approval', 'medium'),
+      action(ctx, 'backend', 'cert-authority-server-chain', '核验服务端证书链和 CA 信任', `如果跨网络均返回相同不受信任证书，检查 ${hosts} 是否返回完整中间证书链，以及证书 CA 是否符合服务部署预期。`, 1, 'safe', 'medium')
     );
   }
 
   if (codes.has(-105) || codes.has(-137)) {
-    const dnsBaseRank = ctx.hasConfirmedProxy ? 30 : 10;
+    const dnsBaseRank = ctx.hasProxyConfiguration ? 30 : 10;
     actions.push(
-      action(ctx, 'user', 'dns-resolve-check', '检查 DNS 配置和解析结果', `检测到域名解析失败（${formatCodes(ctx.codes.filter(code => code === -105 || code === -137))}）。先确认 ${hosts} 在当前网络下能否解析；检查系统 DNS、企业 DNS、DoH/安全 DNS、hosts 配置是否把问题域名解析错或拦截。`, dnsBaseRank),
-      action(ctx, 'user', 'dns-network-compare', '切换网络验证 DNS 是否受当前网络影响', `切换到手机热点或其他网络后重新访问 ${hosts}。如果切网后恢复，优先排查当前网络 DNS、企业网关、运营商解析或安全 DNS 策略。`, dnsBaseRank + 1),
-      action(ctx, 'it', 'dns-it-policy', '核对企业 DNS 和域名解析策略', `检查企业 DNS、内网 DNS、DoH 策略、DNS 劫持和域名黑白名单，确认 ${hosts} 没有被错误解析、拒绝解析或解析到不可达地址。`, 1, 'needs-approval', 'medium')
+      action(ctx, 'user', 'dns-resolve-check', '检查 DNS 配置和解析结果', `检测到域名解析失败（${formatCodes(ctx.codes.filter(code => code === -105 || code === -137))}）。先记录 ${hosts} 的当前解析；中国大陆网络可用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 逐个对照。临时修改系统 DNS 前记录原配置，测试后恢复；首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}。`, dnsBaseRank),
+      action(ctx, 'user', 'dns-network-compare', '切换网络验证解析路径相关性', `用同一设备切换手机热点后重新解析和访问 ${hosts}。若热点多次正常、工区网络多次失败，后续优先检查工区 DNS、出口和策略；仍不能锁定具体设备。`, dnsBaseRank + 1),
+      action(ctx, 'it', 'dns-it-policy', '核对企业 DNS 和域名解析策略', `检查企业/内网 DNS、DoH、Split DNS、域名策略和返回状态，确认 ${hosts} 是否按预期解析。`, 1, 'needs-approval', 'medium')
     );
   }
 
   if (codes.has(-101)) {
-    const connectionBaseRank = ctx.hasConfirmedProxy ? 6 : 12;
+    const connectionBaseRank = ctx.hasProxyConfiguration ? 6 : 12;
     actions.push(
-      action(ctx, 'user', 'connection-reset-security', '检查安全软件或防火墙是否拦截', `连接被 RST 重置常见于安全软件、终端防护、防火墙、TLS SNI 检测或网关策略。确认 ${hosts} 已加入白名单，且没有被 HTTPS 扫描、访问控制或审计策略拦截。`, connectionBaseRank, 'needs-approval', 'medium'),
-      action(ctx, 'user', 'connection-reset-network', '切换网络验证连接是否被当前网络重置', `检测到 -101 ${getNetErrorDescription(-101)}。先用手机热点或其他网络重试 ${hosts}；如果换网络恢复，优先排查当前 Wi-Fi、公司网关、防火墙、代理或运营商链路。`, connectionBaseRank + 1),
-      action(ctx, 'it', 'connection-reset-it', '核对网关、防火墙和 TLS SNI 检测日志', `按错误码 -101、问题域名 ${hosts} 和复现时间点检查防火墙、准入系统、代理、WAF、TLS SNI 深度检测和连接重置日志。`, 1, 'needs-approval', 'medium')
+      action(ctx, 'user', 'connection-reset-source-chain', '查看重置前后的 source chain', `检测到 -101 ${getNetErrorDescription(-101)}。先确认 ${hosts} 的实际目标 IP、端口、代理路径以及 RST 前的 TLS/HTTP 事件；错误码本身不标识重置方。`, connectionBaseRank),
+      action(ctx, 'user', 'connection-reset-network', '切换网络验证路径相关性', `用同一设备切换手机热点后重试 ${hosts}。若热点多次正常、工区网络多次失败，后续优先检查工区网络路径；仍不能直接确认防火墙、代理或安全软件。`, connectionBaseRank + 1),
+      action(ctx, 'it', 'connection-reset-it', '检查安全软件、防火墙白名单和重置日志', `按错误码 -101、目标端点和复现时间检查网关、防火墙、代理、${CONNECTION_RESET_SECURITY_EXAMPLES} 的拦截日志及域名/IP/端口白名单，并与负载均衡和服务端 RST 日志交叉验证。厂商名仅为排查范围示例，不代表已确认拦截。`, 1, 'needs-approval', 'medium')
     );
   }
 }
@@ -216,9 +203,9 @@ function addCategoryActions(ctx: ErrorContext, actions: KnowledgeAction[]) {
 
   const dnsCodes = ctx.codesByCategory.get('DNS') || [];
   if (dnsCodes.length > 0 && !ctx.codes.some(code => code === -105 || code === -137)) {
-    const dnsBaseRank = ctx.hasConfirmedProxy ? 30 : 15;
+    const dnsBaseRank = ctx.hasProxyConfiguration ? 30 : 15;
     actions.push(
-      action(ctx, 'user', 'dns-category-check', '检查 DNS 解析链路', `检测到 DNS 类错误（${formatCodes(dnsCodes)}）。检查系统 DNS、企业 DNS、DoH/安全 DNS、hosts、DNS 缓存，并对 ${hosts} 做解析对比。`, dnsBaseRank),
+      action(ctx, 'user', 'dns-category-check', '检查 DNS 解析链路', `检测到 DNS 类错误（${formatCodes(dnsCodes)}）。记录当前结果，并用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 对 ${hosts} 做临时解析对比；测试后恢复原 DNS，差异不直接证明根因。`, dnsBaseRank),
       action(ctx, 'it', 'dns-category-it', '检查 DNS 服务器和解析策略', `核对 DNS 服务器可用性、递归解析、内外网 split-horizon 解析、域名黑白名单和 DoH 策略，确认 ${hosts} 未被错误处理。`, 10, 'needs-approval', 'medium')
     );
   }
@@ -236,21 +223,21 @@ function addCategoryActions(ctx: ErrorContext, actions: KnowledgeAction[]) {
   const primaryConnectionCodes = connectionCodes.filter(code => code !== -173);
   const supplementalConnectionCodes = connectionCodes.filter(code => code === -173);
   if (connectionCodes.length > 0 && !ctx.codes.includes(-101)) {
-    const connectionBaseRank = ctx.hasConfirmedProxy ? 6 : 20;
+    const connectionBaseRank = ctx.hasProxyConfiguration ? 6 : 20;
     const codeDescription = primaryConnectionCodes.length > 0
       ? `${formatCodes(primaryConnectionCodes)}${supplementalConnectionCodes.length > 0 ? `；补充观察到 ${formatCodes(supplementalConnectionCodes)}` : ''}`
       : formatCodes(connectionCodes);
     actions.push(
-      action(ctx, 'user', 'connection-category-security', '检查防火墙或安全软件拦截', `确认 ${hosts} 未被安全软件、终端防护、防火墙、VPN、网关策略或 HTTPS 扫描拦截。`, connectionBaseRank, 'needs-approval', 'medium'),
-      action(ctx, 'user', 'connection-category-network', '验证网络连接是否稳定', `检测到连接类错误（${codeDescription}）。切换网络重试访问域名：${hosts}，确认是否由当前 Wi-Fi、网关、运营商链路或公司网络策略导致。`, connectionBaseRank + 1),
+      action(ctx, 'user', 'connection-category-evidence', '核对连接端点和失败阶段', `检测到连接类错误（${codeDescription}）。查看 ${hosts} 的 socket/source chain，确认目标 IP、端口、代理路径和最后完成阶段。`, connectionBaseRank),
+      action(ctx, 'user', 'connection-category-network', '切换网络验证路径相关性', `用同一设备切换手机热点后重试 ${hosts}；热点多次正常、工区网络多次失败时，优先检查工区网络路径，但不能单独确定具体设备。`, connectionBaseRank + 1),
       action(ctx, 'backend', 'connection-category-backend', '核对服务端端口和连接策略', `检查 ${hosts} 的服务监听、负载均衡、连接池、限流、主动断连和服务端错误日志。`, 10, 'safe', 'medium')
     );
   }
 
   const proxyCodes = ctx.codesByCategory.get('代理') || [];
-  if (proxyCodes.length > 0 || ctx.hasConfirmedProxy) {
+  if (proxyCodes.length > 0 || ctx.hasProxyConfiguration) {
     actions.push(
-      action(ctx, 'user', 'proxy-compare', '临时关闭代理/VPN后重试', `检测到代理线索${proxyCodes.length ? `（${formatCodes(proxyCodes)}）` : ''}。在符合公司安全策略的前提下，临时关闭代理/VPN 或切换到不走代理的网络访问 ${hosts}，判断是否为代理链路问题。`, 5, 'needs-approval'),
+      action(ctx, 'user', 'proxy-compare', '临时关闭代理/VPN后重试', `检测到代理线索${proxyCodes.length ? `（${formatCodes(proxyCodes)}）` : ''}。在符合公司安全策略的前提下做代理/直连对照并记录 ${hosts} 的同一请求结果，测试后恢复原设置；若直连多次稳定恢复，优先核对 PAC、CONNECT、路由和 DNS，但不确认唯一根因。`, 5, 'needs-approval'),
       action(ctx, 'it', 'proxy-policy-check', '检查 PAC、代理服务器和域名白名单', `核对 ProxyMode、ProxyPacUrl、ProxyServer、ProxyBypassList、PAC 返回结果、代理认证和 ${hosts} 的分流/白名单策略。`, 10, 'needs-approval', 'medium')
     );
   }
@@ -258,8 +245,8 @@ function addCategoryActions(ctx: ErrorContext, actions: KnowledgeAction[]) {
   const protocolCodes = ctx.codesByCategory.get('协议') || [];
   if (protocolCodes.length > 0) {
     actions.push(
-      action(ctx, 'user', 'protocol-compare', '对比 HTTP/2、QUIC 或 TLS 协议链路', `检测到协议类错误（${formatCodes(protocolCodes)}）。如果问题集中在 HTTP/2 或 QUIC，优先检查代理/网关是否支持对应协议；必要时做降级对比验证。`, 60, 'needs-approval', 'medium'),
-      action(ctx, 'it', 'protocol-it', '检查中间设备协议兼容性', '核对防火墙、代理、网关、WAF 是否修改或阻断 HTTP/2、QUIC、TLS、ALPN、ECH 等协议能力。', 10, 'needs-approval', 'medium')
+      action(ctx, 'user', 'protocol-compare', '核对协议错误和回退结果', `检测到协议类错误（${formatCodes(protocolCodes)}）。查看具体错误码、方向、连接/stream id 和自动回退结果；受控降级只用于验证协议路径相关性。`, 60, 'needs-approval', 'medium'),
+      action(ctx, 'it', 'protocol-it', '核对端点与中间设备协议日志', '按复现时间分别核对客户端、服务端、代理和网关的 HTTP/2、QUIC、TLS、ALPN 或 ECH 记录，避免默认归因中间设备。', 10, 'needs-approval', 'medium')
     );
   }
 
@@ -307,7 +294,7 @@ export function buildNetErrorKnowledgeActionGroups(cards: DiagnosticCard[]): Act
   const ctx = createContext(cards);
   const actions: KnowledgeAction[] = [];
 
-  if (ctx.codes.length === 0 && !ctx.hasConfirmedProxy) return [];
+  if (ctx.codes.length === 0 && !ctx.hasProxyConfiguration) return [];
 
   addExactCodeActions(ctx, actions);
   addCategoryActions(ctx, actions);

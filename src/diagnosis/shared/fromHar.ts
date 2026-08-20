@@ -277,11 +277,11 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
       actions.push(
         {
           role: 'user',
-          title: '更换 DNS 测试',
-          detail: '国内用户修改 DNS 为 223.5.5.5 或 119.29.29.29；海外用户修改为 8.8.8.8 或 1.1.1.1',
-          command: 'nslookup example.com 223.5.5.5',
+          title: '对照 DNS 解析结果',
+          detail: 'HAR 只能显示 DNS timing；请记录当前解析结果，再与组织批准的对照解析器比较，不要直接修改系统 DNS。',
+          command: 'nslookup example.com <DNS服务器IP>',
           platform: 'all',
-          expectedResult: '应返回正确的 IP 地址',
+          expectedResult: '记录返回状态与地址；差异仍需结合 NetLog、Split DNS 和 CDN 调度解释。',
         },
         {
           role: 'user',
@@ -302,10 +302,10 @@ function buildAttributionActions(attr: AttributionItem): DiagnosticAction[] {
         {
           role: 'user',
           title: '检查网络连通性',
-          detail: '使用 ping 测试到目标域名的连通性和延迟',
-          command: 'ping example.com -n 20',
+          detail: '使用 curl/connect 工具验证实际目标端点；ping 仅作 ICMP 辅助证据。',
+          command: 'curl -v --connect-timeout 5 https://example.com',
           platform: 'all',
-          expectedResult: '丢包率应 < 5%，延迟应 < 200ms',
+          expectedResult: '记录连接、TLS 和 HTTP 结果；失败类型应与 HAR/NetLog 对齐。',
         },
         {
           role: 'user',

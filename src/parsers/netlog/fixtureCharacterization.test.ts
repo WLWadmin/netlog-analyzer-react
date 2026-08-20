@@ -353,7 +353,7 @@ describe('NetLog diagnosis summary fixture characterization', () => {
     ]));
     const dnsCard = summary.cards.find(card => card.category === 'dns' && card.severity === 'critical');
     expect(dnsCard?.actions.map(action => action.title)).toEqual(expect.arrayContaining([
-      '更换 DNS 测试',
+      '对照 DNS 解析结果',
       '检查企业 DNS 配置',
     ]));
   });

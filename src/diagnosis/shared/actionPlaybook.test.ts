@@ -35,6 +35,23 @@ describe('actionPlaybook', () => {
   it('marks system-changing actions as needs-approval', () => {
     expect(getPlaybookActions('proxy').some(action => action.risk === 'needs-approval')).toBe(true);
     expect(getPlaybookActions('tls').some(action => action.risk === 'needs-approval')).toBe(true);
+    expect(getPlaybookActions('dns').find(action => action.id === 'dns-public-resolver-compare')?.risk).toBe('needs-approval');
+  });
+
+  it('保留 DNS 与热点经验动作，同时明确回退和证据边界', () => {
+    const dnsActions = getPlaybookActions('dns');
+    const dnsCompare = dnsActions.find(action => action.id === 'dns-public-resolver-compare');
+    const networkCompare = getPlaybookActions('connect').find(action => action.id === 'connect-network-compare');
+    const dnsText = JSON.stringify(dnsCompare);
+
+    expect(dnsText).toContain('223.5.5.5');
+    expect(dnsText).toContain('223.6.6.6');
+    expect(dnsText).toContain('119.29.29.29');
+    expect(dnsText).toContain('180.76.76.76');
+    expect(dnsCompare?.nextIfFailed).toContain('恢复原 DNS');
+    expect(dnsCompare?.resultImprovesMeaning).toContain('不直接生成新的确定根因');
+    expect(networkCompare?.expectedResult).toContain('优先检查工区');
+    expect(networkCompare?.expectedResult).toContain('不确认具体设备');
   });
 
   it('enriches card actions without dropping existing actions', () => {

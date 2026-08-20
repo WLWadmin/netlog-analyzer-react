@@ -933,11 +933,10 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(userActions.some(action => action.title === '切换网络复测')).toBe(true);
     expect(userActions.some(action => action.title.includes('连接') || action.detail.includes('-101'))).toBe(true);
     expect(itActions.some(action => action.title === '封禁候选 IP')).toBe(false);
-    expect(itActions.some(action => action.title === '封禁候选 IP')).toBe(false);
     expect(userActions.some(action => action.title === '切换网络对比连接')).toBe(true);
   });
 
-  it('根据 NetLog 错误码生成 DNS、网络稳定性和安全软件排查行动', () => {
+  it('根据 NetLog 错误码保留 DNS 对照、工区路径和安全软件排查经验', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
         id: 'multi-error-card',
@@ -959,18 +958,32 @@ describe('buildFinalDiagnosisSummary', () => {
     ]), 'netlog');
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
-    expect(userActions.some(action => action.title === '检查 DNS 配置和解析结果')).toBe(true);
-    expect(userActions.some(action => action.title === '切换网络验证连接是否被当前网络重置')).toBe(true);
-    expect(userActions.some(action => action.title === '检查安全软件或防火墙是否拦截')).toBe(true);
+    const itActions = result.actionPlan.find(group => group.role === 'it')?.actions || [];
+    const dnsAction = userActions.find(action => action.title === '检查 DNS 配置和解析结果');
+    const networkAction = userActions.find(action => action.title === '切换网络验证路径相关性');
+    const securityAction = itActions.find(action => action.title === '检查安全软件、防火墙白名单和重置日志');
+    expect(dnsAction?.detail).toContain('223.5.5.5');
+    expect(dnsAction?.detail).toContain('223.6.6.6');
+    expect(dnsAction?.detail).toContain('119.29.29.29');
+    expect(dnsAction?.detail).toContain('180.76.76.76');
+    expect(dnsAction?.detail).toContain('测试后恢复');
+    expect(userActions.some(action => action.title === '查看重置前后的 source chain')).toBe(true);
+    expect(networkAction?.detail).toContain('工区网络');
+    expect(networkAction?.detail).toContain('不能直接确认');
+    expect(securityAction?.detail).toContain('深信服');
+    expect(securityAction?.detail).toContain('火绒');
+    expect(securityAction?.detail).toContain('白名单');
+    expect(securityAction?.detail).toContain('不代表已确认拦截');
+    expect(securityAction?.risk).toBe('needs-approval');
     expect(userActions.some(action => action.title === '确认 WebSocket / 协议升级链路')).toBe(true);
     expect(userActions.some(action => action.title.includes('重新采集'))).toBe(false);
     expect(userActions.findIndex(action => action.title === '确认 WebSocket / 协议升级链路'))
       .toBeGreaterThan(userActions.findIndex(action => action.title === '检查 DNS 配置和解析结果'));
     expect(userActions.findIndex(action => action.title === '确认 WebSocket / 协议升级链路'))
-      .toBeGreaterThan(userActions.findIndex(action => action.title === '切换网络验证连接是否被当前网络重置'));
+      .toBeGreaterThan(userActions.findIndex(action => action.title === '切换网络验证路径相关性'));
   });
 
-  it('明确代理诊断时前三个用户操作是代理对比、安全拦截、网络稳定性', () => {
+  it('代理配置场景优先做代理对比，再核对连接端点和路径相关性', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({
         id: 'proxy-primary-card',
@@ -994,15 +1007,14 @@ describe('buildFinalDiagnosisSummary', () => {
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
     expect(userActions[0]?.title).toBe('临时关闭代理/VPN后重试');
-    expect(userActions[1]?.title).toBe('检查防火墙或安全软件拦截');
-    expect(userActions[2]?.title).toBe('验证网络连接是否稳定');
-    expect(userActions[2]?.detail).toContain('-100');
-    expect(userActions[2]?.detail).toContain('-173');
-    expect(userActions[2]?.detail.indexOf('-100')).toBeLessThan(userActions[2]?.detail.indexOf('-173'));
-    expect(userActions[2]?.detail).toContain('*.feishu.cn（pcnfy7i3x66l.feishu.cn）');
-    expect(userActions[2]?.detail).toContain('*.feishucdn.com');
-    expect(userActions[2]?.detail).not.toContain('*.feishucdn.com（lf-package-cn.feishucdn.com）');
-    expect(userActions[2]?.detail).not.toContain('open.feishu.cn');
+    expect(userActions[1]?.title).toBe('核对连接端点和失败阶段');
+    expect(userActions[2]?.title).toBe('切换网络验证路径相关性');
+    expect(userActions[1]?.detail).toContain('-100');
+    expect(userActions[1]?.detail).toContain('-173');
+    expect(userActions[1]?.detail.indexOf('-100')).toBeLessThan(userActions[1]?.detail.indexOf('-173'));
+    expect(userActions[1]?.detail).toContain('pcnfy7i3x66l.feishu.cn');
+    expect(userActions[1]?.detail).toContain('open.feishu.cn');
+    expect(userActions[1]?.detail).toContain('lf-package-cn.feishucdn.com');
   });
 
   it('缺失信息包含常规网络排查信息收集项', () => {
@@ -1023,12 +1035,12 @@ describe('buildFinalDiagnosisSummary', () => {
     expect(commonInfo?.recommendation).toContain('客户端 IP / DNS 出口');
     expect(commonInfo?.recommendation).toContain('DNS / IP 连通性 / 丢包率 / 路由信息');
     expect(commonInfo?.recommendation).toContain('上网方式和环境信息');
-    expect(commonInfo?.detailGroups?.[0].items[0]).toContain('https://ip.skk.moe/');
+    expect(commonInfo?.detailGroups?.[0].items[0]).toContain('使用组织批准的工具获取出口信息');
     expect(commonInfo?.detailGroups?.[1].title).toBe('打不开或请求慢的 URL 如何获取');
     expect(commonInfo?.detailGroups?.[1].items.join(' ')).toContain('URL 的域名');
     expect(commonInfo?.detailGroups?.[2].items.join(' ')).toContain('nslookup [问题域名]');
     expect(commonInfo?.detailGroups?.[2].items.join(' ')).toContain('traceroute [问题域名]');
-    expect(commonInfo?.detailGroups?.[2].items.join(' ')).toContain('[网络信息收集说明](https://bytedance.larkoffice.com/docx/FOmKdpdCfoIl4WxV8eqc37BOnO1)');
+    expect(commonInfo?.detailGroups?.[2].items.join(' ')).toContain('不响应 ICMP 不等于业务端口不可达');
     expect(commonInfo?.detailGroups?.[3].title).toBe('Wireshark 抓包文件');
     expect(commonInfo?.detailGroups?.[3].items.join(' ')).toContain('.pcapng');
   });
@@ -1053,7 +1065,7 @@ describe('buildFinalDiagnosisSummary', () => {
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
     const itActions = result.actionPlan.find(group => group.role === 'it')?.actions || [];
     const backendActions = result.actionPlan.find(group => group.role === 'backend')?.actions || [];
-    expect(userActions.some(action => action.title === '切换网络判断是否为企业证书替换')).toBe(true);
+    expect(userActions.some(action => action.title === '切换网络对比证书链')).toBe(true);
     expect(userActions.some(action => action.title === '查看证书颁发者和证书链')).toBe(true);
     expect(itActions.some(action => action.title === '检查 HTTPS 解密和企业根证书策略')).toBe(true);
     expect(backendActions.some(action => action.title === '核验服务端证书链和 CA 信任')).toBe(true);
@@ -1101,8 +1113,8 @@ describe('buildFinalDiagnosisSummary', () => {
 
     const userActions = result.actionPlan.find(group => group.role === 'user')?.actions || [];
     const itActions = result.actionPlan.find(group => group.role === 'it')?.actions || [];
-    expect(userActions.some(action => action.title === '对比 HTTP/2、QUIC 或 TLS 协议链路')).toBe(true);
-    expect(itActions.some(action => action.title === '检查中间设备协议兼容性')).toBe(true);
+    expect(userActions.some(action => action.title === '核对协议错误和回退结果')).toBe(true);
+    expect(itActions.some(action => action.title === '核对端点与中间设备协议日志')).toBe(true);
   });
 
   it('阻止类错误 -138 输出安全策略排查行动', () => {

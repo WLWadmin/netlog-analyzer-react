@@ -233,7 +233,7 @@ function buildSummary(
     copyableIps,
     copyableDnsServers,
     guidance: [
-      '先看 DNS 服务器是否为海外公共 DNS、本地网关 DNS 或公共 DNS；如怀疑 CDN 调度异常，优先对比运营商 DNS / 企业 DNS。',
+      '先记录 DNS server 类型，但不要根据地址或地域判断故障；只有请求或 DNS task 指向解析问题时，再对比当前与组织批准的解析器。',
       '再复制失败/慢请求关联的 CIP/SIP 到可访问的 IP 归属查询网站、企业 IP 库或发给网络团队确认运营商和地域。',
       '如果失败/慢请求 SIP 或 DNS answer 查询结果为海外，属于跨境调度线索；如果与用户当前网络运营商不同，属于跨运营商访问线索。',
     ],

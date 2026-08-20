@@ -4,6 +4,10 @@
  */
 
 import type { DiagnosticCategory, DiagnosticRole } from './types';
+import {
+  MAINLAND_CHINA_DNS_COMPARISON_LIST,
+  MAINLAND_CHINA_DNS_NON_DEFAULT_LIST,
+} from './networkTroubleshootingExperience';
 
 export interface TroubleshootingCommand {
   id: string;
@@ -27,19 +31,19 @@ export const COMMAND_LIBRARY: TroubleshootingCommand[] = [
     command: 'nslookup example.com',
     platform: 'all',
     description: '测试域名是否能正常解析到 IP 地址',
-    expectedResult: '应返回一个或多个 IP 地址',
-    nextIfFailed: '尝试使用其他 DNS 服务器测试（nslookup example.com 8.8.8.8）',
+    expectedResult: '记录解析器、响应状态和返回地址；无地址时继续查看具体 DNS 错误',
+    nextIfFailed: `中国大陆网络可用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 逐个重复查询，并记录结果差异`,
   },
   {
-    id: 'dns-lookup-alidns',
+    id: 'dns-lookup-reference',
     category: 'dns',
     role: 'user',
-    title: '使用阿里 DNS 解析测试',
+    title: '使用国内公共解析器对照测试',
     command: 'nslookup example.com 223.5.5.5',
     platform: 'all',
-    description: '使用阿里公共 DNS 测试域名解析',
-    expectedResult: '应返回正确的 IP 地址',
-    nextIfFailed: '尝试使用腾讯 DNS（119.29.29.29）或 Google DNS（8.8.8.8）',
+    description: `中国大陆网络可依次使用 ${MAINLAND_CHINA_DNS_COMPARISON_LIST} 对比返回状态和地址；先查询，必要时才临时修改系统 DNS`,
+    expectedResult: '记录前后返回状态、地址和请求结果；差异只作为 DNS 路径或调度线索',
+    nextIfFailed: `修改前记录原配置，测试后恢复；首轮不默认选择 ${MAINLAND_CHINA_DNS_NON_DEFAULT_LIST}，并继续检查 DNS task、DoH、VPN、代理和 Split DNS`,
   },
   {
     id: 'dns-dig',
@@ -49,7 +53,7 @@ export const COMMAND_LIBRARY: TroubleshootingCommand[] = [
     command: 'dig example.com +short',
     platform: 'macos',
     description: '使用 dig 命令获取更详细的 DNS 解析信息',
-    expectedResult: '应返回 IP 地址',
+    expectedResult: '记录响应状态、Answer 和使用的解析器；无 Answer 不自动等于域名不存在',
   },
   {
     id: 'dns-flush-mac',
@@ -78,11 +82,11 @@ export const COMMAND_LIBRARY: TroubleshootingCommand[] = [
     category: 'connect',
     role: 'user',
     title: 'Ping 连通性测试',
-    command: 'ping example.com -n 20',
+    command: 'ping example.com',
     platform: 'all',
     description: '测试到目标域名的网络连通性和延迟',
-    expectedResult: '丢包率 < 5%，延迟 < 200ms',
-    nextIfFailed: '尝试 ping IP 地址排除 DNS 问题；检查防火墙是否拦截 ICMP',
+    expectedResult: '记录是否响应和往返时间变化；目标不响应 ICMP 不等于 HTTP/TCP 不可达',
+    nextIfFailed: '改用 curl/connect 工具验证实际服务端口，并结合 traceroute/MTR',
   },
   {
     id: 'conn-traceroute',
@@ -150,7 +154,7 @@ export const COMMAND_LIBRARY: TroubleshootingCommand[] = [
     platform: 'all',
     description: '绕过系统代理直接访问目标地址',
     expectedResult: '应能正常访问目标地址',
-    nextIfFailed: '如果绕过代理后正常，说明代理配置有问题',
+    nextIfFailed: '如果绕过代理后恢复，只能说明代理路径相关；继续核对 PAC、认证、CONNECT 和代理日志',
   },
   {
     id: 'proxy-check-mac',

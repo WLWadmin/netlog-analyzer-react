@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Card, Table, Tag } from 'antd';
 import { ApiOutlined, SwapOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { AnalysisResult } from '../../parsers/netlog/parser';
+import { AnalysisResult, ParsedEvent } from '../../parsers/netlog/parser';
 import { isHttp2Goaway, isHttp2GoawayRecv, isHttp2GoawaySend } from '../../parsers/netlog/constants';
 import { HealthAssessmentCard, HealthAssessment } from '../../components/shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
@@ -24,12 +24,8 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
   const hasHttp2 = result.http2Events.length > 0;
   const hasQuic = result.quicEvents.length > 0;
 
-  // HTTP/1 is implicit (not tracked as events, but if no H2/QUIC, it's H1)
-  const hasH1 = !hasHttp2 && !hasQuic;
-
-  if (hasH1) {
-    findings.push({ icon: 'ℹ️', text: '未检测到 HTTP/2 或 QUIC 事件，所有请求使用 HTTP/1.1', severity: 'info' });
-    score -= 5;
+  if (!hasHttp2 && !hasQuic) {
+    findings.push({ icon: 'ℹ️', text: '未记录 HTTP/2 或 QUIC 事件；不能据此证明所有请求均使用 HTTP/1.1', severity: 'info' });
   }
 
   // ---- HTTP/2 Analysis ----
@@ -50,7 +46,7 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
     if (goawaySent.length > 0 || goawayRecv.length > 0) {
       const totalGoaway = goawaySent.length + goawayRecv.length;
       // Extract error codes from GOAWAY
-      const getGoawayErrorCode = (e: any): string | null => {
+      const getGoawayErrorCode = (e: ParsedEvent): string | null => {
         const code = e.params?.error_code ?? e.params?.status;
         if (code === undefined || code === null || code === '') return null;
         return String(code);
@@ -63,31 +59,31 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
       const errorCodeText = goawayErrorCodes.length > 0
         ? `错误码: ${goawayErrorCodes.join(', ')}`
         : '未记录明确错误码';
+      const hasErrorGoaway = goawayErrorCodes.some(code => Number(code) !== 0);
 
       findings.push({
-        icon: '⚠️',
+        icon: hasErrorGoaway ? '⚠️' : 'ℹ️',
         text: `HTTP/2: 检测到 ${totalGoaway} 个 GOAWAY 帧（发送 ${goawaySent.length}，接收 ${goawayRecv.length}），${errorCodeText}`,
-        severity: totalGoaway > 3 ? 'error' : 'warning',
+        severity: hasErrorGoaway ? 'warning' : 'info',
       });
-      score -= totalGoaway > 3 ? 25 : 15;
+      if (hasErrorGoaway) score -= 10;
 
       // Analyze GOAWAY error codes
       for (const code of goawayErrorCodes) {
         const numCode = Number(code);
         if (numCode === 0) {
-          suggestions.push('GOAWAY 错误码 0 (NO_ERROR)：正常关闭，可能是服务器重启或连接空闲超时');
+          suggestions.push('GOAWAY 错误码 0 (NO_ERROR)：对端发起无错误的连接关闭；需结合 last_stream_id 和请求重试判断影响');
         } else if (numCode === 1) {
-          suggestions.push('GOAWAY 错误码 1 (PROTOCOL_ERROR)：协议错误，可能是代理/TLB 不支持 HTTP/2 导致');
-          score -= 5;
+          suggestions.push('GOAWAY 错误码 1 (PROTOCOL_ERROR)：对端报告协议错误；错误码本身不标识违规端或中间设备');
         } else if (numCode === 2) {
-          suggestions.push('GOAWAY 错误码 2 (INTERNAL_ERROR)：服务器内部错误，可能是服务端或 TLB 问题');
+          suggestions.push('GOAWAY 错误码 2 (INTERNAL_ERROR)：发送 GOAWAY 的端点报告内部错误；先确认发送方向');
         } else if (numCode === 11) {
-          suggestions.push('GOAWAY 错误码 11 (INTERNAL_ERROR)：HTTP/2 连接黑洞，常见于应用切后台休眠后恢复');
+          suggestions.push('GOAWAY 错误码 11 (ENHANCE_YOUR_CALM)：端点认为对端行为可能产生过高负载；需查看方向和 debug data');
         } else {
-          suggestions.push(`GOAWAY 错误码 ${code}，需进一步排查`);
+          suggestions.push(`GOAWAY 错误码 ${code}：结合发送方向、last_stream_id、debug data 和请求重试结果解释`);
         }
       }
-      suggestions.push('如果频繁出现 GOAWAY，尝试在 chrome://flags 中禁用 HTTP/2 强制走 HTTP/1.1 对比测试');
+      suggestions.push('确认 GOAWAY 之后哪些 stream 未处理、是否自动重试，以及重试是否成功');
     } else {
       findings.push({ icon: '✅', text: 'HTTP/2: 未检测到 GOAWAY 帧，连接状态正常', severity: 'info' });
     }
@@ -103,13 +99,13 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
       e.params.error_code || (e.params.net_error && e.params.net_error !== 0)
     ).filter(e => e.source.typeName === 'HTTP2_STREAM');
 
-    if (streamErrors.length > 5) {
+    if (streamErrors.length > 0) {
       findings.push({
         icon: '⚠️',
-        text: `HTTP/2: ${streamErrors.length} 个流级别错误/取消，可能存在连接不稳定或代理干扰`,
+        text: `HTTP/2: 记录到 ${streamErrors.length} 个流级别错误/取消；需区分主动取消、RST_STREAM 和协议错误`,
         severity: 'warning',
       });
-      score -= 10;
+      suggestions.push('按 stream id 关联具体请求、RST_STREAM 方向和错误码；取消事件不能自动算作网络故障');
     }
   }
 
@@ -137,95 +133,44 @@ function assessProtocolHealth(result: AnalysisResult): HealthAssessment {
     if (quicErrors.length > 0) {
       const quicErrorCodes = [...new Set(quicErrors.map(e => String(e.params.error_code || e.params.net_error)))];
       findings.push({
-        icon: quicErrors.length > 10 ? '🚨' : '⚠️',
+        icon: '⚠️',
         text: `QUIC: ${quicErrors.length} 个错误，错误码: ${quicErrorCodes.slice(0, 5).join(', ')}${quicErrorCodes.length > 5 ? '...' : ''}`,
-        severity: quicErrors.length > 10 ? 'error' : 'warning',
+        severity: 'warning',
       });
-      score -= quicErrors.length > 10 ? 25 : 15;
+      score -= 10;
 
       // Analyze QUIC error patterns
       if (quicErrorCodes.some(c => c.includes('356') || c.includes('QUIC_PROTOCOL_ERROR'))) {
-        suggestions.push('QUIC_PROTOCOL_ERROR (-356)：弱网、UDP 443 策略、NAT/中间设备和服务端 QUIC 实现都可能相关');
-        suggestions.push('在 chrome://flags 中禁用 QUIC 后对比测试；恢复只能说明 QUIC/UDP 路径相关，仍需继续核对具体原因');
+        suggestions.push('QUIC_PROTOCOL_ERROR (-356)：确认具体 QUIC error、关闭方向、握手阶段和 HTTP/2 回退结果');
       }
-      if (quicErrorCodes.some(c => c.includes('355') || c.includes('QUIC_HANDSHAKE_FAILED'))) {
-        suggestions.push('QUIC_HANDSHAKE_FAILED (-355)：握手失败，可能是防火墙阻止 UDP 443 或网络中间设备不支持 QUIC');
+      if (quicErrorCodes.some(c => c.includes('358') || c.includes('QUIC_HANDSHAKE_FAILED'))) {
+        suggestions.push('QUIC_HANDSHAKE_FAILED (-358)：握手未完成且服务端无法读取请求，可结合回退结果判断用户影响');
       }
-      suggestions.push('联系 IT 排查防火墙是否阻止了 UDP 端口 443（QUIC 使用 UDP）');
-      suggestions.push('检查是否有 UDP Flood 防护策略影响了 QUIC 连接');
+      suggestions.push('如果仅特定网络复现，再由 IT 核对 UDP 路径和策略；跨网络均复现时核对服务端 QUIC 配置');
     } else {
       findings.push({ icon: '✅', text: 'QUIC: 未检测到协议错误，连接状态正常', severity: 'info' });
     }
 
-    // Check QUIC vs TCP performance comparison
-    const quicRequestTimings = result.urlRequests
-      .filter(r => r.events.some(e => e.source.typeName.includes('QUIC')))
-      .map(r => r.duration || 0)
-      .filter(d => d > 0);
-    const tcpRequestTimings = result.urlRequests
-      .filter(r => !r.events.some(e => e.source.typeName.includes('QUIC')) && r.duration)
-      .map(r => r.duration || 0)
-      .filter(d => d > 0);
-
-    if (quicRequestTimings.length > 5 && tcpRequestTimings.length > 5) {
-      const avgQuic = quicRequestTimings.reduce((a, b) => a + b, 0) / quicRequestTimings.length;
-      const avgTcp = tcpRequestTimings.reduce((a, b) => a + b, 0) / tcpRequestTimings.length;
-      if (avgQuic > avgTcp * 1.5) {
-        findings.push({
-          icon: '⚠️',
-          text: `QUIC 平均耗时 ${avgQuic.toFixed(0)}ms 明显高于 TCP 平均耗时 ${avgTcp.toFixed(0)}ms，QUIC 在当前网络环境下表现不佳`,
-          severity: 'warning',
-        });
-        score -= 10;
-        suggestions.push('QUIC 在当前网络环境下表现不佳，建议在 chrome://flags 中禁用 QUIC');
-      } else if (avgQuic < avgTcp * 0.7) {
-        findings.push({
-          icon: '✅',
-          text: `QUIC 平均耗时 ${avgQuic.toFixed(0)}ms 明显优于 TCP 平均耗时 ${avgTcp.toFixed(0)}ms，QUIC 加速效果显著`,
-          severity: 'info',
-        });
-      }
-    }
   }
 
-  // ---- Proxy impact on protocols ----
+  // Proxy configuration is context, not proof of protocol impact.
   if (result.proxyInfo.hasProxy || result.proxyInfo.isVPN) {
     findings.push({
-      icon: '⚠️',
-      text: `检测到代理/VPN 环境（${result.proxyInfo.proxyType || '未知'}），代理可能对 HTTP/2 和 QUIC 支持不佳，导致协议降级或连接异常`,
-      severity: 'warning',
+      icon: 'ℹ️',
+      text: `检测到代理/VPN 环境（${result.proxyInfo.proxyType || '未知'}）；配置存在不等于协议异常，需结合 PAC/CONNECT、ALPN 和错误 source chain`,
+      severity: 'info',
     });
-    score -= 10;
-    suggestions.push('代理对 HTTP/2 支持不佳是常见问题，可尝试强制走 HTTP/1.1 对比测试');
-    if (hasQuic) {
-      suggestions.push('代理通常不支持 QUIC，会导致 QUIC 连接失败并回退到 TCP');
-    }
-  }
-
-  // ---- Cross-protocol error correlation ----
-  const hasConnReset = result.connectionFailures.some(f => {
-    const code = typeof f.error === 'number' ? f.error : parseInt(String(f.error), 10);
-    return code === -101 || code === -102 || code === -103;
-  });
-  if (hasConnReset && (hasHttp2 || hasQuic)) {
-    findings.push({
-      icon: '⚠️',
-      text: '检测到连接重置/拒绝错误同时存在 HTTP/2 或 QUIC 事件，可能是防火墙对新协议不兼容',
-      severity: 'warning',
-    });
-    score -= 5;
-    suggestions.push('防火墙可能对 HTTP/2 或 QUIC 不兼容，建议联系 IT 排查防火墙协议支持');
   }
 
   // Determine overall status
   let status: HealthAssessment['status'] = 'healthy';
-  if (score < 50) status = 'critical';
-  else if (score < 80) status = 'warning';
+  if (score < 50 || findings.some(finding => finding.severity === 'error')) status = 'critical';
+  else if (score < 80 || findings.some(finding => finding.severity === 'warning')) status = 'warning';
 
   const summaryMap: Record<string, string> = {
-    healthy: '协议状态良好，HTTP/2 和 QUIC 连接正常',
-    warning: '协议层面存在部分问题，建议关注并排查',
-    critical: '协议层面存在严重问题，需要立即排查处理',
+    healthy: '当前记录中未发现明确协议错误；未记录不等于所有连接均已验证',
+    warning: '记录到协议异常，需要结合方向、错误码、请求关联和回退结果复核',
+    critical: '记录到多项协议异常，需要优先复核受影响请求和原始事件',
   };
 
   return {
