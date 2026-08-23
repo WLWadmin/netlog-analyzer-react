@@ -209,6 +209,10 @@ Go 日志：
 
 ## 架构概览
 
+![浏览器诊断工作台完整项目数据流程图](./public/assets/project-data-flow.svg)
+
+> 文件从本地导入后，先经过容器与格式探测，再进入 HAR、NetLog、Trace 或 Go 服务日志的专用解析链路。图中保留了各解析器最关键的标准化、生命周期、状态聚合、事实提取与诊断步骤；重型解析、原始数据和大文件索引优先保留在 Web Worker 中，结果页面按需读取。
+
 ```text
 File
   → upload/createFileFormatIntake
