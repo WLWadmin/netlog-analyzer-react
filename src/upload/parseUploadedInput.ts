@@ -2,12 +2,6 @@ import { parseLog, type AnalysisResult, type ParsedEvent } from '../parsers/netl
 import { parseHar, type HarAnalysisResult } from '../harParser';
 import { parseLogFile, type LogAnalysisResult } from '../logParser';
 import {
-  parseHarInWorker,
-  parseLargeNetlogFileInWorker,
-  parseLogInWorker,
-  parseNetlogInWorker,
-} from '../workers/workerClient';
-import {
   fallbackNetlogDatasetState,
   unavailableNetlogDatasetState,
   type NetlogDatasetState,
@@ -172,6 +166,7 @@ export async function parseUploadedInput(options: {
       ? data
       : streamSession ?? sourceFile!;
     if (useWorker) {
+      const { parseLogInWorker } = await import('../workers/workerClient');
       const { result } = await parseLogInWorker(logInput, { onProgress, onStructuredProgress });
       return { kind: 'log', result };
     }
@@ -251,6 +246,7 @@ export async function parseUploadedInput(options: {
   const shouldParseHar = fileTypeHint === 'har';
   if (shouldParseHar) {
     if (useWorker) {
+      const { parseHarInWorker } = await import('../workers/workerClient');
       const { result, rawData, rawDataId } = await parseHarInWorker(
         data,
         repairInfo,
@@ -279,13 +275,20 @@ export async function parseUploadedInput(options: {
       useWorker,
       singleScanDataset,
     });
-    let largeNetlogResult: Awaited<ReturnType<typeof parseLargeNetlogFileInWorker>>;
-    try {
-      largeNetlogResult = await parseLargeNetlogFileInWorker(streamSession ?? sourceFile, {
+    const parseLargeNetlog = async (
+      input: File | FileStreamParseSession,
+      singleScanDataset: boolean,
+    ) => {
+      const { parseLargeNetlogFileInWorker } = await import('../workers/workerClient');
+      return parseLargeNetlogFileInWorker(input, {
         onProgress,
         onStructuredProgress,
         singleScanDataset,
       });
+    };
+    let largeNetlogResult: Awaited<ReturnType<typeof parseLargeNetlog>>;
+    try {
+      largeNetlogResult = await parseLargeNetlog(streamSession ?? sourceFile, singleScanDataset);
     } catch (error) {
       if (!singleScanDataset) throw error;
       console.warn('[netlog-large]', {
@@ -294,11 +297,7 @@ export async function parseUploadedInput(options: {
         errorType: error instanceof Error ? error.name : 'unknown',
       });
       onProgress?.('Single scan Dataset 构建失败，正在回退到大文件摘要解析...');
-      largeNetlogResult = await parseLargeNetlogFileInWorker(sourceFile, {
-        onProgress,
-        onStructuredProgress,
-        singleScanDataset: false,
-      });
+      largeNetlogResult = await parseLargeNetlog(sourceFile, false);
     }
     const { events, result, datasetMeta } = largeNetlogResult;
     return {
@@ -326,6 +325,7 @@ export async function parseUploadedInput(options: {
   }
 
   if (useWorker) {
+    const { parseNetlogInWorker } = await import('../workers/workerClient');
     const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
       data,
       { onProgress, onStructuredProgress },

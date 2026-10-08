@@ -94,6 +94,20 @@ const categoryLabelMap: Record<string, string> = {
   unknown: '未知',
 };
 
+function conclusionRequestIds(
+  finalSummary: FinalDiagnosisSummary,
+  item: FinalDiagnosisSummary['headline'][number],
+): number[] {
+  const relatedCards = finalSummary.expertCards.filter(card => item.relatedCardIds.includes(card.id));
+  return Array.from(new Set([
+    ...item.keyEvidence.flatMap(evidence => evidence.requestIds || []),
+    ...relatedCards.flatMap(card => [
+      ...(card.relatedRequestIds || []),
+      ...card.evidence.flatMap(evidence => evidence.requestIds || []),
+    ]),
+  ]));
+}
+
 function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
@@ -103,10 +117,15 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
     '最终结论：',
     ...finalSummary.headline.map((item, index) => [
       `${index + 1}. ${item.userFacingSummary}`,
+      `   现象与边界：${item.problem}`,
       `   原因：${item.reason}`,
       `   影响：${item.impact}`,
       `   置信度：${item.confidenceText}`,
       ...item.keyEvidence.slice(0, 3).map(evidence => `   支持证据：${evidence.label}=${evidence.value}`),
+      (() => {
+        const requestIds = conclusionRequestIds(finalSummary, item);
+        return requestIds.length > 0 ? `   请求引用 ID：${requestIds.join('、')}` : undefined;
+      })(),
       item.primaryAction ? `   下一步：${item.primaryAction.title} - ${item.primaryAction.detail}` : undefined,
     ].filter(Boolean).join('\n')),
     '',

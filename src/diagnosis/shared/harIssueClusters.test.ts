@@ -47,6 +47,57 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
 }
 
 describe('buildHarIssueClusters', () => {
+  it.each([1, 3])('describes %i ERR_CONNECTION_RESET request(s) as failures rather than slow connections', count => {
+    const clusters = buildHarIssueClusters(Array.from({ length: count }, (_, id) => entry({
+      id,
+      status: 0,
+      isFailed: true,
+      netErrorText: 'net::ERR_CONNECTION_RESET',
+      netErrorCode: -101,
+      startMs: 1000 + id * 100,
+      time: 80,
+    })));
+
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toMatchObject({
+      category: 'connection',
+      evidenceLevel: 'explicit-observation',
+      affectedRequestCount: count,
+      requiresNetLog: true,
+    });
+    expect(clusters[0].title).toContain('连接被重置');
+    expect(clusters[0].title).not.toContain('耗时较长');
+    expect(clusters[0].userFacingSummary).toContain('不能确认哪一方重置连接');
+  });
+
+  it('does not merge a reset with another connection error into a reset conclusion', () => {
+    const clusters = buildHarIssueClusters([
+      entry({
+        id: 0,
+        status: 0,
+        isFailed: true,
+        netErrorText: 'net::ERR_CONNECTION_RESET',
+        netErrorCode: -101,
+        startMs: 1000,
+        time: 80,
+      }),
+      entry({
+        id: 1,
+        status: 0,
+        isFailed: true,
+        netErrorText: 'net::ERR_CONNECTION_REFUSED',
+        netErrorCode: -102,
+        startMs: 1100,
+        time: 80,
+      }),
+    ]);
+
+    expect(clusters).toHaveLength(2);
+    expect(clusters.find(cluster => cluster.affectedRequestIds.includes(0))?.title).toContain('连接被重置');
+    expect(clusters.find(cluster => cluster.affectedRequestIds.includes(1))?.title).toContain('连接失败');
+    expect(clusters.find(cluster => cluster.affectedRequestIds.includes(1))?.title).not.toMatch(/连接被重置|耗时较长/);
+  });
+
   it('clusters same-domain same netError in the same time window', () => {
     const clusters = buildHarIssueClusters([
       entry({ id: 0, status: 0, isFailed: true, netErrorText: 'net::ERR_NAME_NOT_RESOLVED', netErrorCode: -105, startMs: 1000 }),

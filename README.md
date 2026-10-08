@@ -8,6 +8,8 @@
 
 ## 当前状态
 
+本轮有效交付范围与验收合同见 [HAR 连接重置 PRD](docs/network-diagnosis-product-redesign-prd.md)，可点击设计见 [结果页原型](docs/har-reset-result-prototype.html)。PRD 顶部本轮节覆盖旧阶段待办；历史收口报告只证明其记录版本，不作为当前运行证据。
+
 - NetLog、HAR 和 Go 服务日志是常规可用入口。
 - HAR 与 NetLog 可以独立分析，也可以追加同次复现文件进行联合诊断。
 - 正常样本与异常样本支持 HAR、NetLog、HAR + NetLog 三种 A-B 对比模式。
@@ -366,8 +368,11 @@ npm run diagnosis:real-sample-gate
 
 1. 使用 Node.js 20。
 2. 执行 `npm ci`。
-3. 设置 `REACT_APP_ENABLE_TRACE_ANALYSIS=1` 并运行 `npm run build`。
-4. 将 `build/` 发布到 GitHub Pages。
+3. 执行 `Diagnosis release gate`：运行全量 Jest，包含诊断发布门禁、黄金语料、性能基线、HAR 连接重置完整任务和部署契约检查。失败时停止本 job，不构建或上传 Pages artifact。
+4. 设置 `REACT_APP_ENABLE_TRACE_ANALYSIS=1` 并运行 `npm run build`。
+5. 将 `build/` 发布到 GitHub Pages；deploy job 依赖 build job 成功。
+
+该自动门禁证明实现与合成任务回归，不证明真实故障准确性。外部真实样本测试缺少配置时仍会跳过；完整真实样本及人工验收继续由 `diagnosis:real-sample-gate` 单独核对，缺少材料不得报告发布验收完成。工作流本地修改也不等于远端 CI 已执行。
 
 `package.json` 的 `homepage` 为：
 

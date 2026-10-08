@@ -203,7 +203,24 @@ function clusterKey(entry: HarRequestEntry, issue: HarRequestIssue, category: Ha
   return `failure:${category}:${domain}:${window}`;
 }
 
-function makeTitle(category: HarIssueCategory, count: number): string {
+function isConnectionReset(entry: HarRequestEntry, issue: HarRequestIssue): boolean {
+  return issue.kind === 'net-error'
+    && (entry.netErrorCode === -101 || /ERR_CONNECTION_RESET/i.test(entry.netErrorText || ''));
+}
+
+function isConnectionResetGroup(items: Array<{ entry: HarRequestEntry; issue: HarRequestIssue }>): boolean {
+  return items.length > 0 && items.every(item => isConnectionReset(item.entry, item.issue));
+}
+
+function makeTitle(category: HarIssueCategory, count: number, items: Array<{ entry: HarRequestEntry; issue: HarRequestIssue }>): string {
+  if (category === 'connection' && items.length > 0) {
+    if (isConnectionResetGroup(items)) {
+      return `${count} 个请求连接被重置（ERR_CONNECTION_RESET）`;
+    }
+    if (items.every(item => item.issue.kind === 'net-error')) {
+      return `${count} 个请求连接失败`;
+    }
+  }
   if (category === 'unknown-failure') return `${count} 个请求未拿到 HTTP 响应，HAR 缺少更底层错误`;
   if (category === 'browser-block') return `浏览器阻止了 ${count} 个请求`;
   if (['ttfb', 'queueing', 'stalled', 'dns', 'connection', 'tls', 'download'].includes(category)) {
@@ -215,11 +232,19 @@ function makeTitle(category: HarIssueCategory, count: number): string {
   return `${count} 个请求出现${categoryLabel(category)}现象`;
 }
 
-function buildSummary(cluster: Omit<HarIssueCluster, 'userFacingSummary'>, total: number): string {
+function buildSummary(
+  cluster: Omit<HarIssueCluster, 'userFacingSummary'>,
+  total: number,
+  isConnectionReset: boolean,
+): string {
   const count = cluster.affectedRequestCount;
   const ratio = total ? Math.round((count / total) * 100) : 0;
   const roles = cluster.roleHints.map(role => ({ user: '用户', it: 'IT', frontend: '前端', backend: '后端' }[role])).join(' / ');
-  const boundary = cluster.requiresNetLog ? 'HAR 只能说明请求现象，建议补充同次 NetLog 确认底层网络栈原因。' : 'HAR 已记录可直接观察的请求现象，但不等于确认责任归属。';
+  const boundary = isConnectionReset
+    ? 'HAR 已记录 ERR_CONNECTION_RESET 现象，但不能确认哪一方重置连接；建议补充同次 NetLog 确认底层网络栈原因。'
+    : cluster.requiresNetLog
+      ? 'HAR 只能说明请求现象，建议补充同次 NetLog 确认底层网络栈原因。'
+      : 'HAR 已记录可直接观察的请求现象，但不等于确认责任归属。';
   return `${cluster.title}，影响 ${count} 个请求（约 ${ratio}%）和 ${cluster.affectedDomainCount} 个域名。建议先由 ${roles} 查看；${boundary}`;
 }
 
@@ -262,12 +287,13 @@ export function buildHarIssueClusters(entries: HarRequestEntry[], options?: { ma
     ])));
     const severity = severityFor(items.length, issue.severity, evidenceLevel);
     const basis = issue.kind === 'slow' ? `${categoryLabel(category)} timing` : issue.label;
+    const resetGroup = isConnectionResetGroup(items);
     const clusterBase = {
       id: key.replace(/[^a-zA-Z0-9:_-]/g, '-'),
       category,
       evidenceLevel,
       severity,
-      title: makeTitle(category, items.length),
+      title: makeTitle(category, items.length, items),
       affectedRequestCount: items.length,
       affectedDomainCount: domains.length,
       affectedRequestIds,
@@ -286,7 +312,7 @@ export function buildHarIssueClusters(entries: HarRequestEntry[], options?: { ma
     };
     return {
       ...clusterBase,
-      userFacingSummary: buildSummary(clusterBase, entries.length),
+      userFacingSummary: buildSummary(clusterBase, entries.length, resetGroup),
     };
   });
 
