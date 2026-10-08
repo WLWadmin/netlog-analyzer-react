@@ -1,8 +1,11 @@
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
+import { buildHarDiagnosisSummary } from './fromHar';
+import { buildTroubleshootingPlan } from './troubleshootingSop';
 import { buildNetlogDiagnosisSummary } from './fromNetlog';
 import { buildCombinedDiagnosisSummary } from './fromCombined';
 import type { DiagnosticCard, DiagnosisSummary } from './types';
 import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
+import { diagnoseHar } from '../../harDiagnosis';
 import type { AnalysisResult, ParsedEvent, ProxyInfo, URLRequest } from '../../parsers/netlog/parser';
 
 function card(overrides: Partial<DiagnosticCard>): DiagnosticCard {
@@ -182,6 +185,27 @@ function harResult(overrides: Partial<HarAnalysisResult> = {}): HarAnalysisResul
 }
 
 describe('buildFinalDiagnosisSummary', () => {
+  it('HAR 连接重置将排查方向留在解释中，首步使用可执行的连接对比', () => {
+    const har = parseHar({ log: { entries: Array.from({ length: 3 }, (_, index) => ({
+      startedDateTime: `2026-10-08T00:00:0${index}.000Z`,
+      time: 2000,
+      _error: 'net::ERR_CONNECTION_RESET',
+      _netError: 'ERR_CONNECTION_RESET',
+      request: { method: 'GET', url: `https://example.invalid/read-only/${index}`, headers: [] },
+      response: { status: 0, statusText: '', headers: [], content: { size: 0 } },
+      timings: { blocked: 0, dns: 15, connect: 25, ssl: 10, send: 1, wait: 1959, receive: 0 },
+    })) } });
+    const result = buildFinalDiagnosisSummary(buildHarDiagnosisSummary(har, diagnoseHar(har)), 'har');
+    const plan = buildTroubleshootingPlan(result);
+
+    expect(result.expertCards.some(card => card.actions.some(action => action.purpose === 'triage-direction'))).toBe(true);
+    expect(result.actionPlan.find(group => group.role === 'user')?.actions[0]?.title).toBe('切换网络对比连接');
+    expect(plan.steps[0].actionTitle).toBe('切换网络对比连接');
+    expect(plan.steps[0].actionSteps[1]).toContain('同一设备、同一目标');
+    expect(plan.steps[0].expectedObservation).toContain('热点多次正常');
+    expect(plan.steps.some(step => step.actionTitle.startsWith('建议') || step.actionDetail.includes('优先排查方向'))).toBe(false);
+  });
+
   it('NetLog 高置信直接错误码输出已确认结论', () => {
     const result = buildFinalDiagnosisSummary(summary([
       card({

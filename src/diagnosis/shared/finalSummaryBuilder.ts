@@ -532,7 +532,7 @@ function buildActionGroups(cards: DiagnosticCard[], _missingInfo: MissingInfoIte
 
   cards.forEach(card => {
     card.actions.forEach((action, index) => {
-      if (isCollectionAction(action)) return;
+      if (action.purpose === 'triage-direction' || isCollectionAction(action)) return;
       const list = grouped.get(action.role) || [];
       const next = toFinalAction(action, card.id, list.length + index + 1);
       if (!list.some(item => item.title === next.title && item.command === next.command)) {
@@ -581,7 +581,9 @@ function buildCluster(
   const score = sortedCards.reduce((max, card) => Math.max(max, scoreCard(card, summary)), 0);
   const actionSourceCards = sortedCards.filter(card => !isNetworkStateFactOnly(card) && card.confidence !== 'low');
   const actions = actionSourceCards.flatMap((card, cardIndex) =>
-    card.actions.map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
+    card.actions
+      .filter(action => action.purpose !== 'triage-direction')
+      .map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
   );
   const keyEvidence = sortedCards.flatMap(card => card.evidence.map(toFinalEvidence)).slice(0, 5);
 
@@ -610,7 +612,9 @@ function buildClusterFromEpisode(
   const primary = sortedCards[0];
   const actionSourceCards = sortedCards.filter(card => !isNetworkStateFactOnly(card) && card.confidence !== 'low');
   const actions = actionSourceCards.flatMap((card, cardIndex) =>
-    card.actions.map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
+    card.actions
+      .filter(action => action.purpose !== 'triage-direction')
+      .map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
   );
   const keyEvidence = episode.evidence.map(toFinalEvidence).slice(0, 5);
   const explainEvidence = [

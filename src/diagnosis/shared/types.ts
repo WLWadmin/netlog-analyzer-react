@@ -62,6 +62,8 @@ export interface DiagnosticEvidence {
 
 export interface DiagnosticAction {
   role: DiagnosticRole;
+  /** 排查责任方向仅用于解释，不进入用户可执行行动流程。 */
+  purpose?: 'executable' | 'triage-direction';
   title: string;
   detail: string;
   command?: string;

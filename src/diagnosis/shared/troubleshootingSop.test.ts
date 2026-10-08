@@ -3,6 +3,7 @@ import type { FinalAction, FinalDiagnosisSummary } from './finalSummaryTypes';
 import {
   buildTroubleshootingPlan,
   continueTroubleshootingSession,
+  correctLastTroubleshootingOutcome,
   createTroubleshootingSession,
   getRelevantRoleTasks,
   recordTroubleshootingOutcome,
@@ -137,6 +138,31 @@ describe('troubleshootingSop', () => {
     const next = continueTroubleshootingSession(result);
     expect(next.state).toBe('ACTION_PENDING');
     expect(next.currentStepIndex).toBe(1);
+    expect(next.history[0].rollbackConfirmed).toBe(true);
+  });
+
+  it('更正最后一次结果时返回该行动并恢复方向状态', () => {
+    const plan = buildTroubleshootingPlan(summary());
+    const first = recordTroubleshootingOutcome(plan, createTroubleshootingSession(plan), 'unchanged');
+    const secondStep = continueTroubleshootingSession(first);
+    const supported = recordTroubleshootingOutcome(plan, secondStep, 'improved');
+
+    const corrected = correctLastTroubleshootingOutcome(supported);
+    expect(corrected.state).toBe('ACTION_PENDING');
+    expect(corrected.currentStepIndex).toBe(1);
+    expect(corrected.history).toHaveLength(1);
+    expect(corrected.history[0].rollbackConfirmed).toBe(true);
+    expect(corrected.supportedDirections).toEqual([]);
+    expect(corrected.unsupportedDirections).toEqual(['proxy']);
+  });
+
+  it('无痕和补采行动不误标为修改网络设置', () => {
+    const plan = buildTroubleshootingPlan(summary({ userActions: [
+      action('cache-private', '用无痕窗口重新打开', 'queue-card'),
+      action('quality-recollect', '重新同时采集 HAR 和 NetLog', 'queue-card'),
+    ] }));
+    expect(plan.steps[0].rollback).toContain('关闭无痕窗口');
+    expect(plan.steps[1].rollback).toBeUndefined();
   });
 
   it('操作后变差时要求回滚，并在回滚后停止该方向转交处理', () => {

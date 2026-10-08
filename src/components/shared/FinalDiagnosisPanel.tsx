@@ -18,9 +18,11 @@ import type {
   MissingInfoItem,
   RootCauseCluster,
 } from '../../diagnosis/shared';
+import { sanitizeDiagnosisText } from '../../diagnosis/shared';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
 import NoviceTroubleshootingFlow from './NoviceTroubleshootingFlow';
+import './FinalDiagnosisFlow.css';
 
 interface FinalDiagnosisPanelProps {
   finalSummary?: FinalDiagnosisSummary;
@@ -92,16 +94,6 @@ const categoryLabelMap: Record<string, string> = {
   unknown: '未知',
 };
 
-function copyText(text: string) {
-  if (!navigator.clipboard) {
-    message.warning('当前浏览器不支持自动复制，请手动选择文本复制');
-    return;
-  }
-  navigator.clipboard.writeText(text)
-    .then(() => message.success('已复制给 IT / 客服的信息'))
-    .catch(() => message.error('复制失败，请手动复制'));
-}
-
 function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
@@ -114,6 +106,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
       `   原因：${item.reason}`,
       `   影响：${item.impact}`,
       `   置信度：${item.confidenceText}`,
+      ...item.keyEvidence.slice(0, 3).map(evidence => `   支持证据：${evidence.label}=${evidence.value}`),
       item.primaryAction ? `   下一步：${item.primaryAction.title} - ${item.primaryAction.detail}` : undefined,
     ].filter(Boolean).join('\n')),
     '',
@@ -137,7 +130,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
     });
   }
 
-  return lines.join('\n');
+  return sanitizeDiagnosisText(lines.join('\n'));
 }
 
 const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
@@ -155,12 +148,24 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
 }) => {
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
   const [troubleshootingRecordText, setTroubleshootingRecordText] = useState('尚未执行恢复操作。');
+  const [showCopyFallback, setShowCopyFallback] = useState(false);
 
   const copyableText = useMemo(
     () => finalSummary ? buildCopyText(finalSummary, troubleshootingRecordText) : '',
     [finalSummary, troubleshootingRecordText]
   );
   const handleRecordTextChange = useCallback((text: string) => setTroubleshootingRecordText(text), []);
+  const handleCopy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(copyableText);
+      setShowCopyFallback(false);
+      message.success('已复制给 IT / 客服的信息');
+    } catch {
+      setShowCopyFallback(true);
+      message.warning('自动复制不可用，请在下方手动选择全文复制');
+    }
+  };
   const handleShowExpertDetails = () => {
     if (!onShowExpertDetails) {
       message.info('完整报告入口暂不可用，请查看当前页面下方诊断详情');
@@ -184,9 +189,9 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
         marginBottom: 16,
         boxShadow: '0 8px 24px rgba(15,23,42,0.06)',
       }}
-      styles={{ body: { padding: 22, position: 'relative' } }}
+      styles={{ body: { padding: 18, position: 'relative' } }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <Tag style={{ border: 'none', background: 'rgba(14, 165, 233, 0.12)', color: '#0284c7', fontWeight: 600 }}>
@@ -204,13 +209,25 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={() => copyText(copyableText)}>
+          <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={handleCopy}>
             复制给 IT / 客服
           </Button>
         </div>
       </div>
 
-      <NoviceTroubleshootingFlow finalSummary={finalSummary} onRecordTextChange={handleRecordTextChange} />
+      {showCopyFallback && (
+        <div className="final-diagnosis-copy-fallback">
+          <label htmlFor="diagnosis-copy-text">手动选择以下全文复制</label>
+          <textarea id="diagnosis-copy-text" readOnly value={copyableText} onFocus={event => event.currentTarget.select()} />
+        </div>
+      )}
+
+      <NoviceTroubleshootingFlow
+        finalSummary={finalSummary}
+        onRecordTextChange={handleRecordTextChange}
+        onOpenHarRequests={onOpenHarRequests}
+        onOpenNetlogEvidence={onOpenNetlogEvidence}
+      />
 
       <Collapse
         ghost

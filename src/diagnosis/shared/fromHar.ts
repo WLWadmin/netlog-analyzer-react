@@ -130,6 +130,7 @@ function mapClusterCategory(category: HarIssueCategory): DiagnosticCategory {
 function clusterToActions(cluster: HarIssueCluster): DiagnosticAction[] {
   return cluster.roleHints.slice(0, 3).map(role => ({
     role,
+    purpose: 'triage-direction',
     title: `建议${getHarRoleLabel(role)}先看`,
     detail: cluster.requiresNetLog && role === 'it'
       ? 'HAR 已记录请求现象，但需要补充同次 NetLog 确认底层网络栈原因。'

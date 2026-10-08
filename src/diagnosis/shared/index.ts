@@ -39,6 +39,7 @@ export {
   currentTroubleshootingStep,
   recordTroubleshootingOutcome,
   continueTroubleshootingSession,
+  correctLastTroubleshootingOutcome,
   getRelevantRoleTasks,
 } from './troubleshootingSop';
 

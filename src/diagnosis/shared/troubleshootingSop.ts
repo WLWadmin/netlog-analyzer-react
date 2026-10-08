@@ -20,6 +20,8 @@ export interface TroubleshootingStep {
   problemDetail: string;
   actionTitle: string;
   actionDetail: string;
+  actionSteps: string[];
+  prerequisite: string;
   safetyNotice?: string;
   rollback?: string;
   expectedObservation: string;
@@ -50,8 +52,10 @@ export interface TroubleshootingSession {
   pendingStepIndex?: number;
   history: Array<{
     stepId: string;
+    stepIndex: number;
     category: DiagnosticCategory;
     outcome: TroubleshootingOutcome;
+    rollbackConfirmed?: boolean;
   }>;
   supportedDirections: DiagnosticCategory[];
   unsupportedDirections: DiagnosticCategory[];
@@ -230,6 +234,26 @@ function buildRoleTasks(finalSummary: FinalDiagnosisSummary, groups: ActionGroup
     })));
 }
 
+function actionRollback(action: FinalAction, category: DiagnosticCategory): string | undefined {
+  const text = `${action.title} ${action.detail}`;
+  if (/临时对照.*DNS|修改.*DNS|切换.*DNS 解析器/i.test(text)) {
+    return '请恢复测试前记录的原 DNS 设置；如果也切换了网络，请切回原网络并确认。';
+  }
+  if (/关闭代理|停用代理|关闭 VPN|关闭VPN/i.test(text)) return '请重新开启公司要求的代理或 VPN，恢复原设置并确认。';
+  if (/切换网络|手机热点|另一条网络/i.test(text)) return '请切回原来的网络，确认原页面状态后再继续。';
+  if (/无痕窗口/i.test(text)) return '请关闭无痕窗口，回到原窗口确认状态。';
+  return category === 'proxy' && action.risk === 'needs-approval' ? CATEGORY_COPY.proxy.rollback : undefined;
+}
+
+function actionSteps(action: FinalAction, category: DiagnosticCategory): string[] {
+  const collecting = category === 'quality' || /采集|导出 HAR|导出 NetLog/i.test(`${action.title} ${action.detail}`);
+  return [
+    collecting ? '记录复现步骤、时间和当前网络环境，确认采集从复现前开始。' : '记录当前页面、失败时间和原设置，不同时改变其他条件。',
+    action.detail,
+    collecting ? '停止采集后检查文件是否覆盖完整复现窗口。' : '观察同一目标的结果，记录恢复、无变化或变差及对应时间。',
+  ];
+}
+
 export function buildTroubleshootingPlan(finalSummary: FinalDiagnosisSummary): TroubleshootingPlan {
   const fallbackCategory = finalSummary.headline[0]?.category || 'unknown';
   const userActions = finalSummary.actionPlan
@@ -246,8 +270,10 @@ export function buildTroubleshootingPlan(finalSummary: FinalDiagnosisSummary): T
       problemDetail: copy.problemDetail,
       actionTitle: action.title,
       actionDetail: action.detail,
+      actionSteps: actionSteps(action, category),
+      prerequisite: actionSafetyNotice(action, category) || '仅在该操作符合当前环境和组织要求时执行；不可安全重复的提交不要重试。',
       safetyNotice: actionSafetyNotice(action, category),
-      rollback: copy.rollback,
+      rollback: actionRollback(action, category),
       expectedObservation: action.expectedResult || '完成后重新打开刚才失败或很慢的页面，观察是否恢复。',
       temporaryWorkaround: copy.temporaryWorkaround,
       permanentFix: copy.permanentFix,
@@ -290,7 +316,7 @@ export function recordTroubleshootingOutcome(
   const step = currentTroubleshootingStep(plan, session);
   if (!step || session.state !== 'ACTION_PENDING') return session;
 
-  const history = [...session.history, { stepId: step.id, category: step.category, outcome }];
+  const history = [...session.history, { stepId: step.id, stepIndex: session.currentStepIndex, category: step.category, outcome }];
   if (outcome === 'improved') {
     return {
       ...session,
@@ -325,14 +351,34 @@ export function recordTroubleshootingOutcome(
 
 export function continueTroubleshootingSession(session: TroubleshootingSession): TroubleshootingSession {
   if (session.state !== 'ROLLBACK_REQUIRED' && session.state !== 'NEXT_ACTION') return session;
+  const history = session.state === 'ROLLBACK_REQUIRED'
+    ? session.history.map((record, index) => index === session.history.length - 1 ? { ...record, rollbackConfirmed: true } : record)
+    : session.history;
   if (session.pendingStepIndex === undefined) {
-    return { ...session, state: 'HANDOFF_READY' };
+    return { ...session, state: 'HANDOFF_READY', history };
   }
   return {
     ...session,
     state: 'ACTION_PENDING',
     currentStepIndex: session.pendingStepIndex,
     pendingStepIndex: undefined,
+    history,
+  };
+}
+
+/** Only the latest answer can be corrected: prior answers may have already selected the current action. */
+export function correctLastTroubleshootingOutcome(session: TroubleshootingSession): TroubleshootingSession {
+  const last = session.history[session.history.length - 1];
+  if (!last) return session;
+  const history = session.history.slice(0, -1);
+  return {
+    ...session,
+    state: 'ACTION_PENDING',
+    currentStepIndex: last.stepIndex,
+    pendingStepIndex: undefined,
+    history,
+    supportedDirections: uniq(history.filter(item => item.outcome === 'improved').map(item => item.category)),
+    unsupportedDirections: uniq(history.filter(item => item.outcome !== 'improved').map(item => item.category)),
   };
 }
 
@@ -340,8 +386,9 @@ export function getRelevantRoleTasks(
   plan: TroubleshootingPlan,
   session: TroubleshootingSession
 ): TroubleshootingRoleTask[] {
+  if (plan.steps.length === 0) return plan.roleTasks.slice(0, 6);
   const supportedCategory = session.supportedDirections[0];
-  if (!supportedCategory) return plan.roleTasks.slice(0, 6);
-  const matching = plan.roleTasks.filter(task => task.category === supportedCategory);
+  const category = supportedCategory || plan.steps[session.currentStepIndex]?.category || plan.fallbackCategory;
+  const matching = plan.roleTasks.filter(task => task.category === category);
   return matching.slice(0, 6);
 }
