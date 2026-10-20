@@ -1,0 +1,2 @@
+"use strict";(self.webpackChunknetlog_analyzer_react=self.webpackChunknetlog_analyzer_react||[]).push([[426],{36426(e,n,r){r.d(n,{inspectTraceUploadInWorker:()=>u});var t=r(9384),a=r(4938);function c(){return new Worker(new URL(r.p+r.u(140),r.b))}function u(e,n){const r=(0,t.p8)(e,n,c);return(0,a.b)(r)}}}]);
+//# sourceMappingURL=426.94dfca79.chunk.js.map
