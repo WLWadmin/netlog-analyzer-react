@@ -1059,7 +1059,18 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
     { key: 'diagnosis', label: '诊断', children: diagnosisTab },
   ];
 
-  return <Tabs items={items} size="small" />;
+  return <>
+    {entry.sourceLocation ? (
+      <div style={{ padding: '8px 0', color: 'var(--text-secondary)' }}>
+        保留数据逻辑 ID：{entry.id} · 原始请求：
+        {entry.sourceLocation.originalEntryIndex === undefined ? '序号无法确认' : `第 ${entry.sourceLocation.originalEntryIndex + 1} 条`}
+        {' · '}原始文件第 {entry.sourceLocation.line} 行，第 {entry.sourceLocation.column} 列
+        {' · '}字符偏移 {entry.sourceLocation.charStart}–{entry.sourceLocation.charEnd}（UTF-16，非字节）
+        <div>下方字段路径指向保留后的本地数据。</div>
+      </div>
+    ) : null}
+    <Tabs items={items} size="small" />
+  </>;
 };
 
 export default HarRequestDetail;

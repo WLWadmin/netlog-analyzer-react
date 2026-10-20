@@ -4,6 +4,7 @@
 // ============================================================
 
 import { getHarResponseStatus, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
+import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type {
   DiagnosticCard,
   DiagnosticAction,
@@ -376,7 +377,16 @@ function buildRequestShapeDiffCards(
 
 // ========== 核心对比函数 ==========
 
-export function compareBaselines(
+export function compareBaselines(baseline: HarAnalysisResult, current: HarAnalysisResult): DiagnosticCard[] {
+  const cards = compareRetainedBaselines(baseline, current);
+  if (!baseline.repairInfo?.repaired && !current.repairInfo?.repaired) return cards;
+  return cards.map(card => ({
+    ...card, confidence: 'low',
+    limitations: [...(card.limitations || []), HAR_RECOVERY_LIMITATION],
+  }));
+}
+
+function compareRetainedBaselines(
   baseline: HarAnalysisResult,
   current: HarAnalysisResult
 ): DiagnosticCard[] {
@@ -593,12 +603,13 @@ function buildBaselineQuality(
       type: 'suspicious_pattern',
       severity: 'info',
       message: '存在自动修复后的 HAR 样本',
-      detail: '部分 HAR entry 可能被修复或丢弃，A-B 对比结论需结合修复率判断',
+      detail: HAR_RECOVERY_LIMITATION,
     });
   }
 
   return {
     source: 'har',
+    ...(baseline.repairInfo?.repaired || current.repairInfo?.repaired ? { dataIncomplete: true } : {}),
     isDiagnosable: baseline.totalRequests >= 3 && current.totalRequests >= 3 && commonHosts > 0,
     issues,
     recommendations: recommendations.length > 0 ? recommendations : undefined,
@@ -629,6 +640,6 @@ export function buildBaselineCompareSummary(
     cards,
     quality,
     overallSeverity: criticalCount > 0 ? 'critical' : warningCount > 0 ? 'warning' : 'info',
-    combinedConfidence: quality.isDiagnosable && quality.issues.length === 0 ? 'high' : quality.isDiagnosable ? 'medium' : 'low',
+    combinedConfidence: quality.dataIncomplete ? 'low' : quality.isDiagnosable && quality.issues.length === 0 ? 'high' : quality.isDiagnosable ? 'medium' : 'low',
   };
 }

@@ -1,4 +1,5 @@
 import type { HarAnalysisResult } from '../../harParser';
+import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { DiagnosticAction } from './types';
 import { buildHarIssueClusters, getHarEvidenceLevelLabel, getHarRoleLabel, type HarEvidenceLevel, type HarIssueCategory, type HarIssueCluster } from './harIssueClusters';
 
@@ -118,7 +119,8 @@ function buildNoIssueDiagnosis(result: HarAnalysisResult): HarNoviceDiagnosis {
       { role: 'user', title: '补充 NetLog', detail: '如果仍感知异常，补充同次 NetLog 用于确认底层网络栈事件。' },
     ],
     handoffRoles: [{ role: 'user', reason: '当前 HAR 没有足够证据指向具体协作方，先确认采集是否覆盖问题。' }],
-    evidenceGap: 'HAR 只能覆盖本次已记录请求，无法证明未记录阶段没有异常。',
+    evidenceGap: result.repairInfo?.repaired
+      ? HAR_RECOVERY_LIMITATION : 'HAR 只能覆盖本次已记录请求，无法证明未记录阶段没有异常。',
     relatedRequestIds: [],
   };
 }
@@ -137,7 +139,7 @@ export function buildHarNoviceDiagnosis(result: HarAnalysisResult): HarNoviceDia
     role,
     reason: roleReason(role, primaryCluster),
   }));
-  const evidenceGap = primaryCluster.requiresNetLog
+  const evidenceGap = result.repairInfo?.repaired ? HAR_RECOVERY_LIMITATION : primaryCluster.requiresNetLog
     ? `${getHarEvidenceLevelLabel(primaryCluster.evidenceLevel)}：HAR 已记录请求现象，但要确认 DNS、TLS、代理或系统网络栈原因，需要补充同次 NetLog。`
     : undefined;
 

@@ -6,7 +6,7 @@ import {
   ThunderboltOutlined,
   SafetyOutlined,
 } from '@ant-design/icons';
-import type { HarRepairResult } from '../../utils/harRepair';
+import type { HarRepairInfo } from '../../utils/harRepair';
 import type { UploadFileTypeHint } from '../../upload/parseUploadedInput';
 import {
   isSupportedUploadName,
@@ -29,7 +29,7 @@ export interface UploadZoneProps {
   onFileLoaded?: (
     data: unknown,
     isTextLog?: boolean,
-    repairInfo?: HarRepairResult,
+    repairInfo?: HarRepairInfo,
     fileTypeHint?: UploadFileTypeHint
   ) => void | Promise<void>;
   onFilesSelected?: (files: File[]) => void | Promise<void>;

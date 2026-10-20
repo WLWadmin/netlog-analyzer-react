@@ -122,8 +122,10 @@ export interface DiagnosticCard {
 export interface CollectionQuality {
   source: DiagnosticSource;
   isDiagnosable: boolean;
+  /** Missing records prevent absence/recovery claims about the whole capture. */
+  dataIncomplete?: boolean;
   issues: {
-    type: 'missing_field' | 'insufficient_data' | 'suspicious_pattern';
+    type: 'missing_field' | 'insufficient_data' | 'suspicious_pattern' | 'incomplete_capture';
     severity: 'warning' | 'info';
     message: string;
     detail?: string;

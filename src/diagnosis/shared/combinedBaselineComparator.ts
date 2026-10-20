@@ -1,4 +1,5 @@
 import type { HarAnalysisResult } from '../../harParser';
+import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { AnalysisResult } from '../../parsers/netlog/parser';
 import type { DiagnosticCard } from './types';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
@@ -54,10 +55,19 @@ function topConclusionKeys(input: CombinedBaselineInput): string[] {
 }
 
 function incomplete(input: CombinedBaselineInput): boolean {
-  return Boolean(input.netlog.largeFileMode?.truncatedEventsPreview || input.netlog.largeFileMode?.reachedEventsEnd === false);
+  return Boolean(input.har.repairInfo?.repaired || input.netlog.largeFileMode?.truncatedEventsPreview || input.netlog.largeFileMode?.reachedEventsEnd === false);
 }
 
 export function compareCombinedBaselines(baseline: CombinedBaselineInput, current: CombinedBaselineInput): DiagnosticCard[] {
+  const cards = compareRetainedCombinedBaselines(baseline, current);
+  if (!baseline.har.repairInfo?.repaired && !current.har.repairInfo?.repaired) return cards;
+  return cards.map(card => ({
+    ...card, confidence: 'low',
+    limitations: [...(card.limitations || []), HAR_RECOVERY_LIMITATION],
+  }));
+}
+
+function compareRetainedCombinedBaselines(baseline: CombinedBaselineInput, current: CombinedBaselineInput): DiagnosticCard[] {
   const baselineKeys = requestKeySet(baseline.har);
   const currentKeys = requestKeySet(current.har);
   const overlap = overlapRatio(baselineKeys, currentKeys);

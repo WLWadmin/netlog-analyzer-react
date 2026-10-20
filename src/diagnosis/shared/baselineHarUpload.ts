@@ -1,4 +1,4 @@
-import { isHarFile, parseHar } from '../../harParser';
+import { parseHarInput } from '../../utils/parseHarInput';
 import type { HarAnalysisResult } from '../../harParser';
 
 function readFileAsText(file: File): Promise<string> {
@@ -16,16 +16,5 @@ function readFileAsText(file: File): Promise<string> {
 
 export async function parseBaselineHarFile(file: File): Promise<HarAnalysisResult> {
   const text = await readFileAsText(file);
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error('HAR 文件不是有效 JSON');
-  }
-
-  if (!isHarFile(data)) {
-    throw new Error('文件缺少 HAR log.entries 数据');
-  }
-
-  return parseHar(data);
+  return parseHarInput(text).result;
 }

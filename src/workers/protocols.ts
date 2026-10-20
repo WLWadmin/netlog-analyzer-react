@@ -6,6 +6,7 @@
 import type { NetlogDatasetParseSkipStats, NetlogDatasetSocketLazyParamsStats } from './netlogDatasetTypes';
 import type { AnalysisProgress } from '../upload/analysisProgress';
 import type { FileStreamParseSession } from '../upload/fileFormatTypes';
+import type { HarRepairInfo } from '../utils/harRepair';
 
 // ============ Request Messages (Main → Worker) ============
 
@@ -32,7 +33,7 @@ export interface ParseHarRequest {
   type: 'parse-har';
   id: string;
   payload: string | unknown; // raw HAR text or parsed HAR JSON
-  repairInfo?: unknown;
+  repairInfo?: HarRepairInfo;
 }
 
 export interface ParseLogRequest {

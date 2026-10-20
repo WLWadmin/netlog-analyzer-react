@@ -148,6 +148,7 @@ function detectRecovery(cards: DiagnosticCard[], endMs?: number): { state: Incid
 
 export interface BuildIncidentEpisodesOptions {
   requestImportancesByRequestId?: Map<number, RequestImportance>;
+  dataIncomplete?: boolean;
 }
 
 function episodeFromCards(index: number, cards: DiagnosticCard[], options: BuildIncidentEpisodesOptions = {}): IncidentEpisode {
@@ -165,7 +166,9 @@ function episodeFromCards(index: number, cards: DiagnosticCard[], options: Build
   const affectedRequestCount = affectedRequestIds.length || cards.reduce((sum, card) => sum + (card.scope.affectedRequestCount || 0), 0);
   const severity = severityMax(cards);
   const confidence = confidenceMax(cards);
-  const recovery = detectRecovery(cards, endMs);
+  const recovery = options.dataIncomplete
+    ? { state: 'unknown' as const, recoveredAtMs: undefined }
+    : detectRecovery(cards, endMs);
   const evidence = cards.flatMap(card => card.evidence).slice(0, 8);
   const requestImportances = affectedRequestIds
     .map(id => options.requestImportancesByRequestId?.get(id))

@@ -4,6 +4,7 @@
  */
 
 import { formatBytes, formatHarTime, getHarResponseStatus } from '../../harParser';
+import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
 import type { HarDiagnosisResult, AttributionItem, NetworkPhaseStatus } from '../../harDiagnosis';
 import type {
@@ -384,13 +385,15 @@ function addHarConfidenceFactors(card: DiagnosticCard, harResult: HarAnalysisRes
     negatives.push({ label: 'HAR 层级限制', impact: 'negative', detail: 'HAR 只能看到 HTTP 层表现，底层 NetError 需补充 NetLog 验证' });
   }
   if (harResult.repairInfo?.repaired) {
-    negatives.push({ label: 'HAR 已修复', impact: 'negative', detail: `自动修复恢复 ${harResult.repairInfo.recoveredEntries}/${harResult.repairInfo.totalEntries} 条 entry` });
+    negatives.push({ label: 'HAR 已局部恢复', impact: 'negative', detail: HAR_RECOVERY_LIMITATION });
   }
 
   const score = positives.length * 2 - negatives.length;
   return {
     ...card,
-    confidence: score >= 4 ? 'high' : score >= 1 ? card.confidence : 'low',
+    confidence: harResult.repairInfo?.repaired ? 'low' : score >= 4 ? 'high' : score >= 1 ? card.confidence : 'low',
+    limitations: harResult.repairInfo?.repaired
+      ? [...(card.limitations || []), HAR_RECOVERY_LIMITATION] : card.limitations,
     confidenceFactors: [...(card.confidenceFactors || []), ...positives, ...negatives].slice(0, 6),
   };
 }
@@ -1353,6 +1356,13 @@ export function checkHarQuality(result: HarAnalysisResult): CollectionQuality {
   const issues: CollectionQuality['issues'] = [];
   const missingFields: string[] = [];
   const recommendations: string[] = [];
+  if (result.repairInfo?.repaired) {
+    issues.push({
+      type: 'incomplete_capture', severity: 'warning',
+      message: 'HAR 仅保留部分可确认请求', detail: HAR_RECOVERY_LIMITATION,
+    });
+    recommendations.push('重新导出同次复现的完整 HAR，必要时同时采集 NetLog。');
+  }
 
   // 检查请求数
   if (result.totalRequests < 5) {
@@ -1421,6 +1431,7 @@ export function checkHarQuality(result: HarAnalysisResult): CollectionQuality {
 
   return {
     source: 'har',
+    ...(result.repairInfo?.repaired ? { dataIncomplete: true } : {}),
     isDiagnosable: result.totalRequests >= 3,
     issues,
     missingFields: missingFields.length > 0 ? missingFields : undefined,

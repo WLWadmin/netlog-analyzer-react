@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Alert } from 'antd';
-import { UnorderedListOutlined, MedicineBoxOutlined, ToolOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { UnorderedListOutlined, MedicineBoxOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
 import HarSummaryCards from './HarSummaryCards';
 import HarRequestTable, { StatusFilter } from './HarRequestTable';
 import HarNoviceDiagnosisOverview from './HarNoviceDiagnosisOverview';
+import HarRecoveryPanel from './HarRecoveryPanel';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 import RawEvidenceExplorer from '../raw/RawEvidenceExplorer';
 import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from '../shared/ResultWorkbenchShell';
@@ -99,25 +100,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
       onChange={handleTabChange}
     >
       <div className="har-result-page">
-        {result.repairInfo?.repaired && (
-          <Alert
-            type="warning"
-            showIcon
-            icon={<ToolOutlined />}
-            message={result.repairInfo.reason}
-            description={
-              <div className="har-repair-detail">
-                <div>恢复率：{result.repairInfo.recoveryRate}% · 已恢复 {result.repairInfo.recoveredEntries}/{result.repairInfo.totalEntries} 条请求</div>
-                {result.repairInfo.droppedEntries > 0 && (
-                  <div className="har-repair-detail__dropped">丢弃了 {result.repairInfo.droppedEntries} 条损坏请求</div>
-                )}
-                {result.repairInfo.warnings.map((warning, index) => (
-                  <div className="har-repair-detail__warning" key={index}>{warning}</div>
-                ))}
-              </div>
-            }
-          />
-        )}
+        {result.repairInfo?.repaired ? <HarRecoveryPanel info={result.repairInfo} /> : null}
         {result.bodyRetention.mode === 'optimized' && result.bodyRetention.omittedCount > 0 && (
           <Alert
             type="info"

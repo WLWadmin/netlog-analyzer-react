@@ -17,7 +17,10 @@ interface HarNoviceDiagnosisOverviewProps {
 const HarNoviceDiagnosisOverview: React.FC<HarNoviceDiagnosisOverviewProps> = ({ result, onOpenRequests }) => {
   const clusters = useMemo(() => buildHarIssueClusters(result.entries), [result.entries]);
   const observations = useMemo(() => buildHarObservations(result.entries), [result.entries]);
-  const coverage = useMemo(() => calculateHarDiagnosisCoverage(result.entries, observations), [result.entries, observations]);
+  const coverage = useMemo(
+    () => calculateHarDiagnosisCoverage(result.entries, observations, Boolean(result.repairInfo?.repaired)),
+    [result.entries, result.repairInfo?.repaired, observations],
+  );
   const harDiagnosis = useMemo(() => diagnoseHar(result), [result]);
   const finalSummary = useMemo(() => buildFinalDiagnosisSummary(buildHarDiagnosisSummary(result, harDiagnosis), 'har'), [result, harDiagnosis]);
   const { navigateTo } = useNavigation();

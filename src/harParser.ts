@@ -8,6 +8,8 @@ import {
   assertNoCompetingRootFormat,
   isRecord,
 } from './parsers/shared/rootFormatGuard';
+import { harEntryStructureIssue } from './utils/harEntryStructure';
+import type { HarRepairInfo, HarSourcePosition } from './utils/harRepair';
 
 export interface HarTiming {
   blocked: number;
@@ -292,6 +294,8 @@ export interface HarStandardLog {
 
 export interface HarRequestEntry {
   id: number;
+  /** Original file location; id and standard.jsonPath address the retained data. */
+  sourceLocation?: HarSourcePosition;
   name: string;
   url: string;
   method: string;
@@ -368,15 +372,7 @@ export interface HarAnalysisResult {
     reason?: string;
   };
   /** HAR 修复信息（如果文件经过自动修复） */
-  repairInfo?: {
-    repaired: boolean;
-    recoveredEntries: number;
-    totalEntries: number;
-    droppedEntries: number;
-    recoveryRate: number;
-    reason: string;
-    warnings: string[];
-  };
+  repairInfo?: HarRepairInfo;
 }
 
 export function getHarResponseStatus(entry: HarRequestEntry): number | undefined {
@@ -1154,7 +1150,7 @@ export function parseHar(
   const log = data.log || {};
   const rawEntries: any[] = Array.isArray(log.entries) ? log.entries : [];
   const totalResponseBodyChars = rawEntries.reduce((sum, entry, index) => {
-    if (!isRecord(entry) || !isRecord(entry.request) || !isRecord(entry.response)) {
+    if (harEntryStructureIssue(entry)) {
       throw new Error(`HAR log.entries[${index}] 缺少 request 或 response 对象`);
     }
     const content = isRecord(entry.response.content)

@@ -8,6 +8,7 @@
  */
 
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { AnalysisResult, URLRequest, FailedDomain, SslIssue } from '../../parsers/netlog/parser';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import type {
@@ -568,7 +569,14 @@ export function combinedDiagnosisToCards(
       },
     };
   });
-  return applyCombinedEvidenceFusion(withTimeRanges, harObservations, netlogObservations, correlations);
+  const fused = applyCombinedEvidenceFusion(withTimeRanges, harObservations, netlogObservations, correlations);
+  return harResult.repairInfo?.repaired ? fused.map(card => ({
+    ...card, confidence: 'low',
+    limitations: [...(card.limitations || []), HAR_RECOVERY_LIMITATION],
+    confidenceFactors: [...(card.confidenceFactors || []), {
+      label: 'HAR 局部恢复', impact: 'negative' as const, detail: HAR_RECOVERY_LIMITATION,
+    }],
+  })) : fused;
 }
 
 // ========== 联合采集质量 ==========
@@ -579,6 +587,12 @@ export function checkCombinedQuality(
 ): CollectionQuality {
   const issues: CollectionQuality['issues'] = [];
   const recommendations: string[] = [];
+  if (harResult.repairInfo?.repaired) {
+    issues.push({
+      type: 'incomplete_capture', severity: 'warning',
+      message: 'HAR 记录不完整，关联率仅代表保留请求', detail: HAR_RECOVERY_LIMITATION,
+    });
+  }
 
   const timeContext = buildTimeAlignmentContext(harResult.entries, netlogResult.urlRequests, netlogResult.netlogClockContext);
   const aligned = alignHarWithNetlog(harResult, netlogResult, timeContext);
@@ -618,6 +632,7 @@ export function checkCombinedQuality(
 
   return {
     source: 'combined',
+    ...(harResult.repairInfo?.repaired ? { dataIncomplete: true } : {}),
     isDiagnosable: alignRate >= 0.2 && harResult.totalRequests >= 3 && netlogResult.totalEvents >= 20,
     issues,
     recommendations: recommendations.length > 0 ? recommendations : undefined,
@@ -639,7 +654,7 @@ export function buildCombinedDiagnosisSummary(
 
   const highConfidenceCount = cards.filter(c => c.confidence === 'high').length;
   const combinedConfidence: DiagnosisSummary['combinedConfidence'] =
-    !quality.isDiagnosable ? 'low' :
+    !quality.isDiagnosable || quality.dataIncomplete ? 'low' :
     highConfidenceCount > 0 ? 'high' :
     cards.some(c => c.confidence === 'medium') ? 'medium' : 'low';
 

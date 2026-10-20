@@ -781,7 +781,7 @@ export async function parseLargeNetlogFileInWorker(
  */
 export async function parseHarInWorker(
   data: string | unknown | FileStreamParseSession,
-  repairInfo?: unknown,
+  repairInfo?: HarAnalysisResult['repairInfo'],
   options?: WorkerClientOptions
 ): Promise<HarParseResult> {
   const id = nextId();

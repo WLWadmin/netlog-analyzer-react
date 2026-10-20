@@ -7,9 +7,8 @@
 
 import { parseLog } from '../parsers/netlog/parser';
 import { createNetlogStreamingAnalyzer } from '../parsers/netlog/streamingAnalyzer';
-import { parseHar } from '../harParser';
 import { parseLogFile } from '../logParser';
-import { parseHarWithRepair } from '../utils/harRepair';
+import { parseHarInput } from '../utils/parseHarInput';
 import { getStructureOverview, getValueByPath, searchJsonPaths } from '../parsers/shared/rawJsonPath';
 import {
   RAW_EVIDENCE_SEARCH_MAX_DEPTH,
@@ -579,14 +578,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           phaseCount: 5,
         });
         const harPayload = await readWorkerFileText(msg.payload);
-        let rawData: unknown = harPayload;
-        let repairInfo = msg.repairInfo;
-        if (typeof harPayload === 'string') {
-          const repaired = parseHarWithRepair(harPayload);
-          rawData = repaired.data;
-          repairInfo = repaired.repaired ? repaired : undefined;
-        }
-        const harResult = parseHar(rawData, (completed, total) => {
+        const { result: harResult, rawData } = parseHarInput(harPayload, msg.repairInfo, (completed, total) => {
           recordProgress(
             msg.id,
             start,
@@ -605,9 +597,6 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           phaseIndex: 4,
           phaseCount: 5,
         });
-        if (repairInfo) {
-          harResult.repairInfo = repairInfo as any;
-        }
         const rawDataId = rawDataStore.keep('har', rawData);
         const duration = performance.now() - start;
         sendResponse({

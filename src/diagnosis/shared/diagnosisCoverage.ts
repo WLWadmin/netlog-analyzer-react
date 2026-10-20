@@ -100,11 +100,15 @@ function buildCoverageFromObjectIds(
   };
 }
 
-export function calculateHarDiagnosisCoverage(entries: HarRequestEntry[], observations: DiagnosisObservation[]): DiagnosisCoverage {
+export function calculateHarDiagnosisCoverage(
+  entries: HarRequestEntry[],
+  observations: DiagnosisObservation[],
+  denominatorMayBeIncomplete = false,
+): DiagnosisCoverage {
   const abnormalIds = entries
     .filter(entry => getHarRequestIssue(entry).kind !== 'normal')
     .map(entry => ({ key: `request:${entry.id}`, requestId: entry.id }));
-  return buildCoverageFromObjectIds(abnormalIds, observations);
+  return buildCoverageFromObjectIds(abnormalIds, observations, denominatorMayBeIncomplete);
 }
 
 export function calculateNetlogDiagnosisCoverage(

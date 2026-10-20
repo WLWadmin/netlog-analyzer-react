@@ -1,5 +1,6 @@
 import { parseLog, type AnalysisResult, type ParsedEvent } from '../parsers/netlog';
-import { parseHar, type HarAnalysisResult } from '../harParser';
+import type { HarAnalysisResult } from '../harParser';
+import { parseHarInput } from '../utils/parseHarInput';
 import { parseLogFile, type LogAnalysisResult } from '../logParser';
 import {
   fallbackNetlogDatasetState,
@@ -258,10 +259,8 @@ export async function parseUploadedInput(options: {
     const harData = sourceFile
       ? await readKnownNonTraceText(streamSession ?? sourceFile)
       : data;
-    const parsedData = typeof harData === 'string' ? JSON.parse(harData) : harData;
-    const result = parseHar(parsedData);
-    if (repairInfo) result.repairInfo = repairInfo;
-    return { kind: 'har', result, rawData: parsedData };
+    const { result, rawData } = parseHarInput(harData, repairInfo);
+    return { kind: 'har', result, rawData };
   }
 
   if (sourceFile && fileTypeHint === 'netlog' && sourceFile.size >= LARGE_NETLOG_STREAM_BYTES) {

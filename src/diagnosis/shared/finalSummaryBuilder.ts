@@ -759,7 +759,7 @@ export function buildFinalDiagnosisSummary(
   const categoryClusters = Array.from(byCategory.entries())
     .map(([category, clusterCards]) => buildCluster(category, clusterCards, mode, diagnosisSummary))
     .sort((a, b) => b.score - a.score);
-  const episodeClusters = buildIncidentEpisodes(sortedExpertCards)
+  const episodeClusters = buildIncidentEpisodes(sortedExpertCards, { dataIncomplete: diagnosisSummary.quality.dataIncomplete })
     .map(episode => buildClusterFromEpisode(episode, mode, diagnosisSummary))
     .sort((a, b) => b.score - a.score);
   const clusters = episodeClusters.length > 0 ? episodeClusters : categoryClusters;

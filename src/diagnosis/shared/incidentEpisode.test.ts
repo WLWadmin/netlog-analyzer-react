@@ -99,6 +99,18 @@ describe('incidentEpisode', () => {
     expect(episodes[0].narrative).toContain('恢复成功');
   });
 
+  it('does not conclude recovery when records are missing from the capture', () => {
+    const episodes = buildIncidentEpisodes([{
+      ...card({ id: 'partial', category: 'connect', startMs: 1000, endMs: 1400 }),
+      evidence: [
+        ev('失败请求', '#1 example.test', 1000, 1400),
+        { label: '恢复成功', value: 'status=200', source: 'har', detail: 'startMs=1800; endMs=1900' },
+      ],
+    }], { dataIncomplete: true });
+    expect(episodes[0].state).toBe('unknown');
+    expect(episodes[0].recoveredAtMs).toBeUndefined();
+  });
+
   it('does not promote one mild slow request into global episode', () => {
     const episodes = buildIncidentEpisodes([
       card({
