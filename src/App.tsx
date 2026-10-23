@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, Suspense, useCallback, useMemo } from 'react';
 import { Layout, Button, message, FloatButton, Dropdown } from 'antd';
 import {
   ReloadOutlined,
@@ -16,7 +16,7 @@ import {
   FileSearchOutlined,
 } from '@ant-design/icons';
 
-import { ParsedEvent, AnalysisResult, exportReport } from './parsers/netlog';
+import type { ParsedEvent, AnalysisResult } from './parsers/netlog';
 import { HarAnalysisResult } from './harParser';
 import { LogAnalysisResult } from './logParser';
 import {
@@ -65,11 +65,7 @@ import {
   confirmFileParser,
   prepareFileFormat,
 } from './upload/fileFormatGateway';
-import SummaryCards from './components/netlog/SummaryCards';
-import NetLogRequestList from './components/netlog/NetLogRequestList';
-import ConclusionActionTab from './components/netlog/ConclusionActionTab';
-import EvidenceChainTab from './components/netlog/EvidenceChainTab';
-import ExpertAnalysisTab from './components/netlog/ExpertAnalysisTab';
+import { retryableLazy } from './components/shared/retryableLazy';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
@@ -77,17 +73,21 @@ import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from './components/
 import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
 import { downloadTextFile } from './utils/downloadTextFile';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
-import { buildNetlogExpertEvidencePackage } from './diagnosis/shared/netlogExpertEvidenceExport';
 import './appShell.css';
 
 const { Header, Content } = Layout;
 
 // 页面级懒加载：减少首包体积（重型模块拆分）
-const HarResultPage = lazy(() => import('./components/har/HarResultPage'));
-const LogResultPage = lazy(() => import('./components/log/LogResultPage'));
-const TraceResultPage = lazy(() => import('./components/trace/TraceResultPage'));
-const RawEvidenceExplorer = lazy(() => import('./components/raw/RawEvidenceExplorer'));
-const DatasetRawEvidenceExplorer = lazy(() => import('./components/raw/DatasetRawEvidenceExplorer'));
+const HarResultPage = retryableLazy(() => import('./components/har/HarResultPage'));
+const LogResultPage = retryableLazy(() => import('./components/log/LogResultPage'));
+const TraceResultPage = retryableLazy(() => import('./components/trace/TraceResultPage'));
+const RawEvidenceExplorer = retryableLazy(() => import('./components/raw/RawEvidenceExplorer'));
+const DatasetRawEvidenceExplorer = retryableLazy(() => import('./components/raw/DatasetRawEvidenceExplorer'));
+const SummaryCards = retryableLazy(() => import('./components/netlog/SummaryCards'));
+const NetLogRequestList = retryableLazy(() => import('./components/netlog/NetLogRequestList'));
+const ConclusionActionTab = retryableLazy(() => import('./components/netlog/ConclusionActionTab'));
+const EvidenceChainTab = retryableLazy(() => import('./components/netlog/EvidenceChainTab'));
+const ExpertAnalysisTab = retryableLazy(() => import('./components/netlog/ExpertAnalysisTab'));
 
 const LazyFallback: React.FC<{ text?: string }> = ({ text = '正在加载模块...' }) => (
   <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -746,6 +746,17 @@ const AppContent: React.FC = () => {
     onResult: commitIntakeResult,
   });
 
+  const preparingParser = intake.state.status === 'parsing' ? intake.state.parserId : undefined;
+  useEffect(() => {
+    if (preparingParser === 'har@1') void HarResultPage.preload();
+    if (preparingParser === 'go-service-log@1') void LogResultPage.preload();
+    if (preparingParser === 'chromium-performance-trace@1') void TraceResultPage.preload();
+    if (preparingParser === 'chromium-netlog@1') {
+      void SummaryCards.preload();
+      void ConclusionActionTab.preload();
+    }
+  }, [preparingParser]);
+
   const handleIntakeFiles = useCallback(async (files: File[]) => {
     const file = files[0];
     if (!file) return;
@@ -830,15 +841,20 @@ const AppContent: React.FC = () => {
 
 
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!result) return;
-    const report = exportReport(result, { ipRoutingConclusions });
-    downloadTextFile(
-      `netlog-analysis-report-${Date.now()}.md`,
-      report,
-      'text/markdown;charset=utf-8',
-    );
-    message.success('报告已导出');
+    try {
+      const { exportReport } = await import('./parsers/netlog/diagnosis');
+      const report = exportReport(result, { ipRoutingConclusions });
+      downloadTextFile(
+        `netlog-analysis-report-${Date.now()}.md`,
+        report,
+        'text/markdown;charset=utf-8',
+      );
+      message.success('报告已导出');
+    } catch {
+      message.error('报告模块暂时无法加载，分析数据已保留，请重试导出。');
+    }
   };
 
   const handleExportJSON = () => {
@@ -917,6 +933,7 @@ const AppContent: React.FC = () => {
         ])
         : undefined;
 
+      const { buildNetlogExpertEvidencePackage } = await import('./diagnosis/shared/netlogExpertEvidenceExport');
       const report = buildNetlogExpertEvidencePackage({
         result,
         analysisId,

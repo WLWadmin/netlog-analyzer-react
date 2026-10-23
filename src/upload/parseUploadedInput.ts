@@ -1,7 +1,6 @@
-import { parseLog, type AnalysisResult, type ParsedEvent } from '../parsers/netlog';
+import type { AnalysisResult, ParsedEvent } from '../parsers/netlog';
 import type { HarAnalysisResult } from '../harParser';
-import { parseHarInput } from '../utils/parseHarInput';
-import { parseLogFile, type LogAnalysisResult } from '../logParser';
+import type { LogAnalysisResult } from '../logParser';
 import {
   fallbackNetlogDatasetState,
   unavailableNetlogDatasetState,
@@ -142,6 +141,27 @@ export async function parseUploadedInput(options: {
     onProgress,
     onStructuredProgress,
   } = options;
+  // Worker request IDs identify internal RPCs, not the upload. The intake
+  // reducer rejects other task IDs, so project progress at this boundary.
+  let lastWorkerProgress: AnalysisProgress | undefined;
+  let lastWorkerProgressAt = 0;
+  const onWorkerProgress = onStructuredProgress
+    ? (progress: AnalysisProgress) => {
+      const now = Date.now();
+      // Counts can arrive every 100ms. Bound same-stage page updates without
+      // queuing timers; stage transitions and final counts remain immediate.
+      const sameStage = lastWorkerProgress
+        && progress.phase === lastWorkerProgress.phase
+        && progress.phaseIndex === lastWorkerProgress.phaseIndex
+        && progress.mode === lastWorkerProgress.mode;
+      const finished = progress.resultReady
+        || (progress.total !== undefined && progress.completed === progress.total);
+      if (sameStage && !finished && now - lastWorkerProgressAt < 500) return;
+      lastWorkerProgress = progress;
+      lastWorkerProgressAt = now;
+      onStructuredProgress({ ...progress, taskId });
+    }
+    : undefined;
   const streamSession = isFileStreamParseSession(data) ? data : undefined;
   const sourceFile = streamSession
     ? streamSession.file
@@ -168,12 +188,13 @@ export async function parseUploadedInput(options: {
       : streamSession ?? sourceFile!;
     if (useWorker) {
       const { parseLogInWorker } = await import('../workers/workerClient');
-      const { result } = await parseLogInWorker(logInput, { onProgress, onStructuredProgress });
+      const { result } = await parseLogInWorker(logInput, { onProgress, onStructuredProgress: onWorkerProgress });
       return { kind: 'log', result };
     }
     const text = typeof logInput === 'string'
       ? logInput
       : await readKnownNonTraceText(logInput);
+    const { parseLogFile } = await import('../logParser');
     return { kind: 'log', result: parseLogFile(text) };
   }
 
@@ -251,7 +272,7 @@ export async function parseUploadedInput(options: {
       const { result, rawData, rawDataId } = await parseHarInWorker(
         data,
         repairInfo,
-        { onProgress, onStructuredProgress },
+        { onProgress, onStructuredProgress: onWorkerProgress },
       );
       return { kind: 'har', result, rawData, rawDataId };
     }
@@ -259,6 +280,7 @@ export async function parseUploadedInput(options: {
     const harData = sourceFile
       ? await readKnownNonTraceText(streamSession ?? sourceFile)
       : data;
+    const { parseHarInput } = await import('../utils/parseHarInput');
     const { result, rawData } = parseHarInput(harData, repairInfo);
     return { kind: 'har', result, rawData };
   }
@@ -281,7 +303,7 @@ export async function parseUploadedInput(options: {
       const { parseLargeNetlogFileInWorker } = await import('../workers/workerClient');
       return parseLargeNetlogFileInWorker(input, {
         onProgress,
-        onStructuredProgress,
+        onStructuredProgress: onWorkerProgress,
         singleScanDataset,
       });
     };
@@ -327,7 +349,7 @@ export async function parseUploadedInput(options: {
     const { parseNetlogInWorker } = await import('../workers/workerClient');
     const { events, result, rawData, rawDataId } = await parseNetlogInWorker(
       data,
-      { onProgress, onStructuredProgress },
+      { onProgress, onStructuredProgress: onWorkerProgress },
     );
     return { kind: 'netlog', result, events, rawData, rawDataId, dataset: unavailableNetlogDatasetState };
   }
@@ -338,6 +360,7 @@ export async function parseUploadedInput(options: {
   const parsedData = typeof netlogData === 'string'
     ? JSON.parse(netlogData)
     : netlogData;
+  const { parseLog } = await import('../parsers/netlog/parser');
   const { events, result } = parseLog(parsedData);
   return { kind: 'netlog', result, events, rawData: parsedData, dataset: unavailableNetlogDatasetState };
 }

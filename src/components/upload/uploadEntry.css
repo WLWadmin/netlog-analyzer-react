@@ -570,7 +570,22 @@
 .analysis-progress-track > div {
   background: linear-gradient(90deg, var(--intake-cyan), var(--intake-blue));
   height: 100%;
-  transition: width 80ms linear;
+  overflow: hidden;
+  position: relative;
+  transition: width 500ms linear;
+}
+
+.analysis-progress-track.is-active > div::after {
+  animation: analysis-progress-flow 1.8s linear infinite;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 45%), transparent);
+  content: '';
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+
+@keyframes analysis-progress-flow {
+  to { transform: translateX(100%); }
 }
 
 .analysis-result-countdown {
@@ -694,6 +709,11 @@
   .analysis-progress-track > div {
     animation: none;
     transition: none;
+  }
+
+  .analysis-progress-track.is-active > div::after {
+    animation: none;
+    display: none;
   }
 
   .diagnostic-upload-zone .ant-upload-wrapper .ant-upload-drag {

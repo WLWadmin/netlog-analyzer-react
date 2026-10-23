@@ -11,7 +11,7 @@ import {
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import type { TraceAnalysisResult } from '../diagnosis/trace';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
-import { progressRatio, type AnalysisProgress } from './analysisProgress';
+import { isMonotonicProgress, progressRatio, type AnalysisProgress } from './analysisProgress';
 import { ReadableStream as NodeReadableStream } from 'stream/web';
 
 beforeAll(() => {
@@ -76,8 +76,8 @@ describe('parseUploadedInput', () => {
     delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
   });
 
-  it('默认关闭 Trace 时普通 JSON 保持现有 NetLog 行为', async () => {
-    delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
+  it('显式关闭 Trace 时普通 JSON 保持现有 NetLog 行为', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_ANALYSIS = '0';
     parseNetlogInWorkerMock.mockResolvedValue({
       events: [],
       result: { totalEvents: 0 },
@@ -92,6 +92,82 @@ describe('parseUploadedInput', () => {
 
     expect(result.kind).toBe('netlog');
     expect(inspectTraceUploadInWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['netlog', 'large-netlog', 'har', 'log'] as const)(
+    '%s Worker progress belongs to the upload task and advances beyond validation',
+    async format => {
+      const parserId = format === 'har' ? 'har@1'
+        : format === 'log' ? 'go-service-log@1' : 'chromium-netlog@1';
+      const previous: AnalysisProgress = {
+        taskId: 'upload-42', parserId, phase: 'validating', label: '正在验证结构',
+        mode: 'indeterminate', phaseIndex: 1, phaseCount: 5, startedAt: 1, updatedAt: 2,
+      };
+      const workerProgress: AnalysisProgress = {
+        ...previous, taskId: 'task-7-worker', phase: 'scanning-records',
+        label: '正在扫描记录', phaseIndex: 2,
+        mode: 'determinate', completed: 50, total: 100, unit: 'bytes',
+      };
+      const emit = (options: { onStructuredProgress?(progress: AnalysisProgress): void }) => {
+        options.onStructuredProgress?.(workerProgress);
+        return Promise.resolve({ events: [], result: { totalEvents: 0 } });
+      };
+      if (format === 'har') {
+        parseHarInWorkerMock.mockImplementationOnce((_data, _repair, options) => emit(options));
+      } else {
+        const workerMock = format === 'netlog' ? parseNetlogInWorkerMock
+          : format === 'large-netlog' ? parseLargeNetlogFileInWorkerMock : parseLogInWorkerMock;
+        workerMock.mockImplementationOnce((_data, options) => emit(options));
+      }
+      const file = new File(['{}'], 'synthetic.json');
+      if (format === 'large-netlog') {
+        Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+      }
+      const onStructuredProgress = jest.fn();
+      await parseUploadedInput({
+        data: format === 'log' ? 'synthetic log' : file,
+        fileTypeHint: format === 'large-netlog' ? 'netlog' : format,
+        useWorker: true, taskId: previous.taskId, onStructuredProgress,
+      });
+      expect(onStructuredProgress).toHaveBeenCalledWith({
+        ...workerProgress, taskId: previous.taskId,
+      });
+      expect(isMonotonicProgress(previous, onStructuredProgress.mock.calls[0][0])).toBe(true);
+      expect(workerProgress.taskId).toBe('task-7-worker');
+    },
+  );
+
+  it('bounds same-stage Worker updates but immediately publishes final counts and stage changes', async () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const onStructuredProgress = jest.fn();
+    const progress: AnalysisProgress = {
+      taskId: 'worker-task', phase: 'scanning-records', label: '扫描',
+      mode: 'determinate', phaseIndex: 2, phaseCount: 5,
+      completed: 0, total: 100, unit: 'events', startedAt: 1, updatedAt: 2,
+    };
+    parseNetlogInWorkerMock.mockImplementationOnce((_data, options) => {
+      for (let completed = 0; completed < 10; completed += 1) {
+        clock.mockReturnValue(1_000 + completed * 100);
+        options.onStructuredProgress({ ...progress, completed });
+      }
+      options.onStructuredProgress({ ...progress, completed: 100 });
+      options.onStructuredProgress({
+        ...progress, phase: 'building-facts', phaseIndex: 3, mode: 'indeterminate',
+      });
+      return Promise.resolve({ events: [], result: { totalEvents: 100 } });
+    });
+    try {
+      await parseUploadedInput({
+        data: { events: [] }, fileTypeHint: 'netlog', useWorker: true,
+        taskId: 'upload-task', onStructuredProgress,
+      });
+      expect(onStructuredProgress.mock.calls.map(([item]) => item.completed)).toEqual([0, 5, 100, 0]);
+      expect(onStructuredProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+        taskId: 'upload-task', phase: 'building-facts',
+      }));
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it.each([
@@ -370,7 +446,7 @@ describe('parseUploadedInput', () => {
   });
 
   it('flag off 时仍识别 Trace，并返回固定 feature-disabled 错误', async () => {
-    delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
+    process.env.REACT_APP_ENABLE_TRACE_ANALYSIS = '0';
     inspectTraceUploadInWorkerMock.mockReturnValue({
       promise: Promise.resolve({
         kind: 'trace',

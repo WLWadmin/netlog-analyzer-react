@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { parseUploadedInput } from './upload/parseUploadedInput';
 import { importNetlogDatasetInWorker, isWorkerSupported, largeNetlogTimeout, releaseNetlogDatasetInWorker, releaseRawDataInWorker } from './workers/workerClient';
-import { exportReport } from './parsers/netlog';
+import { exportReport } from './parsers/netlog/diagnosis';
 import { message } from 'antd';
 import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 
@@ -159,7 +159,7 @@ jest.mock('./upload/useAnalysisIntake', () => ({
   },
 }));
 
-jest.mock('./parsers/netlog', () => ({
+jest.mock('./parsers/netlog/diagnosis', () => ({
   exportReport: jest.fn(() => '# mock report'),
 }));
 
@@ -263,8 +263,7 @@ jest.mock('./components/netlog/ConclusionActionTab', () => ({
 jest.mock('./components/netlog/EvidenceChainTab', () => ({
   __esModule: true,
   default: function MockEvidenceChainTab({ onLookupConclusionsChange }: { onLookupConclusionsChange?: (conclusions: unknown[]) => void }) {
-    const React = require('react');
-    React.useEffect(() => {
+    const completeLookup = () => {
       onLookupConclusionsChange?.([
         {
           level: 'info',
@@ -274,8 +273,8 @@ jest.mock('./components/netlog/EvidenceChainTab', () => ({
           nextAction: '结合同运营商线路验证。',
         },
       ]);
-    }, [onLookupConclusionsChange]);
-    return <div>EvidenceChainTab</div>;
+    };
+    return <div>EvidenceChainTab<button onClick={completeLookup}>完成 IP 查询</button></div>;
   },
 }));
 jest.mock('./components/netlog/ExpertAnalysisTab', () => ({ __esModule: true, default: () => <div>ExpertAnalysisTab</div> }));
@@ -345,7 +344,7 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('上传 NetLog'));
 
     await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
-    expect(screen.getByText('ConclusionActionTab')).not.toBeNull();
+    expect(await screen.findByText('ConclusionActionTab')).not.toBeNull();
   });
 
   it('首页展示本地诊断控制台与唯一共享上传入口', () => {
@@ -922,14 +921,15 @@ describe('App Phase 3 upload behavior', () => {
     await waitFor(() => expect(window.location.hash).toBe('#netlog/conclusion'));
     await userEvent.click(screen.getByText('切到证据链'));
     await waitFor(() => expect(window.location.hash).toBe('#netlog/evidence'));
+    await userEvent.click(await screen.findByText('完成 IP 查询'));
     await userEvent.click(screen.getByText('Markdown 报告'));
 
-    expect(exportReportMock).toHaveBeenCalledWith(expect.any(Object), {
+    await waitFor(() => expect(exportReportMock).toHaveBeenCalledWith(expect.any(Object), {
       ipRoutingConclusions: [
         expect.objectContaining({
           title: '客户端出口线索与服务端目标运营商不同',
         }),
       ],
-    });
+    }));
   });
 });

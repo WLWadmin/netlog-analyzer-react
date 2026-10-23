@@ -45,41 +45,40 @@ function completedLabel(label: string): string {
   return label.replace(/^正在/, '');
 }
 
-function useAnimatedPercent(targetPercent: number, taskId: string): number {
-  const [displayPercent, setDisplayPercent] = useState(targetPercent);
-  const displayRef = useRef(targetPercent);
+function useAnimatedPercent(progress: AnalysisProgress): number {
+  const targetPercent = Math.floor(progressRatio(progress) * 100);
+  const { taskId, resultReady } = progress;
+  // This is presentation-only interpolation, never a Worker fact or an ETA.
+  // Leave room before the next phase and keep long waits visibly active via CSS.
+  const phaseCount = Math.max(1, progress.phaseCount);
+  const phaseIndex = Math.min(Math.max(0, progress.phaseIndex), phaseCount - 1);
+  const ceiling = Math.max(targetPercent, Math.min(99, Math.ceil((phaseIndex + 1) / phaseCount * 100) - 1));
+  const [display, setDisplay] = useState({ taskId, percent: targetPercent });
+  const displayRef = useRef(display);
 
   useEffect(() => {
-    displayRef.current = targetPercent;
-    setDisplayPercent(targetPercent);
-  }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const start = displayRef.current;
-    if (targetPercent <= start) return undefined;
-    if (typeof window.requestAnimationFrame !== 'function') {
-      displayRef.current = targetPercent;
-      setDisplayPercent(targetPercent);
-      return undefined;
-    }
-    const startedAt = performance.now();
-    const duration = Math.min(400, Math.max(120, (targetPercent - start) * 8));
-    let frame = 0;
-    const animate = (now: number) => {
-      const ratio = Math.min(1, (now - startedAt) / duration);
-      const next = Math.min(
-        targetPercent,
-        Math.round(start + (targetPercent - start) * ratio),
-      );
-      displayRef.current = next;
-      setDisplayPercent(next);
-      if (ratio < 1) frame = window.requestAnimationFrame(animate);
+    const start = displayRef.current.taskId === taskId
+      ? Math.max(targetPercent, displayRef.current.percent) : targetPercent;
+    const publish = (percent: number) => {
+      // Only integer changes are visible; fractional updates must not render
+      // the entire panel while the Worker is parsing a large file.
+      const nextPercent = Math.floor(percent);
+      if (displayRef.current.taskId === taskId && displayRef.current.percent === nextPercent) return;
+      displayRef.current = { taskId, percent: nextPercent };
+      setDisplay(displayRef.current);
     };
-    frame = window.requestAnimationFrame(animate);
-    return () => window.cancelAnimationFrame(frame);
-  }, [targetPercent]);
+    publish(start);
+    if (resultReady) return undefined;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const waitingMs = Math.max(0, Date.now() - startedAt - 1_000);
+      publish(start + Math.max(0, ceiling - start) * (1 - Math.exp(-waitingMs / 45_000)));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [targetPercent, taskId, ceiling, resultReady]);
 
-  return displayPercent;
+  return resultReady ? 100 : display.taskId !== taskId
+    ? targetPercent : Math.max(targetPercent, Math.floor(display.percent));
 }
 
 const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
@@ -105,15 +104,16 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
     startedAt: Date.now(),
   }]);
   const targetPercent = Math.floor(progressRatio(acceptedProgress) * 100);
-  const displayPercent = useAnimatedPercent(
-    targetPercent,
-    acceptedProgress.taskId,
-  );
+  const displayPercent = useAnimatedPercent(acceptedProgress);
+  const isEstimated = !acceptedProgress.resultReady && displayPercent > targetPercent;
+  const percentLabel = isEstimated ? '预估进度' : '任务完成度';
 
   useEffect(() => {
     localStartedAt.current = Date.now();
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 100);
+    // Elapsed time and the result countdown are displayed in seconds.
+    // The flowing indicator uses CSS and needs no high-frequency React timer.
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [acceptedProgress.taskId]);
 
@@ -176,14 +176,15 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
   return (
     <div className="analysis-progress-panel" aria-live="polite">
       <div className="analysis-progress-heading">
-        <div className="analysis-progress-percent" aria-label={`任务完成度 ${displayPercent}%`}>
+        <div className="analysis-progress-percent" aria-label={`${percentLabel} ${displayPercent}%`}>
           <strong>{displayPercent}%</strong>
-          <span>任务完成度</span>
+          <span>{percentLabel}</span>
         </div>
         <div className="analysis-progress-current">
           <span>{acceptedProgress.resultReady ? '结果已就绪' : '当前任务'}</span>
           <h2>{acceptedProgress.label}</h2>
           <p>{workCopy}</p>
+          {isEstimated && <p>进度为等待期间的估算，实际完成以分析结果为准</p>}
         </div>
         <div className="analysis-progress-actions">
           <span aria-label={`已用时 ${formatElapsed(now - localStartedAt.current)}`}>
@@ -200,12 +201,13 @@ const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({
       </div>
 
       <div
-        className="analysis-progress-track"
+        className={`analysis-progress-track${acceptedProgress.resultReady ? '' : ' is-active'}`}
         role="progressbar"
         aria-label={acceptedProgress.label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={displayPercent}
+        aria-valuetext={`${percentLabel} ${displayPercent}%`}
       >
         <div style={{ width: `${displayPercent}%` }} />
       </div>

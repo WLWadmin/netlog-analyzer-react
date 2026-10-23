@@ -1,9 +1,34 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { Profiler } from 'react';
 import AnalysisProgressPanel from './AnalysisProgressPanel';
+import type { AnalysisProgress } from '../../upload/analysisProgress';
 
 describe('AnalysisProgressPanel', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('bounds waiting renders while keeping elapsed time and estimated progress active', () => {
+    jest.useFakeTimers();
+    const onRender = jest.fn();
+    const { unmount } = render(
+      <Profiler id="progress" onRender={onRender}>
+        <AnalysisProgressPanel progress={{
+          taskId: 'waiting', phase: 'validating', label: '正在验证 NetLog 结构',
+          mode: 'indeterminate', phaseIndex: 1, phaseCount: 5, startedAt: 1, updatedAt: 2,
+        }} onCancel={jest.fn()} />
+      </Profiler>,
+    );
+    onRender.mockClear();
+    // Separate ticks prevent act() from batching ten seconds into one render.
+    for (let tick = 0; tick < 200; tick += 1) {
+      act(() => jest.advanceTimersByTime(50));
+    }
+    expect(screen.getByLabelText('已用时 00:10')).not.toBeNull();
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeGreaterThan(20);
+    expect(onRender.mock.calls.length).toBeLessThanOrEqual(15);
+    unmount();
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('renders real work counts and determinate aria values', () => {
@@ -253,5 +278,61 @@ describe('AnalysisProgressPanel', () => {
 
     expect(screen.getByText('3 秒后自动进入结果页面')).not.toBeNull();
     expect(screen.queryByText('4 秒后自动进入结果页面')).toBeNull();
+  });
+
+  it('keeps waiting progress moving within the phase without inventing work counts or completion', () => {
+    jest.useFakeTimers();
+    const progress: AnalysisProgress = {
+      taskId: 'waiting', phase: 'validating', label: '正在验证 NetLog 结构',
+      mode: 'indeterminate', phaseIndex: 1, phaseCount: 5, startedAt: 1, updatedAt: 2,
+    };
+    const onCancel = jest.fn();
+    const { rerender, unmount } = render(<AnalysisProgressPanel progress={progress} onCancel={onCancel} />);
+    act(() => jest.advanceTimersByTime(10_000));
+    const first = Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'));
+    expect(first).toBeGreaterThan(20);
+    expect(first).toBeLessThan(40);
+    expect(screen.getByText('预估进度')).not.toBeNull();
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toContain('预估');
+    expect(screen.queryByText(/^已处理/)).toBeNull();
+    expect(screen.getByLabelText('已用时 00:10')).not.toBeNull();
+
+    // Repeated Worker updates at the same boundary must not restart the animation.
+    rerender(<AnalysisProgressPanel progress={{ ...progress, updatedAt: 3 }} onCancel={onCancel} />);
+    act(() => jest.advanceTimersByTime(10_000));
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeGreaterThan(first);
+    act(() => jest.advanceTimersByTime(300_000));
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(40);
+    fireEvent.click(screen.getByRole('button', { name: '停止分析' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('reconciles estimated progress with real updates and resets on another task', () => {
+    jest.useFakeTimers();
+    const progress: AnalysisProgress = {
+      taskId: 'waiting', phase: 'validating', label: '正在验证 NetLog 结构',
+      mode: 'indeterminate', phaseIndex: 1, phaseCount: 5, startedAt: 1, updatedAt: 2,
+    };
+    const { rerender } = render(<AnalysisProgressPanel progress={progress} onCancel={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(10_000));
+    const estimated = Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'));
+    rerender(<AnalysisProgressPanel progress={{
+      ...progress, mode: 'determinate', completed: 1, total: 100, unit: 'events',
+    }} onCancel={jest.fn()} />);
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(estimated);
+    expect(screen.getByText('已处理 1 / 100 个事件')).not.toBeNull();
+    rerender(<AnalysisProgressPanel progress={{
+      ...progress, phaseIndex: 4, phase: 'preparing-result', resultReady: false,
+    }} onCancel={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(300_000));
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeLessThan(100);
+    rerender(<AnalysisProgressPanel progress={{ ...progress, phaseIndex: 4, resultReady: true }} onCancel={jest.fn()} />);
+    expect(screen.getByText('100%')).not.toBeNull();
+    expect(screen.queryByText('预估进度')).toBeNull();
+    rerender(<AnalysisProgressPanel progress={{ ...progress, taskId: 'next' }} onCancel={jest.fn()} />);
+    expect(screen.getByText('20%')).not.toBeNull();
+    expect(screen.getByLabelText('已用时 00:00')).not.toBeNull();
   });
 });
