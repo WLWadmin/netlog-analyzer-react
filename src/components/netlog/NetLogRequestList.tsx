@@ -10,6 +10,9 @@ import { StatusTag } from '../../components/shared/StatusTag';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { formatNetlogWallTime } from '../../utils/netlogTime';
+import { describeRequestOutcome } from '../../parsers/netlog/requestOutcome';
+import { getNetErrorDescription } from '../../parsers/netlog/constants';
+import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 
 interface NetLogRequestListProps {
   result: AnalysisResult;
@@ -44,7 +47,7 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
   const [protocolFilter, setProtocolFilter] = useState<string>('all');
   const [slowOnly, setSlowOnly] = useState(false);
   const [highlightIds, setHighlightIds] = useState<Set<number>>(new Set());
-  const { intent, consumeIntent } = useNavigation();
+  const { intent, consumeIntent, navigateTo } = useNavigation();
 
   // 消费导航意图，自动应用搜索/筛选 + 高亮
   useEffect(() => {
@@ -141,8 +144,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
     // 状态筛选
     if (statusFilter !== 'all') {
       list = list.filter(r => {
-        if (statusFilter === 'success') return !r.error && r.status !== 'error';
+        if (statusFilter === 'success') return r.outcome?.state === 'succeeded';
         if (statusFilter === 'error') return !!r.error || r.status === 'error';
+        if (statusFilter === 'failed') return r.outcome?.state === 'failed';
+        if (statusFilter === 'cancelled') return r.outcome?.state === 'cancelled';
+        if (statusFilter === 'unknown') return !r.outcome || ['incomplete', 'unknown'].includes(r.outcome.state);
         return true;
       });
     }
@@ -273,10 +279,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 86,
-      render: (s: string, r: URLRequest) => (
-        <StatusTag status={s as any} statusCode={r.statusCode} className="netlog-request-status-tag">
-          {s === 'error' || r.error ? '失败' : r.statusCode || 'OK'}
+      width: 150,
+      render: (_s: string, r: URLRequest) => (
+        <StatusTag status={r.outcome?.state === 'failed' ? 'error' : r.outcome?.state === 'succeeded' ? 'success' : 'default'} className="netlog-request-status-tag">
+          {describeRequestOutcome(r).label}
         </StatusTag>
       ),
     },
@@ -559,6 +565,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
         {/* 多维筛选栏 */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           <FilterOutlined style={{ color: 'var(--accent-blue)', fontSize: 14 }} />
+          <Button size="small" onClick={() => navigateTo({
+            tab: 'expert', fileType: 'netlog', filters: { errorOnly: true },
+            source: '请求错误', reason: '查询全部错误事件，包括未关联到请求的错误',
+          })}>全部错误事件（含未关联）</Button>
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
@@ -567,7 +577,10 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             options={[
               { value: 'all', label: '全部状态' },
               { value: 'success', label: '成功' },
-              { value: 'error', label: '失败' },
+              { value: 'error', label: '有错误记录' },
+              { value: 'failed', label: '最终失败' },
+              { value: 'cancelled', label: '已取消' },
+              { value: 'unknown', label: '未完成 / 未知' },
             ]}
           />
           <Select
@@ -660,6 +673,17 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
 
             {/* 总览 */}
             <Descriptions column={2} size="small" bordered={false}>
+              <Descriptions.Item label="最终结果" span={2}>
+                {describeRequestOutcome(detailReq).label}：{describeRequestOutcome(detailReq).explanation}
+              </Descriptions.Item>
+              <Descriptions.Item label="终态证据" span={2}>
+                {detailReq.outcome?.terminalEventId === undefined ? '未取得明确结束事件' : `event#${detailReq.outcome.terminalEventId} · source#${detailReq.id} · net_error=${detailReq.outcome.terminalCode ?? '缺失'}`}
+              </Descriptions.Item>
+              {detailReq.outcome?.terminalCode !== undefined && detailReq.outcome.terminalCode < 0 && (
+                <Descriptions.Item label="结束码解释" span={2}>
+                  {getNetErrorDescription(detailReq.outcome.terminalCode)}；{classifyNetError(detailReq.outcome.terminalCode).catName}类线索，具体原因需结合请求事件和 Source Chain 复核。
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="方法">{detailReq.method || 'GET'}</Descriptions.Item>
               <Descriptions.Item label="状态码">{detailReq.statusCode || '-'}</Descriptions.Item>
               <Descriptions.Item label="总耗时">
@@ -673,6 +697,11 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
                 </span>
               </Descriptions.Item>
             </Descriptions>
+            <Button onClick={() => {
+              setDetailReq(null);
+              navigateTo({ tab: 'expert', fileType: 'netlog', filters: { sourceId: String(detailReq.id) },
+                source: '请求最终结果', reason: '复核请求生命周期、错误与关联 source；共享连接仅为候选证据' });
+            }}>追溯 source#{detailReq.id} 的完整事件</Button>
 
             {/* 各阶段耗时分解 */}
             <div>
@@ -717,9 +746,9 @@ const NetLogRequestList: React.FC<NetLogRequestListProps> = ({ result }) => {
             {/* 错误信息 */}
             {(detailReq.error || detailReq.errorDesc) && (
               <div style={{ padding: 12, background: 'rgba(248, 113, 113, 0.08)', borderRadius: 8, border: '1px solid rgba(248, 113, 113, 0.2)' }}>
-                <div style={{ fontSize: 12, color: '#f87171', fontWeight: 600, marginBottom: 4 }}>错误信息</div>
+                <div style={{ fontSize: 12, color: '#f87171', fontWeight: 600, marginBottom: 4 }}>过程中的错误线索（最终结果见上方）</div>
                 <div style={{ fontSize: 12, color: '#f87171', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
-                  {detailReq.errorDesc || String(detailReq.error)}
+                  {detailReq.error !== undefined ? getNetErrorDescription(detailReq.error) : detailReq.errorDesc}
                 </div>
               </div>
             )}

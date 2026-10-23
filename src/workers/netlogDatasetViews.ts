@@ -1,3 +1,5 @@
+import type { NetlogStatePaging } from './netlogStatePaging';
+
 export interface NetlogStateTrace {
   sourceId?: number;
   eventId?: number;
@@ -23,7 +25,7 @@ export interface DataLoadedView {
   evidenceGaps: string[];
 }
 
-export interface DnsStateView {
+export interface DnsStateView extends NetlogStatePaging {
   configServers: Array<{
     ip: string;
     source: 'polledData' | 'systemInfo' | 'unknown';
@@ -83,7 +85,7 @@ export interface DnsStateView {
   evidenceGaps: string[];
 }
 
-export interface ProxyStateView {
+export interface ProxyStateView extends NetlogStatePaging {
   proxyConfigs: Array<{
     key: string;
     value: string;
@@ -140,7 +142,7 @@ export interface ProxyStateView {
   evidenceGaps: string[];
 }
 
-export interface QuicStateView {
+export interface QuicStateView extends NetlogStatePaging {
   sessions: Array<{
     sourceId: number;
     eventCount: number;
@@ -193,7 +195,7 @@ export interface QuicStateView {
   evidenceGaps: string[];
 }
 
-export interface Http2StateView {
+export interface Http2StateView extends NetlogStatePaging {
   sessions: Array<{
     sourceId: number;
     eventCount: number;
@@ -267,7 +269,7 @@ export interface Http2StateView {
   evidenceGaps: string[];
 }
 
-export interface SocketsStateView {
+export interface SocketsStateView extends NetlogStatePaging {
   sockets: Array<{
     sourceId: number;
     sourceTypeName: string;
@@ -329,7 +331,7 @@ export interface SocketsStateView {
   evidenceGaps: string[];
 }
 
-export interface CacheStateView {
+export interface CacheStateView extends NetlogStatePaging {
   entries: Array<{
     sourceId: number;
     sourceTypeName: string;
@@ -375,7 +377,7 @@ export interface CacheStateView {
   evidenceGaps: string[];
 }
 
-export interface AltSvcStateView {
+export interface AltSvcStateView extends NetlogStatePaging {
   alternatives: Array<{
     key: string;
     host?: string;
@@ -423,7 +425,7 @@ export interface AltSvcStateView {
   evidenceGaps: string[];
 }
 
-export interface StreamPoolStateView {
+export interface StreamPoolStateView extends NetlogStatePaging {
   jobs: Array<{
     sourceId: number;
     sourceTypeName: string;
@@ -476,7 +478,7 @@ export interface StreamPoolStateView {
   evidenceGaps: string[];
 }
 
-export interface ReportingStateView {
+export interface ReportingStateView extends NetlogStatePaging {
   endpoints: Array<{
     key: string;
     origin?: string;
@@ -531,6 +533,13 @@ export interface ReportingStateView {
 }
 
 export interface TimelineStateView {
+  selection?: {
+    eventCount: number;
+    errorCount: number;
+    sourceCount: number;
+    sourcePage: number;
+    errorPage: number;
+  };
   timeTickOffset?: number;
   timeRange: {
     start: number;
@@ -565,7 +574,7 @@ export interface TimelineStateView {
   evidenceGaps: string[];
 }
 
-export interface ModulesStateView {
+export interface ModulesStateView extends NetlogStatePaging {
   modules: Array<{
     key: string;
     name?: string;
@@ -591,7 +600,7 @@ export interface ModulesStateView {
   evidenceGaps: string[];
 }
 
-export interface PrerenderStateView {
+export interface PrerenderStateView extends NetlogStatePaging {
   activities: Array<{
     sourceId: number;
     kind: 'prerender' | 'prefetch' | 'preconnect' | 'prediction' | 'speculation' | 'navigation';

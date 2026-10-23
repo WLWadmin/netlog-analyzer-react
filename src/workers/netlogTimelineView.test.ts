@@ -52,5 +52,32 @@ describe('buildNetlogTimelineView', () => {
     expect(view.timeRange).toEqual({ start: 0, end: count - 1, duration: count - 1 });
     expect(view.buckets.reduce((sum, bucket) => sum + bucket.eventCount, 0)).toBe(count);
     expect(view.notableEvents).toHaveLength(100);
+    const late = buildNetlogTimelineView(index, {
+      range: { start: 150_000, end: 199_999, includeEnd: true },
+    }, view);
+    expect(late.selection).toMatchObject({ eventCount: 50_000, errorCount: 50 });
+    expect(late.notableEvents[0].eventId).toBe(150_000);
+    const secondPage = buildNetlogTimelineView(index, { errorPage: 2 }, view);
+    expect(secondPage.notableEvents[0].eventId).toBe(100_000);
+    expect(secondPage.selection?.errorCount).toBe(200);
+  });
+
+  it('uses disjoint bucket windows and includes the final endpoint', () => {
+    const index: CompactEventIndex = {
+      count: 4, time: [0, 1, 2, 3], typeId: [1, 1, 1, 1],
+      sourceTypeId: [1, 1, 1, 1], sourceId: [1, 2, 3, 4],
+      phase: [0, 0, 0, 0], flags: [1, 1, 1, 1],
+      byteStart: [0, 10, 20, 30], byteEnd: [9, 19, 29, 39],
+    };
+    const overview = buildNetlogTimelineView(index);
+    const ids = overview.buckets.flatMap((bucket, position) => {
+      expect(bucket.end).toBeGreaterThanOrEqual(bucket.start);
+      const view = buildNetlogTimelineView(index, {
+        range: { start: bucket.start, end: bucket.end, includeEnd: position === overview.buckets.length - 1 },
+      }, overview);
+      expect(view.selection?.eventCount).toBe(bucket.eventCount);
+      return view.notableEvents.map(event => event.eventId);
+    });
+    expect(ids).toEqual([0, 1, 2, 3]);
   });
 });

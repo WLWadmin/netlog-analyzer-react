@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Modal, Pagination, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { AnalysisResult, ParsedEvent, URLRequest } from '../../parsers/netlog/parser';
 import type { DiagnosisSummary } from '../../diagnosis/shared';
 import type { NetlogDatasetState } from '../../workers/netlogDatasetTypes';
@@ -19,6 +19,8 @@ import type { DataLoadedView, DnsStateView, ProxyStateView, QuicStateView, Http2
 import { getNetlogDataLoadedInWorker, getNetlogDnsStateInWorker, getNetlogEventDetailInWorker, getNetlogProxyStateInWorker, getNetlogQuicStateInWorker, getNetlogHttp2StateInWorker, getNetlogSocketsStateInWorker, getNetlogCacheStateInWorker, getNetlogAltSvcStateInWorker, getNetlogStreamPoolStateInWorker, getNetlogReportingStateInWorker, getNetlogTimelineStateInWorker, getNetlogModulesStateInWorker, getNetlogPrerenderStateInWorker, getNetlogRawEvidenceMetadataInWorker } from '../../workers/workerClient';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { formatNetlogWallTime, formatNetlogWallTimeRange } from '../../utils/netlogTime';
+import { useNetlogStatePaging } from '../../hooks/useNetlogStatePaging';
+import { stateRowCount } from '../../workers/netlogStatePaging';
 
 interface ExpertAnalysisTabProps {
   result: AnalysisResult;
@@ -379,6 +381,7 @@ const DatasetDataLoadedCard: React.FC<{ analysisId: string }> = ({ analysisId })
 
 const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<DnsStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -388,11 +391,11 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogDnsStateInWorker({ analysisId })
+    getNetlogDnsStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset DNS State 读取失败" description={error} />;
@@ -456,17 +459,17 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
           <Alert type="warning" showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
         )}
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="DNS server 配置">{view.configServers.length}</Descriptions.Item>
-          <Descriptions.Item label="DoH/Secure DNS 候选">{view.dohCandidates.length}</Descriptions.Item>
-          <Descriptions.Item label="Host Resolver cache">{view.hostResolverCache.length}</Descriptions.Item>
-          <Descriptions.Item label="DNS task results">{view.taskResults.length}</Descriptions.Item>
-          <Descriptions.Item label="DNS errors">{view.dnsErrors.length}</Descriptions.Item>
-          <Descriptions.Item label="IPv6 reachability">{view.ipv6ReachabilityChecks.length}</Descriptions.Item>
+          <Descriptions.Item label="DNS server 配置">{stateRowCount(view, 'configServers', view.configServers.length)}</Descriptions.Item>
+          <Descriptions.Item label="DoH/Secure DNS 候选">{stateRowCount(view, 'dohCandidates', view.dohCandidates.length)}</Descriptions.Item>
+          <Descriptions.Item label="Host Resolver cache">{stateRowCount(view, 'hostResolverCache', view.hostResolverCache.length)}</Descriptions.Item>
+          <Descriptions.Item label="DNS task results">{stateRowCount(view, 'taskResults', view.taskResults.length)}</Descriptions.Item>
+          <Descriptions.Item label="DNS errors">{stateRowCount(view, 'dnsErrors', view.dnsErrors.length)}</Descriptions.Item>
+          <Descriptions.Item label="IPv6 reachability">{stateRowCount(view, 'ipv6ReachabilityChecks', view.ipv6ReachabilityChecks.length)}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey={(row) => `${row.source}-${row.sourceKey}-${row.ip}`}
-          pagination={false}
+          pagination={pagination('configServers')}
           columns={[
             { title: 'DNS Server', dataIndex: 'ip', width: 180, render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
             { title: '来源', dataIndex: 'source', width: 130 },
@@ -488,7 +491,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
         <Table
           size="small"
           rowKey={(row) => `${row.source}-${row.sourceKey}-${row.value}`}
-          pagination={false}
+          pagination={pagination('dohCandidates')}
           columns={[
             { title: 'DoH / Secure DNS 候选', dataIndex: 'value', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
             { title: '来源', dataIndex: 'source', width: 130 },
@@ -510,7 +513,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
         <Table
           size="small"
           rowKey="key"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={false}
           columns={[
             { title: '来源', dataIndex: 'source', width: 170 },
             { title: 'Host', dataIndex: 'host', width: 220 },
@@ -531,10 +534,14 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
           dataSource={answerRows}
           locale={{ emptyText: '未发现 Dataset DNS answer 线索' }}
         />
+        <Space wrap>
+          <span>缓存记录</span><Pagination {...pagination('hostResolverCache')} />
+          <span>解析结果</span><Pagination {...pagination('taskResults')} />
+        </Space>
         <Table
           size="small"
           rowKey={(row) => `${row.host}-${row.queryType}-${row.error}-${row.eventId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('dnsErrors')}
           columns={[
             { title: 'Host', dataIndex: 'host', width: 240 },
             { title: 'Query Type', dataIndex: 'queryType', width: 120, render: (value?: string) => value || '-' },
@@ -556,7 +563,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
         <Table
           size="small"
           rowKey="key"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('ipv6ReachabilityChecks')}
           columns={[
             { title: 'IPv6 available', dataIndex: 'available', width: 140, render: (value?: boolean) => value === undefined ? '-' : value ? <Tag color="green">true</Tag> : <Tag color="orange">false</Tag> },
             { title: 'Source', dataIndex: 'sourceId', width: 140, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -591,6 +598,7 @@ const DatasetDnsStateCard: React.FC<{ analysisId: string } & SourceNavigationPro
 
 const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ProxyStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -600,11 +608,11 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogProxyStateInWorker({ analysisId })
+    getNetlogProxyStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset Proxy State 读取失败" description={error} />;
@@ -641,19 +649,19 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
           <Alert type={view.hasProxyEvidence ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
         )}
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="代理配置项">{view.proxyConfigs.length}</Descriptions.Item>
-          <Descriptions.Item label="PAC URL">{view.pacUrls.length}</Descriptions.Item>
-          <Descriptions.Item label="代理服务器">{view.proxyServers.length}</Descriptions.Item>
-          <Descriptions.Item label="Bypass 规则">{view.bypassRules.length}</Descriptions.Item>
-          <Descriptions.Item label="代理事件">{view.proxyEvents.length}</Descriptions.Item>
-          <Descriptions.Item label="请求级代理错误候选">{view.requestScopedErrors.length}</Descriptions.Item>
-          <Descriptions.Item label="Resolution chains">{view.resolutionChains.length}</Descriptions.Item>
+          <Descriptions.Item label="代理配置项">{stateRowCount(view, 'proxyConfigs', view.proxyConfigs.length)}</Descriptions.Item>
+          <Descriptions.Item label="PAC URL">{stateRowCount(view, 'pacUrls', view.pacUrls.length)}</Descriptions.Item>
+          <Descriptions.Item label="代理服务器">{stateRowCount(view, 'proxyServers', view.proxyServers.length)}</Descriptions.Item>
+          <Descriptions.Item label="Bypass 规则">{stateRowCount(view, 'bypassRules', view.bypassRules.length)}</Descriptions.Item>
+          <Descriptions.Item label="代理事件">{stateRowCount(view, 'proxyEvents', view.proxyEvents.length)}</Descriptions.Item>
+          <Descriptions.Item label="请求级代理错误候选">{stateRowCount(view, 'requestScopedErrors', view.requestScopedErrors.length)}</Descriptions.Item>
+          <Descriptions.Item label="Resolution chains">{stateRowCount(view, 'resolutionChains', view.resolutionChains.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey={(row) => `${row.source}-${row.key}-${row.value}-${row.eventId ?? 'top'}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('proxyConfigs')}
           columns={[
             { title: '来源', dataIndex: 'source', width: 130 },
             { title: '配置字段', dataIndex: 'key', width: 260, ellipsis: true },
@@ -674,7 +682,7 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.sourceId}-${row.firstEventId ?? ''}-${row.lastEventId ?? ''}`}
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={pagination('resolutionChains')}
           columns={[
             { title: 'Source', dataIndex: 'sourceId', width: 110, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Kinds', dataIndex: 'kinds', width: 190, render: (value: string[]) => value.join(' -> ') || '-' },
@@ -690,7 +698,7 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
@@ -713,7 +721,7 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}`}
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={pagination('proxyEvents')}
           columns={[
             { title: '类型', dataIndex: 'kind', width: 130 },
             { title: 'Event', dataIndex: 'eventId', width: 90 },
@@ -735,7 +743,7 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
           <Table
             size="small"
             rowKey={(row) => `${row.eventId}-${row.error}`}
-            pagination={{ pageSize: 6, showSizeChanger: false }}
+            pagination={pagination('requestScopedErrors')}
             columns={[
               { title: 'URL', dataIndex: 'url', ellipsis: true, render: (value?: string) => value || '-' },
               { title: '代理', dataIndex: 'proxyServer', width: 220, ellipsis: true, render: (value?: string) => value || '-' },
@@ -753,9 +761,9 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
           />
         )}
         <Descriptions column={1} size="small">
-          <Descriptions.Item label="PAC URL">{view.pacUrls.length > 0 ? view.pacUrls.join('；') : '未发现'}</Descriptions.Item>
-          <Descriptions.Item label="代理服务器">{view.proxyServers.length > 0 ? view.proxyServers.join('；') : '未发现'}</Descriptions.Item>
-          <Descriptions.Item label="Bypass 规则">{view.bypassRules.length > 0 ? view.bypassRules.join('；') : '未发现'}</Descriptions.Item>
+          <Descriptions.Item label="PAC URL">{view.pacUrls.length > 0 ? view.pacUrls.join('；') : '未发现'}<Pagination {...pagination('pacUrls')} /></Descriptions.Item>
+          <Descriptions.Item label="代理服务器">{view.proxyServers.length > 0 ? view.proxyServers.join('；') : '未发现'}<Pagination {...pagination('proxyServers')} /></Descriptions.Item>
+          <Descriptions.Item label="Bypass 规则">{view.bypassRules.length > 0 ? view.bypassRules.join('；') : '未发现'}<Pagination {...pagination('bypassRules')} /></Descriptions.Item>
         </Descriptions>
       </Space>
       <Modal title="Raw Event Detail" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={900}>
@@ -769,6 +777,7 @@ const DatasetProxyStateCard: React.FC<{ analysisId: string } & SourceNavigationP
 
 const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<QuicStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -778,11 +787,11 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogQuicStateInWorker({ analysisId })
+    getNetlogQuicStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset QUIC State 读取失败" description={error} />;
@@ -822,17 +831,17 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
           <Descriptions.Item label="QUIC/HTTP3 事件">{view.eventCount}</Descriptions.Item>
           <Descriptions.Item label="QUIC 事件">{view.quicEventCount}</Descriptions.Item>
           <Descriptions.Item label="HTTP3 事件">{view.http3EventCount}</Descriptions.Item>
-          <Descriptions.Item label="错误事件">{view.errors.length}</Descriptions.Item>
-          <Descriptions.Item label="Handshake">{view.stateEvents.filter(item => item.kind === 'handshake').length}</Descriptions.Item>
-          <Descriptions.Item label="Version negotiation">{view.stateEvents.filter(item => item.kind === 'version-negotiation').length}</Descriptions.Item>
-          <Descriptions.Item label="Migration">{view.stateEvents.filter(item => item.kind === 'migration').length}</Descriptions.Item>
-          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="错误事件">{stateRowCount(view, 'errors', view.errors.length)}</Descriptions.Item>
+          <Descriptions.Item label="Handshake">{view.paging?.kindCounts.handshake ?? 0}</Descriptions.Item>
+          <Descriptions.Item label="Version negotiation">{view.paging?.kindCounts['version-negotiation'] ?? 0}</Descriptions.Item>
+          <Descriptions.Item label="Migration">{view.paging?.kindCounts.migration ?? 0}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{stateRowCount(view, 'impactSummaries', view.impactSummaries.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('sessions')}
           columns={[
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
@@ -852,7 +861,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.kind}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 170 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -877,7 +886,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.kind}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('stateEvents')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 170 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -892,7 +901,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.error}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('errors')}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -927,6 +936,7 @@ const DatasetQuicStateCard: React.FC<{ analysisId: string } & SourceNavigationPr
 
 const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<Http2StateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -936,11 +946,11 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogHttp2StateInWorker({ analysisId })
+    getNetlogHttp2StateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset HTTP/2 State 读取失败" description={error} />;
@@ -981,17 +991,17 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
           <Descriptions.Item label="GOAWAY">{view.goawayCount}</Descriptions.Item>
           <Descriptions.Item label="RST_STREAM">{view.rstStreamCount}</Descriptions.Item>
           <Descriptions.Item label="WINDOW_UPDATE">{view.windowUpdateCount}</Descriptions.Item>
-          <Descriptions.Item label="Sessions">{view.sessions.length}</Descriptions.Item>
-          <Descriptions.Item label="Streams">{view.streams.length}</Descriptions.Item>
-          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
-          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Sessions">{stateRowCount(view, 'sessions', view.sessions.length)}</Descriptions.Item>
+          <Descriptions.Item label="Streams">{stateRowCount(view, 'streams', view.streams.length)}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{stateRowCount(view, 'sourceLinks', view.sourceLinks.length)}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{stateRowCount(view, 'impactSummaries', view.impactSummaries.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
           <Descriptions.Item label="Unlinked streams">{view.unlinkedStreamCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('sessions')}
           columns={[
             { title: 'Session Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Events', dataIndex: 'eventCount', width: 90 },
@@ -1011,7 +1021,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('streams')}
           columns={[
             { title: 'Stream Source ID', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Session Source ID', dataIndex: 'sessionSourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -1028,7 +1038,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sessionSourceId ?? ''}-${row.streamSourceId ?? ''}-${row.streamId ?? ''}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 120 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1051,7 +1061,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.streamId ?? ''}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('errors')}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -1073,7 +1083,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.fromSourceId}-${row.toSourceId}-${row.kind}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('sourceLinks')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 150 },
             { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -1108,6 +1118,7 @@ const DatasetHttp2StateCard: React.FC<{ analysisId: string } & SourceNavigationP
 
 const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<SocketsStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1117,11 +1128,11 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogSocketsStateInWorker({ analysisId })
+    getNetlogSocketsStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset Sockets State 读取失败" description={error} />;
@@ -1163,9 +1174,9 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
           <Descriptions.Item label="TLS">{view.tlsCount}</Descriptions.Item>
           <Descriptions.Item label="Stall/Timeout">{view.stallCount}</Descriptions.Item>
           <Descriptions.Item label="Socket Pools">{view.socketPoolCount}</Descriptions.Item>
-          <Descriptions.Item label="Errors">{view.errors.length}</Descriptions.Item>
-          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
-          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Errors">{stateRowCount(view, 'errors', view.errors.length)}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{stateRowCount(view, 'sourceLinks', view.sourceLinks.length)}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{stateRowCount(view, 'impactSummaries', view.impactSummaries.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
           <Descriptions.Item label="Probe attempted">{view.lazyParamsStats.probeAttemptedEvents}</Descriptions.Item>
           <Descriptions.Item label="Probe satisfied">{view.lazyParamsStats.probeSatisfiedEvents}</Descriptions.Item>
@@ -1175,7 +1186,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('sockets')}
           columns={[
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 140 },
@@ -1195,7 +1206,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.error ?? ''}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1219,7 +1230,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}-${row.error ?? ''}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('errors')}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -1240,7 +1251,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.fromSourceId}-${row.toSourceId}-${row.kind}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('sourceLinks')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 160 },
             { title: 'From', dataIndex: 'fromSourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
@@ -1275,6 +1286,7 @@ const DatasetSocketsStateCard: React.FC<{ analysisId: string } & SourceNavigatio
 
 const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<CacheStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1284,11 +1296,11 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogCacheStateInWorker({ analysisId })
+    getNetlogCacheStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) {
     return <Alert type="warning" showIcon message="Dataset Cache State 读取失败" description={error} />;
@@ -1331,13 +1343,13 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
           <Descriptions.Item label="Doom/Bypass">{view.doomCount} / {view.bypassCount}</Descriptions.Item>
           <Descriptions.Item label="Revalidation">{view.validationCount}</Descriptions.Item>
           <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
-          <Descriptions.Item label="Impact candidates">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Impact candidates">{stateRowCount(view, 'impactSummaries', view.impactSummaries.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('entries')}
           columns={[
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
@@ -1354,7 +1366,7 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1376,7 +1388,7 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}-operation`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('operations')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1411,6 +1423,7 @@ const DatasetCacheStateCard: React.FC<{ analysisId: string } & SourceNavigationP
 
 const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<AltSvcStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1420,11 +1433,11 @@ const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigation
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogAltSvcStateInWorker({ analysisId })
+    getNetlogAltSvcStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) return <Alert type="warning" showIcon message="Dataset Alt-Svc State 读取失败" description={error} />;
   if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Alt-Svc State 视图" />;
@@ -1465,7 +1478,7 @@ const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigation
         <Table
           size="small"
           rowKey="key"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('alternatives')}
           columns={[
             { title: 'Host', dataIndex: 'host', width: 180, render: (value?: string) => value || '-' },
             { title: 'Origin', dataIndex: 'origin', ellipsis: true, render: (value?: string) => value || '-' },
@@ -1482,7 +1495,7 @@ const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigation
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1513,6 +1526,7 @@ const DatasetAltSvcStateCard: React.FC<{ analysisId: string } & SourceNavigation
 
 const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<StreamPoolStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1522,11 +1536,11 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogStreamPoolStateInWorker({ analysisId })
+    getNetlogStreamPoolStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) return <Alert type="warning" showIcon message="Dataset StreamPool State 读取失败" description={error} />;
   if (!view) return <Alert type="info" showIcon message="正在读取 Dataset StreamPool State 视图" />;
@@ -1564,12 +1578,12 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
           <Descriptions.Item label="Reused/Bound socket">{view.reusedSocketCount} / {view.boundSocketCount}</Descriptions.Item>
           <Descriptions.Item label="Connect jobs">{view.connectJobCount}</Descriptions.Item>
           <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
-          <Descriptions.Item label="Source links">{view.sourceLinks.length}</Descriptions.Item>
+          <Descriptions.Item label="Source links">{stateRowCount(view, 'sourceLinks', view.sourceLinks.length)}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('jobs')}
           columns={[
             { title: 'Source ID', dataIndex: 'sourceId', width: 120, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 150 },
@@ -1586,7 +1600,7 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 110 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1616,6 +1630,7 @@ const DatasetStreamPoolStateCard: React.FC<{ analysisId: string } & SourceNaviga
 
 const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ReportingStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1625,11 +1640,11 @@ const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigat
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogReportingStateInWorker({ analysisId })
+    getNetlogReportingStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) return <Alert type="warning" showIcon message="Dataset Reporting/NEL State 读取失败" description={error} />;
   if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Reporting/NEL State 视图" />;
@@ -1668,13 +1683,13 @@ const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigat
           <Descriptions.Item label="Uploaded/Succeeded">{view.uploadCount} / {view.successCount}</Descriptions.Item>
           <Descriptions.Item label="Failures">{view.failureCount}</Descriptions.Item>
           <Descriptions.Item label="Cache events">{view.cacheCount}</Descriptions.Item>
-          <Descriptions.Item label="Impact summaries">{view.impactSummaries.length}</Descriptions.Item>
+          <Descriptions.Item label="Impact summaries">{stateRowCount(view, 'impactSummaries', view.impactSummaries.length)}</Descriptions.Item>
           <Descriptions.Item label="Request-scoped candidates">{view.requestScopedCandidateCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="key"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('endpoints')}
           columns={[
             { title: 'Origin', dataIndex: 'origin', width: 220, render: (value?: string) => value || '-' },
             { title: 'Group', dataIndex: 'group', width: 120, render: (value?: string) => value || '-' },
@@ -1691,7 +1706,7 @@ const DatasetReportingStateCard: React.FC<{ analysisId: string } & SourceNavigat
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 140 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1728,6 +1743,34 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailText, setDetailText] = useState('');
   const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | undefined>();
+  const [windowView, setWindowView] = useState<TimelineStateView>();
+  const [windowError, setWindowError] = useState(false);
+  const [sourcePage, setSourcePage] = useState(1);
+  const [errorPage, setErrorPage] = useState(1);
+  const selectedBucket = selectedBucketIndex === undefined
+    ? undefined : view?.buckets.find(bucket => bucket.index === selectedBucketIndex);
+
+  useEffect(() => {
+    if (!view) return;
+    let cancelled = false;
+    setWindowView(undefined);
+    setWindowError(false);
+    getNetlogTimelineStateInWorker({
+      analysisId, sourcePage, errorPage,
+      range: selectedBucket ? {
+        start: selectedBucket.start, end: selectedBucket.end,
+        includeEnd: selectedBucket.index === view.buckets.length - 1,
+      } : undefined,
+    }).then(next => { if (!cancelled) setWindowView(next); })
+      .catch(() => { if (!cancelled) setWindowError(true); });
+    return () => { cancelled = true; };
+  }, [analysisId, view, selectedBucket, sourcePage, errorPage]);
+
+  const selectBucket = (index?: number) => {
+    setSelectedBucketIndex(index);
+    setSourcePage(1);
+    setErrorPage(1);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1766,19 +1809,12 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
     ...bucket,
     label: `#${bucket.index}`,
   }));
-  const selectedBucket = selectedBucketIndex === undefined
-    ? undefined
-    : view.buckets.find(bucket => bucket.index === selectedBucketIndex);
-  const selectedSourceActivity = selectedBucket
-    ? view.sourceActivity.filter(source => source.lastTime >= selectedBucket.start && source.firstTime <= selectedBucket.end)
-    : view.sourceActivity;
-  const selectedNotableEvents = selectedBucket
-    ? view.notableEvents.filter(event => typeof event.time === 'number' && event.time >= selectedBucket.start && event.time <= selectedBucket.end)
-    : view.notableEvents;
+  const selectedSourceActivity = windowView?.sourceActivity ?? [];
+  const selectedNotableEvents = windowView?.notableEvents ?? [];
   const bucketRows = selectedBucket ? [selectedBucket] : errorBuckets;
   const handleChartClick = (state: any) => {
     const bucketIndex = state?.activePayload?.[0]?.payload?.index;
-    if (typeof bucketIndex === 'number') setSelectedBucketIndex(bucketIndex);
+    if (typeof bucketIndex === 'number') selectBucket(bucketIndex);
   };
 
   return (
@@ -1788,7 +1824,7 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
           type="info"
           showIcon
           message="Timeline View 展示全文件事件密度和错误密度"
-          description="点击柱状图中的时间 bucket 可聚焦该窗口的 source 和错误事件样例；确认根因仍要跳到 Events、Source Chain 和 Raw Event。"
+          description="点击时间窗口，从完整索引查询该窗口的 source 和错误事件；列表分页保留全部结果。错误密度不能单独说明根因，请结合 Source Chain 和原始事件复核。"
         />
         {view.evidenceGaps.length > 0 && (
           <Alert type={view.notableEvents.length > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />
@@ -1834,8 +1870,14 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
               ? `已选中 bucket #${selectedBucket.index}：${formatNetlogWallTimeRange(selectedBucket.start, selectedBucket.end, view.timeTickOffset)}，${selectedBucket.eventCount.toLocaleString()} events，${selectedBucket.errorCount.toLocaleString()} errors`
               : '未选择 bucket，当前下方展示错误最多的时间窗口和全局 source 活动。'}
           </Typography.Text>
-          {selectedBucket && <Button size="small" onClick={() => setSelectedBucketIndex(undefined)}>清除选择</Button>}
+          {selectedBucket && <Button size="small" onClick={() => selectBucket()}>清除选择</Button>}
         </Space>
+        {windowError && <Alert type="warning" message="窗口查询失败，请重新选择窗口；不能据此判断没有错误。" />}
+        <Typography.Text type="secondary">
+          {windowView?.selection
+            ? `当前范围共 ${windowView.selection.eventCount} 个事件、${windowView.selection.errorCount} 个错误事件、${windowView.selection.sourceCount} 个 source；错误事件不等于失败请求。`
+            : '正在查询完整索引…'}
+        </Typography.Text>
         <Table
           size="small"
           rowKey="index"
@@ -1854,8 +1896,8 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
           size="small"
           rowKey="sourceId"
           tableLayout="fixed"
-          scroll={{ x: 1000 }}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          scroll={{ x: 1000, y: 400 }}
+          pagination={{ current: sourcePage, pageSize: 50, total: windowView?.selection?.sourceCount ?? 0, onChange: setSourcePage, showSizeChanger: false }}
           columns={[
             { title: 'Source', dataIndex: 'sourceId', width: 170, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Source Type', dataIndex: 'sourceTypeName', width: 180 },
@@ -1865,14 +1907,15 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
             { title: 'Time range', key: 'time', width: 300, render: (_, row) => formatNetlogWallTimeRange(row.firstTime, row.lastTime, view.timeTickOffset) },
           ]}
           dataSource={selectedSourceActivity}
+          loading={!windowView && !windowError}
           locale={{ emptyText: '未发现 source activity' }}
         />
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.sourceId}`}
           tableLayout="fixed"
-          scroll={{ x: 1070 }}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          scroll={{ x: 1070, y: 400 }}
+          pagination={{ current: errorPage, pageSize: 100, total: windowView?.selection?.errorCount ?? 0, onChange: setErrorPage, showSizeChanger: false }}
           columns={[
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
             { title: 'Time', dataIndex: 'time', width: 190, render: (value?: number) => formatNetlogWallTime(value, view.timeTickOffset) },
@@ -1887,6 +1930,7 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
             },
           ]}
           dataSource={selectedNotableEvents}
+          loading={!windowView && !windowError}
           locale={{ emptyText: '未发现错误事件样例' }}
         />
       </Space>
@@ -1901,6 +1945,7 @@ const DatasetTimelineStateCard: React.FC<{ analysisId: string } & SourceNavigati
 
 const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<ModulesStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1910,11 +1955,11 @@ const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigatio
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogModulesStateInWorker({ analysisId })
+    getNetlogModulesStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) return <Alert type="warning" showIcon message="Dataset Modules State 读取失败" description={error} />;
   if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Modules State 视图" />;
@@ -1940,14 +1985,14 @@ const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Alert type="info" showIcon message="Modules State 展示浏览器内部模块/组件线索" description="Modules 通常是专家背景信息。除非出现 module/component failure，否则不应作为用户网络问题的主因。" />
         {view.evidenceGaps.length > 0 && <Alert type={view.errorCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />}
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="Modules">{view.modules.length}</Descriptions.Item>
+          <Descriptions.Item label="Modules">{stateRowCount(view, 'modules', view.modules.length)}</Descriptions.Item>
           <Descriptions.Item label="Events">{view.eventCount}</Descriptions.Item>
           <Descriptions.Item label="Errors">{view.errorCount}</Descriptions.Item>
         </Descriptions>
         <Table
           size="small"
           rowKey="key"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('modules')}
           columns={[
             { title: 'Name', dataIndex: 'name', ellipsis: true, render: (value?: string) => value || '-' },
             { title: 'Category', dataIndex: 'category', width: 120 },
@@ -1961,7 +2006,7 @@ const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigatio
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('events')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 130 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -1986,6 +2031,7 @@ const DatasetModulesStateCard: React.FC<{ analysisId: string } & SourceNavigatio
 
 const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigationProps> = ({ analysisId, onNavigateToSource, onNavigateToSourceChain }) => {
   const [view, setView] = useState<PrerenderStateView | undefined>();
+  const { statePage, pagination } = useNetlogStatePaging(view);
   const [error, setError] = useState<string | undefined>();
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1995,11 +2041,11 @@ const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigat
     let cancelled = false;
     setView(undefined);
     setError(undefined);
-    getNetlogPrerenderStateInWorker({ analysisId })
+    getNetlogPrerenderStateInWorker({ analysisId, statePage })
       .then(next => { if (!cancelled) setView(next); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [analysisId]);
+  }, [analysisId, statePage]);
 
   if (error) return <Alert type="warning" showIcon message="Dataset Prerender State 读取失败" description={error} />;
   if (!view) return <Alert type="info" showIcon message="正在读取 Dataset Prerender State 视图" />;
@@ -2026,7 +2072,7 @@ const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigat
         {view.evidenceGaps.length > 0 && <Alert type={view.errorCount > 0 ? 'warning' : 'info'} showIcon message="Evidence gaps" description={view.evidenceGaps.join('；')} />}
         <Descriptions column={2} size="small">
           <Descriptions.Item label="Events">{view.eventCount}</Descriptions.Item>
-          <Descriptions.Item label="Activities">{view.activities.length}</Descriptions.Item>
+          <Descriptions.Item label="Activities">{stateRowCount(view, 'activities', view.activities.length)}</Descriptions.Item>
           <Descriptions.Item label="Prerender/Prefetch">{view.prerenderCount} / {view.prefetchCount}</Descriptions.Item>
           <Descriptions.Item label="Preconnect">{view.preconnectCount}</Descriptions.Item>
           <Descriptions.Item label="Prediction/Speculation">{view.predictionCount} / {view.speculationCount}</Descriptions.Item>
@@ -2035,7 +2081,7 @@ const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigat
         <Table
           size="small"
           rowKey="sourceId"
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('activities')}
           columns={[
             { title: 'Source', dataIndex: 'sourceId', width: 150, render: (value?: number) => <SourceEvidenceLinks sourceId={value} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} /> },
             { title: 'Kind', dataIndex: 'kind', width: 120 },
@@ -2050,7 +2096,7 @@ const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigat
         <Table
           size="small"
           rowKey={(row) => `${row.eventId}-${row.kind}-${row.sourceId}`}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
+          pagination={pagination('impactSummaries')}
           columns={[
             { title: 'Kind', dataIndex: 'kind', width: 120 },
             { title: 'Event ID', dataIndex: 'eventId', width: 100 },
@@ -2070,6 +2116,41 @@ const DatasetPrerenderStateCard: React.FC<{ analysisId: string } & SourceNavigat
         </pre>
       </Modal>
     </Card>
+  );
+};
+
+const NETWORK_STATE_MODULES = [
+  { label: 'DNS', hint: '验证解析结果、缓存与可达性；DNS server 与 answer 分别复核。', component: DatasetDnsStateCard },
+  { label: '代理 / PAC', hint: '验证实际代理配置与回退；配置存在不等于代理故障。', component: DatasetProxyStateCard },
+  { label: 'Sockets', hint: '验证连接、TLS 与连接池等待，按 source 追溯错误。', component: DatasetSocketsStateCard },
+  { label: 'HTTP/2', hint: '验证流重置和 GOAWAY，结合请求终态判断影响。', component: DatasetHttp2StateCard },
+  { label: 'QUIC', hint: '验证会话错误和回退，不能仅凭协议错误认定请求失败。', component: DatasetQuicStateCard },
+  { label: 'Cache', hint: '验证缓存读写与失效，缓存未命中不等于网络故障。', component: DatasetCacheStateCard },
+  { label: 'Alt-Svc', hint: '验证替代服务候选和失效记录。', component: DatasetAltSvcStateCard },
+  { label: 'Stream Pool', hint: '验证连接分配、复用及等待。', component: DatasetStreamPoolStateCard },
+  { label: 'Reporting', hint: '查看报告与 NEL 背景证据。', component: DatasetReportingStateCard },
+  { label: 'Modules', hint: '查看环境模块背景证据。', component: DatasetModulesStateCard },
+  { label: 'Prerender', hint: '查看预渲染生命周期背景证据。', component: DatasetPrerenderStateCard },
+];
+
+const DatasetNetworkState: React.FC<{ analysisId: string } & SourceNavigationProps> = props => {
+  const [selected, setSelected] = useState(0);
+  const module = NETWORK_STATE_MODULES[selected];
+  const Detail = module.component;
+  return (
+    <div className="netlog-network-state-panel">
+      <Alert type="info" showIcon message="按问题选择验证证据"
+        description="默认展示 DNS，点击下方按钮可切换其他状态明细。默认项不代表故障判断；未打开的模块不能视为正常。优先从失败请求的 source 追溯，再选择对应协议验证。" />
+      <Space wrap>
+        {NETWORK_STATE_MODULES.map((item, index) => (
+          <Button key={item.label} aria-pressed={selected === index} type={selected === index ? 'primary' : 'default'} onClick={() => setSelected(index)}>
+            {item.label}
+          </Button>
+        ))}
+      </Space>
+      <Typography.Text type="secondary">{module.hint}</Typography.Text>
+      <Detail key={`${props.analysisId}-${selected}`} {...props} />
+    </div>
   );
 };
 
@@ -2197,87 +2278,9 @@ const ExpertAnalysisTab: React.FC<ExpertAnalysisTabProps> = ({
         <ProtocolTab result={result} />
       </div>
     ),
-    'network-state': (
-      <div className="netlog-network-state-panel">
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetDnsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="DNS State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示 summary 中的 DNS 记录；索引完成后会展示 Host Resolver cache、DNS task results 和 IPv6 reachability。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetProxyStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="Proxy State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示诊断摘要中的代理/VPN 线索；索引完成后会展示代理配置、PAC URL、代理服务器和 bypass 规则。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetQuicStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="QUIC State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的 QUIC/HTTP3 事件；索引完成后会展示 QUIC session、版本、peer、error 和 raw event 跳转。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetHttp2StateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="HTTP/2 State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的 HTTP/2 事件；索引完成后会展示 session、stream、GOAWAY、RST_STREAM、WINDOW_UPDATE 和 raw event 跳转。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetSocketsStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="Sockets State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的连接/IP 线索；索引完成后会展示 socket pool、connect、tls、stall、peer address 和 raw event 跳转。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetCacheStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="Cache State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示 summary 中的缓存事件数量；索引完成后会展示 cache open/read/write/doom、cache error、impact summary 和 raw event 跳转。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <DatasetAltSvcStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-        ) : (
-          <StateGapCard
-            title="Alt-Svc State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的 QUIC/HTTP3 线索；索引完成后会展示 Alt-Svc found/broken、HTTP/3 候选和 raw event 跳转。"
-          />
-        )}
-        {dataset?.status === 'ready' && dataset.analysisId ? (
-          <>
-            <DatasetStreamPoolStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-            <DatasetReportingStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-            <DatasetModulesStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-            <DatasetPrerenderStateCard analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
-          </>
-        ) : (
-          <StateGapCard
-            title="StreamPool State"
-            dataset={dataset}
-            description="Dataset 未就绪时只能展示摘要中的连接层线索；索引完成后会展示 HTTP stream、socket pool waiting/stalled、连接复用、Reporting/NEL、Modules、Prerender 和 raw event 跳转。"
-          />
-        )}
-      </div>
-    ),
+    'network-state': dataset?.status === 'ready' && dataset.analysisId
+      ? <DatasetNetworkState analysisId={dataset.analysisId} onNavigateToSource={onNavigateToSource} onNavigateToSourceChain={onNavigateToSourceChain} />
+      : <StateGapCard title="网络状态" dataset={dataset} description="完整索引就绪后，可选择 DNS、代理、连接及协议状态进行证据复核。" />,
     performance: <PerformanceTab result={result} />,
     baseline: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

@@ -9,6 +9,7 @@ import {
 } from '../shared/rootFormatGuard';
 import { hashStableValue, netlogEventIdentity } from './stableFingerprint';
 import { createRequestAccumulator } from './requestAccumulator';
+import type { RequestOutcomeEvidence } from './requestOutcome';
 import {
   buildCleanAssessmentIssue,
   buildConnectionFailureIssue,
@@ -36,6 +37,7 @@ export interface ParsedEvent {
 
 export interface URLRequest {
   id: number;
+  outcome?: RequestOutcomeEvidence;
   url: string;
   method: string;
   startTime: number;

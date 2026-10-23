@@ -4,6 +4,17 @@
  */
 
 import type {
+  GetNetlogDnsStateRequest,
+  GetNetlogProxyStateRequest,
+  GetNetlogQuicStateRequest,
+  GetNetlogHttp2StateRequest,
+  GetNetlogSocketsStateRequest,
+  GetNetlogCacheStateRequest,
+  GetNetlogAltSvcStateRequest,
+  GetNetlogStreamPoolStateRequest,
+  GetNetlogReportingStateRequest,
+  GetNetlogModulesStateRequest,
+  GetNetlogPrerenderStateRequest,
   NetlogDatasetImportResult,
   NetlogDatasetReleaseResult,
   HarResponseBodyPayload,
@@ -357,7 +368,7 @@ export async function getNetlogDataLoadedInWorker(
 }
 
 export async function getNetlogDnsStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogDnsStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<DnsStateView> {
   const id = nextId();
@@ -373,7 +384,7 @@ export async function getNetlogDnsStateInWorker(
 }
 
 export async function getNetlogProxyStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogProxyStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<ProxyStateView> {
   const id = nextId();
@@ -389,7 +400,7 @@ export async function getNetlogProxyStateInWorker(
 }
 
 export async function getNetlogQuicStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogQuicStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<QuicStateView> {
   const id = nextId();
@@ -405,7 +416,7 @@ export async function getNetlogQuicStateInWorker(
 }
 
 export async function getNetlogHttp2StateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogHttp2StateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<Http2StateView> {
   const id = nextId();
@@ -421,7 +432,7 @@ export async function getNetlogHttp2StateInWorker(
 }
 
 export async function getNetlogSocketsStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogSocketsStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<SocketsStateView> {
   const id = nextId();
@@ -437,7 +448,7 @@ export async function getNetlogSocketsStateInWorker(
 }
 
 export async function getNetlogCacheStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogCacheStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<CacheStateView> {
   const id = nextId();
@@ -453,7 +464,7 @@ export async function getNetlogCacheStateInWorker(
 }
 
 export async function getNetlogAltSvcStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogAltSvcStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<AltSvcStateView> {
   const id = nextId();
@@ -469,7 +480,7 @@ export async function getNetlogAltSvcStateInWorker(
 }
 
 export async function getNetlogStreamPoolStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogStreamPoolStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<StreamPoolStateView> {
   const id = nextId();
@@ -485,7 +496,7 @@ export async function getNetlogStreamPoolStateInWorker(
 }
 
 export async function getNetlogReportingStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogReportingStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<ReportingStateView> {
   const id = nextId();
@@ -501,7 +512,7 @@ export async function getNetlogReportingStateInWorker(
 }
 
 export async function getNetlogTimelineStateInWorker(
-  payload: { analysisId: string },
+  payload: { analysisId: string } & import('./netlogTimelineView').NetlogTimelineQuery,
   options?: WorkerClientOptions
 ): Promise<TimelineStateView> {
   const id = nextId();
@@ -517,7 +528,7 @@ export async function getNetlogTimelineStateInWorker(
 }
 
 export async function getNetlogModulesStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogModulesStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<ModulesStateView> {
   const id = nextId();
@@ -533,7 +544,7 @@ export async function getNetlogModulesStateInWorker(
 }
 
 export async function getNetlogPrerenderStateInWorker(
-  payload: { analysisId: string },
+  payload: GetNetlogPrerenderStateRequest['payload'],
   options?: WorkerClientOptions
 ): Promise<PrerenderStateView> {
   const id = nextId();

@@ -53,7 +53,7 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
 
   // 当导航意图指向事件列表时，自动应用搜索条件
   useEffect(() => {
-    if (!intent || intent.tab !== 'events') return;
+    if (!intent || !['events', 'expert'].includes(intent.tab)) return;
     const filters = intent.filters;
 
     setSearch("");

@@ -8,6 +8,12 @@ import {
 
 const DEFAULT_BUCKET_COUNT = 60;
 
+export interface NetlogTimelineQuery {
+  range?: { start: number; end: number; includeEnd: boolean };
+  sourcePage?: number;
+  errorPage?: number;
+}
+
 function nameOf(names: Record<number, string> | undefined, id: number, fallback: string): string {
   return names?.[id] || `${fallback}_${id}`;
 }
@@ -46,11 +52,15 @@ function finiteTimeRange(times: NumericColumn): { start: number; end: number } {
   return hasFiniteTime ? { start, end } : { start: 0, end: 0 };
 }
 
-export function buildNetlogTimelineView(index: CompactEventIndex): TimelineStateView {
+export function buildNetlogTimelineView(
+  index: CompactEventIndex,
+  query: NetlogTimelineQuery = {},
+  overview?: TimelineStateView,
+): TimelineStateView {
   const { start, end } = finiteTimeRange(index.time);
   const duration = Math.max(0, end - start);
   const bucketCount = duration > 0 ? Math.min(DEFAULT_BUCKET_COUNT, Math.max(1, index.count)) : 1;
-  const bucketSizeMs = duration > 0 ? Math.max(1, Math.ceil(duration / bucketCount)) : 1;
+  const bucketSizeMs = duration > 0 ? duration / bucketCount : 1;
   const buckets: TimelineStateView['buckets'] = Array.from({ length: bucketCount }, (_, bucketIndex) => ({
     index: bucketIndex,
     start: start + bucketIndex * bucketSizeMs,
@@ -60,6 +70,11 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
   }));
   const sourceMap = new Map<number, TimelineStateView['sourceActivity'][number]>();
   const notableEvents: TimelineStateView['notableEvents'] = [];
+  const sourcePage = Math.max(1, Math.floor(query.sourcePage || 1));
+  const errorPage = Math.max(1, Math.floor(query.errorPage || 1));
+  const errorOffset = (errorPage - 1) * 100;
+  let errorCount = 0;
+  let eventCount = 0;
 
   for (let eventId = 0; eventId < index.count; eventId += 1) {
     const time = numericColumnAt(index.time, eventId) || 0;
@@ -68,6 +83,13 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
     bucket.eventCount += 1;
     if (numericColumnAt(index.flags, eventId)) bucket.errorCount += 1;
 
+    // Window selection precedes every limit. Adjacent buckets share no events,
+    // except that the final bucket includes the capture's last timestamp.
+    if (query.range && (
+      time < query.range.start
+      || (query.range.includeEnd ? time > query.range.end : time >= query.range.end)
+    )) continue;
+    eventCount += 1;
     const sourceId = numericColumnAt(index.sourceId, eventId) || 0;
     const sourceTypeName = nameOf(
       index.sourceTypeNames,
@@ -92,7 +114,8 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
     source.lastTime = Math.max(source.lastTime, time);
     sourceMap.set(sourceId, source);
 
-    if (numericColumnAt(index.flags, eventId) && notableEvents.length < 100) {
+    if (numericColumnAt(index.flags, eventId)) errorCount += 1;
+    if (numericColumnAt(index.flags, eventId) && errorCount > errorOffset && notableEvents.length < 100) {
       notableEvents.push({
         sourceId,
         eventId,
@@ -126,12 +149,13 @@ export function buildNetlogTimelineView(index: CompactEventIndex): TimelineState
     timeRange: { start, end, duration },
     bucketSizeMs,
     buckets,
-    topEventTypes: sortedCounts(index.typeId, index.flags, index.eventTypeNames, 'EVENT'),
-    topSourceTypes: sortedCounts(index.sourceTypeId, index.flags, index.sourceTypeNames, 'SOURCE'),
+    topEventTypes: overview?.topEventTypes ?? sortedCounts(index.typeId, index.flags, index.eventTypeNames, 'EVENT'),
+    topSourceTypes: overview?.topSourceTypes ?? sortedCounts(index.sourceTypeId, index.flags, index.sourceTypeNames, 'SOURCE'),
     sourceActivity: Array.from(sourceMap.values())
       .sort((a, b) => b.errorCount - a.errorCount || b.eventCount - a.eventCount)
-      .slice(0, 50),
+      .slice((sourcePage - 1) * 50, sourcePage * 50),
     notableEvents,
+    selection: { eventCount, errorCount, sourceCount: sourceMap.size, sourcePage, errorPage },
     evidenceGaps,
   };
 }

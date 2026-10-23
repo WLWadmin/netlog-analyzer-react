@@ -63,6 +63,18 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     if (!intent || intent.tab !== 'expert') return;
     const filters = intent.filters;
     if (!filters) return;
+    // A new evidence jump must not inherit a previous query's error/time/type
+    // filters: those can hide the successful END needed to verify recovery.
+    setErrorOnly(false);
+    setSourceIdFilter('');
+    setSourceChainIdFilter('');
+    setTypeIdFilter('');
+    setTypeNameFilter('');
+    setSourceTypeNameFilter('');
+    setPhaseFilter('');
+    setStartTimeFilter('');
+    setEndTimeFilter('');
+    setSearchTextFilter('');
     if (filters.sourceId) {
       setSourceIdFilter(filters.sourceId);
       setSourceChainIdFilter('');

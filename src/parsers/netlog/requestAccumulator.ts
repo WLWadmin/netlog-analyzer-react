@@ -5,6 +5,7 @@ import type {
   URLRequest,
 } from './parser';
 import { getTerminalRequestNetError } from './requestNetError';
+import { collectRequestOutcome } from './requestOutcome';
 import {
   createStableSequenceFingerprint,
   netlogEventIdentity,
@@ -380,6 +381,7 @@ export function createRequestAccumulator(options: RequestAccumulatorOptions = {}
   const ownerGraph = new Map<number, Set<number>>();
   const dependencies = new Map<number, Set<number>>();
   const sourceTypeNames = new Map<number, string>();
+  const outcomes = new Map<number, ReturnType<typeof collectRequestOutcome>>();
 
   const link = (left: number, right: number) => {
     if (!ownerGraph.has(left)) ownerGraph.set(left, new Set());
@@ -392,6 +394,9 @@ export function createRequestAccumulator(options: RequestAccumulatorOptions = {}
 
   const accept = (event: ParsedEvent) => {
     const fact = compactEvent(event, facts.length);
+    if (event.source.typeName === 'URL_REQUEST') {
+      outcomes.set(event.source.id, collectRequestOutcome(outcomes.get(event.source.id), event, facts.length));
+    }
     facts.push(fact);
     if (!sourceTypeNames.has(fact.sourceId)) {
       sourceTypeNames.set(fact.sourceId, fact.sourceTypeName);
@@ -693,6 +698,7 @@ export function createRequestAccumulator(options: RequestAccumulatorOptions = {}
 
     const output = Array.from(requests.values());
     for (const request of output) {
+      request.outcome = outcomes.get(request.id);
       request.eventSequenceFingerprint = fingerprints.get(request.id)?.finish();
       request.relatedSourceIds = sourcesByRequest.get(request.id) || [request.id];
       request.relatedSourceTypeNames = Array.from(new Set(

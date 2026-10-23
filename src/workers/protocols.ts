@@ -7,6 +7,8 @@ import type { NetlogDatasetParseSkipStats, NetlogDatasetSocketLazyParamsStats } 
 import type { AnalysisProgress } from '../upload/analysisProgress';
 import type { FileStreamParseSession } from '../upload/fileFormatTypes';
 import type { HarRepairInfo } from '../utils/harRepair';
+import type { NetlogTimelineQuery } from './netlogTimelineView';
+import type { NetlogStatePageQuery } from './netlogStatePaging';
 
 // ============ Request Messages (Main → Worker) ============
 
@@ -132,6 +134,7 @@ export interface GetNetlogDnsStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -140,6 +143,7 @@ export interface GetNetlogProxyStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -148,6 +152,7 @@ export interface GetNetlogQuicStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -156,6 +161,7 @@ export interface GetNetlogHttp2StateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -164,6 +170,7 @@ export interface GetNetlogSocketsStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -172,6 +179,7 @@ export interface GetNetlogCacheStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -180,6 +188,7 @@ export interface GetNetlogAltSvcStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -188,6 +197,7 @@ export interface GetNetlogStreamPoolStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -196,6 +206,7 @@ export interface GetNetlogReportingStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -204,7 +215,7 @@ export interface GetNetlogTimelineStateRequest {
   id: string;
   payload: {
     analysisId: string;
-  };
+  } & NetlogTimelineQuery;
 }
 
 export interface GetNetlogModulesStateRequest {
@@ -212,6 +223,7 @@ export interface GetNetlogModulesStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 
@@ -220,6 +232,7 @@ export interface GetNetlogPrerenderStateRequest {
   id: string;
   payload: {
     analysisId: string;
+    statePage?: NetlogStatePageQuery;
   };
 }
 

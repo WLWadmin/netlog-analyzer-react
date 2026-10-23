@@ -27,6 +27,8 @@ import { buildNetlogRawEvidenceStructureView, getNetlogRawEvidenceMetadataValue,
 import { scanNetlogEventJson, type NetlogStreamScanMeta } from './netlogStreamScanner';
 import { extractTopLevelNumericField } from './netlogEventJsonProbe';
 import { LIGHTWEIGHT_COUNT_EVENT_NAMES } from './netlogLightweightEvents';
+import { buildNetlogTimelineView } from './netlogTimelineView';
+import { pageNetlogState } from './netlogStatePaging';
 import {
   buildAnalysisProgress,
   type AnalysisProgress,
@@ -905,7 +907,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-dns-state',
-          payload: dataset.dnsState,
+          payload: pageNetlogState(dataset.dnsState, msg.payload.statePage),
           duration,
         });
         break;
@@ -919,7 +921,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-proxy-state',
-          payload: dataset.proxyState,
+          payload: pageNetlogState(dataset.proxyState, msg.payload.statePage),
           duration,
         });
         break;
@@ -933,7 +935,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-quic-state',
-          payload: dataset.quicState,
+          payload: pageNetlogState(dataset.quicState, msg.payload.statePage),
           duration,
         });
         break;
@@ -947,7 +949,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-http2-state',
-          payload: dataset.http2State,
+          payload: pageNetlogState(dataset.http2State, msg.payload.statePage),
           duration,
         });
         break;
@@ -961,7 +963,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-sockets-state',
-          payload: dataset.socketsState,
+          payload: pageNetlogState(dataset.socketsState, msg.payload.statePage),
           duration,
         });
         break;
@@ -975,7 +977,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-cache-state',
-          payload: dataset.cacheState,
+          payload: pageNetlogState(dataset.cacheState, msg.payload.statePage),
           duration,
         });
         break;
@@ -989,7 +991,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-alt-svc-state',
-          payload: dataset.altSvcState,
+          payload: pageNetlogState(dataset.altSvcState, msg.payload.statePage),
           duration,
         });
         break;
@@ -1003,7 +1005,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-reporting-state',
-          payload: dataset.reportingState,
+          payload: pageNetlogState(dataset.reportingState, msg.payload.statePage),
           duration: performance.now() - start,
         });
         break;
@@ -1011,11 +1013,15 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       case 'get-netlog-timeline-state': {
         const dataset = netlogDatasetStore.get(msg.payload.analysisId);
         if (!dataset?.timelineState) throw new Error(`NetLog Dataset Timeline state 不存在：${msg.payload.analysisId}`);
+        const needsQuery = msg.payload.range || msg.payload.sourcePage || msg.payload.errorPage;
+        if (needsQuery && !dataset.eventIndex) throw new Error('完整事件索引不可用');
         sendResponse({
           type: 'success',
           id: msg.id,
           resultType: 'netlog-timeline-state',
-          payload: dataset.timelineState,
+          payload: needsQuery && dataset.eventIndex
+            ? buildNetlogTimelineView(dataset.eventIndex, msg.payload, dataset.timelineState)
+            : dataset.timelineState,
           duration: performance.now() - start,
         });
         break;
@@ -1027,7 +1033,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-modules-state',
-          payload: dataset.modulesState,
+          payload: pageNetlogState(dataset.modulesState, msg.payload.statePage),
           duration: performance.now() - start,
         });
         break;
@@ -1039,7 +1045,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-prerender-state',
-          payload: dataset.prerenderState,
+          payload: pageNetlogState(dataset.prerenderState, msg.payload.statePage),
           duration: performance.now() - start,
         });
         break;
@@ -1052,7 +1058,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           type: 'success',
           id: msg.id,
           resultType: 'netlog-stream-pool-state',
-          payload: dataset.streamPoolState,
+          payload: pageNetlogState(dataset.streamPoolState, msg.payload.statePage),
           duration,
         });
         break;
