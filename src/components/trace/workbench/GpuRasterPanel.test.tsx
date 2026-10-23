@@ -98,7 +98,8 @@ describe('GpuRasterPanel', () => {
       />,
     );
 
-    expect(await screen.findByText(/能力不可用/)).not.toBeNull();
+    expect(await screen.findByText(/本次查询未生成 GPU \/ Raster 摘要/)).not.toBeNull();
+    expect(screen.getByText(/可先调整时间轴范围后重试/)).not.toBeNull();
     expect(screen.queryByText(/GPU 利用率/)).toBeNull();
   });
 

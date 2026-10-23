@@ -92,4 +92,11 @@ describe('TraceWorkbenchInternalPanel', () => {
     })).not.toBeNull();
     expect(screen.queryByText('创建分析工作台会话')).toBeNull();
   });
+
+  it('keeps the unavailable report stable without a Worker client', () => {
+    const { rerender } = render(<TraceWorkbenchInternalPanel />);
+    rerender(<TraceWorkbenchInternalPanel />);
+    expect(screen.getByText(/当前报告没有可复用的 Workbench Worker/)).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '打开交互式性能分析' })).toBeNull();
+  });
 });

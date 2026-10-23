@@ -25,21 +25,22 @@ const STATUS_LABELS = {
   failed: 'Worker 会话失败',
 } as const;
 
+const RELEASED_SNAPSHOT: TraceWorkbenchClientSnapshot = {
+  status: 'released',
+  queryErrors: {},
+  discardedResponseCount: 0,
+};
+
 const TraceWorkbenchInternalPanel: React.FC<TraceWorkbenchInternalPanelProps> = ({
   client,
   diagnoses = [],
   findings = [],
 }) => {
   const [localError, setLocalError] = useState('');
-  const fallback: TraceWorkbenchClientSnapshot = {
-    status: 'released' as const,
-    queryErrors: {},
-    discardedResponseCount: 0,
-  };
   const snapshot = useSyncExternalStore(
     listener => client?.subscribe(listener) ?? (() => undefined),
-    () => client?.getSnapshot() ?? fallback,
-    () => fallback,
+    () => client?.getSnapshot() ?? RELEASED_SNAPSHOT,
+    () => RELEASED_SNAPSHOT,
   );
 
   const createSession = async () => {

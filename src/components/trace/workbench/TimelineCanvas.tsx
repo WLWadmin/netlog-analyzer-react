@@ -269,7 +269,11 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       context.lineTo(x, cssHeight);
       context.stroke();
     }
-  }, [activeTracks, eventLanes, orderedEvents, renderedViewport, renderRevision, snapshot, tracks]);
+  // Hover only updates the accessible label; it does not change the painted scene.
+  }, [
+    activeTracks, eventLanes, orderedEvents, renderedViewport, renderRevision,
+    snapshot.cursorUs, snapshot.selectedEventId, snapshot.selection, tracks,
+  ]);
 
   const adjustViewport = (operation: 'zoom-in' | 'zoom-out' | 'left' | 'right') => {
     const range = snapshot.viewport;

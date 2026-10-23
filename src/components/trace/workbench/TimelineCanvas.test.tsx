@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { WorkbenchTimelineEventDto } from '../../../workbench/protocol';
 import { TimelineInteractionStore } from '../../../workbench/timelineInteractionStore';
 import TimelineCanvas from './TimelineCanvas';
@@ -49,6 +49,30 @@ describe('TimelineCanvas', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('updates hover text without repainting unchanged timeline events', () => {
+    const store = new TimelineInteractionStore({ startUs: 0, endUs: 1_000 });
+    render(
+      <TimelineCanvas
+        events={events}
+        onOpenDetail={jest.fn()}
+        onEscape={jest.fn()}
+        store={store}
+      />,
+    );
+    const canvas = screen.getByRole('application', { name: /Timeline 画布/ });
+    const context = (canvas as HTMLCanvasElement).getContext('2d')!;
+    const initialDrawCount = jest.mocked(context.clearRect).mock.calls.length;
+
+    act(() => store.setHoveredEvent('event-1'));
+    expect(screen.getByText('当前悬浮 RunTask')).not.toBeNull();
+    act(() => store.setHoveredEvent('event-2'));
+    expect(screen.getByText('当前悬浮 FunctionCall')).not.toBeNull();
+    expect(context.clearRect).toHaveBeenCalledTimes(initialDrawCount);
+
+    act(() => store.selectEvent('event-2'));
+    expect(context.clearRect).toHaveBeenCalledTimes(initialDrawCount + 1);
   });
 
   it('provides equivalent DOM text and keyboard event navigation', () => {

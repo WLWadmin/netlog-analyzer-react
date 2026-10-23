@@ -1,4 +1,5 @@
 import type { ChromiumTraceFile } from '../parsers/trace/types';
+import { CpuProfileStore } from './cpuProfileStore';
 import { MinimalTraceEngineAdapter } from './traceEngineAdapter';
 
 const trace: ChromiumTraceFile = {
@@ -29,6 +30,38 @@ describe('MinimalTraceEngineAdapter', () => {
     delete process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE;
     delete process.env.REACT_APP_ENABLE_TRACE_STAGE5;
     delete process.env.REACT_APP_ENABLE_TRACE_STAGE6;
+  });
+
+  it('keeps CPU capability discovery and timeline creation independent of CPU indexing', async () => {
+    const adapter = new MinimalTraceEngineAdapter({
+      traceEvents: [
+        { name: 'Profile', ts: 100, pid: 1, tid: 1, id: 'p' },
+        { name: 'ProfileChunk', ts: 110, pid: 1, tid: 1, id: 'p', args: { data: {
+          cpuProfile: {
+            nodes: [{ id: 1, callFrame: { functionName: 'work' } }],
+            samples: [1],
+          },
+          timeDeltas: [10],
+        } } },
+      ],
+    }, { encoding: 'plain-json', jsonBytes: 100, skippedEventCount: 0, warnings: [] });
+    const build = jest.spyOn(CpuProfileStore, 'buildAsync');
+    try {
+      const options = { isCancelled: () => false, onProgress: jest.fn() };
+      await adapter.analyze(options);
+      const session = await adapter.buildSessionData(options);
+      expect(adapter.getCapabilities()).toContainEqual({
+        capability: 'cpu-profile', status: 'available',
+      });
+      expect(build).not.toHaveBeenCalled();
+      await session.cpuProfile.queryCallTree({
+        range: { startUs: 100, endUs: 200 }, sort: 'total-time', limit: 10,
+      });
+      expect(build).toHaveBeenCalledTimes(1);
+    } finally {
+      adapter.release();
+      build.mockRestore();
+    }
   });
 
   it('does not build or project advanced analysis while the Stage 6 flag is off', async () => {

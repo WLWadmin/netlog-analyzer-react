@@ -1,5 +1,5 @@
 import type { ChromiumTraceEvent } from '../parsers/trace/types';
-import { CpuProfileStore } from './cpuProfileStore';
+import { CpuProfileStore, CpuQueryCancelled } from './cpuProfileStore';
 
 function profileEvents(): ChromiumTraceEvent[] {
   return [
@@ -49,6 +49,56 @@ function profileEvents(): ChromiumTraceEvent[] {
 }
 
 describe('CpuProfileStore', () => {
+  it('defers index construction, shares the completed index and preserves exact results', async () => {
+    const events = profileEvents();
+    const build = jest.spyOn(CpuProfileStore, 'buildAsync');
+    try {
+      const store = CpuProfileStore.deferred(events);
+      expect(store.getStatus()).toMatchObject({
+        capability: 'partial', limitations: ['cpu-profile-not-indexed'],
+      });
+      expect(build).not.toHaveBeenCalled();
+      const input = { range: { startUs: 100, endUs: 200 }, sort: 'total-time' as const, limit: 20 };
+      const [callTree, bottomUp] = await Promise.all([
+        store.queryCallTree(input), store.queryBottomUp(input),
+      ]);
+      const eager = CpuProfileStore.build(events);
+      expect(callTree).toEqual(await eager.queryCallTree(input));
+      expect(bottomUp).toEqual(await eager.queryBottomUp(input));
+      expect(build).toHaveBeenCalledTimes(1);
+      await store.queryFlameChart(input);
+      expect(build).toHaveBeenCalledTimes(1);
+    } finally {
+      build.mockRestore();
+    }
+  });
+
+  it('discards cancelled partial indexes and allows retry, but never rebuilds after release', async () => {
+    const store = CpuProfileStore.deferred(profileEvents());
+    let cancelled = false;
+    const options = {
+      isCancelled: () => cancelled,
+      now: () => 0,
+      timeoutMs: 100,
+      yieldInterval: 1,
+      yieldControl: async () => { cancelled = true; },
+    };
+    const input = { range: { startUs: 100, endUs: 200 }, sort: 'total-time' as const, limit: 20 };
+    await expect(store.queryCallTree(input, options)).rejects.toBeInstanceOf(CpuQueryCancelled);
+    expect(store.getStatus().limitations).toEqual(['cpu-profile-not-indexed']);
+    expect((await store.queryCallTree(input)).nodes.length).toBeGreaterThan(0);
+    store.release();
+    expect((await store.queryCallTree(input)).nodes).toEqual([]);
+
+    const releasing = CpuProfileStore.deferred(profileEvents());
+    await expect(releasing.queryCallTree(input, {
+      ...options,
+      isCancelled: () => false,
+      yieldControl: async () => releasing.release(),
+    })).rejects.toBeInstanceOf(CpuQueryCancelled);
+    expect((await releasing.queryCallTree(input)).nodes).toEqual([]);
+  });
+
   it('computes deterministic self/total time and sample hits for a clipped range', async () => {
     const store = CpuProfileStore.build(profileEvents());
     const result = await store.queryCallTree({

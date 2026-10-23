@@ -63,7 +63,10 @@ const GpuRasterPanel: React.FC<GpuRasterPanelProps> = ({
       <h3 id="trace-gpu-raster-heading">GPU / Raster 摘要</h3>
       {!response && !error && <p role="status">正在检查明确的 GPU/Raster 证据…</p>}
       {response?.status === 'unavailable' && (
-        <p role="status">能力不可用：{response.limitations.join(' ')}</p>
+        <>
+          <p role="status">本次查询未生成 GPU / Raster 摘要：{response.limitations.join(' ')}</p>
+          <p>可先调整时间轴范围后重试。若完整录制范围仍无匹配事件，请重新录制包含页面渲染活动的 Performance Trace；文件未记录的活动无法补算。</p>
+        </>
       )}
       {response?.status === 'insufficient' && (
         <p role="status">证据不足：{response.limitations.join(' ')}</p>

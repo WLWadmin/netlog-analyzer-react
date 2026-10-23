@@ -114,6 +114,16 @@ const CAPABILITY_LABELS: Record<string, string> = {
   screenshots: '截图',
 };
 
+const ADVANCED_TOPICS = [
+  { id: 'layout', label: '布局偏移' },
+  { id: 'animation', label: '动画' },
+  { id: 'memory', label: '内存' },
+  { id: 'gpu', label: 'GPU / Raster' },
+  { id: 'query', label: '自定义查询' },
+  { id: 'plugin', label: '临时轨道' },
+] as const;
+type AdvancedTopic = typeof ADVANCED_TOPICS[number]['id'];
+
 const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   client,
   diagnoses,
@@ -149,6 +159,9 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
   const [evidenceError, setEvidenceError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedTopic, setAdvancedTopic] = useState<AdvancedTopic>('layout');
+  const [queryOpened, setQueryOpened] = useState(false);
+  const [pluginOpened, setPluginOpened] = useState(false);
   const [pluginOverlays, setPluginOverlays] = useState<TrackPluginOverlay[]>([]);
   const expertAnalysisEnabled = isTraceExpertAnalysisEnabled();
   const crossSourceEnabled = isTraceCrossSourceEnabled();
@@ -259,16 +272,19 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
     };
   }, [client, store]);
 
-  const coreTracks = TIMELINE_TRACKS.filter(track => {
+  const coreTracks = useMemo(() => TIMELINE_TRACKS.filter(track => {
     if (!isCoreTimelineTrackId(track.id)) return false;
     return (session.trackEventCounts[track.id] ?? 0) > 0
       && (
         track.capability === 'timeline-events'
         || session.capabilities.includes(track.capability)
       );
-  });
-  const visiblePluginOverlays = pluginOverlays.filter(overlay => overlay.visible);
-  const availableTracks = [
+  }), [session.capabilities, session.trackEventCounts]);
+  const visiblePluginOverlays = useMemo(
+    () => pluginOverlays.filter(overlay => overlay.visible),
+    [pluginOverlays],
+  );
+  const availableTracks = useMemo(() => [
     ...coreTracks,
     ...visiblePluginOverlays.map(overlay => ({
       id: overlay.trackId,
@@ -278,16 +294,15 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
       matches: () => false,
       displayOrder: 200,
     })),
-  ];
-  const coreEvents = clientSnapshot.viewport?.events ?? [];
-  const pluginSourceEventIds = new Map(
+  ], [coreTracks, visiblePluginOverlays]);
+  const pluginSourceEventIds = useMemo(() => new Map(
     visiblePluginOverlays.flatMap(overlay => overlay.events.map(event => [
       event.eventId,
       event.sourceEventId,
     ] as const)),
-  );
-  const events = [
-    ...coreEvents,
+  ), [visiblePluginOverlays]);
+  const events = useMemo(() => [
+    ...(clientSnapshot.viewport?.events ?? []),
     ...visiblePluginOverlays.flatMap(overlay => overlay.events.map(event => ({
       id: event.eventId,
       trackId: event.trackId,
@@ -298,7 +313,7 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
       name: event.name,
       ...(event.status ? { status: event.status } : {}),
     }))),
-  ];
+  ], [clientSnapshot.viewport?.events, visiblePluginOverlays]);
   const viewportQueueStats = client.getQueueStats();
   const stableEvent = events.find(event => event.id === interaction.selectedEventId);
   const hoveredEvent = events.find(event => event.id === interaction.hoveredEventId);
@@ -596,39 +611,70 @@ const TraceTimelineWorkbench: React.FC<TraceTimelineWorkbenchProps> = ({
               </header>
               {advancedOpen ? (
                 <div className="trace-advanced-suite-content">
-                  <LayoutShiftPanel
+                  <nav className="trace-analysis-tabs" aria-label="高级分析专题">
+                    {ADVANCED_TOPICS.map(topic => (
+                      <button
+                        key={topic.id}
+                        type="button"
+                        aria-pressed={advancedTopic === topic.id}
+                        onClick={() => {
+                          setAdvancedTopic(topic.id);
+                          if (topic.id === 'query') setQueryOpened(true);
+                          if (topic.id === 'plugin') setPluginOpened(true);
+                        }}
+                      >
+                        {topic.label}
+                      </button>
+                    ))}
+                  </nav>
+                  <p className="trace-advanced-scope">
+                    点击上方按钮切换专题。当前分析{interaction.selection ? '所选区间' : '可见时间窗口'}：
+                    {(advancedRange.startUs / 1_000).toFixed(2)}–{(advancedRange.endUs / 1_000).toFixed(2)} ms。
+                    布局偏移、动画、内存和 GPU 需要录制文件包含对应事件；当前范围无数据不代表整个文件没有，也不能证明没有问题。
+                  </p>
+                  {advancedTopic === 'layout' && <LayoutShiftPanel
                     client={client}
                     range={advancedRange}
                     onFocusRange={focusAdvancedRange}
-                  />
-                  <AnimationCompositionPanel
+                  />}
+                  {advancedTopic === 'animation' && <AnimationCompositionPanel
                     client={client}
                     range={advancedRange}
                     onFocusRange={focusAdvancedRange}
-                  />
-                  <MemoryTrendPanel
+                  />}
+                  {advancedTopic === 'memory' && <MemoryTrendPanel
                     client={client}
                     range={advancedRange}
                     onFocusRange={focusAdvancedRange}
-                  />
-                  <GpuRasterPanel
+                  />}
+                  {advancedTopic === 'gpu' && <GpuRasterPanel
                     client={client}
                     range={advancedRange}
                     onFocusRange={focusAdvancedRange}
-                  />
+                  />}
+                </div>
+              ) : null}
+              {/* Preserve query drafts and installed track ownership across topic switches.
+                  Only explicitly installed tracks continue updating the visible timeline. */}
+              {queryOpened && (
+                <div hidden={!advancedOpen || advancedTopic !== 'query'}>
                   <CustomQueryPanel
                     client={client}
                     range={advancedRange}
                     onFocusRange={focusAdvancedRange}
                     onOpenEvent={openDetail}
                   />
+                </div>
+              )}
+              {pluginOpened && (
+                <div hidden={!advancedOpen || advancedTopic !== 'plugin'}>
                   <TrackPluginPanel
                     client={client}
                     range={advancedRange}
                     onOverlaysChange={setPluginOverlays}
                   />
                 </div>
-              ) : null}
+              )}
             </section>
           )}
 

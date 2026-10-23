@@ -292,6 +292,27 @@ describe('TraceTimelineWorkbench', () => {
     expect(screen.getByText('窄屏事件列表')).not.toBeNull();
   });
 
+  it('does not repaint or query the viewport when hovering in the mounted workbench', async () => {
+    const { client, dispatch } = await createClient();
+    render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    const canvas = screen.getByRole('application', { name: /Timeline 画布/ }) as HTMLCanvasElement;
+    jest.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 140,
+      width: 900, height: 140, toJSON: () => ({}),
+    });
+    const context = canvas.getContext('2d')!;
+    const drawCount = jest.mocked(context.clearRect).mock.calls.length;
+    const queryCount = dispatch.mock.calls.length;
+
+    fireEvent.mouseMove(canvas, { clientX: 435, clientY: 106 });
+    expect(screen.getByText('当前悬浮 Layout')).not.toBeNull();
+    fireEvent.mouseMove(canvas, { clientX: 700, clientY: 106 });
+    expect(screen.getByText('尚未选择事件')).not.toBeNull();
+    expect(context.clearRect).toHaveBeenCalledTimes(drawCount);
+    expect(dispatch).toHaveBeenCalledTimes(queryCount);
+  });
+
   it('queries and displays a brush selection without replacing event selection', async () => {
     const { client, dispatch } = await createClient();
     render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
@@ -412,6 +433,44 @@ describe('TraceTimelineWorkbench', () => {
         'query-track-plugin',
       ]),
     );
+  });
+
+  it('queries only the selected topic and preserves custom query drafts across switches', async () => {
+    process.env.REACT_APP_ENABLE_TRACE_WORKBENCH = '1';
+    process.env.REACT_APP_ENABLE_TRACE_TIMELINE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_EXPERT_ANALYSIS = '1';
+    process.env.REACT_APP_ENABLE_TRACE_CROSS_SOURCE = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE5 = '1';
+    process.env.REACT_APP_ENABLE_TRACE_STAGE6 = '1';
+    const { client, dispatch } = await createClient();
+    render(<TraceTimelineWorkbench client={client} diagnoses={[]} />);
+    await screen.findByText(/已选择范围内返回 1 个事件/);
+    fireEvent.click(screen.getByRole('button', { name: '展开高级分析' }));
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'query-advanced-analysis', capability: 'layout-shifts' }),
+    ));
+    expect(screen.getByRole('button', { name: '布局偏移' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/当前分析可见时间窗口/)).not.toBeNull();
+    expect(dispatch.mock.calls.flatMap(([request]) => (
+      request.type === 'query-advanced-analysis' ? [request.capability] : []
+    ))).toEqual(['layout-shifts']);
+    fireEvent.click(screen.getByRole('button', { name: '内存' }));
+    expect(screen.getByRole('button', { name: '内存' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '布局偏移' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByRole('heading', { name: '布局偏移详情' })).toBeNull();
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'query-advanced-analysis', capability: 'memory-trend' }),
+    ));
+    fireEvent.click(screen.getByRole('button', { name: '自定义查询' }));
+    const input = screen.getByDisplayValue('Task');
+    fireEvent.change(input, { target: { value: 'Layout' } });
+    fireEvent.click(screen.getByRole('button', { name: '临时轨道' }));
+    expect(screen.getByRole('heading', { name: '受控临时轨道' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '收起高级分析' }));
+    expect(screen.queryByRole('heading', { name: '受控临时轨道' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开高级分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '自定义查询' }));
+    expect(screen.getByDisplayValue('Layout')).not.toBeNull();
   });
 
   it('synchronizes screenshot selection and Timeline cursor in both directions', async () => {

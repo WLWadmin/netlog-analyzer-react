@@ -149,6 +149,49 @@ describe('TimelineColumnarStore', () => {
     expect(store.getInput('trace:timeline:0')?.sourceIndex).toBe(0);
   });
 
+  it('preserves track quotas and complete counts on a dense range', async () => {
+    const inputs = Array.from({ length: 20_001 }, (_, index) => ({
+      ...events[0],
+      sourceIndex: index,
+      startUs: index,
+      durationUs: 0,
+      trackId: index === 20_000 ? 'rare' : `track-${index % 3}`,
+    }));
+    const store = TimelineColumnarStore.build(inputs);
+    const query = { startUs: 0, endUs: 20_001, limit: 8, balanceByTrack: true };
+    const result = store.query(query);
+    expect(result.events.map(event => event.id)).toEqual(
+      [0, 1, 2, 3, 4, 5, 6, 20_000].map(index => `trace:timeline:${index}`),
+    );
+    expect(result.truncation).toEqual({
+      truncated: true, returnedCount: 8, totalMatched: 20_001,
+    });
+    const options = {
+      isCancelled: () => false, timeoutMs: 1_000, now: () => 0,
+      yieldControl: () => Promise.resolve(),
+    };
+    expect(await store.queryAsync(query, options)).toEqual(result);
+    const first = store.query({ ...query, balanceByTrack: false });
+    expect(await store.queryAsync({
+      ...query, balanceByTrack: false, continuation: first.truncation.continuation,
+    }, options)).toEqual(store.query({
+      ...query, balanceByTrack: false, continuation: first.truncation.continuation,
+    }));
+  });
+
+  it('cancels during balanced collection instead of publishing a partial page', async () => {
+    const store = TimelineColumnarStore.build(events);
+    let cancelled = false;
+    let yields = 0;
+    await expect(store.queryAsync({
+      startUs: -100, endUs: 30, limit: 2, balanceByTrack: true,
+    }, {
+      isCancelled: () => cancelled, timeoutMs: 1_000, now: () => 0,
+      yieldInterval: 1,
+      yieldControl: async () => { yields += 1; cancelled = yields === 5; },
+    })).rejects.toThrow('Timeline query cancelled');
+  });
+
   it('builds process, thread, frame and navigation indexes and releases columns', () => {
     const store = TimelineColumnarStore.build(events);
     expect(store.eventsByProcess(1)).toHaveLength(2);

@@ -34,35 +34,6 @@ export interface TimelineQuery {
   };
 }
 
-function selectBalancedPage(
-  matches: number[],
-  limit: number,
-  trackIndexes: Uint32Array,
-): number[] {
-  if (matches.length <= limit) return matches;
-  const positionsByTrack = new Map<number, number[]>();
-  for (const position of matches) {
-    const trackIndex = trackIndexes[position];
-    const positions = positionsByTrack.get(trackIndex) ?? [];
-    positions.push(position);
-    positionsByTrack.set(trackIndex, positions);
-  }
-  const buckets = [...positionsByTrack.values()];
-  const selected: number[] = [];
-  for (let offset = 0; selected.length < limit; offset += 1) {
-    let added = false;
-    for (const bucket of buckets) {
-      const position = bucket[offset];
-      if (position === undefined) continue;
-      selected.push(position);
-      added = true;
-      if (selected.length === limit) break;
-    }
-    if (!added) break;
-  }
-  return selected.sort((left, right) => left - right);
-}
-
 export interface TimelineQueryResult {
   events: WorkbenchTimelineEventDto[];
   lod: WorkbenchViewportLod;
@@ -298,6 +269,13 @@ export class TimelineColumnarStore {
   }
 
   query(query: TimelineQuery): TimelineQueryResult {
+    const scan = this.scanViewport(query);
+    let step = scan.next();
+    while (!step.done) step = scan.next();
+    return step.value;
+  }
+
+  private *scanViewport(query: TimelineQuery): Generator<void, TimelineQueryResult> {
     if (
       this.released
       || !Number.isFinite(query.startUs)
@@ -314,38 +292,70 @@ export class TimelineColumnarStore {
     }
     const firstCandidate = lowerBound(this.prefixMaxEndUs, query.startUs);
     const lastCandidate = upperBound(this.startUs, query.endUs);
-    const matches: number[] = [];
-    for (let position = firstCandidate; position < lastCandidate; position += 1) {
-      if (this.startUs[position] + this.durationUs[position] >= query.startUs) {
-        matches.push(position);
-      }
-    }
+    const balanced = query.balanceByTrack && !query.continuation;
+    const trackCounts = new Map<number, number>();
+    const page: number[] = [];
+    let totalMatched = 0;
+    let eligibleMatched = 0;
     const continuationSourceIndex = query.continuation
       ? sourceIndexFromEventId(query.continuation.afterEventId)
       : undefined;
-    const pageStart = query.continuation && continuationSourceIndex !== undefined
-      ? matches.findIndex(position => (
-          this.startUs[position] > query.continuation!.afterStartUs
-          || (
-            this.startUs[position] === query.continuation!.afterStartUs
-            && this.sourceIndexes[position] > continuationSourceIndex
+    for (let position = firstCandidate; position < lastCandidate; position += 1) {
+      if (this.startUs[position] + this.durationUs[position] >= query.startUs) {
+        totalMatched += 1;
+        if (balanced) {
+          const track = this.trackIndexes[position];
+          trackCounts.set(track, (trackCounts.get(track) ?? 0) + 1);
+        } else if (!query.continuation || (
+          continuationSourceIndex !== undefined && (
+            this.startUs[position] > query.continuation.afterStartUs
+            || (this.startUs[position] === query.continuation.afterStartUs
+              && this.sourceIndexes[position] > continuationSourceIndex)
           )
-        ))
-      : query.continuation ? -1 : 0;
-    const resolvedStart = pageStart < 0 ? matches.length : pageStart;
-    const page = query.balanceByTrack && !query.continuation
-      ? selectBalancedPage(matches, query.limit, this.trackIndexes)
-      : matches.slice(resolvedStart, resolvedStart + query.limit);
+        )) {
+          eligibleMatched += 1;
+          if (page.length < query.limit) page.push(position);
+        }
+      }
+      yield;
+    }
+    if (balanced) {
+      // Count first, then retain only the page. The quotas preserve the previous
+      // round-robin track sampling without allocating one position per match.
+      const quotas = new Map<number, number>();
+      let remaining = Math.min(query.limit, totalMatched);
+      while (remaining > 0) {
+        for (const [track, count] of trackCounts) {
+          const quota = quotas.get(track) ?? 0;
+          if (quota < count) {
+            quotas.set(track, quota + 1);
+            remaining -= 1;
+            if (remaining === 0) break;
+          }
+          yield;
+        }
+      }
+      for (let position = firstCandidate; position < lastCandidate; position += 1) {
+        const track = this.trackIndexes[position];
+        const quota = quotas.get(track) ?? 0;
+        if (quota > 0 && this.startUs[position] + this.durationUs[position] >= query.startUs) {
+          page.push(position);
+          quotas.set(track, quota - 1);
+        }
+        yield;
+      }
+      eligibleMatched = totalMatched;
+    }
     const events = page.map(position => this.dtoAt(position));
-    const truncated = resolvedStart + page.length < matches.length;
+    const truncated = page.length < eligibleMatched;
     const last = events[events.length - 1];
     return {
       events,
-      lod: viewportLod(query, matches.length, events.length),
+      lod: viewportLod(query, totalMatched, events.length),
       truncation: {
         truncated,
         returnedCount: events.length,
-        totalMatched: matches.length,
+        totalMatched,
         ...(truncated && last && (!query.balanceByTrack || query.continuation)
           ? {
               continuation: {
@@ -369,74 +379,23 @@ export class TimelineColumnarStore {
       onProgress?(completed: number, total: number): void;
     },
   ): Promise<TimelineQueryResult> {
-    if (
-      this.released
-      || !Number.isFinite(query.startUs)
-      || !Number.isFinite(query.endUs)
-      || query.startUs > query.endUs
-      || !Number.isInteger(query.limit)
-      || query.limit < 1
-    ) {
-      return {
-        events: [],
-        lod: viewportLod(query, 0, 0),
-        truncation: { truncated: false, returnedCount: 0, totalMatched: 0 },
-      };
-    }
-    const firstCandidate = lowerBound(this.prefixMaxEndUs, query.startUs);
-    const lastCandidate = upperBound(this.startUs, query.endUs);
-    const total = Math.max(0, lastCandidate - firstCandidate);
-    const matches: number[] = [];
     const startedAt = options.now();
-    const yieldInterval = options.yieldInterval ?? 2_048;
-    for (let position = firstCandidate; position < lastCandidate; position += 1) {
-      if (options.isCancelled()) throw new TimelineQueryCancelled();
+    const yieldInterval = Math.max(1, options.yieldInterval ?? 2_048);
+    const scan = this.scanViewport(query);
+    let step = scan.next();
+    let completed = 0;
+    while (!step.done) {
+      if (this.released || options.isCancelled()) throw new TimelineQueryCancelled();
       if (options.now() - startedAt > options.timeoutMs) throw new TimelineQueryTimeout();
-      if (this.startUs[position] + this.durationUs[position] >= query.startUs) {
-        matches.push(position);
-      }
-      const completed = position - firstCandidate + 1;
+      completed += 1;
       if (completed % yieldInterval === 0) {
-        options.onProgress?.(completed, total);
         await options.yieldControl();
       }
+      if (this.released || options.isCancelled()) throw new TimelineQueryCancelled();
+      step = scan.next();
     }
-    const continuationSourceIndex = query.continuation
-      ? sourceIndexFromEventId(query.continuation.afterEventId)
-      : undefined;
-    const pageStart = query.continuation && continuationSourceIndex !== undefined
-      ? matches.findIndex(position => (
-          this.startUs[position] > query.continuation!.afterStartUs
-          || (
-            this.startUs[position] === query.continuation!.afterStartUs
-            && this.sourceIndexes[position] > continuationSourceIndex
-          )
-        ))
-      : query.continuation ? -1 : 0;
-    const resolvedStart = pageStart < 0 ? matches.length : pageStart;
-    const page = query.balanceByTrack && !query.continuation
-      ? selectBalancedPage(matches, query.limit, this.trackIndexes)
-      : matches.slice(resolvedStart, resolvedStart + query.limit);
-    const events = page.map(position => this.dtoAt(position));
-    const truncated = resolvedStart + page.length < matches.length;
-    const last = events[events.length - 1];
-    return {
-      events,
-      lod: viewportLod(query, matches.length, events.length),
-      truncation: {
-        truncated,
-        returnedCount: events.length,
-        totalMatched: matches.length,
-        ...(truncated && last && (!query.balanceByTrack || query.continuation)
-          ? {
-              continuation: {
-                afterStartUs: last.startUs,
-                afterEventId: last.id,
-              },
-            }
-          : {}),
-      },
-    };
+    options.onProgress?.(completed, completed);
+    return step.value;
   }
 
   async summarizeSelection(

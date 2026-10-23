@@ -406,7 +406,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     const screenshots = this.trace.traceEvents.some(hasScreenshot);
     const trackEventCounts = this.sessionData?.timeline.getStats().trackEventCounts ?? {};
     return ALL_CAPABILITIES.map(capability => {
-      const cpuStatus = capability === 'cpu-profile'
+      const cpuStatus = capability === 'cpu-profile' && families.has('cpu-profile')
         ? this.sessionData?.cpuProfile.getStatus()
         : undefined;
       const available = capability === 'timeline-events'
@@ -499,7 +499,7 @@ export class MinimalTraceEngineAdapter implements TraceEngineAdapter {
     this.sessionData = {
       timeline: TimelineColumnarStore.build([...timelineEvents.values()]),
       evidence: new RawEvidenceStore(this.trace.traceEvents),
-      cpuProfile: CpuProfileStore.build(this.trace.traceEvents),
+      cpuProfile: CpuProfileStore.deferred(this.trace.traceEvents),
       ...(isTraceStage6Enabled()
         ? {
             advanced: new AdvancedAnalysisStore(

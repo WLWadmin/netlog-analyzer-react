@@ -157,23 +157,65 @@ function page<T>(
 
 export class CpuProfileStore {
   private released = false;
+  private pendingEvents?: readonly ChromiumTraceEvent[];
+  private initialization?: Promise<void>;
 
   private constructor(
-    private readonly profiles: Profile[],
-    private readonly limitations: Set<string>,
+    private profiles: Profile[],
+    private limitations: Set<string>,
   ) {}
 
+  static deferred(events: readonly ChromiumTraceEvent[]): CpuProfileStore {
+    const store = new CpuProfileStore([], new Set());
+    store.pendingEvents = events;
+    return store;
+  }
+
   static build(events: readonly ChromiumTraceEvent[]): CpuProfileStore {
+    const builder = CpuProfileStore.buildSteps(events);
+    let step = builder.next();
+    while (!step.done) step = builder.next();
+    return step.value;
+  }
+
+  static async buildAsync(
+    events: readonly ChromiumTraceEvent[],
+    options: CpuQueryExecutionOptions,
+  ): Promise<CpuProfileStore> {
+    const startedAt = options.now();
+    let processed = 0;
+    const builder = CpuProfileStore.buildSteps(events);
+    try {
+      while (true) {
+        if (options.isCancelled()) throw new CpuQueryCancelled();
+        if (options.now() - startedAt > options.timeoutMs) throw new CpuQueryTimeout();
+        const step = builder.next();
+        if (step.done) return step.value;
+        processed += 1;
+        if (processed % (options.yieldInterval ?? 2_048) === 0) {
+          await options.yieldControl();
+        }
+      }
+    } finally {
+      // A cancelled build must not retain partial node/sample maps.
+      builder.return(new CpuProfileStore([], new Set()));
+    }
+  }
+
+  private static *buildSteps(
+    events: readonly ChromiumTraceEvent[],
+  ): Generator<void, CpuProfileStore> {
     const profiles = new Map<string, Profile>();
     const limitations = new Set<string>();
-    events.forEach((event, sourceIndex) => {
+    for (const [sourceIndex, event] of events.entries()) {
+      yield;
       const name = readString(event.name);
-      if (name !== 'Profile' && name !== 'ProfileChunk') return;
+      if (name !== 'Profile' && name !== 'ProfileChunk') continue;
       const key = profileKey(event);
       const timestampUs = readFiniteNumber(event.ts);
       if (!key || timestampUs === undefined) {
         limitations.add('invalid-profile-event');
-        return;
+        continue;
       }
       if (name === 'Profile') {
         const startUs = readFiniteNumber(readEventData(event)?.startTime) ?? timestampUs;
@@ -189,12 +231,12 @@ export class CpuProfileStore {
         } else {
           limitations.add('duplicate-profile-header');
         }
-        return;
+        continue;
       }
       const profile = profiles.get(key);
       if (!profile) {
         limitations.add('orphan-profile-chunk');
-        return;
+        continue;
       }
       const data = readEventData(event);
       const cpuProfile = readRecord(data?.cpuProfile);
@@ -203,6 +245,7 @@ export class CpuProfileStore {
         limitations.add('invalid-profile-nodes');
       }
       for (const rawNode of Array.isArray(rawNodes) ? rawNodes : []) {
+        yield;
         const node = readRecord(rawNode);
         const nodeId = readFiniteNumber(node?.id);
         if (nodeId === undefined) continue;
@@ -217,11 +260,13 @@ export class CpuProfileStore {
         });
       }
       for (const rawNode of Array.isArray(rawNodes) ? rawNodes : []) {
+        yield;
         const node = readRecord(rawNode);
         const parentId = readFiniteNumber(node?.id);
         const children = node?.children;
         if (parentId === undefined || !Array.isArray(children)) continue;
         for (const rawChildId of children) {
+          yield;
           const childId = readFiniteNumber(rawChildId);
           if (childId === undefined || childId === parentId) continue;
           if (!profile.parentIds.has(childId)) {
@@ -235,16 +280,17 @@ export class CpuProfileStore {
       }
       const rawSamples = cpuProfile?.samples;
       const rawDeltas = data?.timeDeltas;
-      if (rawSamples === undefined && rawDeltas === undefined) return;
+      if (rawSamples === undefined && rawDeltas === undefined) continue;
       if (!Array.isArray(rawSamples) || !Array.isArray(rawDeltas)) {
         limitations.add('incomplete-profile-chunk-tail');
-        return;
+        continue;
       }
       const count = Math.min(rawSamples.length, rawDeltas.length);
       if (rawSamples.length !== rawDeltas.length) {
         limitations.add('incomplete-profile-chunk-tail');
       }
       for (let index = 0; index < count; index += 1) {
+        yield;
         const nodeId = readFiniteNumber(rawSamples[index]);
         const deltaUs = readFiniteNumber(rawDeltas[index]);
         if (nodeId === undefined || deltaUs === undefined) {
@@ -259,7 +305,7 @@ export class CpuProfileStore {
         profile.cursorUs += deltaUs;
         profile.samples.push({ nodeId, startUs, endUs: profile.cursorUs });
       }
-    });
+    }
     return new CpuProfileStore([...profiles.values()], limitations);
   }
 
@@ -267,6 +313,9 @@ export class CpuProfileStore {
     capability: 'available' | 'partial' | 'missing';
     limitations: string[];
   } {
+    if (this.pendingEvents) {
+      return { capability: 'partial', limitations: ['cpu-profile-not-indexed'] };
+    }
     const hasSamples = this.profiles.some(profile => profile.samples.length > 0);
     const orderedLimitations = [...this.limitations].sort();
     if (!hasSamples) {
@@ -287,6 +336,7 @@ export class CpuProfileStore {
     input: CpuQueryInput,
     options?: CpuQueryExecutionOptions,
   ): Promise<CpuFlameChartResult> {
+    await this.ensureInitialized(options);
     const status = this.getStatus();
     if (this.released || status.capability === 'missing') {
       return {
@@ -351,6 +401,7 @@ export class CpuProfileStore {
   }
 
   release(): void {
+    this.pendingEvents = undefined;
     for (const profile of this.profiles) {
       profile.nodes.clear();
       profile.parentIds.clear();
@@ -365,6 +416,7 @@ export class CpuProfileStore {
     bottomUp: boolean,
     options?: CpuQueryExecutionOptions,
   ): Promise<CpuAggregateResult> {
+    await this.ensureInitialized(options);
     const status = this.getStatus();
     if (this.released || status.capability === 'missing') {
       return {
@@ -427,6 +479,36 @@ export class CpuProfileStore {
       nodes: result.values,
       truncation: result.truncation,
     };
+  }
+
+  private async ensureInitialized(options?: CpuQueryExecutionOptions): Promise<void> {
+    if (this.released || !this.pendingEvents) return;
+    if (!this.initialization) {
+      const events = this.pendingEvents;
+      const execution = options ?? {
+        isCancelled: () => false,
+        timeoutMs: Number.POSITIVE_INFINITY,
+        now: () => performance.now(),
+        yieldControl: () => new Promise<void>(resolve => setTimeout(resolve, 0)),
+      };
+      // Publish only a complete index. Cancellation leaves the source available for retry.
+      this.initialization = CpuProfileStore.buildAsync(events, {
+        ...execution,
+        isCancelled: () => this.released || execution.isCancelled(),
+      }).then(store => {
+        if (this.released) {
+          store.release();
+          throw new CpuQueryCancelled();
+        }
+        this.profiles = store.profiles;
+        this.limitations = store.limitations;
+        this.pendingEvents = undefined;
+      }).finally(() => {
+        this.initialization = undefined;
+      });
+    }
+    await this.initialization;
+    if (this.released || options?.isCancelled()) throw new CpuQueryCancelled();
   }
 
   private stack(profile: Profile, leafId: number): ProfileNode[] {
