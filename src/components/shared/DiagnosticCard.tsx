@@ -154,11 +154,12 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
 
   return (
     <Card
+      className="diagnostic-result-card"
       style={{
         background: 'var(--bg-elevated)',
         borderColor: config.border,
         marginBottom: 12,
-        borderRadius: 12,
+        borderRadius: 8,
         overflow: 'hidden',
       }}
       styles={{ body: { padding: 0 } }}

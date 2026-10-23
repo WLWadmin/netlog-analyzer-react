@@ -189,6 +189,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
 
   return (
     <Card
+      className="dataset-events-panel"
       title="Dataset Events"
       extra={
         <Space>

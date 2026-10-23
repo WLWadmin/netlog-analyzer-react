@@ -117,13 +117,13 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="raw-evidence-explorer" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card
         styles={{ body: { padding: 18 } }}
         style={{
-          borderRadius: 16,
-          borderColor: 'rgba(99, 102, 241, 0.18)',
-          background: 'linear-gradient(180deg, rgba(99,102,241,0.07), var(--bg-elevated) 72px)',
+          borderRadius: 8,
+          borderColor: 'var(--workbench-border)',
+          background: 'var(--workbench-surface)',
         }}
       >
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -181,6 +181,8 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
 
         <Card title="events 虚拟列表" size="small">
           <Table
+            tableLayout="fixed"
+            scroll={{ x: 1000 }}
             rowKey="eventId"
             size="small"
             loading={loading}
@@ -198,6 +200,7 @@ export default function DatasetRawEvidenceExplorer({ analysisId, fileName }: Dat
       </div>
 
       <Modal
+        className="raw-evidence-detail"
         open={detailOpen}
         title={detailTitle}
         width={900}

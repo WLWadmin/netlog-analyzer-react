@@ -14,7 +14,8 @@ interface CopyTextProps {
 const CopyText: React.FC<CopyTextProps> = ({ text, label, mono = true, emptyText = '-' }) => {
   const [copied, setCopied] = useState(false);
   const hasValue = text !== undefined && text !== null && text !== '' && text !== '-';
-  const shouldTooltip = hasValue && text.length > 100;
+  // Short values can also be clipped in narrow evidence columns.
+  const shouldTooltip = hasValue;
 
   const handleCopy = async () => {
     if (!hasValue) return;

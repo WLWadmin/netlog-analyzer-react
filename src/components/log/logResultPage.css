@@ -28,6 +28,7 @@
 
 .log-parse-coverage-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
@@ -164,4 +165,31 @@
   color: var(--accent-red);
   background: var(--surface-danger-soft);
   border-color: color-mix(in srgb, var(--accent-red) 38%, var(--border-color));
+}
+
+.log-result-page :is(.log-flow-step, .log-flow-detail-desc, .log-insight-header) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.log-result-page :is(.log-flow-step, .log-raw-entries, .log-insight-header) .ant-tag {
+  background: color-mix(in srgb, currentColor 7%, var(--workbench-surface)) !important;
+  border-color: color-mix(in srgb, currentColor 20%, var(--workbench-border));
+}
+
+.log-raw-entries .ant-tag {
+  height: auto !important;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.log-flow-detail-desc .ant-descriptions-item-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.log-context-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

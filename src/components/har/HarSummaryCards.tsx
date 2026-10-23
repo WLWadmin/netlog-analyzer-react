@@ -73,7 +73,7 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
   return (
     <Row gutter={[16, 16]} style={{ marginBottom: 4 }}>
       {cards.map((card, i) => (
-        <Col key={i} flex="1 1 180px" style={{ minWidth: 180 }}>
+        <Col key={i} flex="1 1 140px" style={{ minWidth: 140 }}>
           <SummaryCard
             title={card.title}
             value={card.value}

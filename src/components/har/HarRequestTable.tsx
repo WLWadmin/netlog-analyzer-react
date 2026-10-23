@@ -334,11 +334,13 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           return <Tag style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>未记录</Tag>;
         }
         return (
-          <StatusTag statusCode={status}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-              {status === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : status}
-            </span>
-          </StatusTag>
+          <Tooltip title={status === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : String(status)}>
+            <StatusTag statusCode={status}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {status === 0 ? `失败${r.netErrorText ? ` ${r.netErrorText}` : ''}` : status}
+              </span>
+            </StatusTag>
+          </Tooltip>
         );
       },
     },
@@ -463,7 +465,9 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       render: (c: string, r) => {
         const cs = categoryStyle(r.category);
         return (
-          <Tag style={{ color: cs.color, background: cs.bg, border: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.rawType || c}</Tag>
+          <Tooltip title={r.rawType || c}>
+            <Tag style={{ color: cs.color, background: cs.bg, border: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.rawType || c}</Tag>
+          </Tooltip>
         );
       },
     },
@@ -523,6 +527,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     {
       title: 'Waterfall',
       key: 'waterfall',
+      onCell: () => ({ className: 'har-waterfall-cell' }),
+      onHeaderCell: () => ({ className: 'har-waterfall-cell' }),
       width: 300,
       render: (_: unknown, r) => (
         <HarWaterfallCell
@@ -936,6 +942,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         {/* HAR 请求列表对标浏览器 Network：关闭分页，使用连续滚动；
             大 HAR 使用虚拟滚动，避免一次性渲染全部 DOM 行。 */}
         <Table<HarRequestEntry>
+          className="har-request-table"
           columns={visibleColumns}
           dataSource={sortedFiltered}
           rowKey="id"

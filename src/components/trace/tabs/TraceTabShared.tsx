@@ -68,7 +68,7 @@ export const TraceSummaryGrid: React.FC<{
     {items.map(item => (
       <div className={item.tone ? `is-${item.tone}` : undefined} key={item.label}>
         <dt>{item.label}</dt>
-        <dd>{item.value}</dd>
+        <dd title={item.value}>{item.value}</dd>
       </div>
     ))}
   </dl>

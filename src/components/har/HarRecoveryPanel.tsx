@@ -19,6 +19,8 @@ export default function HarRecoveryPanel({ info }: { info: HarRepairInfo }) {
             <details>
               <summary>未参与分析的请求 / 未恢复片段（{info.excludedEntries.length} 项）</summary>
               <Table<HarExcludedEntry>
+                tableLayout="fixed"
+                scroll={{ x: 1000 }}
                 size="small"
                 rowKey={item => String(item.charStart)}
                 dataSource={info.excludedEntries}

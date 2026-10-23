@@ -99,7 +99,7 @@ const TruncatedText: React.FC<{ text: string; threshold?: number; style?: React.
 const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ headers }) => {
   if (!headers.length) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>无</div>;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', fontSize: 13 }}>
+    <div className="har-detail-fields" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 220px) minmax(0, 1fr)', fontSize: 13 }}>
       {headers.map((h, i) => (
         <Fragment key={i}>
           <div style={{ padding: '6px 16px 6px 0', borderBottom: '1px solid var(--border-color)' }}>
@@ -124,9 +124,10 @@ const HeaderList: React.FC<{ headers: { name: string; value: string }[] }> = ({ 
 
 const GeneralRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div
+    className="har-detail-fields"
     style={{
       display: 'grid',
-      gridTemplateColumns: '150px 1fr',
+      gridTemplateColumns: 'minmax(0, 150px) minmax(0, 1fr)',
       columnGap: 16,
       alignItems: 'center',
       padding: '8px 0',
@@ -1059,7 +1060,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
     { key: 'diagnosis', label: '诊断', children: diagnosisTab },
   ];
 
-  return <>
+  return <div className="har-request-detail">
     {entry.sourceLocation ? (
       <div style={{ padding: '8px 0', color: 'var(--text-secondary)' }}>
         保留数据逻辑 ID：{entry.id} · 原始请求：
@@ -1070,7 +1071,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
       </div>
     ) : null}
     <Tabs items={items} size="small" />
-  </>;
+  </div>;
 };
 
 export default HarRequestDetail;

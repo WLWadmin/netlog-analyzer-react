@@ -109,23 +109,21 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
             description={`${result.bodyRetention.reason || '部分大型响应体已省略。'} 共省略 ${result.bodyRetention.omittedCount} 个大型响应体，约 ${Math.round(result.bodyRetention.omittedBytes / 1024 / 1024 * 10) / 10}MB；请求、响应头、timing、状态码和诊断字段仍会完整参与分析。`}
           />
         )}
-        <div className="har-result-content">
+        <section className="har-session-summary" aria-label="请求概览" data-summary-filter={activeKey === 'requests' ? statusFilter : undefined}>
+          <div className="har-session-summary__heading">
+            <span>REQUEST SUMMARY</span>
+            <strong>请求概览</strong>
+          </div>
+          <HarSummaryCards
+            result={result}
+            onFilterFailed={() => jumpToRequests('failed')}
+            onFilterSlow={() => jumpToRequests('slow')}
+            onFilterAll={() => jumpToRequests('all')}
+          />
+        </section>
+        <div className="har-result-content" data-view={activeKey}>
           {activeContent}
         </div>
-        {activeKey === 'summary' ? (
-          <section className="har-session-summary" aria-label="请求概览">
-            <div className="har-session-summary__heading">
-              <span>REQUEST SUMMARY</span>
-              <strong>请求概览</strong>
-            </div>
-            <HarSummaryCards
-              result={result}
-              onFilterFailed={() => jumpToRequests('failed')}
-              onFilterSlow={() => jumpToRequests('slow')}
-              onFilterAll={() => jumpToRequests('all')}
-            />
-          </section>
-        ) : null}
         <AnalysisDisclaimer variant="har" title="HAR 解析说明" />
       </div>
     </ResultWorkbenchShell>

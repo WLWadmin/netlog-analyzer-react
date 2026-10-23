@@ -1,10 +1,9 @@
 .expert-segment-shell {
   margin-bottom: 16px;
-  padding: 16px;
+  padding: 12px 14px;
   border: 1px solid rgba(148, 163, 184, 0.20);
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.86));
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  border-radius: 10px;
+  background: var(--workbench-surface);
 }
 
 .expert-segment-shell__head {
@@ -12,18 +11,25 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.expert-segment-shell__head > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 14px;
 }
 
 .expert-segment-shell__title {
   color: var(--text-primary);
-  font-size: 17px;
-  font-weight: 900;
+  font-size: 18px;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
 .expert-segment-shell__desc {
-  margin-top: 3px;
+  margin-top: 0;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
@@ -31,11 +37,16 @@
 
 .expert-segment {
   display: flex;
-  gap: 7px;
-  padding: 6px;
+  gap: 4px;
+  padding: 5px;
   overflow-x: auto;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.04);
+  border-radius: 7px;
+  background: var(--workbench-canvas);
+  scrollbar-width: none;
+}
+
+.expert-segment::-webkit-scrollbar {
+  display: none;
 }
 
 .expert-segment__item {
@@ -44,15 +55,31 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 10px 13px;
-  border: 0;
-  border-radius: 12px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 800;
-  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  font-weight: 600;
+  line-height: 20px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.expert-segment__item .anticon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+}
+
+.expert-segment__item:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
 }
 
 .expert-segment__item:hover {
@@ -60,10 +87,11 @@
   background: rgba(255, 255, 255, 0.72);
 }
 
-.expert-segment__item--active {
+.expert-segment__item--active,
+.expert-segment__item--active:hover {
   color: #fff;
-  background: linear-gradient(135deg, #1e293b, #2563eb);
-  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+  background: #2457b9;
+  border-color: #1d4a9d;
 }
 
 .expert-evidence-guide {
@@ -176,6 +204,12 @@
   padding: 0;
 }
 
+/* Preserve the original single-row filters and control sizes inside a local scroll area. */
+.dataset-events-panel > .ant-card-head {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .netlog-network-state-panel {
   display: flex;
   flex-direction: column;
@@ -186,10 +220,13 @@
 .netlog-network-state-panel .ant-card {
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.06), transparent 28%),
-    rgba(255, 255, 255, 0.96);
+  border-radius: 10px;
+  background: var(--workbench-surface);
+}
+
+.netlog-network-state-panel .ant-tag {
+  background: color-mix(in srgb, currentColor 7%, var(--workbench-surface)) !important;
+  border-color: color-mix(in srgb, currentColor 20%, var(--workbench-border));
 }
 
 .netlog-network-state-panel .ant-card-body,
@@ -314,7 +351,6 @@
   word-break: normal;
 }
 
-[data-theme="dark"] .expert-segment-shell,
 [data-theme="dark"] .expert-evidence-guide {
   border-color: rgba(96, 165, 250, 0.18);
   background:
@@ -348,9 +384,10 @@
   background: rgba(30, 41, 59, 0.88);
 }
 
-[data-theme="dark"] .expert-segment__item--active {
+[data-theme="dark"] .expert-segment__item--active,
+[data-theme="dark"] .expert-segment__item--active:hover {
   color: #fff;
-  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  background: #2457b9;
 }
 
 [data-theme="dark"] .expert-evidence-guide__lane {
@@ -383,9 +420,7 @@
 
 [data-theme="dark"] .netlog-network-state-panel .ant-card {
   border-color: rgba(96, 165, 250, 0.18);
-  background:
-    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.08), transparent 28%),
-    rgba(15, 23, 42, 0.92);
+  background: var(--workbench-surface);
 }
 
 [data-theme="dark"] .netlog-network-state-panel .ant-table-wrapper {
@@ -414,5 +449,11 @@
   .expert-segment-shell__head {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expert-segment__item {
+    transition: none;
   }
 }

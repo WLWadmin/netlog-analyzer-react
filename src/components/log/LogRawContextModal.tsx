@@ -35,6 +35,7 @@ const LogRawContextModal: React.FC<LogRawContextModalProps> = ({
 
   return (
     <Modal
+      className="log-context-detail"
       open={open}
       onCancel={onClose}
       onOk={onClose}
@@ -113,4 +114,3 @@ const LogRawContextModal: React.FC<LogRawContextModalProps> = ({
 };
 
 export default LogRawContextModal;
-

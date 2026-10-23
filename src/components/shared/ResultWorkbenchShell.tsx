@@ -69,18 +69,6 @@ const ResultWorkbenchShell: React.FC<ResultWorkbenchShellProps> = ({
   return (
     <section className={`result-workbench-shell${collapsed ? ' is-collapsed' : ''}`} data-parser={parser}>
       <aside className="result-workbench-sidebar" id={sidebarId} aria-label={`${parserLabel} 分析导航`}>
-        <button
-          type="button"
-          className="result-workbench-toggle"
-          aria-controls={sidebarId}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? '展开分析导航' : '收起分析导航'}
-          title={collapsed ? '展开分析导航' : '收起分析导航'}
-          onClick={toggleCollapsed}
-        >
-          {collapsed ? <RightOutlined /> : <LeftOutlined />}
-        </button>
-
         <div className="result-workbench-identity">
           <span className="result-workbench-identity__mark" aria-hidden="true">
             {parserLabel.slice(0, 1)}
@@ -89,6 +77,17 @@ const ResultWorkbenchShell: React.FC<ResultWorkbenchShellProps> = ({
             <strong>{parserLabel}</strong>
             <small>{statusLabel}</small>
           </span>
+          <button
+            type="button"
+            className="result-workbench-toggle"
+            aria-controls={sidebarId}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? '展开分析导航' : '收起分析导航'}
+            title={collapsed ? '展开分析导航' : '收起分析导航'}
+            onClick={toggleCollapsed}
+          >
+            {collapsed ? <RightOutlined /> : <LeftOutlined />}
+          </button>
         </div>
 
         {groups.map(group => (

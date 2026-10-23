@@ -213,14 +213,13 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '18px 20px 24px' }}>
+    <div className="raw-evidence-explorer" style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '18px 20px 24px' }}>
       <Card
         styles={{ body: { padding: 18 } }}
         style={{
-          borderRadius: 16,
-          borderColor: 'rgba(99, 102, 241, 0.18)',
-          background: 'linear-gradient(180deg, rgba(99,102,241,0.07), var(--bg-elevated) 72px)',
-          boxShadow: '0 10px 28px rgba(15,23,42,0.08)',
+          borderRadius: 8,
+          borderColor: 'var(--workbench-border)',
+          background: 'var(--workbench-surface)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -254,12 +253,12 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(360px, 0.42fr) minmax(0, 0.58fr)',
+          gridTemplateColumns: 'minmax(240px, 0.42fr) minmax(0, 0.58fr)',
           gap: 16,
           minHeight: 'calc(100vh - 260px)',
           overflow: 'hidden',
           padding: 12,
-          borderRadius: 16,
+          borderRadius: 8,
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-color)',
         }}
@@ -317,7 +316,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
             </div>
           }
           extra={expandedValue && (
-            <Space size={6}>
+            <Space size={6} wrap>
               {selectedPath && (
                 <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyPath(selectedPath)}>
                   复制路径
@@ -366,6 +365,7 @@ const RawEvidenceExplorer: React.FC<RawEvidenceExplorerProps> = ({ rawData, rawD
         </Card>
       </div>
       <Modal
+        className="raw-evidence-detail"
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={null}

@@ -204,7 +204,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       </Toolbar>
 
       {/* 日志列表 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="log-raw-entries" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {visibleEntries.map(entry => {
           const isExpanded = expandedEntry === entry.id;
           const isError = entry.status === 'Error';
@@ -249,7 +249,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
                 >
                   {entry.method}
                 </Tag>
-                <span style={{ flex: 1, minWidth: 200, color: isError ? '#ff4d4f' : 'var(--text-primary)', fontWeight: isError ? 500 : 400 }}>
+                <span style={{ flex: '1 1 200px', minWidth: 0, overflowWrap: 'anywhere', color: isError ? '#ff4d4f' : 'var(--text-primary)', fontWeight: isError ? 500 : 400 }}>
                   {debouncedSearchText ? (
                     <HighlightedText
                       text={entry.friendlyName !== entry.url ? `${entry.friendlyName} (${entry.url})` : entry.url}

@@ -328,7 +328,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
               </div>
               <div className="log-flow-group-header-right">
                 {!isExpanded && (
-                  <span className="log-flow-group-summary">{group.summary}</span>
+                  <span className="log-flow-group-summary" title={group.summary}>{group.summary}</span>
                 )}
                 <span className="log-flow-group-arrow">
                   {isExpanded ? <DownOutlined /> : <RightOutlined />}
@@ -388,7 +388,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
         .log-flow-group {
           background: var(--bg-surface);
           border: 1px solid var(--border-color);
-          border-radius: 14px;
+          border-radius: 8px;
           overflow: hidden;
           transition: box-shadow 0.2s ease, border-color 0.2s ease;
         }
@@ -401,6 +401,7 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
         .log-flow-group-header {
           padding: 12px 18px;
           display: flex;
+          flex-wrap: wrap;
           align-items: center;
           justify-content: space-between;
           cursor: pointer;
@@ -417,18 +418,20 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
           display: flex;
           align-items: center;
           gap: 12px;
-          flex-shrink: 0;
+          min-width: 0;
+          max-width: 100%;
           flex-wrap: wrap;
         }
         .log-flow-group-header-right {
           display: flex;
           align-items: center;
           gap: 10px;
-          flex: 1;
+          flex: 1 1 240px;
           min-width: 0;
           justify-content: flex-end;
         }
         .log-flow-group-time {
+          overflow-wrap: anywhere;
           font-size: 13px;
           color: var(--text-secondary);
           font-family: 'SF Mono', 'Cascadia Code', monospace;
@@ -497,6 +500,8 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
         }
         .log-flow-step-icon--error { color: #ff4d4f; }
         .log-flow-step-name {
+          min-width: 0;
+          overflow-wrap: anywhere;
           font-size: 13px;
           color: var(--text-primary);
         }
@@ -508,7 +513,10 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
           font-size: 11px !important;
           margin: 0 !important;
           padding: 0 6px !important;
-          height: 18px !important;
+          height: auto !important;
+          max-width: 100%;
+          white-space: normal;
+          overflow-wrap: anywhere;
           line-height: 18px !important;
           border-radius: 4px !important;
         }
@@ -523,7 +531,10 @@ const LogFlowGroups: React.FC<LogFlowGroupsProps> = ({ groups, allEntries, filte
           font-size: 11px !important;
           margin: 0 !important;
           padding: 0 6px !important;
-          height: 18px !important;
+          height: auto !important;
+          max-width: 100%;
+          white-space: normal;
+          overflow-wrap: anywhere;
           line-height: 18px !important;
           border-radius: 4px !important;
         }

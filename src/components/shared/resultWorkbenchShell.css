@@ -24,9 +24,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin: 0 0 12px auto;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0;
   padding: 0;
   color: var(--text-secondary);
   background: transparent;
@@ -69,6 +70,7 @@
 }
 
 .result-workbench-identity__copy {
+  flex: 1;
   min-width: 0;
 }
 
@@ -134,7 +136,6 @@
   font-weight: 600;
   background: var(--accent-blue-soft);
   border-color: var(--accent-blue-border);
-  box-shadow: inset 2px 0 0 var(--accent-blue);
 }
 
 .result-workbench-nav-icon {
@@ -167,6 +168,118 @@
   background-size: 32px 32px;
 }
 
+/* Evidence tables own their scroll area; chart and form containers are excluded. */
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-wrapper {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-thead > tr > th {
+  background: var(--workbench-canvas);
+  font-weight: 600;
+}
+
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-tbody > tr > td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-tbody .ant-space {
+  flex-wrap: wrap;
+  max-width: 100%;
+  gap: 4px 6px !important;
+}
+
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-tbody .ant-space-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.result-workbench-shell:is([data-parser="netlog"], [data-parser="log"]) .ant-table-tbody .ant-tag {
+  height: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Fixed-height virtual rows keep their existing geometry and detail entry points. */
+.result-workbench-shell .ant-table-tbody-virtual .ant-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-workbench-shell .ant-table-cell .ant-tag {
+  background: color-mix(in srgb, currentColor 7%, var(--workbench-surface)) !important;
+}
+
+.result-workbench-shell .ant-table-cell .ant-tag:is(.ant-tag-error, .ant-tag-red, .ant-tag-volcano) {
+  color: var(--accent-red);
+}
+
+.result-workbench-shell .ant-table-cell .ant-tag:is(.ant-tag-warning, .ant-tag-orange, .ant-tag-gold) {
+  color: var(--accent-orange);
+}
+
+.result-workbench-shell .ant-table-cell .ant-tag:is(.ant-tag-success, .ant-tag-green) {
+  color: var(--accent-green);
+}
+
+.result-workbench-shell .ant-table-cell .ant-tag:is(.ant-tag-blue, .ant-tag-processing, .ant-tag-cyan) {
+  color: var(--accent-blue);
+}
+
+.result-workbench-toggle:focus-visible,
+.result-workbench-nav-group nav button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+}
+
+.raw-evidence-explorer {
+  min-width: 0;
+}
+
+.diagnostic-result-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-result-card .ant-tag {
+  height: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, currentColor 7%, var(--workbench-surface)) !important;
+}
+
+.raw-evidence-explorer .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.raw-evidence-explorer .ant-card-head-title,
+.raw-evidence-explorer .ant-card-extra {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.raw-evidence-explorer .ant-card-head-title {
+  white-space: normal;
+}
+
+.raw-evidence-explorer .ant-card-head-title > div {
+  flex-wrap: wrap;
+}
+
+.raw-evidence-explorer .ant-tag,
+.raw-evidence-detail .ant-modal-title {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .result-workbench-breadcrumb {
   display: flex;
   align-items: center;
@@ -188,15 +301,12 @@
   padding-inline: 8px;
 }
 
-.result-workbench-shell.is-collapsed .result-workbench-toggle {
-  margin-inline: auto;
-}
-
 .result-workbench-shell.is-collapsed .result-workbench-identity {
   justify-content: center;
   padding-inline: 6px;
 }
 
+.result-workbench-shell.is-collapsed .result-workbench-identity__mark,
 .result-workbench-shell.is-collapsed .result-workbench-identity__copy,
 .result-workbench-shell.is-collapsed .result-workbench-nav-label,
 .result-workbench-shell.is-collapsed .result-workbench-nav-text,
