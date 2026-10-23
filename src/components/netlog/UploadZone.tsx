@@ -229,7 +229,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({
           </p>
           <p className="diagnostic-upload-formats">
             {formats}
-            {traceEnabled && <span className="diagnostic-upload-beta">Trace 分析 Beta</span>}
+            {traceEnabled && <span className="diagnostic-upload-beta">Trace 分析</span>}
             {' · '}{multiple ? 'HAR + NetLog 联合诊断' : '单文件'}
           </p>
 

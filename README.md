@@ -13,8 +13,8 @@
 - NetLog、HAR 和 Go 服务日志是常规可用入口。
 - HAR 与 NetLog 可以独立分析，也可以追加同次复现文件进行联合诊断。
 - 正常样本与异常样本支持 HAR、NetLog、HAR + NetLog 三种 A-B 对比模式。
-- Performance Trace 是 Beta 能力。源码默认关闭，当前 GitHub Pages 构建会设置 `REACT_APP_ENABLE_TRACE_ANALYSIS=1` 开启入口。
-- Trace Workbench、时间线、跨来源分析和高级查询属于独立的内部灰度链路，默认不随 Trace Beta 一起开启。
+- Performance Trace 上传、解析和结果页正式开放，源码默认开启；设置 `REACT_APP_ENABLE_TRACE_ANALYSIS=0` 可显式关闭。
+- Trace Workbench、时间线、跨来源分析和高级查询属于独立的内部测试版链路，默认不随基础 Trace 分析一起开启。
 - 当前发布目标是桌面浏览器 Web 端，不以手机、平板、Electron、Tauri 或原生 App 为交付范围。
 
 本项目的自动化测试用于保护解析、诊断、隐私和性能行为，但不能代替真实故障样本、浏览器验收或用户可理解性验收。代码中已有发布门禁模型；缺少这些外部验收材料时，不应把“测试通过”表述为“现实诊断准确性已经证实”。
@@ -299,7 +299,7 @@ CRA 会在构建时注入 `REACT_APP_*` 环境变量，修改后需要重新启�
 
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
-| `REACT_APP_ENABLE_TRACE_ANALYSIS` | 关闭 | 注册并开放 Trace Beta 上传和结果页；GitHub Pages 工作流当前设置为 `1` |
+| `REACT_APP_ENABLE_TRACE_ANALYSIS` | 开启 | 注册并开放 Trace 上传和结果页；设置 `0` 可关闭，GitHub Pages 工作流设置为 `1` |
 | `REACT_APP_ENABLE_NETLOG_SINGLE_SCAN_DATASET` | 开启 | 控制大 NetLog summary + Dataset single scan；设置 `0` 使用 fallback 路径 |
 | `REACT_APP_ENABLE_TRACE_WORKBENCH` | 关闭 | 开启 Trace 内部 Workbench 容器 |
 | `REACT_APP_ENABLE_TRACE_TIMELINE` | 关闭 | 在 Workbench 基础上开启时间线 |

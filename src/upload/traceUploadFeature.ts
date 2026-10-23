@@ -10,7 +10,7 @@ const TRACE_UPLOAD_EXTENSIONS = [
 ];
 
 export function isTraceAnalysisEnabled(): boolean {
-  return process.env.REACT_APP_ENABLE_TRACE_ANALYSIS === '1';
+  return process.env.REACT_APP_ENABLE_TRACE_ANALYSIS !== '0';
 }
 
 export function uploadAccept(): string {

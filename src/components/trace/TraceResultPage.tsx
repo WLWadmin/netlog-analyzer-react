@@ -111,7 +111,7 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
           <div>
             <div className="trace-result-identity">
               <span>CHROMIUM PERFORMANCE TRACE</span>
-              <strong>Trace 分析 Beta</strong>
+              <strong>Trace 分析</strong>
             </div>
             <h1 id="trace-result-title">性能诊断</h1>
             <p>从页面加载、网络、主线程、渲染和交互事实中定位优先排查方向。</p>

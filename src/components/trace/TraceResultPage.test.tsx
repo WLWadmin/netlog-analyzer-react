@@ -149,7 +149,7 @@ describe('TraceResultPage', () => {
     render(<TraceResultPage result={result} activeTab="overview" />);
 
     expect(screen.getByRole('heading', { name: '性能诊断' })).not.toBeNull();
-    expect(screen.getByText('Trace 分析 Beta')).not.toBeNull();
+    expect(screen.getByText('Trace 分析')).not.toBeNull();
     expect(screen.getByText('12')).not.toBeNull();
     expect(screen.getByText('2.00 秒')).not.toBeNull();
     expect(screen.getByText('页面加载诊断暂不可用')).not.toBeNull();

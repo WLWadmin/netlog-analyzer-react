@@ -58,13 +58,14 @@ describe('UploadZone Trace feature flag', () => {
   });
 
   it('does not advertise or accept Trace when the flag is disabled', () => {
+    process.env.REACT_APP_ENABLE_TRACE_ANALYSIS = '0';
     render(<UploadZone onFileLoaded={jest.fn()} />);
 
     expect(screen.getByTestId('dragger').getAttribute('data-accept')).toBe(
       '.json,.har,.log',
     );
     expect(screen.queryByText(/Trace \/ gzip/)).toBeNull();
-    expect(screen.queryByText('Trace 分析 Beta')).toBeNull();
+    expect(screen.queryByText('Trace 分析')).toBeNull();
   });
 
   it('advertises and accepts Trace when the flag is enabled', () => {
@@ -75,7 +76,7 @@ describe('UploadZone Trace feature flag', () => {
       '.trace',
     );
     expect(screen.getByText(/Trace \/ gzip/)).not.toBeNull();
-    expect(screen.getByText('Trace 分析 Beta')).not.toBeNull();
+    expect(screen.getByText('Trace 分析')).not.toBeNull();
   });
 
   it('passes the original File to the intake gateway without reading or choosing a parser', async () => {
