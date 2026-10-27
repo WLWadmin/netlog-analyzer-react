@@ -30,8 +30,8 @@ const ParserModeSelect: React.FC<ParserModeSelectProps> = ({
   return (
     <section className="parser-mode-select" aria-label="文件解析方式">
       <div className="parser-mode-copy">
-        <strong>选择解析方式</strong>
-        <span>自动识别仅在文件结构唯一明确时开始；不确定时会请你选择。</span>
+        <h2>导入文件</h2>
+        <span>识别文件格式，保留原始证据</span>
       </div>
       <div className="parser-mode-actions">
         <button

@@ -24,4 +24,13 @@ describe('ParserModeSelect', () => {
     fireEvent.click(screen.getByRole('button', { name: '指定文件格式' }));
     expect(screen.queryByRole('button', { name: 'Performance Trace' })).toBeNull();
   });
+
+  it('returns to automatic recognition and collapses the manual formats', () => {
+    const onChange = jest.fn();
+    render(<ParserModeSelect value="har@1" traceEnabled onChange={onChange} />);
+    expect(screen.getByRole('button', { name: 'HAR' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '自动识别（推荐）' }));
+    expect(onChange).toHaveBeenCalledWith('recommend');
+    expect(screen.queryByRole('button', { name: 'HAR' })).toBeNull();
+  });
 });

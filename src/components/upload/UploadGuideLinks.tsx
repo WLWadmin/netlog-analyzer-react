@@ -1,49 +1,59 @@
-import {
-  CloudUploadOutlined,
-  CodeOutlined,
-  FileTextOutlined,
-  QuestionCircleOutlined,
-} from '@ant-design/icons';
-
 const guides = [
   {
-    title: 'HAR 获取指南',
-    description: '从 DevTools Network 导出页面请求记录',
-    href: 'https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb',
-    icon: <FileTextOutlined />,
-  },
-  {
+    code: 'NETLOG',
+    question: '连接为什么没有建立？',
+    scope: '代理、DNS、Socket、TLS 与协议',
     title: 'NetLog 获取指南',
-    description: '从浏览器 net-export 页面导出网络栈记录',
     href: 'https://bytedance.larkoffice.com/docx/NfwtdMpCLoh04yx0xnec1PXCnnf',
-    icon: <CloudUploadOutlined />,
   },
   {
+    code: 'HAR',
+    question: '哪些页面请求失败或变慢？',
+    scope: '请求、响应、状态码与 Timing',
+    title: 'HAR 获取指南',
+    href: 'https://bytedance.larkoffice.com/wiki/NbIuwtlAKi0C1nk2SkdcLcjTnDb',
+  },
+  {
+    code: 'TRACE',
+    question: '页面为什么卡顿？',
+    scope: '主线程、渲染、长任务与交互',
+    title: 'Trace 获取指南',
+    documentTitle: '【用户操作】获取Performance Profile',
+    href: 'https://bytedance.larkoffice.com/docx/doxcnOUCJvHuGOVvdUbnXFQR4sd',
+  },
+  {
+    code: 'LOG',
+    question: '应用当时发生了什么？',
+    scope: '业务流程、结果与服务端上下文',
     title: 'Go Log 获取指南',
-    description: '导出服务标准输出或结构化日志文件',
     href: 'https://bytedance.larkoffice.com/wiki/O6UJwfl0UivPlBk7pCHcrzxfnJd',
-    icon: <CodeOutlined />,
+  },
+  {
+    code: 'WIRESHARK',
+    question: '仅采集指南 · 不支持导入',
+    scope: '',
+    title: 'Wireshark 获取指南',
+    documentTitle: 'Wireshark 网络抓包；当前分析器不支持导入 .pcap / .pcapng',
+    href: 'https://bytedance.larkoffice.com/docx/FOkgd68wLoJphWxUusecTEDTnFc',
   },
 ];
 
 const UploadGuideLinks: React.FC = () => (
-  <section className="upload-guide" aria-labelledby="upload-guide-title">
-    <div className="upload-guide-heading">
-      <QuestionCircleOutlined aria-hidden="true" />
-      <div>
-        <strong id="upload-guide-title">文件获取</strong>
-        <span>需要重新采集时查看对应说明</span>
-      </div>
+  <section className="upload-capability-map" aria-labelledby="upload-capability-title">
+    <div className="upload-capability-heading">
+      <h2 id="upload-capability-title">不同文件主要能回答什么？</h2>
+      <span>文件获取 · 需要重新采集时查看对应说明</span>
     </div>
-    <div className="upload-guide-grid">
+    <div className="upload-capability-grid">
       {guides.map(guide => (
-        <a key={guide.title} href={guide.href} target="_blank" rel="noopener noreferrer">
-          <span className="upload-guide-icon" aria-hidden="true">{guide.icon}</span>
-          <span>
-            <strong>{guide.title}</strong>
-            <small>{guide.description}</small>
-          </span>
-        </a>
+        <article key={guide.code}>
+          <code>{guide.code}</code>
+          <strong>{guide.question}</strong>
+          {guide.scope ? <span>{guide.scope}</span> : null}
+          <a href={guide.href} title={guide.documentTitle} target="_blank" rel="noopener noreferrer">
+            {guide.title} <span aria-hidden="true">↗</span>
+          </a>
+        </article>
       ))}
     </div>
   </section>

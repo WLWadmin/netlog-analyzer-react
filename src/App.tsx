@@ -49,6 +49,7 @@ import { NavigationProvider, useNavigation } from './contexts/NavigationContext'
 import UploadZone from './components/netlog/UploadZone';
 import UploadEntry from './components/upload/UploadEntry';
 import UploadGuideLinks from './components/upload/UploadGuideLinks';
+import IpLookupPanel from './components/shared/IpLookupPanel';
 import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
 import { isTraceAnalysisEnabled } from './upload/traceUploadFeature';
 import type { ParserMode } from './components/upload/ParserModeSelect';
@@ -1172,6 +1173,7 @@ const AppContent: React.FC = () => {
             />
 
             <UploadGuideLinks />
+            <IpLookupPanel />
           </div>
         ) : fileType === 'trace' && traceResult ? (
           <Suspense fallback={<LazyFallback text="正在加载 Trace 页面..." />}>

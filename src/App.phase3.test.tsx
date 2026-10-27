@@ -355,6 +355,10 @@ describe('App Phase 3 upload behavior', () => {
     expect(screen.getByText('文件不会上传服务器')).not.toBeNull();
     expect(screen.queryByRole('radio')).toBeNull();
     expect(screen.getAllByText('上传 NetLog')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'IP 归属查询' })).not.toBeNull();
+    expect(screen.getAllByRole('link')).toHaveLength(5);
+    expect(screen.getByText('仅采集指南 · 不支持导入')).not.toBeNull();
+    expect(screen.getByRole('textbox', { name: '待查询的 IP 地址' }).getAttribute('value')).toBe('');
     delete process.env.REACT_APP_ENABLE_TRACE_ANALYSIS;
   });
 
