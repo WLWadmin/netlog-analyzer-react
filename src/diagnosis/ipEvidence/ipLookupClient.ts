@@ -20,7 +20,31 @@ const DEFAULT_LOOKUP_LIMIT = 20;
 const requestTimestamps: number[] = [];
 
 export function shouldLookupIp(ip: string): boolean {
-  return classifyIpScope(ip) === 'public';
+  if (classifyIpScope(ip) !== 'public') return false;
+  if (!ip.includes(':')) {
+    const [a, b, c, d] = ip.split('.').map(Number);
+    // Keep shared, documentation and benchmarking ranges inside the browser.
+    // 192.0.0.9 and .10 are globally reachable anycast exceptions.
+    return !((a === 100 && b >= 64 && b <= 127)
+      || (a === 192 && b === 0 && (c === 2 || (c === 0 && d !== 9 && d !== 10)))
+      || (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100)))
+      || (a === 203 && b === 0 && c === 113));
+  }
+
+  try {
+    // URL validates IPv6 syntax and canonicalizes expanded and mapped addresses.
+    const canonical = new URL(`http://[${ip}]/`).hostname.slice(1, -1);
+    const mapped = canonical.match(/^::ffff:([0-9a-f]+):([0-9a-f]+)$/i);
+    if (mapped) {
+      const high = parseInt(mapped[1], 16);
+      const low = parseInt(mapped[2], 16);
+      return shouldLookupIp(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+    }
+    return classifyIpScope(canonical) === 'public'
+      && !/^(?:ff|fe[89ab]|::|100::|2001:(?:2|10|20):)/i.test(canonical);
+  } catch {
+    return false;
+  }
 }
 
 function reserveLookupBudget(count = 1): boolean {
