@@ -374,6 +374,8 @@ npm run diagnosis:real-sample-gate
 
 ## 部署
 
+PR 指向 `master` 时会由 `.github/workflows/pr-checks.yml` 自动执行与部署前一致的 `npm ci`、全量测试和 Trace flag 构建验证；该工作流只读仓库内容，不发布 Pages。PR 验证通过不等于已部署，部署仍由下方的 `deploy.yml` 在 `master` push 或手动触发时执行。
+
 `.github/workflows/deploy.yml` 在 `master` 分支 push 或手动触发时：
 
 1. 使用 Node.js 20。
