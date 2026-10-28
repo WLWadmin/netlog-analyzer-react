@@ -6,6 +6,8 @@ import {
   getHarWaterfallSegments,
   getHarWaterfallSortValue,
   sortHarWaterfallEntries,
+  filterHarTimelineEntries,
+  getHarTimelineTicks,
 } from './harWaterfall';
 
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
@@ -44,6 +46,7 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
       log: { entries: [{
         request: { method: 'GET', url: 'https://example.test/', headers: [] },
         response: { status: overrides.status ?? 200, headers: [], content: {} },
+        time: overrides.time ?? 100,
         timings: { send: 0, wait: 0, receive: 0 },
       }] },
     }).entries[0].standard,
@@ -51,6 +54,23 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
 }
 
 describe('harWaterfall', () => {
+  it('uses adaptive 1/2/5 millisecond ticks', () => {
+    expect(getHarTimelineTicks(18000, 400)).toEqual([0, 5000, 10000, 15000]);
+    expect(getHarTimelineTicks(1000, 500)).toEqual([0, 200, 400, 600, 800, 1000]);
+  });
+
+  it('filters overlapping requests and clips each phase at both range boundaries', () => {
+    const crossing = entry({ startMs: 1000, time: 300,
+      timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 0, wait: 150, receive: 150 } });
+    const range = { minStart: 1100, maxEnd: 1200, span: 100, available: true };
+    expect(filterHarTimelineEntries([crossing, entry({ startMs: 1300 })], range)).toEqual([crossing]);
+    expect(getHarWaterfallPosition(crossing, range)).toMatchObject({ available: true, leftPercent: 0, widthPercent: 100 });
+    expect(getHarWaterfallSegments(crossing, range)).toEqual([
+      expect.objectContaining({ key: 'wait', leftPercent: 0, widthPercent: 50 }),
+      expect.objectContaining({ key: 'receive', leftPercent: 50, widthPercent: 50 }),
+    ]);
+  });
+
   it('builds a global range and positions requests on one timeline', () => {
     const entries = [
       entry({ id: 1, startMs: 1000, time: 100 }),

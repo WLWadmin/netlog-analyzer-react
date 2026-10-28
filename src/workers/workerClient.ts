@@ -3,6 +3,7 @@
  * 提供 Promise-based API 调用 Worker，支持进度回调和超时
  */
 
+import { FileQualityError } from '../parsers/shared/fileQuality';
 import type {
   GetNetlogDnsStateRequest,
   GetNetlogProxyStateRequest,
@@ -100,7 +101,7 @@ function handleWorkerMessage(event: MessageEvent<WorkerResponse>) {
     case 'error':
       if (task.timer) clearTimeout(task.timer);
       pendingTasks.delete(msg.id);
-      task.reject(new Error(msg.error));
+      task.reject(msg.qualityReport ? new FileQualityError(msg.qualityReport, msg.error) : new Error(msg.error));
       break;
   }
 }

@@ -117,6 +117,7 @@ function slowCategory(entry: HarRequestEntry, issue: HarRequestIssue): HarIssueC
 function mapIssue(entry: HarRequestEntry, issue: HarRequestIssue): { category: HarIssueCategory; evidenceLevel: HarEvidenceLevel; requiresNetLog: boolean } | null {
   switch (issue.kind) {
     case 'normal':
+    case 'incomplete-timing':
       return null;
     case 'net-error':
       return { category: netErrorCategory(entry), evidenceLevel: 'explicit-observation', requiresNetLog: ['dns', 'connection', 'tls', 'proxy', 'unknown-failure'].includes(netErrorCategory(entry)) };

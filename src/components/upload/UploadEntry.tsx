@@ -6,6 +6,7 @@ import AnalysisProgressPanel from './AnalysisProgressPanel';
 import FormatRecommendation from './FormatRecommendation';
 import ParserModeSelect, { type ParserMode } from './ParserModeSelect';
 import './uploadEntry.css';
+import FileQualityPanel from '../shared/FileQualityPanel';
 
 interface UploadEntryProps {
   traceEnabled: boolean;
@@ -95,6 +96,7 @@ const UploadEntry: React.FC<UploadEntryProps> = ({
             <div className="format-state format-error" role="alert">
               <strong>分析已停止</strong>
               <p>{state.message}</p>
+              <FileQualityPanel report={state.qualityReport} />
               <button type="button" onClick={onReset}>重新选择文件</button>
             </div>
           ) : null}

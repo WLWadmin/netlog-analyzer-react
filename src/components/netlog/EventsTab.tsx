@@ -91,8 +91,13 @@ const EventsTab: React.FC<EventsTabProps> = ({ events, timeTickOffset }) => {
     if (filters?.paramField) {
       setParamFieldFilter(filters.paramField);
     }
+    if (intent.scrollTo?.type === 'event' && typeof intent.scrollTo.id === 'number'
+      && events[intent.scrollTo.id]) {
+      setContextIndex(intent.scrollTo.id);
+      setContextModalOpen(true);
+    }
     consumeIntent();
-  }, [intent, consumeIntent]);
+  }, [intent, consumeIntent, events]);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);

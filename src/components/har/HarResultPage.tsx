@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert } from 'antd';
 import { UnorderedListOutlined, MedicineBoxOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { HarAnalysisResult } from '../../harParser';
@@ -10,6 +10,9 @@ import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
 import RawEvidenceExplorer from '../raw/RawEvidenceExplorer';
 import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from '../shared/ResultWorkbenchShell';
 import './harResultPage.css';
+import { useNavigation } from '../../contexts/NavigationContext';
+import { getHarTimingCompleteness, HAR_TIMING_LIMITATION } from '../../diagnosis/shared/harTimingCompleteness';
+import FileQualityPanel from '../shared/FileQualityPanel';
 
 interface HarResultPageProps {
   result: HarAnalysisResult;
@@ -28,6 +31,8 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
   const activeKey = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveKey;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const { navigateTo } = useNavigation();
+  const incompleteTimingIds = useMemo(() => result.qualityReport ? [] : result.entries.filter(entry => !getHarTimingCompleteness(entry).complete).map(entry => entry.id), [result.entries, result.qualityReport]);
 
   const jumpToRequests = (filter: StatusFilter) => {
     setStatusFilter(filter);
@@ -101,6 +106,18 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
     >
       <div className="har-result-page">
         {result.repairInfo?.repaired ? <HarRecoveryPanel info={result.repairInfo} /> : null}
+        <FileQualityPanel report={result.qualityReport} onLocate={location => {
+          if (location.requestId === undefined) return;
+          jumpToRequests('all');
+          navigateTo({ tab: 'requests', fileType: 'har', filters: { requestIds: [location.requestId] }, highlight: { requestIds: [location.requestId] } });
+        }} />
+        {incompleteTimingIds.length > 0 && (
+          <Alert type="warning" showIcon message={`${incompleteTimingIds.length} 条请求的必需 Timing 字段不完整`}
+            description={<>{HAR_TIMING_LIMITATION} <button type="button" onClick={() => {
+              jumpToRequests('all');
+              navigateTo({ tab: 'requests', fileType: 'har', filters: { requestIds: incompleteTimingIds }, highlight: { requestIds: incompleteTimingIds } });
+            }}>定位受影响请求</button></>} />
+        )}
         {result.bodyRetention.mode === 'optimized' && result.bodyRetention.omittedCount > 0 && (
           <Alert
             type="info"

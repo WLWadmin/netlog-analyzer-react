@@ -14,7 +14,7 @@ interface HarWaterfallCellProps {
 
 const HarWaterfallCell: React.FC<HarWaterfallCellProps> = ({ entry, range, markers = [], issue }) => {
   const position = getHarWaterfallPosition(entry, range);
-  const segments = getHarWaterfallSegments(entry);
+  const segments = getHarWaterfallSegments(entry, range);
 
   if (!position.available) {
     return <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>-</span>;

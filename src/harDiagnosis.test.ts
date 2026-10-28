@@ -17,6 +17,17 @@ function harEntry(path: string, connect: number, ssl: number) {
 }
 
 describe('diagnoseHar timing phases', () => {
+  it('excludes contradictory phases from aggregate findings and attribution evidence', () => {
+    const entries = Array.from({ length: 6 }, (_, index) => ({
+      ...harEntry(`contradiction-${index}`, 0, 0), time: 1,
+      timings: { send: 0, wait: 8000, receive: 0, dns: 4000, blocked: 2000 },
+    }));
+    const result = diagnoseHar(parseHar({ log: { entries } }));
+    expect(result.networkStatus.every(phase => phase.slowCount === 0 && phase.maxMs === 0)).toBe(true);
+    expect(result.attributions).toEqual([]);
+    expect(result.findings.join(' ')).toContain('矛盾');
+  });
+
   it('uses order-independent percentiles and excludes TLS from TCP duration', () => {
     const parsed = parseHar({
       log: {

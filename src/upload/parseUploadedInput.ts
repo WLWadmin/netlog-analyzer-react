@@ -10,6 +10,7 @@ import type { TraceAnalysisResult } from '../diagnosis/trace';
 import type { TraceTaskProgress } from '../parsers/trace/types';
 import { cancelActiveTraceWorkerTask } from '../workers/traceWorkerRegistry';
 import { TraceWorkerError } from '../workers/traceWorkerTask';
+import { FileQualityError, parseNetlogJson } from '../parsers/shared/fileQuality';
 import { isTraceAnalysisEnabled } from './traceUploadFeature';
 import type { AnalysisProgress } from './analysisProgress';
 import type { TraceWorkbenchClient } from '../workbench/client';
@@ -311,6 +312,7 @@ export async function parseUploadedInput(options: {
     try {
       largeNetlogResult = await parseLargeNetlog(streamSession ?? sourceFile, singleScanDataset);
     } catch (error) {
+      if (error instanceof FileQualityError) throw error;
       if (!singleScanDataset) throw error;
       console.warn('[netlog-large]', {
         event: 'parseUploadedInput:single-scan-fallback',
@@ -358,7 +360,7 @@ export async function parseUploadedInput(options: {
     ? await readKnownNonTraceText(streamSession ?? sourceFile)
     : data;
   const parsedData = typeof netlogData === 'string'
-    ? JSON.parse(netlogData)
+    ? parseNetlogJson(netlogData)
     : netlogData;
   const { parseLog } = await import('../parsers/netlog/parser');
   const { events, result } = parseLog(parsedData);

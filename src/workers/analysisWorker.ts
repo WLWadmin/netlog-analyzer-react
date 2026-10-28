@@ -6,6 +6,7 @@
  */
 
 import { parseLog } from '../parsers/netlog/parser';
+import { fatalFileQuality, FileQualityError, parseNetlogJson } from '../parsers/shared/fileQuality';
 import { createNetlogStreamingAnalyzer } from '../parsers/netlog/streamingAnalyzer';
 import { parseLogFile } from '../logParser';
 import { parseHarInput } from '../utils/parseHarInput';
@@ -267,7 +268,7 @@ async function parseLargeNetlogFile(payload: File | {
     const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
       ...(stream ? { stream } : {}),
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
-      onEvent: event => analyzer.accept(event),
+      onEvent: (event, trace) => analyzer.accept(event, trace.eventId, trace.eventRoot),
       onProgress: (bytesRead, eventCount) => {
         sendStructuredProgress(id, start, {
           parserId: 'chromium-netlog@1',
@@ -291,6 +292,7 @@ async function parseLargeNetlogFile(payload: File | {
       phaseCount: 5,
     });
     const { result, eventsPreview, meta } = analyzer.finish();
+    if (result.qualityReport) result.qualityReport.scope = 'records';
     // Dataset indexing counts every event, including socket events handled by
     // early reducers without full summary object parsing.
     result.totalEvents = eventIndex.count;
@@ -381,11 +383,8 @@ async function parseLargeNetlogFile(payload: File | {
           lightweightTypeIds: lightweightTypeIds.size,
         });
       } catch (err) {
-        logLargeNetlogDebug(id, 'worker:top-level-field-parse-error', {
-          key,
-          valueLength: valueJson.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        if (err instanceof SyntaxError) throw fatalFileQuality('netlog', 'syntax', `$.${key}`);
+        throw err;
       }
     },
     onProgress: (bytesRead) => {
@@ -405,13 +404,9 @@ async function parseLargeNetlogFile(payload: File | {
       });
     },
   })) {
-    try {
-      const eventTypeId = extractEventTypeId(eventJson);
-      sampleCollector?.maybeCollect(eventTypeId !== undefined ? eventNameById[eventTypeId] : undefined, eventJson);
-      analyzer.accept(JSON.parse(eventJson));
-    } catch {
-      scanMeta.skippedEvents++;
-    }
+    const eventTypeId = extractEventTypeId(eventJson);
+    sampleCollector?.maybeCollect(eventTypeId !== undefined ? eventNameById[eventTypeId] : undefined, eventJson);
+    analyzer.accept(parseNetlogJson(eventJson), scanMeta.parsedEvents - 1, scanMeta.eventRoot);
   }
 
   sendStructuredProgress(id, start, {
@@ -521,7 +516,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         });
         const netlogPayload = await readWorkerFileText(msg.payload);
         const rawData = typeof netlogPayload === 'string'
-          ? JSON.parse(netlogPayload)
+          ? parseNetlogJson(netlogPayload)
           : netlogPayload;
         const { events, result } = parseLog(rawData, (completed, total) => {
           recordProgress(
@@ -1147,6 +1142,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       type: 'error',
       id: msg.id,
       error: err instanceof Error ? err.message : String(err),
+      ...(err instanceof FileQualityError ? { qualityReport: err.qualityReport } : {}),
     });
   }
 });

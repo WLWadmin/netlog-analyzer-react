@@ -4,6 +4,7 @@ import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import { HAR_DIAG_THRESHOLDS } from './harThresholds';
 import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
+import { getHarTimingCompleteness, HAR_TIMING_CONTRADICTION, HAR_TIMING_LIMITATION } from './harTimingCompleteness';
 
 export interface HarRequestIssue {
   label: string;
@@ -11,6 +12,7 @@ export interface HarRequestIssue {
   severity: 'normal' | 'info' | 'warning' | 'critical';
   kind:
     | 'normal'
+    | 'incomplete-timing'
     | 'slow'
     | 'http-error'
     | 'net-error'
@@ -108,7 +110,9 @@ function getSlowPhaseIssue(entry: HarRequestEntry): HarRequestIssue | undefined 
   if (entry.time > HAR_DIAG_THRESHOLDS.totalSlow) {
     return {
       label: `总耗时偏高 ${formatHarTime(entry.time)}`,
-      detail: `总耗时 ${formatHarTime(entry.time)}，但未发现单一阶段明显超过阈值。`,
+      detail: getHarTimingCompleteness(entry).complete
+        ? `总耗时 ${formatHarTime(entry.time)}，但未发现单一阶段明显超过阈值。`
+        : `总耗时 ${formatHarTime(entry.time)}；${normalized.contradictory ? HAR_TIMING_CONTRADICTION : HAR_TIMING_LIMITATION}`,
       severity: 'info',
       kind: 'slow',
       durationMs: entry.time,
@@ -230,6 +234,14 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
       severity: 'warning',
       kind: 'unknown-failure',
     };
+  }
+
+  const completeness = getHarTimingCompleteness(entry);
+  if (completeness.contradictions.length > 0) {
+    return { label: 'Timing 数据矛盾', detail: HAR_TIMING_CONTRADICTION, severity: 'info', kind: 'incomplete-timing' };
+  }
+  if (!completeness.complete) {
+    return { label: 'Timing 不完整', detail: HAR_TIMING_LIMITATION, severity: 'info', kind: 'incomplete-timing' };
   }
 
   return {

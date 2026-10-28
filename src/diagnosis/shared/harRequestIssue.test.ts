@@ -38,6 +38,7 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
       log: { entries: [{
         request: { method: 'GET', url: 'https://example.test/', headers: [] },
         response: { status: overrides.status ?? 200, headers: [], content: {} },
+        time: overrides.time ?? 100,
         timings: { send: 0, wait: 0, receive: 0 },
       }] },
     }).entries[0].standard,
@@ -158,7 +159,7 @@ describe('harRequestIssue', () => {
 
     const issue = getHarRequestIssue(parsed);
 
-    expect(issue.kind).toBe('normal');
+    expect(issue.kind).toBe('incomplete-timing');
     expect(issue.detail).not.toContain('没有取得 HTTP 响应');
     expect(parsed.isFailed).toBe(false);
   });

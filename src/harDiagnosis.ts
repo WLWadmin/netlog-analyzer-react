@@ -9,6 +9,7 @@
 import type {
   HarAnalysisResult,
   HarCategory,
+  HarRequestEntry,
 } from './harParser';
 import { formatHarTime, getHarResponseStatus } from './harParser';
 import { HAR_DIAG_THRESHOLDS } from './diagnosis/shared/harThresholds';
@@ -274,6 +275,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const sslArr: number[] = [];
   const waitArr: number[] = [];
   const receiveArr: number[] = [];
+  const timingEvidenceEntries: HarRequestEntry[] = [];
 
   let dnsSlow = 0;
   let connectSlow = 0;
@@ -307,20 +309,23 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     // timings
     const t = e.timings;
     const normalizedTiming = normalizeHarTiming(e);
-    const tcpMs = getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs;
-    const sslMs = getHarTimingPhase(normalizedTiming, 'ssl')?.durationMs;
-    if (t.dns > 0) dnsArr.push(t.dns);
-    if (tcpMs !== undefined && tcpMs > 0) connectArr.push(tcpMs);
-    if (sslMs !== undefined && sslMs > 0) sslArr.push(sslMs);
-    if (t.wait > 0) waitArr.push(t.wait);
-    if (t.receive > 0) receiveArr.push(t.receive);
+    if (!normalizedTiming.contradictory) {
+      timingEvidenceEntries.push(e);
+      const tcpMs = getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs;
+      const sslMs = getHarTimingPhase(normalizedTiming, 'ssl')?.durationMs;
+      if (t.dns > 0) dnsArr.push(t.dns);
+      if (tcpMs !== undefined && tcpMs > 0) connectArr.push(tcpMs);
+      if (sslMs !== undefined && sslMs > 0) sslArr.push(sslMs);
+      if (t.wait > 0) waitArr.push(t.wait);
+      if (t.receive > 0) receiveArr.push(t.receive);
 
-    if (t.dns > THRESHOLDS.dnsSlow) dnsSlow++;
-    if (tcpMs !== undefined && tcpMs > THRESHOLDS.connectSlow) connectSlow++;
-    if (sslMs !== undefined && sslMs > THRESHOLDS.sslSlow) sslSlow++;
-    if (t.wait > THRESHOLDS.ttfbSlow) ttfbSlow++;
-    if (t.receive > THRESHOLDS.receiveSlow) receiveSlow++;
-    if (t.blocked > THRESHOLDS.blockedSlow) blockedSlow++;
+      if (t.dns > THRESHOLDS.dnsSlow) dnsSlow++;
+      if (tcpMs !== undefined && tcpMs > THRESHOLDS.connectSlow) connectSlow++;
+      if (sslMs !== undefined && sslMs > THRESHOLDS.sslSlow) sslSlow++;
+      if (t.wait > THRESHOLDS.ttfbSlow) ttfbSlow++;
+      if (t.receive > THRESHOLDS.receiveSlow) receiveSlow++;
+      if (t.blocked > THRESHOLDS.blockedSlow) blockedSlow++;
+    }
 
     // HTTP status
     if (responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300) count2xx++;
@@ -411,7 +416,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     const key = ns.label === 'DNS' ? 'dns' : ns.label === 'TCP' ? 'connect' : ns.label === 'TLS' ? 'ssl' : ns.label === 'Waiting' ? 'wait' : 'receive';
     const threshold = ns.label === 'DNS' ? THRESHOLDS.dnsSlow : ns.label === 'TCP' ? THRESHOLDS.connectSlow : ns.label === 'TLS' ? THRESHOLDS.sslSlow : ns.label === 'Waiting' ? THRESHOLDS.ttfbSlow : THRESHOLDS.receiveSlow;
     const slowMap = new Map<string, number>();
-    for (const e of entries) {
+    for (const e of timingEvidenceEntries) {
       const normalizedTiming = normalizeHarTiming(e);
       const val = ns.label === 'TCP'
         ? getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs || 0
@@ -603,6 +608,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 核心发现 ----
   const findings: string[] = [];
+  if (timingEvidenceEntries.length < total) findings.push(`${total - timingEvidenceEntries.length} 个请求的 Timing 数据矛盾，不能据此判断慢阶段，请重新导出核验`);
   if (httpStatus.countFailed > 0) findings.push(`存在 ${httpStatus.countFailed} 个异常请求，其中 ${httpStatus.count5xx} 个为 5xx 服务端错误`);
   if (result.slowCount > 0) findings.push(`存在 ${result.slowCount} 个慢请求，P95 Waiting 为 ${formatHarTime(p95Wait)}`);
   if (networkStatus.some(n => n.status === 'critical')) {
@@ -626,7 +632,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       severity: httpStatus.count5xx > 0 ? 'critical' : 'warning',
       title: 'Waiting / HTTP 5xx 异常提示',
       description: `Waiting 超过参考阈值的请求 ${ttfbSlow} 个，HTTP 5xx 响应 ${httpStatus.count5xx} 个；需结合同次服务端日志核验`,
-      evidence: entries.filter(e => e.timings.wait > THRESHOLDS.ttfbSlow).slice(0, 3).map(e => `${e.domain}${e.name} - ${formatHarTime(e.timings.wait)}`),
+      evidence: timingEvidenceEntries.filter(e => e.timings.wait > THRESHOLDS.ttfbSlow).slice(0, 3).map(e => `${e.domain}${e.name} - ${formatHarTime(e.timings.wait)}`),
       priority: 0,
     });
   }
@@ -638,7 +644,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       severity: 'warning',
       title: 'DNS / Connect 阶段耗时异常提示',
       description: `浏览器记录到 DNS 阶段耗时异常 ${dnsSlow} 个、Connect 阶段耗时异常 ${connectSlow} 个；需补充同次 NetLog 核验网络栈证据`,
-      evidence: entries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).slice(0, 3).map(e => `${e.domain} - DNS ${formatHarTime(e.timings.dns)}`),
+      evidence: timingEvidenceEntries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).slice(0, 3).map(e => `${e.domain} - DNS ${formatHarTime(e.timings.dns)}`),
       priority: 1,
     });
   }
@@ -663,7 +669,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       severity: 'warning',
       title: '疑似浏览器侧排队问题',
       description: `${blockedSlow} 个请求 blocked 时间超过 ${THRESHOLDS.blockedSlow}ms`,
-      evidence: entries.filter(e => e.timings.blocked > THRESHOLDS.blockedSlow).slice(0, 3).map(e => `${e.domain}${e.name} - blocked ${formatHarTime(e.timings.blocked)}`),
+      evidence: timingEvidenceEntries.filter(e => e.timings.blocked > THRESHOLDS.blockedSlow).slice(0, 3).map(e => `${e.domain}${e.name} - blocked ${formatHarTime(e.timings.blocked)}`),
       priority: 1,
     });
   }
@@ -675,7 +681,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       severity: 'warning',
       title: '疑似 DNS 解析异常',
       description: `${dnsSlow} 个请求 DNS 耗时超过 ${THRESHOLDS.dnsSlow}ms`,
-      evidence: entries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).slice(0, 3).map(e => `${e.domain} - DNS ${formatHarTime(e.timings.dns)}`),
+      evidence: timingEvidenceEntries.filter(e => e.timings.dns > THRESHOLDS.dnsSlow).slice(0, 3).map(e => `${e.domain} - DNS ${formatHarTime(e.timings.dns)}`),
       priority: 1,
     });
   }

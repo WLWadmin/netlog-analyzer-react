@@ -17,6 +17,7 @@ import {
   type AnalysisProgress,
 } from './analysisProgress';
 import { cancelActiveAnalysisWorkerTasks } from '../workers/analysisWorkerRegistry';
+import { FileQualityError, type FileQualityReport } from '../parsers/shared/fileQuality';
 
 export const RESULT_READY_HOLD_MS = 3_000;
 
@@ -43,6 +44,7 @@ export type IntakeState =
       code: 'FORMAT_UNKNOWN' | 'FORMAT_AMBIGUOUS' | 'PARSER_MISMATCH' | 'WORKER_FAILED';
       message: string;
       resolution?: FormatResolution;
+      qualityReport?: FileQualityReport;
     }
   | { status: 'completed'; taskId: string; parserId: FileParserId };
 
@@ -71,6 +73,7 @@ type IntakeAction =
       code: Extract<IntakeState, { status: 'failed' }>['code'];
       message: string;
       resolution?: FormatResolution;
+      qualityReport?: FileQualityReport;
     }
   | { type: 'completed'; taskId: string; parserId: FileParserId };
 
@@ -167,6 +170,7 @@ export function analysisIntakeReducer(
         taskId: action.taskId,
         code: action.code,
         message: action.message,
+        ...(action.qualityReport ? { qualityReport: action.qualityReport } : {}),
         ...(action.resolution ? { resolution: action.resolution } : {}),
       };
     case 'completed':
@@ -328,6 +332,7 @@ export function useAnalysisIntake({
         taskId,
         code: error instanceof ParserMismatchError ? 'PARSER_MISMATCH' : 'WORKER_FAILED',
         message: error instanceof Error ? error.message : '文件解析失败',
+        ...(error instanceof FileQualityError ? { qualityReport: error.qualityReport } : {}),
       });
     }
   }, [continueToResult, isActive, registry]);

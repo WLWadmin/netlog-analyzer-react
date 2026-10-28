@@ -48,30 +48,37 @@
 - `type` 只使用 `feat`、`fix`、`refactor`、`perf`、`test`、`docs`、`style`、`build`、`ci`、`chore`、`revert`。
 - `scope` 使用稳定的业务或模块名，例如 `trace`、`har`、`netlog`、`upload`、`diagnosis`、`ui`、`worker`，不要使用临时任务编号。
 - `summary` 应准确描述用户可感知行为或工程结果，避免“update code”“fix issue”“完成任务”等无信息标题；建议不超过 72 个字符。
-- 同一提交的标题和正文应使用同一种自然语言，仓库内已有英文提交不要求追溯重写。
+- 标题使用英文；标题下空一行添加简短中文摘要，再保留英文详细正文。中文摘要是补充，不得替换或删减原有详情；不追溯改写历史提交。
 
 ### 提交正文
 
-- 纯文档、小范围测试调整或单文件且语义明确的机械修改，可以只写标题。
+- 每次提交均在英文标题下添加简短中文摘要，说明做了什么和主要影响。
 - 满足任一条件时必须写正文：跨模块或多个生产文件、Batch/里程碑交付、解析算法或 Worker 协议变更、公共类型或数据结构变更、诊断规则/阈值/置信度变更、隐私或性能边界变更、重要回归修复。
 - 正文使用以下结构；无对应内容的可选段落可以省略，但不得编造未执行的验证：
 
 ```text
+<English Conventional Commits title>
+
+<简短中文摘要>
+
 Why:
-- 修改原因、故障表现或原有风险
+- <English reason, symptom or risk>
 
 Changes:
-- 关键行为和实现边界
+- <English behavior and implementation boundaries>
 
 Validation:
-- 实际运行并通过的测试、构建和静态检查
+- <Actual successful checks and results in English>
 
 Limitations:
-- 尚未验证的真实样本、环境限制或明确不覆盖的范围
+- <Remaining limitations or verification gaps in English>
 ```
 
 - 正文说明行为和证据边界，不逐文件复述 diff；禁止写入密钥、真实用户数据、完整 URL 查询参数、外部样本路径或其他敏感信息。
 - `Validation` 只能记录实际成功的命令或结果；跳过、失败或受环境阻塞的检查必须放入 `Limitations` 或最终报告。
+- 已有或适用的 `Why / Changes / Validation / Limitations` 必须保留；仅确实不适用的章节可省略，不为凑格式编造内容。PR 描述同样在详细正文前增加中文摘要，保留原有范围、测试和风险说明。
+- Squash/Merge 提交同样遵循上述格式，不使用 GitHub 默认生成的标题/正文替代已核验详情。合并前对照原提交和 PR，逐项检查中文摘要、英文原因、改动、验证和限制均无遗漏；合并后读取实际提交正文确认。
+- 合并时更新过期状态，例如远端 CI 已通过后不得继续写“尚未运行”；保留仍有效的环境差异与未验证项。此规则不授予 Commit、Push、Merge 或改写历史的权限。
 
 ### 提交边界
 

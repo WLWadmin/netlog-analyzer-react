@@ -84,6 +84,61 @@
   background: var(--workbench-canvas);
 }
 
+.har-request-table .ant-table-thead > tr > .har-resizable-header {
+  position: relative;
+  overflow: visible;
+  padding-inline-end: 20px !important;
+}
+
+.har-request-table .ant-table-column-sorters {
+  min-width: 0;
+  gap: 8px;
+}
+
+.har-request-table .ant-table-column-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.har-request-table .ant-table-column-sorter {
+  flex: 0 0 12px;
+  margin-inline-start: 0;
+}
+
+.har-column-resize-handle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 8px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.har-column-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-end: 3px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+.har-column-resize-handle:hover::after,
+.har-column-resize-handle:focus-visible::after,
+.har-column-resize-handle.is-resizing::after {
+  background: var(--accent-blue);
+  width: 2px;
+}
+
+.har-column-resize-handle:focus-visible {
+  outline: 1px solid var(--accent-blue);
+  outline-offset: -1px;
+}
+
 .har-request-table .ant-table-tbody > tr:nth-child(even):not(.ant-table-row-selected) > td:not(.har-waterfall-cell) {
   background: color-mix(in srgb, var(--workbench-canvas) 40%, var(--workbench-surface));
 }
@@ -164,3 +219,44 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+.har-request-table {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  --har-grid-color: color-mix(in srgb, var(--workbench-border) 45%, transparent);
+}
+
+.har-request-table .ant-table-cell,
+.har-request-table .ant-table-thead > tr > th {
+  border-inline-end: 1px solid var(--har-grid-color);
+  border-bottom-color: var(--har-grid-color);
+}
+
+.har-request-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+
+.har-request-table .ant-table-tbody > tr:hover > td,
+.har-request-table .ant-table-tbody-virtual .ant-table-row:hover .ant-table-cell {
+  background: color-mix(in srgb, var(--accent-blue) 8%, var(--workbench-surface)) !important;
+}
+
+.har-request-table .ant-table-tbody-virtual .ant-table-cell {
+  border-bottom: 1px solid var(--har-grid-color);
+}
+
+.har-timeline-overview { min-width: 0; color: var(--text-secondary); border: 1px solid var(--workbench-border); border-radius: 8px; padding: 10px 12px; }
+.har-timeline-toolbar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; gap: 12px; }
+.har-timeline-toolbar button { color: var(--accent-blue); background: none; border: 0; cursor: pointer; font: inherit; padding: 4px 8px; }
+.har-timeline-ticks { position: relative; height: 26px; margin-top: 6px; overflow: hidden; font: 11px var(--font-mono); color: var(--text-muted); }
+.har-timeline-ticks span { position: absolute; top: 6px; white-space: nowrap; }
+.har-timeline-track { position: relative; height: 64px; touch-action: none; user-select: none; cursor: crosshair; background: var(--workbench-canvas); overflow: hidden; }
+.har-timeline-track canvas { width: 100%; height: 64px; display: block; pointer-events: none; }
+.har-timeline-marker { position: absolute; top: 0; bottom: 0; width: 1px; opacity: .5; pointer-events: none; }
+.har-timeline-selection { position: absolute; top: 0; bottom: 0; border: 1px solid var(--accent-blue); background: rgba(91, 145, 190, .08); box-sizing: border-box; cursor: grab; }
+.har-timeline-handle { position: absolute; top: 0; bottom: 0; width: 10px; cursor: ew-resize; }
+.har-timeline-handle.is-left { left: 0; border-left: 2px solid var(--accent-blue); }
+.har-timeline-handle.is-right { right: 0; border-right: 2px solid var(--accent-blue); }
+.har-timeline-selection:focus-visible, .har-timeline-handle:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -2px; }
+.har-timeline-note { font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.6; }

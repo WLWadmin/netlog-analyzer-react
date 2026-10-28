@@ -1,4 +1,6 @@
 import type { DnsIpEvidenceSummary } from '../diagnosis/ipEvidence';
+import { fatalFileQuality, FileQualityError } from '../parsers/shared/fileQuality';
+import { createJsonPrimitiveGuard } from '../parsers/shared/jsonPrimitiveGuard';
 import { createNetlogEndpointEvidenceReducer } from './netlogEndpointEvidenceReducer';
 import { createNetlogDnsStateReducer } from './netlogDnsStateReducer';
 import { createNetlogProxyStateReducer } from './netlogProxyStateReducer';
@@ -92,7 +94,7 @@ export interface NetlogIndexableFile {
 export interface NetlogCompactEventIndexOptions {
   stream?: ReadableStream<Uint8Array>;
   onTopLevelField?: (key: string, value: unknown) => void;
-  onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number }) => void;
+  onEvent?: (event: unknown, trace: { eventId: number; byteStart: number; byteEnd: number; eventRoot: string }) => void;
   onLightweightEvent?: (typeId: number, sourceTypeId: number | undefined, trace: { eventId: number; byteStart: number; byteEnd: number; typeName: string }) => void;
   onProgress?: (bytesRead: number, eventCount: number) => void;
 }
@@ -573,7 +575,14 @@ export async function buildNetlogCompactEventIndex(
   const decoder = new TextDecoder();
 
   let absoluteByteOffset = 0;
-  let mode: 'before-root' | 'find-key' | 'after-key' | 'after-colon' | 'skip-value' | 'in-events-array' | 'done' = 'before-root';
+  let rootIsArray = false;
+  let eventsSeen = false;
+  let eventsEnded = false;
+  let rootEnded = false;
+  let eventRoot = '$.events';
+  let eventDelimiter: 'first' | 'record' | 'separator' = 'first';
+  let rootMemberRequired = false;
+  let mode: 'before-root' | 'find-key' | 'after-key' | 'after-colon' | 'skip-value' | 'root-separator' | 'in-events-array' | 'done' = 'before-root';
   let readingKey = false;
   let keyEscape = false;
   let keyBytes: number[] = [];
@@ -583,6 +592,8 @@ export async function buildNetlogCompactEventIndex(
   let skipValueStart = -1;
   let skipValueEnd = -1;
   let skipDepth = 0;
+  let skipClosers: number[] = [];
+  let skipPrimitive: ReturnType<typeof createJsonPrimitiveGuard> | undefined;
   let skipInString = false;
   let skipEscape = false;
   let skipValueBytes: number[] | null = null;
@@ -621,6 +632,8 @@ export async function buildNetlogCompactEventIndex(
     skipValueStart = -1;
     skipValueEnd = -1;
     skipDepth = 0;
+    skipClosers = [];
+    skipPrimitive = undefined;
     skipInString = false;
     skipEscape = false;
     skipValueBytes = ['constants', 'polledData', 'systemInfo'].includes(pendingKey) ? [] : null;
@@ -642,8 +655,9 @@ export async function buildNetlogCompactEventIndex(
         proxyStateReducer.acceptTopLevelConfig(pendingKey, pendingKey, value);
       }
       options.onTopLevelField?.(pendingKey, value);
-    } catch {
-      // constants 解析失败不影响事件索引
+    } catch (error) {
+      if (error instanceof SyntaxError) throw fatalFileQuality('netlog', 'syntax', `$.${pendingKey}`);
+      throw error;
     } finally {
       skipValueBytes = null;
     }
@@ -654,13 +668,6 @@ export async function buildNetlogCompactEventIndex(
     skipValueEnd = byteOffset + 1;
     if (skipValueBytes !== null) {
       skipValueBytes.push(byte);
-    }
-  };
-
-  const removeLastSkipByte = (byteOffset: number) => {
-    skipValueEnd = byteOffset;
-    if (skipValueBytes !== null) {
-      skipValueBytes.pop();
     }
   };
 
@@ -773,7 +780,7 @@ export async function buildNetlogCompactEventIndex(
       objectStart = -1;
       return;
     }
-    options.onEvent?.(event, { eventId, byteStart: objectStart, byteEnd });
+    options.onEvent?.(event, { eventId, byteStart: objectStart, byteEnd, eventRoot });
     const seed = {
       eventId,
       byteStart: objectStart,
@@ -812,7 +819,10 @@ export async function buildNetlogCompactEventIndex(
         const byte = chunk[i];
         const byteOffset = absoluteByteOffset + i;
 
-      if (mode === 'done') continue;
+      if (mode === 'done') {
+        if (!isWhitespaceByte(byte)) throw fatalFileQuality('netlog', 'syntax');
+        continue;
+      }
 
       if (mode === 'before-root') {
         if (isWhitespaceByte(byte)) continue;
@@ -821,10 +831,13 @@ export async function buildNetlogCompactEventIndex(
           continue;
         }
         if (byte === LEFT_BRACKET) {
+          rootIsArray = true;
+          eventsSeen = true;
+          eventRoot = '$';
           mode = 'in-events-array';
           continue;
         }
-        throw new Error('NetLog JSON 格式异常：根节点不是对象或数组');
+        throw new FileQualityError(fatalFileQuality('netlog', 'syntax').qualityReport, 'NetLog JSON 格式异常：根节点不是对象或数组');
       }
 
       if (mode === 'find-key') {
@@ -846,21 +859,42 @@ export async function buildNetlogCompactEventIndex(
           }
           continue;
         }
-        if (isWhitespaceByte(byte) || byte === COMMA) continue;
+        if (isWhitespaceByte(byte)) continue;
         if (byte === RIGHT_BRACE) {
+          if (rootMemberRequired) throw fatalFileQuality('netlog', 'syntax');
+          rootEnded = true;
           mode = 'done';
           continue;
         }
         if (byte === QUOTE) {
           readingKey = true;
+          rootMemberRequired = false;
           keyBytes = [];
+          continue;
         }
-        continue;
+        throw fatalFileQuality('netlog', 'syntax');
+      }
+
+      // A completed root value must be followed by a comma or the matching
+      // object close, including after events and unretained metadata values.
+      if (mode === 'root-separator') {
+        if (isWhitespaceByte(byte)) continue;
+        if (byte === COMMA) {
+          rootMemberRequired = true;
+          mode = 'find-key';
+          continue;
+        }
+        if (byte === RIGHT_BRACE) {
+          rootEnded = true;
+          mode = 'done';
+          continue;
+        }
+        throw fatalFileQuality('netlog', 'syntax');
       }
 
       if (mode === 'after-key') {
         if (isWhitespaceByte(byte)) continue;
-        if (byte !== COLON) throw new Error(`NetLog 顶层字段 ${pendingKey} 缺少冒号`);
+        if (byte !== COLON) throw fatalFileQuality('netlog', 'syntax');
         if (pendingTargetKey) {
           mode = 'after-colon';
         } else {
@@ -872,7 +906,10 @@ export async function buildNetlogCompactEventIndex(
 
       if (mode === 'after-colon') {
         if (isWhitespaceByte(byte)) continue;
-        if (byte !== LEFT_BRACKET) throw new Error('NetLog events/logEvents 字段格式异常：不是数组');
+        if (byte !== LEFT_BRACKET) throw fatalFileQuality('netlog', 'structure');
+        eventsSeen = true;
+        eventRoot = `$.${pendingKey}`;
+        eventDelimiter = 'first';
         mode = 'in-events-array';
         continue;
       }
@@ -888,25 +925,42 @@ export async function buildNetlogCompactEventIndex(
           }
           if (byte === LEFT_BRACE || byte === LEFT_BRACKET) {
             skipDepth = 1;
+            skipClosers.push(byte === LEFT_BRACE ? RIGHT_BRACE : RIGHT_BRACKET);
             continue;
           }
-          if (byte === COMMA) {
+          if (byte === COMMA || byte === RIGHT_BRACE || byte === RIGHT_BRACKET) throw fatalFileQuality('netlog', 'syntax');
+          skipPrimitive = createJsonPrimitiveGuard();
+          if (!skipPrimitive.accept(byte)) throw fatalFileQuality('netlog', 'syntax');
+          continue;
+        }
+        if (skipPrimitive) {
+          if (byte === COMMA || byte === RIGHT_BRACE) {
+            if (!skipPrimitive.complete()) throw fatalFileQuality('netlog', 'syntax');
             finishSkippedValue();
-            mode = 'find-key';
+            if (byte === COMMA) {
+              rootMemberRequired = true;
+              mode = 'find-key';
+            } else {
+              rootEnded = true;
+              mode = 'done';
+            }
             continue;
           }
-          if (byte === RIGHT_BRACE) {
-            finishSkippedValue();
-            mode = 'done';
-            continue;
-          }
+          if (!skipPrimitive.accept(byte)) throw fatalFileQuality('netlog', 'syntax');
+          appendSkipByte(byte, byteOffset);
           continue;
         }
         appendSkipByte(byte, byteOffset);
         if (skipInString) {
           if (skipEscape) skipEscape = false;
           else if (byte === BACKSLASH) skipEscape = true;
-          else if (byte === QUOTE) skipInString = false;
+          else if (byte === QUOTE) {
+            skipInString = false;
+            if (skipDepth === 0) {
+              finishSkippedValue();
+              mode = 'root-separator';
+            }
+          }
           continue;
         }
         if (byte === QUOTE) {
@@ -915,34 +969,41 @@ export async function buildNetlogCompactEventIndex(
         }
         if (byte === LEFT_BRACE || byte === LEFT_BRACKET) {
           skipDepth++;
+          skipClosers.push(byte === LEFT_BRACE ? RIGHT_BRACE : RIGHT_BRACKET);
           continue;
         }
         if (byte === RIGHT_BRACE || byte === RIGHT_BRACKET) {
           if (skipDepth > 0) {
+            if (skipClosers.pop() !== byte) throw fatalFileQuality('netlog', 'syntax');
             skipDepth--;
-            if (skipDepth === 0) finishSkippedValue();
+            if (skipDepth === 0) {
+              finishSkippedValue();
+              mode = 'root-separator';
+            }
             continue;
           }
-          finishSkippedValue();
-          mode = 'done';
-          continue;
-        }
-        if (skipDepth === 0 && byte === COMMA) {
-          removeLastSkipByte(byteOffset);
-          finishSkippedValue();
-          mode = 'find-key';
+          throw fatalFileQuality('netlog', 'syntax');
         }
         continue;
       }
 
       if (mode === 'in-events-array') {
         if (objectDepth === 0) {
-          if (isWhitespaceByte(byte) || byte === COMMA) continue;
-          if (byte === RIGHT_BRACKET) {
-            mode = 'done';
+          if (isWhitespaceByte(byte)) continue;
+          if (byte === COMMA) {
+            if (eventDelimiter !== 'separator') throw fatalFileQuality('netlog', 'syntax', eventRoot);
+            eventDelimiter = 'record';
             continue;
           }
-          if (byte !== LEFT_BRACE) continue;
+          if (byte === RIGHT_BRACKET) {
+            if (eventDelimiter === 'record') throw fatalFileQuality('netlog', 'syntax', eventRoot);
+            eventsEnded = true;
+            rootEnded = rootIsArray;
+            mode = rootIsArray ? 'done' : 'root-separator';
+            continue;
+          }
+          if (byte !== LEFT_BRACE) throw fatalFileQuality('netlog', 'structure', eventRoot);
+          if (eventDelimiter === 'separator') throw fatalFileQuality('netlog', 'syntax', eventRoot);
           objectStart = byteOffset;
           objectDepth = 1;
           objectInString = false;
@@ -966,6 +1027,7 @@ export async function buildNetlogCompactEventIndex(
         else if (byte === RIGHT_BRACE) {
           objectDepth--;
           if (objectDepth === 0) {
+            eventDelimiter = 'separator';
             const eventBytes = finishObjectBytes(chunk, i + 1);
             await finishObject(eventBytes, byteOffset + 1);
           }
@@ -991,11 +1053,13 @@ export async function buildNetlogCompactEventIndex(
     }
   } catch (error) {
     await reader.cancel(error).catch(() => undefined);
+    if (error instanceof SyntaxError) throw fatalFileQuality('netlog', 'syntax');
     throw error;
   } finally {
     reader.releaseLock();
   }
 
+  if (!eventsSeen || !eventsEnded || !rootEnded || objectDepth !== 0) throw fatalFileQuality('netlog', 'syntax');
   buildNetlogSecondaryIndexes(index);
 
   return {
