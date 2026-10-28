@@ -34,6 +34,7 @@ import {
   type HarIssueFilter,
 } from './harRequestFilterState';
 import type { HarResponseBodySource } from './harResponseBodyGateway';
+import { getHarTimingCompleteness } from '../../diagnosis/shared/harTimingCompleteness';
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -355,6 +356,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
           <Tooltip title={issue.detail}>
             <Tag style={{ color: st.color, background: st.bg, border: 'none', fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
               {issue.label}
+              {!getHarTimingCompleteness(r).complete && issue.kind !== 'incomplete-timing' ? ' · Timing 不完整' : ''}
             </Tag>
           </Tooltip>
         );
@@ -520,7 +522,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       sorter: (a, b) => a.time - b.time,
       render: (t: number, r) => (
         <span style={{ fontFamily: 'var(--font-mono)', color: r.isSlow ? 'var(--accent-orange)' : 'var(--text-secondary)', fontWeight: r.isSlow ? 600 : 400, whiteSpace: 'nowrap' }}>
-          {formatHarTime(t)}
+          {getHarTimingCompleteness(r).totalAvailable ? formatHarTime(t) : '未记录'}
         </span>
       ),
     },

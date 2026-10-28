@@ -18,6 +18,7 @@ import {
 
 import type { ParsedEvent, AnalysisResult } from './parsers/netlog';
 import { HarAnalysisResult } from './harParser';
+import FileQualityPanel from './components/shared/FileQualityPanel';
 import { LogAnalysisResult } from './logParser';
 import {
   getNetlogAltSvcStateInWorker,
@@ -1238,6 +1239,11 @@ const AppContent: React.FC = () => {
             items={netlogNavItems}
             onChange={handleNetlogTabChange}
           >
+            <FileQualityPanel report={result?.qualityReport} onLocate={location => navigateTo({
+              tab: 'expert', fileType: 'netlog',
+              ...(location.sourceId === undefined ? {} : { filters: { sourceId: String(location.sourceId) } }),
+              ...(location.eventId === undefined ? {} : { scrollTo: { type: 'event', id: location.eventId } }),
+            })} />
             <div className="netlog-workbench-content">
               {activeNetlogContent}
             </div>

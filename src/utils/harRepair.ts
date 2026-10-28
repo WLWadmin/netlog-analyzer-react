@@ -1,5 +1,6 @@
 import { assertNoCompetingRootFormat, isRecord } from '../parsers/shared/rootFormatGuard';
 import { harEntryStructureIssue } from './harEntryStructure';
+import { fatalFileQuality, FileQualityError } from '../parsers/shared/fileQuality';
 
 export interface HarSourcePosition {
   /** Zero-based UTF-16 character offsets, end exclusive; NOT file byte offsets. */
@@ -192,13 +193,13 @@ function findEntriesArray(raw: string): { start: number; prefix: HarRoot } {
   const log = directProperty(raw, space(raw, 0), 'log');
   const start = log === undefined ? undefined : directProperty(raw, log, 'entries');
   if (start === undefined || raw[start] !== '[') {
-    throw new Error('文件不是可确认的 HAR 根级 log.entries，无法安全恢复');
+    throw new FileQualityError(fatalFileQuality('har', 'structure').qualityReport, '文件不是可确认的 HAR 根级 log.entries，无法安全恢复');
   }
   let prefix: unknown;
   try { prefix = JSON.parse(raw.slice(0, start + 1) + ']}}'); } catch {
-    throw new Error('HAR 前置结构无法确认，无法安全恢复');
+    throw new FileQualityError(fatalFileQuality('har', 'syntax').qualityReport, 'HAR 前置结构无法确认，无法安全恢复');
   }
-  if (!isHarLike(prefix)) throw new Error('文件不是标准 HAR 结构');
+  if (!isHarLike(prefix)) throw new FileQualityError(fatalFileQuality('har', 'structure').qualityReport, '文件不是标准 HAR 结构');
   assertNoCompetingRootFormat(prefix, 'har');
   return { start, prefix };
 }
@@ -228,7 +229,7 @@ export function parseHarWithRepair(raw: string): HarRepairResult {
   let validJson = true;
   try { parsed = JSON.parse(raw); } catch { validJson = false; }
   if (validJson) {
-    if (!isHarLike(parsed)) throw new Error('文件不是标准 HAR 结构，缺少 log.entries 数组');
+    if (!isHarLike(parsed)) throw new FileQualityError(fatalFileQuality('har', 'structure').qualityReport, '文件不是标准 HAR 结构，缺少 log.entries 数组');
     assertNoCompetingRootFormat(parsed, 'har');
     if (parsed.log.entries.every(entry => !harEntryStructureIssue(entry))) {
       return {
@@ -333,17 +334,17 @@ export function parseHarWithRepair(raw: string): HarRepairResult {
       // Only missing outer closing braces are accepted; never fill entry data.
       const tail = raw.slice(arrayEnd + 1).trim();
       if (tail !== '' && tail !== '}') {
-        throw new Error('HAR 外层结构损坏或格式不明确，无法可靠恢复');
+        throw new FileQualityError(fatalFileQuality('har', 'syntax').qualityReport, 'HAR 外层结构损坏或格式不明确，无法可靠恢复');
       }
       envelope = location.prefix;
     }
-    if (!isHarLike(envelope)) throw new Error('HAR 外层结构不明确');
+    if (!isHarLike(envelope)) throw new FileQualityError(fatalFileQuality('har', 'structure').qualityReport, 'HAR 外层结构不明确');
     assertNoCompetingRootFormat(envelope, 'har');
     data = envelope;
   }
   if (!entries.length) {
     const structural = excludedEntries.some(item => item.kind === 'structure');
-    throw new Error(structural
+    throw new FileQualityError(fatalFileQuality('har', structural ? 'structure' : 'syntax', '$.log.entries').qualityReport, structural
       ? 'HAR entry 结构不完整，无可用请求'
       : 'HAR JSON 语法损坏，无可用请求或无法可靠恢复');
   }

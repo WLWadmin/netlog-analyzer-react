@@ -1,8 +1,12 @@
+import { fatalFileQuality, FileQualityError } from '../parsers/shared/fileQuality';
+import { createJsonPrimitiveGuard } from '../parsers/shared/jsonPrimitiveGuard';
+
 export interface NetlogStreamScanMeta {
   bytesRead: number;
   parsedEvents: number;
   skippedEvents: number;
   reachedEventsEnd: boolean;
+  eventRoot?: string;
 }
 
 export interface NetlogStreamScanOptions {
@@ -114,7 +118,8 @@ export async function* scanNetlogEventJson(
   meta: NetlogStreamScanMeta,
   options: NetlogStreamScanOptions = {}
 ): AsyncGenerator<string> {
-  let mode: 'before-root' | 'find-key' | 'after-key' | 'after-colon' | 'skip-value' | 'in-events-array' | 'done' = 'before-root';
+  let mode: 'before-root' | 'find-key' | 'after-key' | 'after-colon' | 'skip-value' | 'root-separator' | 'in-events-array' | 'done' = 'before-root';
+  let rootMemberRequired = false;
   let escape = false;
   let readingKey = false;
   let keyBuffer = '';
@@ -123,9 +128,9 @@ export async function* scanNetlogEventJson(
   let captureTopLevelValue = false;
   let capturedKey = '';
   let capturedValueBuffer = '';
-  let skipPrimitive = false;
-  let skipValueComplete = false;
+  let skipPrimitive: ReturnType<typeof createJsonPrimitiveGuard> | undefined;
   let skipDepth = 0;
+  let skipClosers: string[] = [];
   let skipStarted = false;
   let skipInString = false;
   let skipEscape = false;
@@ -133,6 +138,9 @@ export async function* scanNetlogEventJson(
   let objectDepth = 0;
   let objectInString = false;
   let objectEscape = false;
+  let rootIsArray = false;
+  let rootEnded = false;
+  let eventDelimiter: 'first' | 'record' | 'separator' = 'first';
 
   const emitCapturedValue = () => {
     if (!captureTopLevelValue || !capturedKey || !capturedValueBuffer) return;
@@ -152,7 +160,10 @@ export async function* scanNetlogEventJson(
     options.onProgress?.(meta.bytesRead, meta.parsedEvents);
 
     for (const ch of chunk) {
-      if (mode === 'done') continue;
+      if (mode === 'done') {
+        if (!isWhitespace(ch)) throw fatalFileQuality('netlog', 'syntax');
+        continue;
+      }
 
       if (mode === 'before-root') {
         if (isWhitespace(ch)) continue;
@@ -162,6 +173,8 @@ export async function* scanNetlogEventJson(
           continue;
         }
         if (ch === '[') {
+          rootIsArray = true;
+          meta.eventRoot = '$';
           options.onDebug?.('scanner:root-array-detected', { bytesRead: meta.bytesRead });
           mode = 'in-events-array';
           continue;
@@ -171,7 +184,7 @@ export async function* scanNetlogEventJson(
           charCode: typeof ch === 'string' ? ch.charCodeAt(0) : undefined,
           bytesRead: meta.bytesRead,
         });
-        throw new Error('NetLog JSON 格式异常：根节点不是对象或数组');
+        throw fatalFileQuality('netlog', 'syntax');
       }
 
       if (mode === 'find-key') {
@@ -196,21 +209,40 @@ export async function* scanNetlogEventJson(
           continue;
         }
 
-        if (isWhitespace(ch) || ch === ',') continue;
+        if (isWhitespace(ch)) continue;
         if (ch === '}') {
+          if (rootMemberRequired) throw fatalFileQuality('netlog', 'syntax');
+          rootEnded = true;
           mode = 'done';
           continue;
         }
         if (ch === '"') {
           readingKey = true;
+          rootMemberRequired = false;
           keyBuffer = '';
+          continue;
         }
-        continue;
+        throw fatalFileQuality('netlog', 'syntax');
+      }
+
+      if (mode === 'root-separator') {
+        if (isWhitespace(ch)) continue;
+        if (ch === ',') {
+          rootMemberRequired = true;
+          mode = 'find-key';
+          continue;
+        }
+        if (ch === '}') {
+          rootEnded = true;
+          mode = 'done';
+          continue;
+        }
+        throw fatalFileQuality('netlog', 'syntax');
       }
 
       if (mode === 'after-key') {
         if (isWhitespace(ch)) continue;
-        if (ch !== ':') throw new Error('NetLog events/logEvents 字段格式异常：缺少冒号');
+        if (ch !== ':') throw fatalFileQuality('netlog', 'syntax');
         if (pendingTargetKey) {
           mode = 'after-colon';
         } else {
@@ -218,9 +250,9 @@ export async function* scanNetlogEventJson(
           capturedKey = currentKey;
           captureTopLevelValue = NETLOG_TOP_LEVEL_META_KEYS.has(currentKey);
           capturedValueBuffer = '';
-          skipPrimitive = false;
-          skipValueComplete = false;
+          skipPrimitive = undefined;
           skipDepth = 0;
+          skipClosers = [];
           skipStarted = false;
           skipInString = false;
           skipEscape = false;
@@ -230,26 +262,15 @@ export async function* scanNetlogEventJson(
 
       if (mode === 'after-colon') {
         if (isWhitespace(ch)) continue;
-        if (ch !== '[') throw new Error('NetLog events/logEvents 字段格式异常：不是数组');
+        if (ch !== '[') throw fatalFileQuality('netlog', 'structure');
+        meta.eventRoot = `$.${currentKey}`;
+        eventDelimiter = 'first';
         options.onDebug?.('scanner:event-array-started', { bytesRead: meta.bytesRead });
         mode = 'in-events-array';
         continue;
       }
 
       if (mode === 'skip-value') {
-        if (skipValueComplete) {
-          if (isWhitespace(ch)) continue;
-          if (ch === ',') {
-            mode = 'find-key';
-            continue;
-          }
-          if (ch === '}') {
-            mode = 'done';
-            continue;
-          }
-          continue;
-        }
-
         if (!skipStarted) {
           if (isWhitespace(ch)) continue;
           skipStarted = true;
@@ -260,31 +281,30 @@ export async function* scanNetlogEventJson(
           }
           if (ch === '{' || ch === '[') {
             skipDepth = 1;
+            skipClosers.push(ch === '{' ? '}' : ']');
             continue;
           }
-          if (ch === ',') {
-            mode = 'find-key';
-            continue;
-          }
-          if (ch === '}') {
-            mode = 'done';
-            continue;
-          }
-          skipPrimitive = true;
+          if (ch === ',' || ch === '}' || ch === ']') throw fatalFileQuality('netlog', 'syntax');
+          skipPrimitive = createJsonPrimitiveGuard();
+          if (!skipPrimitive.accept(ch.charCodeAt(0))) throw fatalFileQuality('netlog', 'syntax');
           continue;
         }
 
         if (skipPrimitive) {
           if (ch === ',' || ch === '}') {
+            if (!skipPrimitive.complete()) throw fatalFileQuality('netlog', 'syntax');
             emitCapturedValue();
-            skipPrimitive = false;
+            skipPrimitive = undefined;
             if (ch === ',') {
+              rootMemberRequired = true;
               mode = 'find-key';
             } else {
+              rootEnded = true;
               mode = 'done';
             }
             continue;
           }
+          if (!skipPrimitive.accept(ch.charCodeAt(0))) throw fatalFileQuality('netlog', 'syntax');
           if (captureTopLevelValue) capturedValueBuffer += ch;
           continue;
         }
@@ -298,7 +318,7 @@ export async function* scanNetlogEventJson(
             skipInString = false;
             if (skipDepth === 0) {
               emitCapturedValue();
-              skipValueComplete = true;
+              mode = 'root-separator';
             }
           }
           continue;
@@ -310,32 +330,37 @@ export async function* scanNetlogEventJson(
         }
         if (ch === '{' || ch === '[') {
           skipDepth++;
+          skipClosers.push(ch === '{' ? '}' : ']');
           continue;
         }
         if (ch === '}' || ch === ']') {
           if (skipDepth > 0) {
+            if (skipClosers.pop() !== ch) throw fatalFileQuality('netlog', 'syntax');
             skipDepth--;
             if (skipDepth === 0) {
               emitCapturedValue();
-              skipValueComplete = true;
+              mode = 'root-separator';
             }
             continue;
           }
-          mode = 'done';
-          continue;
-        }
-        if (skipDepth === 0 && ch === ',') {
-          mode = 'find-key';
+          throw fatalFileQuality('netlog', 'syntax');
         }
         continue;
       }
 
       if (mode === 'in-events-array') {
         if (objectDepth === 0) {
-          if (isWhitespace(ch) || ch === ',') continue;
+          if (isWhitespace(ch)) continue;
+          if (ch === ',') {
+            if (eventDelimiter !== 'separator') throw fatalFileQuality('netlog', 'syntax', meta.eventRoot);
+            eventDelimiter = 'record';
+            continue;
+          }
           if (ch === ']') {
+            if (eventDelimiter === 'record') throw fatalFileQuality('netlog', 'syntax', meta.eventRoot);
             meta.reachedEventsEnd = true;
-            mode = 'done';
+            rootEnded = rootIsArray;
+            mode = rootIsArray ? 'done' : 'root-separator';
             options.onDebug?.('scanner:event-array-ended', {
               bytesRead: meta.bytesRead,
               parsedEvents: meta.parsedEvents,
@@ -344,13 +369,14 @@ export async function* scanNetlogEventJson(
             continue;
           }
           if (ch === '{') {
+            if (eventDelimiter === 'separator') throw fatalFileQuality('netlog', 'syntax', meta.eventRoot);
             objectBuffer = '{';
             objectDepth = 1;
             objectInString = false;
             objectEscape = false;
             continue;
           }
-          continue;
+          throw fatalFileQuality('netlog', 'structure', meta.eventRoot);
         }
 
         objectBuffer += ch;
@@ -366,6 +392,7 @@ export async function* scanNetlogEventJson(
         else if (ch === '}') {
           objectDepth--;
           if (objectDepth === 0) {
+            eventDelimiter = 'separator';
             meta.parsedEvents++;
             yield objectBuffer;
             objectBuffer = '';
@@ -377,8 +404,9 @@ export async function* scanNetlogEventJson(
 
   if (!meta.reachedEventsEnd) {
     if (mode === 'before-root' || mode === 'find-key' || mode === 'skip-value' || mode === 'done') {
-      throw new Error('未找到 NetLog events/logEvents 数组，请确认文件是否为标准 Chrome/Edge NetLog');
+      throw new FileQualityError(fatalFileQuality('netlog', 'structure').qualityReport, '未找到 NetLog events/logEvents 数组，请确认文件是否为标准 Chrome/Edge NetLog');
     }
-    throw new Error('NetLog events/logEvents 数组未完整结束，文件可能被截断');
+    throw new FileQualityError(fatalFileQuality('netlog', 'syntax').qualityReport, 'NetLog events/logEvents 数组未完整结束，文件可能被截断');
   }
+  if (!rootEnded) throw fatalFileQuality('netlog', 'syntax');
 }

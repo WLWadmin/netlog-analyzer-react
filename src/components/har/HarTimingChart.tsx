@@ -1,6 +1,7 @@
 import { Tooltip } from 'antd';
 import { HarRequestEntry, formatHarTime } from '../../harParser';
 import { normalizeHarTiming, type HarDisplayTimingPhaseKey } from '../../diagnosis/shared/harTimingNormalization';
+import { getHarTimingCompleteness, HAR_TIMING_CONTRADICTION, HAR_TIMING_LIMITATION } from '../../diagnosis/shared/harTimingCompleteness';
 
 interface HarTimingChartProps {
   entry: HarRequestEntry;
@@ -37,7 +38,7 @@ function buildPositions(rows: TimingRow[], timing: ReturnType<typeof normalizeHa
   const positions = new Map<HarDisplayTimingPhaseKey, RowPosition>();
   rows.forEach(row => {
     const phase = timing.phases.find(p => p.key === row.key);
-    if (!phase?.available) {
+    if (!phase?.available || phase.positionAvailable === false) {
       positions.set(row.key, { left: 0, width: 0 });
       return;
     }
@@ -65,6 +66,7 @@ function groupRows(rows: TimingRow[]): { group: string; rows: TimingRow[] }[] {
 // 请求耗时瀑布图（浏览器 Network Timing 风格）
 const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
   const normalized = normalizeHarTiming(entry);
+  const completeness = getHarTimingCompleteness(entry);
   const denom = Math.max(normalized.totalMs || 0, normalized.accountedMs, 1);
   const positions = buildPositions(TIMING_ROWS, normalized, denom);
   const phaseByKey = new Map(normalized.phases.map(phase => [phase.key, phase]));
@@ -76,15 +78,25 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
   const queueing = phaseByKey.get('queueing');
   const queueingAvailable = Boolean(queueing);
   const requestSent = phaseByKey.get('send');
-  const requestStartedAvailable = Boolean(requestSent?.available);
+  const requestStartedAvailable = Boolean(requestSent?.available && requestSent.positionAvailable !== false);
   const requestStarted = requestSent?.startOffsetMs || 0;
   const unaccounted = normalized.unaccountedMs;
   const groups = groupRows(TIMING_ROWS);
 
-  const hasRecordedTiming = normalized.phases.some(phase => phase.available && phase.durationMs > 0);
+  const hasRecordedTiming = normalized.phases.some(phase => phase.available);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {!completeness.complete && (
+        <div role="note" style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          <strong>{normalized.contradictory ? 'Timing 数据矛盾：' : 'Timing 不完整：'}</strong>
+          {completeness.contradictions.map(path => <div key={path}>{path}</div>)}
+          {completeness.unavailable.map(field => (
+            <div key={field.key}>{field.sourcePath}：{field.label}</div>
+          ))}
+          {normalized.contradictory ? HAR_TIMING_CONTRADICTION : HAR_TIMING_LIMITATION} 已知阶段可显示耗时；缺少前置阶段时不绘制推算位置。
+        </div>
+      )}
       <div
         style={{
           padding: '12px 14px',
@@ -96,7 +108,7 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
           lineHeight: 1.6,
         }}
       >
-        {primary ? (
+        {!completeness.complete ? '仅展示已记录的阶段耗时，无法完整判断耗时分布。' : primary ? (
           <>
             主要耗时：
             <strong style={{ color: 'var(--text-primary)' }}> {primary.row.label} {formatHarTime(primary.duration)}</strong>
@@ -110,8 +122,8 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: 'var(--text-muted)' }}>
         <span>Queueing <strong style={{ color: 'var(--text-primary)', fontFamily: queueingAvailable ? 'var(--font-mono)' : undefined }}>{queueingAvailable ? formatHarTime(queueing?.durationMs || 0) : '未记录'}</strong></span>
         <span>Request started <strong style={{ color: 'var(--text-primary)', fontFamily: requestStartedAvailable ? 'var(--font-mono)' : undefined }}>{requestStartedAvailable ? formatHarTime(requestStarted) : '未记录'}</strong></span>
-        <span>Total <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(normalized.totalMs)}</strong></span>
-        <span>Accounted <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{formatHarTime(normalized.accountedMs)}</strong></span>
+        <span>Total <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{completeness.totalAvailable ? formatHarTime(normalized.totalMs) : '未记录'}</strong></span>
+        <span>Accounted <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{hasRecordedTiming ? formatHarTime(normalized.accountedMs) : '未记录'}</strong></span>
       </div>
 
       {!hasRecordedTiming ? (
@@ -184,7 +196,7 @@ const HarTimingChart: React.FC<HarTimingChartProps> = ({ entry }) => {
                           overflow: 'hidden',
                         }}
                       >
-                        {available && duration > 0 && (
+                        {available && phase?.positionAvailable !== false && duration > 0 && (
                           <Tooltip title={`${row.label}: ${formatHarTime(duration)} (${((duration / denom) * 100).toFixed(1)}%)`}>
                             <div
                               style={{

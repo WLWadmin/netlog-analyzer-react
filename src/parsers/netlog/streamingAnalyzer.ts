@@ -34,6 +34,8 @@ import {
 } from './diagnosticRules';
 import { createRequestAccumulator } from './requestAccumulator';
 import { createDiagnosticContextIndexBuilder } from './diagnosticContextIndex';
+import { checkNetlogEvent, createFileQualityCollector, FileQualityError } from '../shared/fileQuality';
+import { isRecord } from '../shared/rootFormatGuard';
 
 const MAX_EVENTS_PREVIEW = 20_000;
 const MAX_CATEGORY_EVENTS = 5_000;
@@ -543,6 +545,7 @@ function isKeyEvent(evt: ParsedEvent): boolean {
 
 export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOptions = {}) {
   const result = createEmptyResult();
+  const quality = createFileQualityCollector('netlog');
   let eventNames: Record<number, string> = { ...(options.eventNames || {}) };
   let sourceNames: Record<number, string> = { ...(options.sourceNames || {}) };
     const requestAccumulator = createRequestAccumulator();
@@ -720,13 +723,17 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
     if (sourceTypeName === 'UNKNOWN_SRC' && rawSourceType !== undefined) unknownSourceTypes.add(rawSourceType);
   };
 
-  const accept = (rawEvent: any) => {
-    const sourceType = rawEvent.source?.type || rawEvent.source_type || 0;
-    const sourceId = rawEvent.source?.id || rawEvent.source_id || 0;
+  const accept = (rawEvent: unknown, eventId = meta.parsedEvents, eventRoot = '$.events') => {
+    if (!checkNetlogEvent(quality, rawEvent, eventId, eventRoot)) {
+      throw new FileQualityError(quality.finish('partial'));
+    }
+    const sourceType = typeof rawEvent.source?.type === 'number' ? rawEvent.source.type : rawEvent.source_type ?? 0;
+    const sourceId = typeof rawEvent.source?.id === 'number' ? rawEvent.source.id : rawEvent.source_id ?? 0;
+    const phase = typeof rawEvent.phase === 'number' ? rawEvent.phase : 0;
     const typeName = eventNames[rawEvent.type] || EVENT_TYPES[rawEvent.type] || `UNKNOWN_${rawEvent.type}`;
     const sourceTypeName = sourceNames[sourceType] || SOURCE_TYPES[sourceType] || 'UNKNOWN_SRC';
     const parsed: ParsedEvent = {
-      time: parseFloat(rawEvent.time) || 0,
+      time: Number(rawEvent.time),
       type: rawEvent.type,
       typeName,
       source: {
@@ -734,9 +741,9 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
         type: sourceType,
         typeName: sourceTypeName,
       },
-      phase: rawEvent.phase,
-      phaseName: PHASE[rawEvent.phase] || `PHASE_${rawEvent.phase}`,
-      params: rawEvent.params || {},
+      phase,
+      phaseName: PHASE[phase] || `PHASE_${phase}`,
+      params: isRecord(rawEvent.params) ? rawEvent.params : {},
     };
       requestAccumulator.accept(parsed);
 
@@ -840,6 +847,7 @@ export function createNetlogStreamingAnalyzer(options: NetlogStreamingAnalyzerOp
   };
 
   const finish = (): StreamingAnalyzerOutput => {
+    result.qualityReport = quality.finish('partial');
     result.uniqueSources = sourceIds.size;
       result.diagnosticContextIndex = diagnosticContextIndex.finish();
       result.eventCategoryStats = Object.fromEntries(

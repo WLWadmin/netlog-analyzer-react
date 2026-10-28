@@ -10,6 +10,7 @@ import {
 } from './parsers/shared/rootFormatGuard';
 import { harEntryStructureIssue } from './utils/harEntryStructure';
 import type { HarRepairInfo, HarSourcePosition } from './utils/harRepair';
+import { checkHarEntry, createFileQualityCollector, fatalFileQuality, FileQualityError } from './parsers/shared/fileQuality';
 
 export interface HarTiming {
   blocked: number;
@@ -354,6 +355,7 @@ export interface HarRequestEntry {
 }
 
 export interface HarAnalysisResult {
+  qualityReport?: import('./parsers/shared/fileQuality').FileQualityReport;
   entries: HarRequestEntry[];
   totalRequests: number;
   failedCount: number;
@@ -1067,7 +1069,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     id,
     name,
     url: req.url || '',
-    method: req.method || 'GET',
+    method: req.method || '',
     status,
     statusText: resp.statusText || '',
     protocol,
@@ -1080,8 +1082,8 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     size,
     contentSize: optionalNonNegativeSize(content.size) ?? -1,
     time,
-    startedDateTime: entry.startedDateTime || '',
-    startMs: entry.startedDateTime ? new Date(entry.startedDateTime).getTime() : Number.NaN,
+    startedDateTime: optionalRawString(entry.startedDateTime) || '',
+    startMs: typeof entry.startedDateTime === 'string' ? Date.parse(entry.startedDateTime) : Number.NaN,
     pageRef: optionalString(entry.pageref),
     timings: {
       blocked: num(t.blocked),
@@ -1144,14 +1146,16 @@ export function parseHar(
   onRequestProgress?: (completed: number, total: number) => void,
 ): HarAnalysisResult {
   if (!isHarFile(data)) {
-    throw new Error('未找到有效的 HAR 请求数据');
+    throw new FileQualityError(fatalFileQuality('har', 'structure').qualityReport, '未找到有效的 HAR 请求数据');
   }
   assertNoCompetingRootFormat(data, 'har');
   const log = data.log || {};
   const rawEntries: any[] = Array.isArray(log.entries) ? log.entries : [];
+  const quality = createFileQualityCollector('har');
   const totalResponseBodyChars = rawEntries.reduce((sum, entry, index) => {
     if (harEntryStructureIssue(entry)) {
-      throw new Error(`HAR log.entries[${index}] 缺少 request 或 response 对象`);
+      checkHarEntry(quality, entry, index);
+      throw new FileQualityError(quality.finish('partial'), `HAR log.entries[${index}] 缺少 request 或 response 对象`);
     }
     const content = isRecord(entry.response.content)
       ? entry.response.content
@@ -1164,6 +1168,7 @@ export function parseHar(
   const entries: HarRequestEntry[] = [];
   let lastProgressAt = 0;
   rawEntries.forEach((entry, index) => {
+    if (!checkHarEntry(quality, entry, index)) throw new FileQualityError(quality.finish('partial'));
     entries.push(parseEntry(entry, index, { optimizeResponseBodies }));
     const completed = index + 1;
     const now = Date.now();
@@ -1224,6 +1229,7 @@ export function parseHar(
 
   return {
     entries,
+    qualityReport: quality.finish(),
     totalRequests: entries.length,
     failedCount,
     slowCount,

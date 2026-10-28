@@ -1,4 +1,5 @@
 import { parseUploadedInput } from './parseUploadedInput';
+import { fatalFileQuality } from '../parsers/shared/fileQuality';
 import { parseLog } from '../parsers/netlog';
 import { parseHar } from '../harParser';
 import { parseLogFile } from '../logParser';
@@ -698,5 +699,15 @@ describe('parseUploadedInput', () => {
       event: 'parseUploadedInput:single-scan-fallback',
       errorType: 'Error',
     }));
+  });
+
+  it('never retries a known file quality failure through the summary fallback', async () => {
+    const file = new File(['{}'], 'large-netlog.json');
+    Object.defineProperty(file, 'size', { value: 101 * 1024 * 1024 });
+    window.localStorage.setItem('netlog_single_scan_dataset', '1');
+    const error = fatalFileQuality('netlog', 'syntax');
+    parseLargeNetlogFileInWorkerMock.mockRejectedValueOnce(error);
+    await expect(parseUploadedInput({ data: file, fileTypeHint: 'netlog', useWorker: true })).rejects.toBe(error);
+    expect(parseLargeNetlogFileInWorkerMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Input, Modal, Space, Table, Tag, message } from 'antd';
 import { getNetlogEventDetailInWorker, queryNetlogEventsInWorker } from '../../workers/workerClient';
 import type { NetlogEventRow, QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
@@ -40,7 +40,33 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     rows: [],
   });
   const querySeqRef = useRef(0);
+  const detailSeqRef = useRef(0);
+  const [navigationEvent, setNavigationEvent] = useState<{ analysisId: string; eventId: number; intentId: number }>();
   const { intent, consumeIntent } = useNavigation();
+
+  useEffect(() => {
+    setDetailOpen(false);
+    setDetail('');
+    setDetailLoading(false);
+    // Both manual selection and evidence navigation share this generation.
+    // Invalidate on session change/unmount even if no newer request is made.
+    return () => { detailSeqRef.current += 1; };
+  }, [analysisId]);
+
+  const openDetail = useCallback(async (eventId: number) => {
+    const seq = ++detailSeqRef.current;
+    setDetailLoading(true);
+    setDetailOpen(true);
+    setDetail('');
+    try {
+      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
+      if (seq === detailSeqRef.current) setDetail(JSON.stringify(raw, null, 2));
+    } catch {
+      if (seq === detailSeqRef.current) setDetail('读取失败，请重新定位原始事件。');
+    } finally {
+      if (seq === detailSeqRef.current) setDetailLoading(false);
+    }
+  }, [analysisId]);
 
   useEffect(() => {
     const state = loadDatasetEventsFilterState(analysisId);
@@ -87,9 +113,17 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     if (filters.phase) setPhaseFilter(filters.phase);
     if (filters.eventType && /^\d+$/.test(filters.eventType)) setTypeIdFilter(filters.eventType);
     else if (filters.eventType) setTypeNameFilter(filters.eventType);
+    if (intent.scrollTo?.type === 'event' && typeof intent.scrollTo.id === 'number') {
+      setNavigationEvent({ analysisId, eventId: intent.scrollTo.id, intentId: intent.id });
+    }
     setPage(1);
     consumeIntent();
-  }, [intent, consumeIntent]);
+  }, [intent, consumeIntent, analysisId]);
+
+  useEffect(() => {
+    if (!navigationEvent || navigationEvent.analysisId !== analysisId) return;
+    void openDetail(navigationEvent.eventId);
+  }, [analysisId, navigationEvent, openDetail]);
 
   const numericOrUndefined = (value: string) => {
     const trimmed = value.trim();
@@ -185,19 +219,6 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
     endTimeFilter.trim() ||
     errorOnly
   );
-
-  const openDetail = async (eventId: number) => {
-    setDetailLoading(true);
-    setDetailOpen(true);
-    try {
-      const raw = await getNetlogEventDetailInWorker({ analysisId, eventId });
-      setDetail(JSON.stringify(raw, null, 2));
-    } catch (err) {
-      setDetail('读取失败：' + (err as Error).message);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
 
   return (
     <Card
@@ -375,7 +396,7 @@ const DatasetEventsTab: React.FC<DatasetEventsTabProps> = ({ analysisId }) => {
       <Modal
         title="Raw Event Detail"
         open={detailOpen}
-        onCancel={() => setDetailOpen(false)}
+        onCancel={() => { detailSeqRef.current += 1; setDetailOpen(false); }}
         footer={null}
         width={900}
       >

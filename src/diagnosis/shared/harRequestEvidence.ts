@@ -4,6 +4,7 @@ import type {
   HarTimingPhaseKey,
 } from '../../harParser';
 import { HAR_DIAG_THRESHOLDS } from './harThresholds';
+import { getHarTimingCompleteness, HAR_TIMING_CONTRADICTION, HAR_TIMING_LIMITATION } from './harTimingCompleteness';
 
 export type HarRequestAnomalyState =
   | 'anomaly'
@@ -91,6 +92,7 @@ function anomalyState(field: HarNumericField, thresholdValue: number): {
 }
 
 export function getHarRequestAnomalyHints(entry: HarRequestEntry): HarRequestAnomalyHint[] {
+  const contradictory = getHarTimingCompleteness(entry).contradictions.length > 0;
   return TIMING_RULES.map(rule => ({
     key: rule.key,
     label: rule.label,
@@ -98,7 +100,7 @@ export function getHarRequestAnomalyHints(entry: HarRequestEntry): HarRequestAno
     unit: 'ms',
     sourcePath: `${entryJsonPath(entry)}.timings.${rule.key}`,
     supplement: SUPPLEMENT,
-    ...anomalyState(timingField(entry, rule.key), rule.thresholdValue),
+    ...anomalyState(contradictory ? { state: 'invalid' } : timingField(entry, rule.key), rule.thresholdValue),
   }));
 }
 
@@ -116,6 +118,16 @@ export function buildHarRequestEvidenceConclusion(
   const facts: HarRequestEvidenceFact[] = [];
   const requiredEvidence: string[] = [];
   const jsonPath = entryJsonPath(entry);
+  const completeness = getHarTimingCompleteness(entry);
+  completeness.contradictions.forEach(sourcePath => facts.push({
+    label: 'Timing 数据矛盾', detail: HAR_TIMING_CONTRADICTION, sourcePath,
+  }));
+  completeness.unavailable.forEach(field => facts.push({
+    label: `Timing ${field.key}`,
+    detail: `${field.label}。${HAR_TIMING_LIMITATION}`,
+    sourcePath: field.sourcePath,
+  }));
+  if (!completeness.complete) requiredEvidence.push('重新采集包含 send、wait、receive 和 time 的同次 HAR，不要填零补齐缺失字段');
   const statusField = entry.standard?.response.status
     ?? legacyNumericField(entry.status);
   const hasStatusZero = statusField.state === 'value' && statusField.value === 0;
@@ -194,7 +206,7 @@ export function buildHarRequestEvidenceConclusion(
         : '未发现超过参考阈值的 HAR Timing 阶段；这不代表请求链路不存在其他问题。';
 
   return {
-    summary,
+    summary: completeness.contradictions.length > 0 ? HAR_TIMING_CONTRADICTION : completeness.complete ? summary : `${summary} 必需 Timing 字段不完整，不能确认请求正常。`,
     facts,
     requiredEvidence,
   };

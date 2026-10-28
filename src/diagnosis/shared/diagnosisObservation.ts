@@ -122,7 +122,8 @@ function harTimingEvidence(entry: HarRequestEntry, issue: HarRequestIssue): Diag
 export function buildHarObservations(entries: HarRequestEntry[]): DiagnosisObservation[] {
   return entries.flatMap(entry => {
     const issue = getHarRequestIssue(entry);
-    if (issue.kind === 'normal') return [];
+    // Capture quality is shown separately; missing timings are not a network fault.
+    if (issue.kind === 'normal' || issue.kind === 'incomplete-timing') return [];
     const parts = safeUrlParts(entry.url);
     const level = harEvidenceLevel(issue);
     const requiresMoreEvidence = requiresHarMoreEvidence(issue);

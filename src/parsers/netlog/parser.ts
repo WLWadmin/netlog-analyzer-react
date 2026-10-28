@@ -4,11 +4,11 @@ import { truncateUrl } from '../../utils/format';
 import { SLOW_REQUEST_MS } from '../../constants/analysisThresholds';
 import {
   assertNoCompetingRootFormat,
-  isNetlogEventRecord,
   netlogEventsFromRoot,
 } from '../shared/rootFormatGuard';
 import { hashStableValue, netlogEventIdentity } from './stableFingerprint';
 import { createRequestAccumulator } from './requestAccumulator';
+import { checkNetlogEvent, createFileQualityCollector, fatalFileQuality, FileQualityError } from '../shared/fileQuality';
 import type { RequestOutcomeEvidence } from './requestOutcome';
 import {
   buildCleanAssessmentIssue,
@@ -180,6 +180,7 @@ export interface NetlogDiagnosticContextIndex {
 }
 
 export interface AnalysisResult {
+  qualityReport?: import('../shared/fileQuality').FileQualityReport;
   totalEvents: number;
   timeTickOffset?: number;
   netlogClockContext?: NetlogClockContext;
@@ -283,7 +284,7 @@ export function parseLog(
   };
 
   const events = netlogEventsFromRoot(logData);
-  if (!events?.length) throw new Error('未找到有效的网络事件数据');
+  if (!events?.length) throw new FileQualityError(fatalFileQuality('netlog', 'structure').qualityReport, '未找到有效的网络事件数据');
 
   const constants = logData.constants || {};
   const timeTickOffset = Number(constants.timeTickOffset);
@@ -352,9 +353,11 @@ export function parseLog(
 
   let processedEventCount = 0;
   let lastProgressAt = 0;
+  const quality = createFileQualityCollector('netlog');
+  const eventRoot = Array.isArray(logData) ? '$' : Array.isArray(logData.events) ? '$.events' : '$.logEvents';
   for (const [eventIndex, evt] of events.entries()) {
-    if (!isNetlogEventRecord(evt)) {
-      throw new Error(`NetLog events[${eventIndex}] 缺少 source、type 或 time`);
+    if (!checkNetlogEvent(quality, evt, eventIndex, eventRoot)) {
+      throw new FileQualityError(quality.finish('partial'), `NetLog events[${eventIndex}] 缺少 source、type 或 time，或关键字段值无效`);
     }
     const sourceType = typeof evt.source?.type === 'number'
       ? evt.source.type
@@ -369,7 +372,7 @@ export function parseLog(
       : {};
 
     const parsed: ParsedEvent = {
-      time: Number.parseFloat(String(evt.time)) || 0,
+      time: Number(evt.time),
       type: evt.type,
       typeName: eventNames[evt.type] || EVENT_TYPES[evt.type] || ("UNKNOWN_" + evt.type),
       source: {
@@ -434,6 +437,7 @@ export function parseLog(
     };
     result.diagnosticContextEvents = buildDiagnosticContextEvents(result);
 
+  result.qualityReport = quality.finish();
   return { events: parsedEvents, result };
 }
 

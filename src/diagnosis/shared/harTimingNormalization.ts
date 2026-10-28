@@ -1,4 +1,5 @@
 import type { HarRequestEntry } from '../../harParser';
+import { getHarTimingCompleteness } from './harTimingCompleteness';
 
 export type HarDisplayTimingPhaseKey =
   | 'queueing'
@@ -18,6 +19,8 @@ export interface HarNormalizedTimingPhase {
   available: boolean;
   durationMs: number;
   startOffsetMs: number;
+  // Duration can remain known when a missing predecessor makes placement unknown.
+  positionAvailable?: boolean;
   source:
     | 'har-standard'
     | 'chrome-custom'
@@ -34,6 +37,7 @@ export interface HarNormalizedTiming {
   unaccountedMs: number;
   responseStartOffsetMs?: number;
   hasChromeDetail: boolean;
+  contradictory: boolean;
 }
 
 const EPSILON_MS = 0.5;
@@ -136,31 +140,39 @@ export function normalizeHarTiming(entry: HarRequestEntry): HarNormalizedTiming 
     accountedMs += t.send;
   }
   let responseStartOffsetMs: number | undefined;
+  const sendAvailable = a.send !== false;
+  const waitAvailable = a.wait !== false;
   if (a.wait !== false) {
-    addPhase(phases, { key: 'wait', available: true, durationMs: t.wait, startOffsetMs: offset, source: 'har-standard' });
+    addPhase(phases, { key: 'wait', available: true, positionAvailable: sendAvailable, durationMs: t.wait, startOffsetMs: offset, source: 'har-standard' });
     offset += t.wait;
     accountedMs += t.wait;
-    responseStartOffsetMs = offset;
+    if (sendAvailable) responseStartOffsetMs = offset;
   }
   if (a.receive !== false) {
-    addPhase(phases, { key: 'receive', available: true, durationMs: t.receive, startOffsetMs: offset, source: 'har-standard' });
+    addPhase(phases, { key: 'receive', available: true, positionAvailable: sendAvailable && waitAvailable, durationMs: t.receive, startOffsetMs: offset, source: 'har-standard' });
     offset += t.receive;
     accountedMs += t.receive;
   }
 
   const totalMs = Math.max(0, entry.time || 0);
   const normalizedAccounted = Math.abs(accountedMs - totalMs) <= EPSILON_MS ? totalMs : accountedMs;
+  const contradictory = getHarTimingCompleteness(entry).contradictions.length > 0;
+  // Keep recorded durations for expert review, but do not fabricate positions
+  // or expose contradictory phases as usable diagnostic evidence.
+  if (contradictory) phases.forEach(phase => { phase.positionAvailable = false; });
 
   return {
     phases,
     totalMs,
     accountedMs: normalizedAccounted,
     unaccountedMs: Math.max(0, totalMs - normalizedAccounted),
-    responseStartOffsetMs,
+    responseStartOffsetMs: contradictory ? undefined : responseStartOffsetMs,
     hasChromeDetail: Boolean(chrome && Object.values(chrome).some(value => value !== undefined)),
+    contradictory,
   };
 }
 
 export function getHarTimingPhase(timing: HarNormalizedTiming, key: HarDisplayTimingPhaseKey): HarNormalizedTimingPhase | undefined {
+  if (timing.contradictory) return undefined;
   return timing.phases.find(phase => phase.key === key);
 }

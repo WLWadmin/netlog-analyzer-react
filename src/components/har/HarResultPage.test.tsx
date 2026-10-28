@@ -1,9 +1,11 @@
+import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { parseHar } from '../../harParser';
 import HarResultPage from './HarResultPage';
+import { NavigationProvider, useNavigation } from '../../contexts/NavigationContext';
 
 jest.mock('antd', () => ({
-  Alert: () => null,
+  Alert: ({ message, description }: { message: React.ReactNode; description: React.ReactNode }) => <div><span>{message}</span>{description}</div>,
 }));
 jest.mock('@ant-design/icons', () => {
   const Icon = () => <span />;
@@ -45,6 +47,25 @@ jest.mock('../shared/AnalysisDisclaimer', () => ({
 const result = parseHar({ log: { version: '1.2', entries: [] } });
 
 describe('HAR persistent request overview', () => {
+  it('warns about missing timings and navigates with the actual affected request IDs', () => {
+    const incomplete = parseHar({ log: { entries: [{
+      request: { url: 'https://example.test/', headers: [] }, response: { status: 200, headers: [], content: {} },
+      time: 100, timings: {},
+    }] } });
+    function IntentProbe() {
+      const { intent } = useNavigation();
+      return <div data-testid="intent-ids">{intent?.filters?.requestIds?.join(',')}</div>;
+    }
+    const onTabChange = jest.fn();
+    render(<NavigationProvider><HarResultPage result={incomplete} onTabChange={onTabChange} /><IntentProbe /></NavigationProvider>);
+    expect(screen.getByRole('region', { name: '文件质量校验报告' })).toBeInTheDocument();
+    const waitPath = screen.getByText('$.log.entries[0].timings.wait');
+    expect(waitPath).toBeInTheDocument();
+    fireEvent.click(waitPath.closest('details')!.querySelector('summary')!);
+    fireEvent.click(screen.getAllByRole('button', { name: '定位证据' })[0]);
+    expect(onTabChange).toHaveBeenCalledWith('requests');
+    expect(screen.getByTestId('intent-ids')).toHaveTextContent('0');
+  });
   it.each(['summary', 'requests', 'raw-evidence'])('keeps overview before %s content', activeTab => {
     const { container } = render(<HarResultPage result={result} activeTab={activeTab} rawData={{ log: {} }} />);
     const summary = screen.getByRole('region', { name: '请求概览' });

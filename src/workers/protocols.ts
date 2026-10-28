@@ -398,6 +398,7 @@ export interface WorkerErrorResponse {
   type: 'error';
   id: string;
   error: string;
+  qualityReport?: import('../parsers/shared/fileQuality').FileQualityReport;
 }
 
 export interface WorkerProgressResponse {

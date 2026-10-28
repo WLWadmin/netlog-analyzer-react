@@ -1,6 +1,7 @@
 import type { HarPageMarker, HarRequestEntry } from '../../harParser';
 import type { HarDisplayTimingPhaseKey } from './harTimingNormalization';
 import { normalizeHarTiming } from './harTimingNormalization';
+import { getHarTimingCompleteness } from './harTimingCompleteness';
 
 export interface HarWaterfallRange {
   minStart: number;
@@ -47,7 +48,7 @@ function clampPercent(value: number): number {
 }
 
 function isTimingEntryAvailable(entry: HarRequestEntry): boolean {
-  return Number.isFinite(entry.startMs) && entry.startMs > 0 && Number.isFinite(entry.time) && entry.time >= 0;
+  return entry.standard.time.state === 'value' && Number.isFinite(entry.startMs) && entry.startMs > 0 && Number.isFinite(entry.time) && entry.time >= 0;
 }
 
 export function buildHarWaterfallRange(entries: HarRequestEntry[]): HarWaterfallRange {
@@ -98,9 +99,9 @@ export function getHarWaterfallSortValue(entry: HarRequestEntry, key: HarWaterfa
         ? entry.startMs + normalized.responseStartOffsetMs
         : Number.POSITIVE_INFINITY;
     case 'end-time':
-      return entry.startMs > 0 ? entry.startMs + entry.time : Number.POSITIVE_INFINITY;
+      return isTimingEntryAvailable(entry) ? entry.startMs + entry.time : Number.POSITIVE_INFINITY;
     case 'total-duration':
-      return entry.time;
+      return getHarTimingCompleteness(entry).totalAvailable ? entry.time : Number.POSITIVE_INFINITY;
     case 'latency':
       return send && normalized.responseStartOffsetMs !== undefined
         ? Math.max(0, normalized.responseStartOffsetMs - send.startOffsetMs)
@@ -168,7 +169,7 @@ export function getHarWaterfallSegments(entry: HarRequestEntry): HarWaterfallSeg
   const total = Math.max(timing.totalMs, timing.accountedMs, 1);
   const standardPhases = timing.phases.filter(phase => !phase.overlapsStandardTotal);
   const segments: HarWaterfallSegment[] = standardPhases
-    .filter(phase => phase.available && phase.durationMs >= 0)
+    .filter(phase => phase.available && phase.positionAvailable !== false && phase.durationMs >= 0)
     .map(phase => {
       const style = SEGMENT_STYLES[phase.key];
       return {
@@ -182,7 +183,7 @@ export function getHarWaterfallSegments(entry: HarRequestEntry): HarWaterfallSeg
       };
     });
 
-  if (timing.unaccountedMs > 0) {
+  if (timing.unaccountedMs > 0 && getHarTimingCompleteness(entry).complete) {
     const style = SEGMENT_STYLES.unaccounted;
     segments.push({
       key: 'unaccounted',
