@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Table, Input, Tag, Badge, Spin, Button, Tooltip, Select } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import type { ColumnsType, ColumnType } from 'antd/es/table';
 import { SearchOutlined, CloseOutlined } from '@ant-design/icons';
 import {
   HarRequestEntry,
@@ -25,6 +25,8 @@ import {
   buildHarWaterfallRange,
   getHarWaterfallMarkers,
   sortHarWaterfallEntries,
+  filterHarTimelineEntries,
+  type HarWaterfallRange,
   type HarWaterfallSortKey,
 } from '../../diagnosis/shared/harWaterfall';
 import {
@@ -34,7 +36,12 @@ import {
   type HarIssueFilter,
 } from './harRequestFilterState';
 import type { HarResponseBodySource } from './harResponseBodyGateway';
+import ResizableHarHeaderCell from './ResizableHarHeaderCell';
+import { fitHarColumnWidths } from './harColumnSizing';
+import HarTimelineOverview from './HarTimelineOverview';
 import { getHarTimingCompleteness } from '../../diagnosis/shared/harTimingCompleteness';
+
+const TABLE_COMPONENTS = { header: { cell: ResizableHarHeaderCell } };
 
 export type StatusFilter = 'all' | 'failed' | 'slow';
 
@@ -154,7 +161,11 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   const [hasServerTimingFilter, setHasServerTimingFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<HarColumnKey[]>(DEFAULT_COLUMN_KEYS);
+  const [columnWidths, setColumnWidths] = useState<Partial<Record<HarColumnKey, number>>>({});
+  const tableContainer = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1440);
   const [waterfallSort, setWaterfallSort] = useState<HarWaterfallSortKey>('start-time');
+  const [timeSelection, setTimeSelection] = useState<HarWaterfallRange | null>(null);
   const [focusedRequestIds, setFocusedRequestIds] = useState<number[] | undefined>(undefined);
   const [selected, setSelected] = useState<HarRequestEntry | null>(null);
   const [filtering, setFiltering] = useState(false);
@@ -192,6 +203,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setFocusedRequestIds(undefined);
     setSelected(null);
     setHighlightIds(new Set());
+    setTimeSelection(null);
 
     // 应用筛选
     if (filters?.keyword) setKeyword(filters.keyword);
@@ -218,6 +230,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     consumeIntent();
   }, [intent, consumeIntent, result.entries, onStatusFilterChange]);
 
+  useEffect(() => { setTimeSelection(null); }, [result.entries]);
+
   // 筛选条件变化时短暂显示 loading，避免用户觉得卡顿
   useEffect(() => {
     setFiltering(true);
@@ -240,16 +254,38 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
   }), [category, status, issueFilter, methodFilter, domainFilter, hasLogidFilter, hasServerTimingFilter, keyword, blockedDomains, focusedRequestIds]);
 
   const filtered = useMemo(() => {
-    return filterHarRequests(result.entries, filterState);
-  }, [result.entries, filterState]);
+    return filterHarTimelineEntries(filterHarRequests(result.entries, filterState), timeSelection);
+  }, [result.entries, filterState, timeSelection]);
+
+  const overviewEntries = useMemo(() => filterHarRequests(result.entries, filterState), [result.entries, filterState]);
 
   const sortedFiltered = useMemo(
     () => sortHarWaterfallEntries(filtered, waterfallSort),
     [filtered, waterfallSort],
   );
+  const useVirtualScroll = sortedFiltered.length > 500;
+
+  useEffect(() => {
+    const element = tableContainer.current;
+    if (!element) return;
+    const body = element.querySelector<HTMLElement>('.ant-table-body, .ant-table-tbody-virtual-holder');
+    const measure = () => {
+      // Classic desktop scrollbars take real space away from the column budget.
+      const scrollbarWidth = body ? Math.max(0, body.offsetWidth - body.clientWidth) : 0;
+      const width = element.getBoundingClientRect().width - scrollbarWidth;
+      if (width > 0) setContainerWidth(Math.floor(width));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (body) observer.observe(body);
+    return () => observer.disconnect();
+  }, [useVirtualScroll]);
 
   const topDomains = useMemo(() => getTopHarDomains(result.entries), [result.entries]);
-  const waterfallRange = useMemo(() => buildHarWaterfallRange(result.entries), [result.entries]);
+  const fullWaterfallRange = useMemo(() => buildHarWaterfallRange(result.entries), [result.entries]);
+  const waterfallRange = timeSelection ?? fullWaterfallRange;
+  const overviewMarkers = useMemo(() => getHarWaterfallMarkers(result.pageMarkers, fullWaterfallRange), [result.pageMarkers, fullWaterfallRange]);
   const waterfallMarkers = useMemo(
     () => getHarWaterfallMarkers(result.pageMarkers, waterfallRange),
     [result.pageMarkers, waterfallRange],
@@ -354,7 +390,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
         const st = issueStyle(issue.severity);
         return (
           <Tooltip title={issue.detail}>
-            <Tag style={{ color: st.color, background: st.bg, border: 'none', fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+            <Tag style={{ color: st.color, background: st.bg, border: 'none', fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
               {issue.label}
               {!getHarTimingCompleteness(r).complete && issue.kind !== 'incomplete-timing' ? ' · Timing 不完整' : ''}
             </Tag>
@@ -543,15 +579,59 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     },
   ];
 
-  const visibleColumns = columns.filter(column => {
+  const selectedColumns = columns.filter(column => {
     const key = column.key as HarColumnKey | undefined;
     return key ? visibleColumnKeys.includes(key) : true;
   });
-  const visibleTableWidth = Math.max(
-    960,
-    visibleColumns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 120), 0)
-  );
-  const useVirtualScroll = sortedFiltered.length > 500;
+  const compactColumnKeys: HarColumnKey[] = ['status', 'issue', 'protocol', 'category', 'size', 'time'];
+  const compactWidth = 112;
+  const hasManualWidths = Object.keys(columnWidths).length > 0;
+  const sizes = selectedColumns.map(column => {
+    const key = column.key as HarColumnKey;
+    const label = typeof column.title === 'string' ? column.title : key;
+    return {
+      key,
+      minimum: compactColumnKeys.includes(key) ? compactWidth : Math.max(key === 'name' || key === 'domain' || key === 'waterfall' ? 140 : 80,
+        label.length * 8 + (column.sorter ? 48 : 32)),
+      preferred: columnWidths[key] ?? (compactColumnKeys.includes(key) ? compactWidth : typeof column.width === 'number' ? column.width : 120),
+      flexible: !hasManualWidths && (key === 'name' || key === 'domain'),
+    };
+  });
+  const fittedWidths = fitHarColumnWidths(sizes, containerWidth);
+  const visibleColumns = selectedColumns.map((column, index) => {
+    const key = column.key as HarColumnKey;
+    const label = typeof column.title === 'string' ? column.title : key;
+    // Reserve room for the label, sorter, and a separate resize target.
+    const minimumWidth = sizes[index].minimum;
+    const width = fittedWidths[index];
+    // Name/Domain carry the spare space; keep compact columns stable when
+    // another column grows, including when its immediate neighbour is at minimum.
+    const flexibleNeighbour = sizes.findIndex(size => size.key === (key === 'domain' ? 'name' : 'domain'));
+    const neighbour = flexibleNeighbour >= 0 && flexibleNeighbour !== index
+      ? flexibleNeighbour : index < sizes.length - 1 ? index + 1 : index - 1;
+    const maximumWidth = width + fittedWidths[neighbour] - sizes[neighbour].minimum;
+    const existingHeaderCell = column.onHeaderCell;
+    return {
+      ...column,
+      width,
+      onHeaderCell: (currentColumn: Parameters<NonNullable<ColumnType<HarRequestEntry>['onHeaderCell']>>[0]) => ({
+        ...existingHeaderCell?.(currentColumn),
+        columnWidth: width,
+        minimumWidth,
+        maximumWidth,
+        columnLabel: label,
+        onColumnResize: (nextWidth: number) => {
+          const bounded = Math.min(maximumWidth, Math.max(minimumWidth, nextWidth));
+          const next: Partial<Record<HarColumnKey, number>> = {};
+          sizes.forEach((size, i) => { next[size.key as HarColumnKey] = fittedWidths[i]; });
+          next[key] = bounded;
+          next[sizes[neighbour].key as HarColumnKey] = fittedWidths[neighbour] + width - bounded;
+          setColumnWidths(next);
+        },
+      }),
+    };
+  });
+  const visibleTableWidth = fittedWidths.reduce((sum, width) => sum + width, 0);
 
   const rowClassName = (record: HarRequestEntry) => {
     const classes: string[] = [];
@@ -569,7 +649,8 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     || hasServerTimingFilter !== 'all'
     || !!keyword.trim()
     || blockedDomains.length > 0
-    || Boolean(focusedRequestIds?.length);
+    || Boolean(focusedRequestIds?.length)
+    || Boolean(timeSelection);
   const activeFilterCount = [
     category !== 'all',
     status !== 'all',
@@ -581,9 +662,11 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     !!keyword.trim(),
     blockedDomains.length > 0,
     Boolean(focusedRequestIds?.length),
+    Boolean(timeSelection),
   ].filter(Boolean).length;
 
   const activeFilterChips = [
+    timeSelection ? { key: 'time', label: `时间：${Math.round(timeSelection.minStart - fullWaterfallRange.minStart)}–${Math.round(timeSelection.maxEnd - fullWaterfallRange.minStart)} ms`, onClose: () => setTimeSelection(null) } : undefined,
     category !== 'all' ? { key: 'category', label: `类型：${CATEGORY_LABELS.find(item => item.key === category)?.label || category}`, onClose: () => setCat('all') } : undefined,
     status !== 'all' ? { key: 'status', label: `状态：${STATUS_FILTERS.find(item => item.key === status)?.label || status}`, onClose: () => setStatus('all') } : undefined,
     issueFilter !== 'all' ? { key: 'issue', label: `主问题：${ISSUE_FILTERS.find(item => item.key === issueFilter)?.label || issueFilter}`, onClose: () => setIssueFilter('all') } : undefined,
@@ -610,10 +693,18 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     setFocusedRequestIds(undefined);
     setSelected(null);
     setHighlightIds(new Set());
+    setTimeSelection(null);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div ref={tableContainer} style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+      {visibleTableWidth > containerWidth && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          当前列的最小宽度超过可用空间；请在表格内横向滚动，或减少扩展列。
+        </div>
+      )}
+      <HarTimelineOverview entries={overviewEntries} fullRange={fullWaterfallRange} selection={timeSelection}
+        markers={overviewMarkers} width={containerWidth} onChange={setTimeSelection} />
       {/* 高亮样式注入 */}
       <style>{`
         .har-request-row-highlight td {
@@ -945,6 +1036,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
             大 HAR 使用虚拟滚动，避免一次性渲染全部 DOM 行。 */}
         <Table<HarRequestEntry>
           className="har-request-table"
+          components={TABLE_COMPONENTS}
           columns={visibleColumns}
           dataSource={sortedFiltered}
           rowKey="id"

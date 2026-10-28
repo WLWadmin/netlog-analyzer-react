@@ -47,7 +47,7 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function isTimingEntryAvailable(entry: HarRequestEntry): boolean {
+export function isHarTimelineEntryAvailable(entry: HarRequestEntry): boolean {
   return entry.standard.time.state === 'value' && Number.isFinite(entry.startMs) && entry.startMs > 0 && Number.isFinite(entry.time) && entry.time >= 0;
 }
 
@@ -56,7 +56,7 @@ export function buildHarWaterfallRange(entries: HarRequestEntry[]): HarWaterfall
   let maxEnd = -Infinity;
 
   for (const entry of entries) {
-    if (!isTimingEntryAvailable(entry)) continue;
+    if (!isHarTimelineEntryAvailable(entry)) continue;
     minStart = Math.min(minStart, entry.startMs);
     maxEnd = Math.max(maxEnd, entry.startMs + entry.time);
   }
@@ -70,20 +70,21 @@ export function buildHarWaterfallRange(entries: HarRequestEntry[]): HarWaterfall
 }
 
 export function getHarWaterfallPosition(entry: HarRequestEntry, range: HarWaterfallRange): HarWaterfallPosition {
-  if (!range.available || !isTimingEntryAvailable(entry)) {
+  if (!range.available || !isHarTimelineEntryAvailable(entry)) {
     return { leftPercent: 0, widthPercent: 0, startOffsetMs: 0, durationMs: entry.time || 0, available: false };
   }
 
   const startOffsetMs = entry.startMs - range.minStart;
   const leftPercent = clampPercent((startOffsetMs / range.span) * 100);
-  const widthPercent = clampPercent((entry.time / range.span) * 100);
+  const visibleDuration = Math.max(0, Math.min(entry.startMs + entry.time, range.maxEnd) - Math.max(entry.startMs, range.minStart));
+  const widthPercent = clampPercent((visibleDuration / range.span) * 100);
 
   return {
     leftPercent,
     widthPercent,
     startOffsetMs,
     durationMs: entry.time,
-    available: Number.isFinite(startOffsetMs) && startOffsetMs >= 0,
+    available: entry.startMs <= range.maxEnd && entry.startMs + entry.time >= range.minStart,
   };
 }
 
@@ -99,7 +100,7 @@ export function getHarWaterfallSortValue(entry: HarRequestEntry, key: HarWaterfa
         ? entry.startMs + normalized.responseStartOffsetMs
         : Number.POSITIVE_INFINITY;
     case 'end-time':
-      return isTimingEntryAvailable(entry) ? entry.startMs + entry.time : Number.POSITIVE_INFINITY;
+      return isHarTimelineEntryAvailable(entry) ? entry.startMs + entry.time : Number.POSITIVE_INFINITY;
     case 'total-duration':
       return getHarTimingCompleteness(entry).totalAvailable ? entry.time : Number.POSITIVE_INFINITY;
     case 'latency':
@@ -164,7 +165,7 @@ const SEGMENT_STYLES: Record<HarDisplayTimingPhaseKey | 'unaccounted', { label: 
   unaccounted: { label: 'Unaccounted', color: 'rgba(148, 163, 184, 0.24)', striped: true },
 };
 
-export function getHarWaterfallSegments(entry: HarRequestEntry): HarWaterfallSegment[] {
+export function getHarWaterfallSegments(entry: HarRequestEntry, range?: HarWaterfallRange): HarWaterfallSegment[] {
   const timing = normalizeHarTiming(entry);
   const total = Math.max(timing.totalMs, timing.accountedMs, 1);
   const standardPhases = timing.phases.filter(phase => !phase.overlapsStandardTotal);
@@ -196,5 +197,36 @@ export function getHarWaterfallSegments(entry: HarRequestEntry): HarWaterfallSeg
     });
   }
 
-  return segments;
+  if (!range?.available) return segments;
+  const clippedStart = Math.max(entry.startMs, range.minStart);
+  const clippedEnd = Math.min(entry.startMs + entry.time, range.maxEnd);
+  const visibleDuration = clippedEnd - clippedStart;
+  if (visibleDuration <= 0) return [];
+  return segments.flatMap(segment => {
+    const start = entry.startMs + segment.leftPercent / 100 * total;
+    const end = start + segment.widthPercent / 100 * total;
+    const left = Math.max(start, clippedStart);
+    const right = Math.min(end, clippedEnd);
+    return right <= left ? [] : [{
+      ...segment,
+      leftPercent: (left - clippedStart) / visibleDuration * 100,
+      widthPercent: (right - left) / visibleDuration * 100,
+    }];
+  });
+}
+
+export function filterHarTimelineEntries(entries: HarRequestEntry[], range: HarWaterfallRange | null): HarRequestEntry[] {
+  if (!range) return entries;
+  return entries.filter(entry => isHarTimelineEntryAvailable(entry)
+    && entry.startMs <= range.maxEnd && entry.startMs + entry.time >= range.minStart);
+}
+
+export function getHarTimelineTicks(span: number, width: number): number[] {
+  if (!Number.isFinite(span) || span <= 0) return [];
+  const target = span / Math.max(1, Math.floor(width / 100));
+  const power = 10 ** Math.floor(Math.log10(target));
+  const step = ([1, 2, 5, 10].find(multiplier => multiplier * power >= target) || 10) * power;
+  const ticks: number[] = [];
+  for (let value = 0; value <= span && ticks.length < 100; value += step) ticks.push(value);
+  return ticks;
 }
