@@ -164,7 +164,7 @@ function disabledRuleCoverage(corpus: readonly TraceGoldenCorpusCase[]): number 
       }
     }
   }
-  return expected === 0 ? 1 : covered / expected;
+  return expected === 0 ? Number.NaN : covered / expected;
 }
 
 function sensitiveLeakCount(corpus: readonly TraceGoldenCorpusCase[]): number {
@@ -183,7 +183,7 @@ export function buildTraceDiagnosisReleaseGateReport(
   const unstableCount = unstableDiagnosisCount(corpus);
   const leakCount = sensitiveLeakCount(corpus);
   const disabledCoverage = disabledRuleCoverage(corpus);
-  const deterministicOrderPassed = corpus.every(item => (
+  const deterministicOrderPassed = corpus.length > 0 && corpus.every(item => (
     item.runs.slice(1).every(result => orderSignature(result) === orderSignature(item.runs[0]))
   ));
   const metrics = {
@@ -201,7 +201,7 @@ export function buildTraceDiagnosisReleaseGateReport(
   if (metrics.missingEvidenceReferenceCount > 0) blockers.push('Trace 诊断包含缺失 evidence 引用');
   if (metrics.unstableDiagnosisCount > 0) blockers.push('Trace 诊断三次运行输出不稳定');
   if (metrics.sensitiveLeakCount > 0) blockers.push('Trace 完整诊断文本存在敏感泄漏');
-  if (metrics.disabledRuleCoverage < 1) blockers.push('Trace disabled 规则覆盖率未达到 100%');
+  if (!Number.isFinite(metrics.disabledRuleCoverage) || metrics.disabledRuleCoverage < 1) blockers.push('Trace disabled 规则覆盖率未达到 100%');
   if (!metrics.deterministicOrderPassed) blockers.push('Trace 诊断排序不确定');
   const traceValidation = options.realSampleValidation?.areas.find(area => area.area === 'trace');
   if (

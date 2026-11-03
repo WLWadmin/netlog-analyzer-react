@@ -189,7 +189,7 @@ describe('HAR recovery: independent records and bounded scanning', () => {
         const result = parseHarWithRepair(raw);
         times.push(performance.now() - started);
         expect(result.recoveredEntries).toBe(2);
-        if (resync) expect(result.heuristicResynchronization).toBe(true);
+        expect(!resync || result.heuristicResynchronization).toBe(true);
       }
       return Math.min(...times);
     };

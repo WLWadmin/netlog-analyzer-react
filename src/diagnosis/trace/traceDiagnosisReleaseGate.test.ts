@@ -11,6 +11,12 @@ const traceRealSampleValidation = buildRealSampleValidationGateReport({
 });
 
 describe('traceDiagnosisReleaseGate', () => {
+  it('does not report full disabled-rule coverage without any corpus samples', () => {
+    const report = buildTraceDiagnosisReleaseGateReport([]);
+    expect(Number.isNaN(report.metrics.disabledRuleCoverage)).toBe(true);
+    expect(report.metrics.deterministicOrderPassed).toBe(false);
+    expect(report.passed).toBe(false);
+  });
   it('reports exactly the user-specified seven metrics', () => {
     const report = buildTraceDiagnosisReleaseGateReport(buildTraceGoldenCorpus(), {
       realSampleValidation: traceRealSampleValidation,

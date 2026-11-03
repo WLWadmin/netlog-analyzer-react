@@ -21,6 +21,7 @@ import {
 import type { WorkerRequest, WorkerResponse } from './protocols';
 import { createRawDataStore } from './rawDataStore';
 import { createNetlogDatasetStore } from './netlogDatasetStore';
+import { workerResultResources } from './workerResultResources';
 import { buildNetlogCompactEventIndex, readNetlogEventDetail } from './netlogDatasetIndexer';
 import { queryNetlogEvents, queryNetlogEventsWithRawSearch } from './netlogDatasetQuery';
 import { buildNetlogSourceChainDetailView, buildNetlogSourceChainView } from './netlogSourceChainView';
@@ -39,15 +40,99 @@ import {
   type FileParserId,
 } from '../upload/fileFormatTypes';
 
-/* eslint-disable no-restricted-globals */
 const ctx: Worker = self as any;
 
 // Worker 内缓存解析后的 rawData，避免 raw 搜索时反复 structured clone 大 JSON
 const rawDataStore = createRawDataStore({ maxItems: WORKER_RAW_DATA_MAX_ITEMS });
 const netlogDatasetStore = createNetlogDatasetStore();
 
+interface ActiveTask {
+  controller: AbortController;
+  done: Promise<void>;
+  finish: () => void;
+  cancellations: Promise<void>[];
+}
+const activeTasks = new Map<string, ActiveTask>();
+
 function sendResponse(response: WorkerResponse) {
+  if (activeTasks.get(response.id)?.controller.signal.aborted) {
+    if (response.type === 'success') {
+      const { analysisId, rawDataId } = workerResultResources(response);
+      if (analysisId) netlogDatasetStore.release(analysisId);
+      if (rawDataId) rawDataStore.release(rawDataId);
+    }
+    return;
+  }
   ctx.postMessage(response);
+}
+
+function sendError(id: string, error: unknown) {
+  sendResponse({
+    type: 'error', id,
+    error: error instanceof Error ? error.message : String(error),
+    ...(error instanceof FileQualityError ? { qualityReport: error.qualityReport } : {}),
+  });
+}
+
+function throwIfCancelled(id: string) {
+  if (activeTasks.get(id)?.controller.signal.aborted) throw new Error('Worker task cancelled');
+}
+
+/** Wake a blocked read on cancellation without changing the indexer/scanner semantics.
+ * Zero prefetch preserves their chunk-at-a-time memory boundary.
+ */
+function taskStream(id: string, source: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const task = activeTasks.get(id);
+  if (!task) return source;
+  const reader = source.getReader();
+  let lastYield = performance.now();
+  let cancellation: Promise<void> | undefined;
+  const unlock = () => {
+    task.controller.signal.removeEventListener('abort', abort);
+    reader.releaseLock();
+  };
+  const cancel = (reason: unknown) => {
+    if (!cancellation) {
+      cancellation = reader.cancel(reason).catch(() => undefined).finally(unlock);
+      task.cancellations.push(cancellation);
+    }
+    return cancellation;
+  };
+  let abort: () => void;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      abort = () => {
+        const error = new Error('Worker task cancelled');
+        controller.error(error);
+        void cancel(error);
+      };
+      task.controller.signal.addEventListener('abort', abort, { once: true });
+      if (task.controller.signal.aborted) abort();
+    },
+    async pull(controller) {
+      try {
+        // Ready chunks can otherwise form an uninterrupted microtask chain:
+        // yield periodically so the Worker can receive cancel-task messages.
+        if (performance.now() - lastYield >= 16) {
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          lastYield = performance.now();
+        }
+        if (task.controller.signal.aborted) return;
+        const { done, value } = await reader.read();
+        if (task.controller.signal.aborted) return;
+        if (done) {
+          unlock();
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        controller.error(error);
+        await cancel(error);
+      }
+    },
+    cancel,
+  }, { highWaterMark: 0 });
 }
 
 function sendProgress(id: string, phase: string, percent?: number) {
@@ -160,18 +245,25 @@ function getStoredRawData(id: string): unknown {
   return rawDataStore.get(id);
 }
 
-async function readWorkerFileText(payload: unknown): Promise<unknown> {
-  if (isFileStreamParseSession(payload)) {
-    const reader = payload.stream.getReader();
+async function readWorkerFileText(payload: unknown, id: string): Promise<unknown> {
+  const stream = isFileStreamParseSession(payload) ? payload.stream
+    : payload instanceof File && payload.stream ? payload.stream() : undefined;
+  if (stream) {
+    const reader = taskStream(id, stream).getReader();
     const decoder = new TextDecoder();
     const chunks: string[] = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(decoder.decode(value, { stream: true }));
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+      chunks.push(decoder.decode());
+      throwIfCancelled(id);
+      return chunks.join('');
+    } finally {
+      reader.releaseLock();
     }
-    chunks.push(decoder.decode());
-    return chunks.join('');
   }
   return payload instanceof File ? payload.text() : payload;
 }
@@ -244,6 +336,7 @@ async function parseLargeNetlogFile(payload: File | {
   if (!file.stream) {
     throw new Error('当前浏览器不支持大文件流式读取，请升级 Chrome/Edge 后重试');
   }
+  const inputStream = taskStream(id, stream ?? file.stream());
 
   logLargeNetlogDebug(id, 'worker:start', {
     fileName: file.name,
@@ -266,7 +359,7 @@ async function parseLargeNetlogFile(payload: File | {
     });
     const analyzer = createNetlogStreamingAnalyzer();
     const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file, {
-      ...(stream ? { stream } : {}),
+      stream: inputStream,
       onTopLevelField: (key, value) => analyzer.applyMetadata({ [key]: value }),
       onEvent: (event, trace) => analyzer.accept(event, trace.eventId, trace.eventRoot),
       onProgress: (bytesRead, eventCount) => {
@@ -283,6 +376,7 @@ async function parseLargeNetlogFile(payload: File | {
         });
       },
     });
+    throwIfCancelled(id);
     sendStructuredProgress(id, start, {
       parserId: 'chromium-netlog@1',
       phase: 'building-facts',
@@ -359,7 +453,7 @@ async function parseLargeNetlogFile(payload: File | {
   };
   let lastProgressAt = 0;
 
-  for await (const eventJson of scanNetlogEventJson(stream ?? file.stream(), scanMeta, {
+  for await (const eventJson of scanNetlogEventJson(inputStream, scanMeta, {
     fileSize: file.size,
     onDebug: (event, details) => logLargeNetlogDebug(id, event, details),
     onTopLevelField: (key, valueJson) => {
@@ -501,6 +595,21 @@ function compactSearchMatchValue(value: unknown): unknown {
 
 ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
+  if (msg.type === 'cancel-task') {
+    const task = activeTasks.get(msg.payload.taskId);
+    task?.controller.abort();
+    await task?.done;
+    sendResponse({ type: 'cancelled', id: msg.id, taskId: msg.payload.taskId });
+    return;
+  }
+  let finish: () => void = () => undefined;
+  const task: ActiveTask = {
+    controller: new AbortController(),
+    done: new Promise<void>(resolve => { finish = resolve; }),
+    finish: () => finish(),
+    cancellations: [],
+  };
+  activeTasks.set(msg.id, task);
   const start = performance.now();
 
   try {
@@ -514,7 +623,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           phaseIndex: 1,
           phaseCount: 5,
         });
-        const netlogPayload = await readWorkerFileText(msg.payload);
+        const netlogPayload = await readWorkerFileText(msg.payload, msg.id);
+        throwIfCancelled(msg.id);
         const rawData = typeof netlogPayload === 'string'
           ? parseNetlogJson(netlogPayload)
           : netlogPayload;
@@ -552,16 +662,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'parse-large-netlog-file': {
-        void parseLargeNetlogFile(msg.payload, msg.id, start).catch(err => {
-          logLargeNetlogDebug(msg.id, 'worker:error', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-          sendResponse({
-            type: 'error',
-            id: msg.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
+        await parseLargeNetlogFile(msg.payload, msg.id, start);
         break;
       }
 
@@ -574,7 +675,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           phaseIndex: 1,
           phaseCount: 5,
         });
-        const harPayload = await readWorkerFileText(msg.payload);
+        const harPayload = await readWorkerFileText(msg.payload, msg.id);
+        throwIfCancelled(msg.id);
         const { result: harResult, rawData } = parseHarInput(harPayload, msg.repairInfo, (completed, total) => {
           recordProgress(
             msg.id,
@@ -616,7 +718,8 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           phaseIndex: 1,
           phaseCount: 5,
         });
-        const logPayload = await readWorkerFileText(msg.payload);
+        const logPayload = await readWorkerFileText(msg.payload, msg.id);
+        throwIfCancelled(msg.id);
         if (typeof logPayload !== 'string') {
           throw new Error('Log 文件内容必须是文本');
         }
@@ -836,7 +939,10 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           fileType: msg.payload.file?.type || 'application/json',
         });
         try {
-          const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(msg.payload.file);
+          const { index: eventIndex, parseSkipStats, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(msg.payload.file, {
+            stream: taskStream(msg.id, msg.payload.file.stream()),
+          });
+          throwIfCancelled(msg.id);
           const meta = {
             ...netlogDatasetStore.importFile(msg.payload.file, eventIndex, endpointEvidence, dataLoaded, dnsState, proxyState, quicState, http2State, socketsState, cacheState, altSvcState, streamPoolState, reportingState, timelineState, modulesState, prerenderState),
             parseSkipStats,
@@ -1131,18 +1237,13 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       }
 
       default:
-        sendResponse({
-          type: 'error',
-          id: (msg as any).id || 'unknown',
-          error: `Unknown message type: ${(msg as any).type}`,
-        });
+        throw new Error('Unknown Worker message type');
     }
   } catch (err) {
-    sendResponse({
-      type: 'error',
-      id: msg.id,
-      error: err instanceof Error ? err.message : String(err),
-      ...(err instanceof FileQualityError ? { qualityReport: err.qualityReport } : {}),
-    });
+    sendError(msg.id, err);
+  } finally {
+    await Promise.all(task.cancellations);
+    activeTasks.delete(msg.id);
+    task.finish();
   }
 });

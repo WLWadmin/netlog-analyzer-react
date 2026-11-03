@@ -77,6 +77,21 @@ function result(count = 2) {
   })) } });
 }
 
+it('sorts known durations around a missing duration without NaN comparisons', () => {
+  const parsed = parseHar({ log: { entries: [5000, undefined, 100].map((time, index) => ({
+    request: { url: `https://example.test/duration-${index}`, headers: [] },
+    response: { status: 200, headers: [], content: {} },
+    time, timings: { send: 0, wait: 0, receive: 0 },
+  })) } });
+  render(<HarRequestTable result={parsed} />);
+  fireEvent.click(screen.getAllByText('Time', { selector: '.ant-table-column-title' })[0]);
+  const rows = screen.getAllByRole('row').filter(row => row.classList.contains('ant-table-row'));
+  expect(rows.map(row => row.getAttribute('data-row-key'))).toEqual(['2', '0', '1']);
+  fireEvent.click(screen.getAllByText('Time', { selector: '.ant-table-column-title' })[0]);
+  const descendingRows = screen.getAllByRole('row').filter(row => row.classList.contains('ant-table-row'));
+  expect(descendingRows.map(row => row.getAttribute('data-row-key'))).toEqual(['0', '2', '1']);
+});
+
 it('initializes compact columns equally and divides spare space between Name and Domain', () => {
   render(<HarRequestTable result={result()} />);
   const width = (label: string) => Number(screen.getByRole('separator', { name: `调整 ${label} 列宽` }).getAttribute('aria-valuenow'));
@@ -95,6 +110,8 @@ it('updates both header and body during dragging, retains capture across frames 
   fireEvent.pointerMove(name, { pointerId: 1, clientX: 220 });
   await waitFor(() => expect(name).toHaveAttribute('aria-valuenow', String(nameWidth + 20)));
   expect(domain).toHaveAttribute('aria-valuenow', String(domainWidth - 20));
+  // colgroup has no accessible role; verify the actual body width, not only ARIA.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector(`col[style*="width: ${nameWidth + 20}px"]`)).not.toBeNull();
   expect(name).toHaveClass('is-resizing');
   fireEvent.pointerMove(name, { pointerId: 1, clientX: 240 });
@@ -112,6 +129,7 @@ it('resizes columns in the real Ant Design table while preserving sorting and fi
   fireEvent.keyDown(domain, { key: 'ArrowRight' });
   await waitFor(() => expect(domain).toHaveAttribute('aria-valuenow', String(originalWidth + 16)));
   // Header and body colgroups must share the updated width.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector(`col[style*="width: ${originalWidth + 16}px"]`)).not.toBeNull();
   const status = screen.getByRole('columnheader', { name: /Status/ });
   fireEvent.click(status);
@@ -121,7 +139,7 @@ it('resizes columns in the real Ant Design table while preserving sorting and fi
     target: { value: 'request-1' },
   });
   expect(screen.getByText(/共 1 条请求/)).toBeInTheDocument();
-  expect(container.querySelectorAll('tr.ant-table-row')).toHaveLength(1);
+  expect(screen.getAllByRole('row').filter(row => row.classList.contains('ant-table-row'))).toHaveLength(1);
   expect(domain).toHaveAttribute('aria-valuenow', String(originalWidth + 16));
 });
 
@@ -161,11 +179,15 @@ it('makes optional columns resizable and retains widths when filter controls col
 
 it('refits to container changes without shrinking any column below its minimum', () => {
   const { container } = render(<HarRequestTable result={result()} />);
+  // ResizeObserver measures this wrapper; no user-facing role identifies it.
+  // eslint-disable-next-line testing-library/no-node-access
   const wrapper = container.firstElementChild as HTMLElement;
   jest.spyOn(wrapper, 'getBoundingClientRect').mockReturnValue({ width: 1200 } as DOMRect);
   act(() => observedResize?.());
   const widths = () => screen.getAllByRole('separator').map(cell => Number(cell.getAttribute('aria-valuenow')));
   expect(widths().reduce((sum, width) => sum + width, 0)).toBe(1200);
+  // Simulate the body's scrollbar gutter on the exact element measured by layout.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   const body = container.querySelector('.ant-table-body') as HTMLElement;
   Object.defineProperty(body, 'offsetWidth', { configurable: true, value: 1200 });
   Object.defineProperty(body, 'clientWidth', { configurable: true, value: 1182 });

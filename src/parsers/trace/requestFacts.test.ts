@@ -22,6 +22,53 @@ describe('classifyRequest', () => {
     expect(classifyRequest({ cancelledSignal: 'navigation-overlap', hasFinish: true, traceEnded: false }))
       .toEqual({ result: 'unknown-failure', confidence: 'observation' });
   });
+
+  it.each([-1, 99, 200.5, 600, Infinity, NaN, 0])(
+    'keeps invalid or HTTP-unavailable status %s unknown despite didFail=false',
+    statusCode => {
+      expect(classifyRequest({
+        statusCode, failed: false, cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+      })).toEqual({ result: 'unknown-failure', confidence: 'observation' });
+    },
+  );
+
+  it('preserves valid HTTP boundaries and independent failure evidence', () => {
+    for (const statusCode of [100, 200, 399]) {
+      expect(classifyRequest({
+        statusCode, cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+      })).toEqual({ result: 'success', confidence: 'high' });
+    }
+    for (const statusCode of [400, 599]) {
+      expect(classifyRequest({
+        statusCode, cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+      })).toEqual({ result: 'http-error', confidence: 'high' });
+    }
+    expect(classifyRequest({
+      statusCode: -1, failed: true, cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+    })).toEqual({ result: 'transport-failed', confidence: 'medium' });
+    expect(classifyRequest({
+      statusCode: -1, failed: true, cancelledSignal: 'explicit', hasFinish: true, traceEnded: true,
+    })).toEqual({ result: 'cancelled', confidence: 'high' });
+  });
+
+  it('requires explicit completion without failure for non-HTTP status zero', () => {
+    expect(classifyRequest({
+      statusCode: 0, isNonHttpResource: true, failed: false,
+      cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+    })).toEqual({ result: 'success', confidence: 'high' });
+    expect(classifyRequest({
+      statusCode: 0, isNonHttpResource: true,
+      cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+    })).toEqual({ result: 'unknown-failure', confidence: 'observation' });
+    expect(classifyRequest({
+      statusCode: 0, isNonHttpResource: true, failed: false,
+      cancelledSignal: 'none', hasFinish: false, traceEnded: true,
+    })).toEqual({ result: 'incomplete-at-trace-end', confidence: 'observation' });
+    expect(classifyRequest({
+      statusCode: 0, isNonHttpResource: true, failed: true,
+      cancelledSignal: 'none', hasFinish: true, traceEnded: true,
+    })).toEqual({ result: 'transport-failed', confidence: 'medium' });
+  });
 });
 
 describe('buildDispatchWaitFact', () => {

@@ -13,7 +13,7 @@ function event(overrides: Partial<RawEvent>): RawEvent {
   return {
     time: '0',
     type: 2,
-    phase: 2,
+    phase: 0,
     source: { id: 1, type: 1 },
     params: {},
     ...overrides,
@@ -34,7 +34,7 @@ function successfulRequestFixture() {
       event({
         time: '0',
         type: 111,
-        phase: 0,
+        phase: 1,
         source: { id: 10, type: 1 },
         params: { url: 'https://api.example.com/v1/users', method: 'GET' },
       }),
@@ -56,7 +56,7 @@ function successfulRequestFixture() {
       event({
         time: '4200',
         type: 2,
-        phase: 1,
+        phase: 2,
         source: { id: 10, type: 1 },
         params: {},
       }),
@@ -71,21 +71,21 @@ function dnsFailureFixture() {
       event({
         time: '0',
         type: 111,
-        phase: 0,
+        phase: 1,
         source: { id: 30, type: 1 },
         params: { url: 'https://missing.example.invalid/api', method: 'GET' },
       }),
       event({
         time: '80',
         type: 1,
-        phase: 2,
+        phase: 0,
         source: { id: 30, type: 1 },
         params: { net_error: -105 },
       }),
       event({
         time: '90',
         type: 2,
-        phase: 1,
+        phase: 2,
         source: { id: 30, type: 1 },
         params: {},
       }),
@@ -132,7 +132,7 @@ function protocolLocalErrorFixture() {
       event({
         time: '0',
         type: 111,
-        phase: 0,
+        phase: 1,
         source: { id: 50, type: 1 },
         params: { url: 'https://api.example.com/socket', method: 'GET' },
       }),
@@ -155,7 +155,7 @@ function protocolLocalErrorFixture() {
       event({
         time: '30',
         type: 2,
-        phase: 1,
+        phase: 2,
         source: { id: 50, type: 1 },
       }),
     ],
@@ -169,7 +169,7 @@ function recoveredInternalErrorFixture() {
       event({
         time: '0',
         type: 111,
-        phase: 0,
+        phase: 1,
         source: { id: 70, type: 1 },
         params: { url: 'https://api.example.com/cache', method: 'GET' },
       }),
@@ -188,7 +188,7 @@ function recoveredInternalErrorFixture() {
       event({
         time: '30',
         type: 2,
-        phase: 1,
+        phase: 2,
         source: { id: 70, type: 1 },
       }),
     ],
@@ -244,6 +244,7 @@ describe('NetLog parser fixture characterization', () => {
       statusCode: 200,
       resolvedIp: '203.0.113.10',
       remoteIp: '198.51.100.20',
+      duration: 4200,
     }));
     expect(result.slowRequests.map(req => req.url)).toEqual(['https://api.example.com/v1/users']);
     expect(result.dnsServers).toEqual(expect.arrayContaining(['8.8.8.8', '1.1.1.1']));
@@ -308,12 +309,12 @@ describe('NetLog parser fixture characterization', () => {
     const { result } = parseLog({
       constants: {},
       events: [
-        event({ time: '0', type: 111, phase: 0, source: { id: 80, type: 1 }, params: { url: 'https://api.example.com/ok' } }),
+        event({ time: '0', type: 111, phase: 1, source: { id: 80, type: 1 }, params: { url: 'https://api.example.com/ok' } }),
         event({ time: '10', type: 181, source: { id: 80, type: 1 }, params: { status_code: 200 } }),
-        event({ time: '20', type: 2, phase: 1, source: { id: 80, type: 1 } }),
-        event({ time: '30', type: 111, phase: 0, source: { id: 81, type: 1 }, params: { url: 'https://api.example.com/fail' } }),
+        event({ time: '20', type: 2, phase: 2, source: { id: 80, type: 1 } }),
+        event({ time: '30', type: 111, phase: 1, source: { id: 81, type: 1 }, params: { url: 'https://api.example.com/fail' } }),
         event({ time: '40', type: 1, source: { id: 81, type: 1 }, params: { net_error: -105 } }),
-        event({ time: '50', type: 2, phase: 1, source: { id: 81, type: 1 } }),
+        event({ time: '50', type: 2, phase: 2, source: { id: 81, type: 1 } }),
       ],
     });
 
@@ -326,10 +327,10 @@ describe('NetLog parser fixture characterization', () => {
     const { result } = parseLog({
       constants: {},
       events: [
-        event({ time: '0', type: 111, phase: 0, source: { id: 90, type: 1 }, params: { url: 'https://api.example.com/data' } }),
-        event({ time: '1', type: 395, phase: 0, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
-        event({ time: '2', type: 395, phase: 1, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
-        event({ time: '3', type: 2, phase: 1, source: { id: 90, type: 1 } }),
+        event({ time: '0', type: 111, phase: 1, source: { id: 90, type: 1 }, params: { url: 'https://api.example.com/data' } }),
+        event({ time: '1', type: 395, phase: 1, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
+        event({ time: '2', type: 395, phase: 2, source: { id: 91, type: 11 }, params: { hostname: 'api.example.com' } }),
+        event({ time: '3', type: 2, phase: 2, source: { id: 90, type: 1 } }),
       ],
     });
 

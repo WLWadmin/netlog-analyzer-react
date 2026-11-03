@@ -317,9 +317,11 @@ function addReportingSection(lines: string[], state?: ReportingStateView) {
 function addTimelineSection(lines: string[], state?: TimelineStateView) {
   lines.push('## Timeline State');
   if (!state) return addMissingState(lines);
+  const eventCount = state.selection?.eventCount ?? state.buckets.reduce((sum, bucket) => sum + bucket.eventCount, 0);
+  const hasTimeRange = eventCount > 0 && Number.isFinite(state.timeRange.start) && Number.isFinite(state.timeRange.end);
   addTable(lines, ['项目', '值'], [
-    ['时间范围', `${state.timeRange.start} - ${state.timeRange.end}`],
-    ['持续时间(ms)', state.timeRange.duration],
+    ['时间范围', hasTimeRange ? `${state.timeRange.start} - ${state.timeRange.end}` : '无可用数据'],
+    ['持续时间(ms)', hasTimeRange && Number.isFinite(state.timeRange.duration) ? state.timeRange.duration : '无可用数据'],
     ['Bucket 大小(ms)', state.bucketSizeMs],
     ['Bucket 数', state.buckets.length],
     ['错误事件样例', state.notableEvents.length],

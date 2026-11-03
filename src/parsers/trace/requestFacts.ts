@@ -10,6 +10,7 @@ export type TraceRequestResult =
 
 export interface RequestClassificationInput {
   statusCode?: number;
+  isNonHttpResource?: boolean;
   failed?: boolean;
   cancelledSignal: 'explicit' | 'navigation-overlap' | 'none';
   hasFinish: boolean;
@@ -21,10 +22,17 @@ export interface RequestClassification {
   confidence: 'high' | 'medium' | 'observation';
 }
 
+// Zero is Chromium's "no HTTP status" sentinel, not an HTTP success code.
+export function readTraceStatusCode(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value)
+    && (value === 0 || (value >= 100 && value <= 599)) ? value : undefined;
+}
+
 export function classifyRequest(
   input: RequestClassificationInput,
 ): RequestClassification {
-  if (input.statusCode !== undefined && input.statusCode >= 400) {
+  const statusCode = readTraceStatusCode(input.statusCode);
+  if (statusCode !== undefined && statusCode >= 400) {
     return { result: 'http-error', confidence: 'high' };
   }
   if (input.failed === true && input.cancelledSignal === 'explicit') {
@@ -39,7 +47,11 @@ export function classifyRequest(
   if (!input.hasFinish && input.traceEnded) {
     return { result: 'incomplete-at-trace-end', confidence: 'observation' };
   }
-  if (input.statusCode !== undefined && input.statusCode < 400) {
+  if (statusCode !== undefined && statusCode >= 100 && statusCode < 400) {
+    return { result: 'success', confidence: 'high' };
+  }
+  if (statusCode === 0 && input.isNonHttpResource === true
+    && input.hasFinish && input.failed === false) {
     return { result: 'success', confidence: 'high' };
   }
   return { result: 'unknown-failure', confidence: 'observation' };

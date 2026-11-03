@@ -19,7 +19,7 @@ function traceRequest(index: number): TraceRequestFacts {
   };
 }
 
-function harFile(): File {
+function harFile(unknownDuration = false): File {
   return new File([JSON.stringify({
     log: {
       creator: { name: 'synthetic' },
@@ -31,7 +31,7 @@ function harFile(): File {
       entries: [1, 2].map(index => ({
         pageref: 'navigation-1',
         startedDateTime: `2026-08-02T00:00:0${index}.000Z`,
-        time: 100,
+        time: unknownDuration ? undefined : 100,
         request: {
           method: 'GET',
           url: `https://api.example.test/resource-${index}?token=<REDACTED>`,
@@ -39,7 +39,7 @@ function harFile(): File {
           queryString: [{ name: 'token', value: '<REDACTED>' }],
         },
         response: {
-          status: 200,
+          status: unknownDuration ? 500 : 200,
           statusText: 'OK',
           headers: [],
           content: { size: 0, mimeType: 'application/json' },
@@ -63,7 +63,7 @@ function netlogFile(): File {
     events: [1, 2].map(index => ({
       time: String(index * 1000),
       type: 111,
-      phase: 0,
+      phase: 1,
       source: { id: index, type: 1 },
       params: {
         url: `https://api.example.test/resource-${index}?secret=<REDACTED>`,
@@ -74,6 +74,37 @@ function netlogFile(): File {
 }
 
 describe('CrossSourceStore lifecycle', () => {
+  it('labels alignment uncertainty unavailable when there are no valid anchors', async () => {
+    const store = new CrossSourceStore('trace:1', [], 1_000);
+    await store.addSource('har', harFile());
+    const alignments = store.getEvidenceGraph(100).nodes.filter(node => node.kind === 'alignment');
+    expect(alignments.length).toBeGreaterThan(0);
+    alignments.forEach(node => {
+      expect(node.facts?.join(' ')).toContain('不确定性：无可用数据');
+      expect(node.facts?.join(' ')).not.toContain(String(Number.MAX_SAFE_INTEGER));
+    });
+  });
+  it('retains unknown-duration HAR failures as labeled start points in the graph', async () => {
+    const store = new CrossSourceStore('trace:1', [traceRequest(1), traceRequest(2)], 1_000);
+    await store.addSource('har', harFile(true));
+    const entities = store.getCorrelations(100).entities.filter(entity => entity.sourceId.startsWith('har:'));
+    expect(entities).toHaveLength(2);
+    entities.forEach(entity => {
+      expect(entity.duration).toBeUndefined();
+      expect(entity.limitations.join(' ')).toContain('仅开始时间点');
+    });
+    const nodes = store.getEvidenceGraph(100).nodes.filter(node => node.kind === 'har-request');
+    expect(nodes).toHaveLength(2);
+    nodes.forEach(node => {
+      expect(Number.isFinite(node.timeRange?.startUs)).toBe(true);
+      expect(node.timeRange?.endUs).toBe(node.timeRange?.startUs);
+      expect(node.limitations.join(' ')).toContain('仅开始时间点');
+    });
+    expect(store.getEvidenceGraph(100, undefined, {
+      startUs: 1_000_001, endUs: 1_000_001,
+    }).nodes.filter(node => node.kind === 'har-request')).toEqual([]);
+  });
+
   it('adds, replaces and removes sources while revoking dependent graph state', async () => {
     const store = new CrossSourceStore(
       'trace:1',

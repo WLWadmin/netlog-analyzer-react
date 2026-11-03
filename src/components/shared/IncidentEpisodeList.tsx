@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Card, Tag } from 'antd';
 import { ArrowRightOutlined, BranchesOutlined, ClockCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import type { FinalDiagnosisSummary, RootCauseCluster } from '../../diagnosis/shared';
+import { formatAffectedRequestCount } from '../../diagnosis/shared/impactScope';
 
 interface IncidentEpisodeListProps {
   finalSummary?: FinalDiagnosisSummary;
@@ -37,6 +38,7 @@ function inferScope(cluster: RootCauseCluster): string {
   if (cardScope && cardScope !== 'unknown') return cardScope;
   if (/影响范围：([^。]+)/.test(cluster.summary)) return RegExp.$1;
   if (cluster.affectedDomainCount > 1) return 'multi-domain';
+  if (cluster.requestCountIsKnown === false) return 'unknown';
   if (cluster.affectedRequestCount <= 1) return 'single-request';
   return 'single-domain';
 }
@@ -72,7 +74,7 @@ const IncidentEpisodeList: React.FC<IncidentEpisodeListProps> = ({
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             <Tag color={primary.kind === 'confirmed' ? 'red' : primary.kind === 'highly-likely' ? 'orange' : 'blue'}>{primary.kind}</Tag>
             <Tag>{scopeLabel[scope] || scope}</Tag>
-            <Tag>{primary.affectedRequestCount} 请求</Tag>
+            <Tag>{formatAffectedRequestCount(primary.affectedRequestCount, primary.requestCountIsKnown, primary.requestCountIsLowerBound, '请求')}</Tag>
             <Tag>{primary.affectedDomainCount} 域名</Tag>
           </div>
           <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.35 }}>{primary.title}</div>
@@ -106,7 +108,7 @@ const IncidentEpisodeList: React.FC<IncidentEpisodeListProps> = ({
               {secondary.slice(0, maxSecondary).map(item => (
                 <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, padding: 10, borderRadius: 12, background: 'rgba(255,255,255,0.62)', border: '1px solid rgba(148,163,184,0.18)' }}>
                   <span style={{ minWidth: 0, color: 'var(--text-secondary)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.summary}</span>
-                  <Tag>{item.affectedRequestCount} 请求</Tag>
+                  <Tag>{formatAffectedRequestCount(item.affectedRequestCount, item.requestCountIsKnown, item.requestCountIsLowerBound, '请求')}</Tag>
                 </div>
               ))}
             </div>

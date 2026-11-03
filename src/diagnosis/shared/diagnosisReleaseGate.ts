@@ -55,6 +55,12 @@ export interface DiagnosisReleaseGateReport {
   passed: boolean;
   blockers: string[];
   warnings: string[];
+  /** Counts used by each rate, retained so zero applicable samples stay explicit. */
+  metricSamples: Record<
+    'explicitFailureCoverageRate' | 'mainProblemCoverageRate' | 'moreEvidenceGapCoverageRate' |
+    'topEpisodeEvidenceCoverageRate' | 'topEpisodeActionCoverageRate',
+    { validCount: number; totalCount: number }
+  >;
   metrics: {
     explicitFailureCoverageRate: number;
     mainProblemCoverageRate: number;
@@ -67,7 +73,7 @@ export interface DiagnosisReleaseGateReport {
 }
 
 function ratio(numerator: number, denominator: number): number {
-  return denominator === 0 ? 1 : numerator / denominator;
+  return denominator === 0 ? Number.NaN : numerator / denominator;
 }
 
 function textOfSummary(summary: FinalDiagnosisSummary): string {
@@ -147,15 +153,31 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
   const goldenLeakCount = input.goldenCorpus.filter(item => !item.sanitized).length;
   const sensitiveLeakCount = summaryLeakCount + copyLeakCount + goldenLeakCount;
 
+  const metricSamples: DiagnosisReleaseGateReport['metricSamples'] = {
+    explicitFailureCoverageRate: { validCount: failureCards.filter(card => card.confidence !== 'low' || card.evidence.length > 0).length, totalCount: failureCards.length },
+    mainProblemCoverageRate: totalCoverageObjects > 0
+      ? { validCount: explainedCoverage, totalCount: totalCoverageObjects }
+      : { validCount: mainProblemCards.filter(card => card.confidence !== 'low').length, totalCount: mainProblemCards.length },
+    moreEvidenceGapCoverageRate: { validCount: requiresMoreEvidenceWithGap, totalCount: requiresMoreEvidenceCards.length },
+    topEpisodeEvidenceCoverageRate: { validCount: topWithEvidence, totalCount: topClusters.length },
+    topEpisodeActionCoverageRate: { validCount: topWithActions, totalCount: topClusters.length },
+  };
   const metrics = {
-    explicitFailureCoverageRate: ratio(failureCards.filter(card => card.confidence !== 'low' || card.evidence.length > 0).length, failureCards.length),
-    mainProblemCoverageRate: totalCoverageObjects > 0 ? ratio(explainedCoverage, totalCoverageObjects) : ratio(mainProblemCards.filter(card => card.confidence !== 'low').length, mainProblemCards.length),
-    moreEvidenceGapCoverageRate: ratio(requiresMoreEvidenceWithGap, requiresMoreEvidenceCards.length),
-    topEpisodeEvidenceCoverageRate: ratio(topWithEvidence, topClusters.length),
-    topEpisodeActionCoverageRate: ratio(topWithActions, topClusters.length),
+    explicitFailureCoverageRate: ratio(metricSamples.explicitFailureCoverageRate.validCount, metricSamples.explicitFailureCoverageRate.totalCount),
+    mainProblemCoverageRate: ratio(metricSamples.mainProblemCoverageRate.validCount, metricSamples.mainProblemCoverageRate.totalCount),
+    moreEvidenceGapCoverageRate: ratio(metricSamples.moreEvidenceGapCoverageRate.validCount, metricSamples.moreEvidenceGapCoverageRate.totalCount),
+    topEpisodeEvidenceCoverageRate: ratio(metricSamples.topEpisodeEvidenceCoverageRate.validCount, metricSamples.topEpisodeEvidenceCoverageRate.totalCount),
+    topEpisodeActionCoverageRate: ratio(metricSamples.topEpisodeActionCoverageRate.validCount, metricSamples.topEpisodeActionCoverageRate.totalCount),
     forbiddenConclusionCount,
     sensitiveLeakCount,
   };
+  // Coverage totals cannot stand in for the diagnostic output being evaluated.
+  if (allCards.length === 0 && topClusters.length === 0) {
+    blockers.push('诊断汇总无可用样本，无法验证覆盖率');
+  }
+  Object.entries(metrics).forEach(([metric, value]) => {
+    if (!Number.isFinite(value)) warnings.push(`${metric} 无可用数据，不能认定达到覆盖率门槛`);
+  });
 
   if (metrics.explicitFailureCoverageRate < 1) blockers.push('明确失败分类覆盖率未达到 100%');
   if (metrics.mainProblemCoverageRate < 0.95) blockers.push('失败或慢请求主问题覆盖率低于 95%');
@@ -166,17 +188,25 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
   if (metrics.sensitiveLeakCount > 0) blockers.push('摘要或样本存在敏感值泄漏');
 
   const goldenFailures = input.goldenCorpus.filter(item => item.passed !== true || item.requiredMatches.length === 0 || item.forbiddenMatches.length > 0 || !item.sanitized);
+  if (input.goldenCorpus.length === 0) blockers.push('Golden Corpus 无可用样本');
   if (goldenFailures.length > 0) blockers.push(`Golden Corpus 未全部通过：${goldenFailures.map(item => item.id).join(', ')}`);
 
-  if ((input.performance.harObservationClusterCoverageMs ?? 0) > 100) blockers.push('500 条 HAR observation + cluster + coverage 超过 100ms');
-  if ((input.performance.addedFullFileScans ?? 0) > 0) blockers.push('大 NetLog 新增了第二次完整文件扫描');
-  if ((input.performance.netlogFirstDiagnosisMs ?? 0) > 500) blockers.push('NetLog 首诊断性能低于 benchmark gate');
-  if ((input.performance.datasetQueryMs ?? 0) > 100) blockers.push('Dataset query 性能低于 benchmark gate');
-  if ((input.performance.datasetDetailMs ?? 0) > 100) blockers.push('Dataset detail 性能低于 benchmark gate');
+  const performanceChecks: Array<[keyof DiagnosisPerformanceMetrics, number, string]> = [
+    ['harObservationClusterCoverageMs', 100, '500 条 HAR observation + cluster + coverage 超过 100ms'],
+    ['addedFullFileScans', 0, '大 NetLog 新增了第二次完整文件扫描'],
+    ['netlogFirstDiagnosisMs', 500, 'NetLog 首诊断性能低于 benchmark gate'],
+    ['datasetQueryMs', 100, 'Dataset query 性能低于 benchmark gate'],
+    ['datasetDetailMs', 100, 'Dataset detail 性能低于 benchmark gate'],
+  ];
+  performanceChecks.forEach(([key, threshold, message]) => {
+    const value = input.performance[key];
+    if (value === undefined || !Number.isFinite(value) || value < 0) blockers.push(`${key} 无可用测量数据`);
+    else if (value > threshold) blockers.push(message);
+  });
 
   if (input.productAcceptance) {
     const product = input.productAcceptance;
-    if (product.participants < 5) blockers.push('非网络专业用户验收人数不足 5 人');
+    if (!Number.isFinite(product.participants) || product.participants < 5) blockers.push('非网络专业用户验收人数不足 5 人');
     [
       ['10 秒内指出最值得先看的问题', product.identifyTopIssueRate],
       ['说出影响范围', product.identifyScopeRate],
@@ -184,7 +214,7 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
       ['选择正确第一步行动', product.chooseFirstActionRate],
       ['知道下一步 owner', product.identifyOwnerRate],
     ].forEach(([label, value]) => {
-      if ((value as number) < 0.8) blockers.push(`产品验收未达 80%：${label}`);
+      if (!Number.isFinite(value as number) || (value as number) < 0.8 || (value as number) > 1) blockers.push(`产品验收未达 80%：${label}`);
     });
   } else {
     blockers.push('尚未提供 5 名非网络专业用户验收结果');
@@ -208,6 +238,7 @@ export function buildDiagnosisReleaseGateReport(input: DiagnosisReleaseGateInput
     passed: blockers.length === 0,
     blockers,
     warnings,
+    metricSamples,
     metrics,
   };
 }

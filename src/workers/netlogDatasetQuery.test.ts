@@ -81,7 +81,7 @@ describe('queryNetlogEvents', () => {
     expect(result.rows[0]).toEqual(expect.objectContaining({
       typeName: 'URL_REQUEST',
       sourceTypeName: 'SOCKET',
-      phaseName: 'PHASE_NONE',
+      phaseName: 'PHASE_END',
     }));
   });
 

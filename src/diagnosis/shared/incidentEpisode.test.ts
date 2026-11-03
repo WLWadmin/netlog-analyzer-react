@@ -31,6 +31,19 @@ function card(overrides: Partial<DiagnosticCard> & { id: string; category: Diagn
 }
 
 describe('incidentEpisode', () => {
+  it('uses the cross-source lower bound instead of the numeric ID union', () => {
+    const cards = [
+      card({ id: 'har-1', source: 'har', category: 'dns', startMs: 1000, endMs: 1200, relatedRequestIds: [1, 2] }),
+      card({ id: 'netlog-3', source: 'netlog', category: 'dns', startMs: 1000, endMs: 1200, relatedRequestIds: [3, 4] }),
+    ];
+    const [episode] = buildIncidentEpisodes(cards);
+    expect(episode.impactScope).toMatchObject({ affectedRequestCount: 2, requestCountIsLowerBound: true });
+    expect(episode.affectedRequestCount).toBe(2);
+    expect(episode.narrative).toContain('影响 至少 2 个请求');
+    // Narrative must take the scope count even if handed a legacy episode count.
+    expect(buildIncidentNarrative({ ...episode, affectedRequestCount: 4 })).toContain('至少 2 个请求');
+  });
+
   it('merges continuous failures into one episode', () => {
     const episodes = buildIncidentEpisodes([
       card({ id: 'dns-1', category: 'dns', startMs: 1000, endMs: 1200, domain: 'a.example.test' }),

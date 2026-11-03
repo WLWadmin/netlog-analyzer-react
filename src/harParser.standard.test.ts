@@ -1,6 +1,126 @@
-import { parseHar } from './harParser';
+import { formatHarTime, parseHar } from './harParser';
+import { getHarRequestIssue } from './diagnosis/shared/harRequestIssue';
+import { isHarTimelineEntryAvailable } from './diagnosis/shared/harWaterfall';
 
 describe('HAR 1.2 standard evidence model', () => {
+  it('sums only known transfer sizes, including top-level Chromium transfer size', () => {
+    const result = parseHar({ log: { entries: [
+      { _transferSize: 100, request: { url: 'https://example.test/a' }, response: { status: 200, bodySize: -1, content: {} } },
+      { request: { url: 'https://example.test/b' }, response: { status: 200, bodySize: -1, content: {} } },
+    ] } });
+    expect(result.entries.map(entry => entry.size)).toEqual([100, -1]);
+    expect(result.totalSize).toBe(100);
+  });
+  it('keeps valid requests and page markers when noncritical pages contain invalid elements', () => {
+    const result = parseHar({ log: {
+      pages: [
+        null, 42, 'invalid', [],
+        { id: 'valid-page', startedDateTime: '2026-08-20T00:00:00.000Z', pageTimings: { onContentLoad: 10, onLoad: 20 } },
+        { id: 'invalid-timing', pageTimings: { onLoad: '9000' } },
+      ],
+      entries: [{
+        startedDateTime: '2026-08-20T00:00:00.000Z', time: 1,
+        request: { method: 'GET', url: 'https://example.test/' },
+        response: { status: 200 },
+        timings: { send: 0, wait: 1, receive: 0 },
+      }],
+    } });
+    expect(result.totalRequests).toBe(1);
+    expect(result.pageMarkers).toEqual([expect.objectContaining({
+      pageId: 'valid-page', domContentLoadedMs: 10, loadMs: 20,
+    })]);
+    expect(result.standard.pages.map(page => page.jsonPath)).toEqual([
+      '$.log.pages[4]', '$.log.pages[5]',
+    ]);
+    expect(result.qualityReport?.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'structure', severity: 'warning', count: 4,
+        samples: [0, 1, 2, 3].map(index => ({ jsonPath: `$.log.pages[${index}]` })),
+      }),
+    ]));
+    expect(parseHar({ log: { pages: [null], entries: [] } }).pageMarkers).toEqual([]);
+  });
+
+  it.each([JSON.parse('1e309'), '9000', null, undefined, -1, -2])(
+    'excludes unavailable duration %s from slow count and capture span',
+    time => {
+      const entry = {
+        startedDateTime: '2026-08-20T00:00:00.000Z',
+        time,
+        request: { method: 'GET', url: 'https://example.test/' },
+        response: { status: 200 },
+        timings: { send: 0, wait: 0, receive: 0 },
+      };
+      const result = parseHar({ log: { entries: [
+        entry,
+        { ...entry, startedDateTime: '2026-08-20T00:00:10.000Z', time: 25 },
+      ] } });
+      expect(result.slowCount).toBe(0);
+      expect(result.entries[0].isSlow).toBe(false);
+      expect(Number.isNaN(result.entries[0].time)).toBe(true);
+      expect(formatHarTime(result.entries[0].time)).toBe('-');
+      expect(result.totalTime).toBe(25);
+      expect(isHarTimelineEntryAvailable(result.entries[0])).toBe(false);
+      expect(result.qualityReport?.issues.some(issue =>
+        issue.samples.some(sample => sample.jsonPath === '$.log.entries[0].time'),
+      )).toBe(true);
+      const unavailable = parseHar({ log: { entries: [entry] } });
+      expect(Number.isNaN(unavailable.totalTime)).toBe(true);
+      expect(formatHarTime(unavailable.totalTime)).toBe('-');
+    },
+  );
+
+  it('keeps zero duration known and rejects nonfinite or coerced timing phases', () => {
+    const result = parseHar({ log: { entries: [{
+      startedDateTime: '2026-08-20T00:00:00.000Z', time: 0,
+      request: { method: 'GET', url: 'https://example.test/' },
+      response: { status: 200 },
+      timings: { send: 0, wait: JSON.parse('1e309'), receive: '9000' },
+    }] } });
+    expect(result.entries[0].time).toBe(0);
+    expect(result.totalTime).toBe(0);
+    expect(result.entries[0].timingAvailability?.wait).toBe(false);
+    expect(result.entries[0].timingAvailability?.receive).toBe(false);
+    expect(result.entries[0].timings.wait).toBe(0);
+    expect(result.entries[0].timings.receive).toBe(0);
+    expect(result.entries[0].standard.timings.wait.state).toBe('invalid');
+    expect(result.entries[0].standard.timings.receive.state).toBe('invalid');
+  });
+
+  it('keeps omitted duration unknown without inventing a zero measurement', () => {
+    const result = parseHar({ log: { entries: [{
+      startedDateTime: '2026-08-20T00:00:00.000Z',
+      request: { method: 'GET', url: 'https://example.test/' },
+      response: { status: 200 },
+    }] } });
+    expect(result.entries[0].standard.time.state).toBe('missing');
+    expect(formatHarTime(result.entries[0].time)).toBe('-');
+    expect(formatHarTime(result.totalTime)).toBe('-');
+    expect(result.slowCount).toBe(0);
+  });
+
+  it.each([200, 0])('consumes failure extensions at both levels with status %s', status => {
+    for (const level of ['entry', 'response']) {
+      for (const field of ['_error', 'error', 'errorText', '_netError', 'netError']) {
+        const failure = { [field]: 'net::ERR_CONNECTION_RESET' };
+        const result = parseHar({ log: { entries: [{
+          ...(level === 'entry' ? failure : {}),
+          startedDateTime: '2026-08-20T00:00:00.000Z', time: 1,
+          request: { method: 'GET', url: 'https://example.test/' },
+          response: { status, ...(level === 'response' ? failure : {}) },
+          timings: { send: 0, wait: 1, receive: 0 },
+        }] } });
+        const entry = result.entries[0];
+        expect(result.failedCount).toBe(1);
+        expect(entry.netErrorText).toBe('net::ERR_CONNECTION_RESET');
+        expect(getHarRequestIssue(entry).kind).toBe('net-error');
+        const extensionKey = field === 'errorText' ? 'errorText'
+          : field === '_netError' || field === 'netError' ? 'netError' : 'error';
+        expect(entry.extensions?.[extensionKey]).toBe(field === 'error' ? undefined : 'net::ERR_CONNECTION_RESET');
+      }
+    }
+  });
+
   it('retains log, page, entry, request, response, cache and timing fields with JSON paths', () => {
     const result = parseHar({
       log: {

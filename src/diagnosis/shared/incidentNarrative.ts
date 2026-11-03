@@ -1,4 +1,5 @@
 import type { IncidentEpisode } from './incidentEpisode';
+import { formatAffectedRequestCount } from './impactScope';
 
 const CATEGORY_LABEL: Record<string, string> = {
   dns: 'DNS 解析失败',
@@ -18,11 +19,16 @@ function timeText(ms: number): string {
 
 export function buildIncidentNarrative(episode: IncidentEpisode): string {
   const label = CATEGORY_LABEL[episode.category] || `${episode.category} 异常`;
+  const countText = formatAffectedRequestCount(
+    episode.impactScope.affectedRequestCount,
+    episode.impactScope.requestCountIsKnown,
+    episode.impactScope.requestCountIsLowerBound,
+  );
   if (!episode.timeComparable || episode.startMs === undefined || episode.endMs === undefined) {
-    return `当前文件中有 ${episode.affectedRequestCount} 个请求记录${label}；由于时间基准不足，无法判断持续时间和是否已经恢复。`;
+    return `当前文件中记录${label}（${countText}）；由于时间基准不足，无法判断持续时间和是否已经恢复。`;
   }
 
-  const base = `在 ${timeText(episode.startMs)} 至 ${timeText(episode.endMs)}，${episode.affectedDomainCount} 个域名出现${label}，影响 ${episode.affectedRequestCount} 个请求`;
+  const base = `在 ${timeText(episode.startMs)} 至 ${timeText(episode.endMs)}，${episode.affectedDomainCount} 个域名出现${label}，影响 ${countText}`;
   if (episode.state === 'recovered' && episode.recoveredAtMs !== undefined) {
     return `${base}；${timeText(episode.recoveredAtMs)} 后同域请求恢复成功。`;
   }

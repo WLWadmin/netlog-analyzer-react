@@ -4,7 +4,8 @@ import DatasetEventsTab from './DatasetEventsTab';
 import { NavigationProvider, useNavigation } from '../../contexts/NavigationContext';
 import { getNetlogEventDetailInWorker, queryNetlogEventsInWorker } from '../../workers/workerClient';
 import { saveDatasetEventsFilterState } from './datasetEventsFilterState';
-import type { QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
+import { queryNetlogEvents, type NetlogEventRow, type QueryNetlogEventsResult } from '../../workers/netlogDatasetQuery';
+import type { CompactEventIndex } from '../../workers/netlogDatasetIndexer';
 
 jest.mock('../../workers/workerClient', () => ({
   queryNetlogEventsInWorker: jest.fn(),
@@ -19,11 +20,40 @@ jest.mock('antd', () => ({
     ({ value, onChange, placeholder }: React.InputHTMLAttributes<HTMLInputElement>) => <input value={value} onChange={onChange} placeholder={placeholder} />,
     { Search: () => <input aria-label="搜索" /> },
   ),
-  Table: ({ dataSource, columns }: { dataSource: Array<{ eventId: number }>; columns: Array<{ title: string; render?: (value: undefined, row: { eventId: number }) => React.ReactNode }> }) => <div>{dataSource.map(row => <div key={row.eventId}>event#{row.eventId}{columns.find(column => column.title === 'Detail')?.render?.(undefined, row)}</div>)}</div>,
+  Table: ({ dataSource, columns }: { dataSource: NetlogEventRow[]; columns: Array<{ title: string; render?: (value: undefined, row: NetlogEventRow) => React.ReactNode }> }) => <div>{dataSource.map(row => <div key={row.eventId}>event#{row.eventId}<span>{columns.find(column => column.title === 'Phase')?.render?.(undefined, row)}</span>{columns.find(column => column.title === 'Detail')?.render?.(undefined, row)}</div>)}</div>,
   Tag: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
   Modal: ({ children, open, onCancel }: { children: React.ReactNode; open: boolean; onCancel(): void }) => open ? <div><button onClick={onCancel}>关闭详情</button>{children}</div> : null,
   message: { error: jest.fn() },
 }));
+
+it('filters official numeric phases, displays Dataset names and opens the original END detail', async () => {
+  sessionStorage.clear();
+  const index: CompactEventIndex = {
+    count: 3, time: [10, 20, 30], typeId: [2, 2, 2],
+    sourceId: [7, 7, 7], sourceTypeId: [1, 1, 1], phase: [0, 1, 2],
+    flags: [0, 0, 0], byteStart: [0, 10, 20], byteEnd: [10, 20, 30],
+  };
+  const query = jest.mocked(queryNetlogEventsInWorker);
+  query.mockReset();
+  query.mockImplementation(async request => queryNetlogEvents(index, request));
+  const detail = jest.mocked(getNetlogEventDetailInWorker);
+  detail.mockReset();
+  detail.mockResolvedValue({ phase: 2, marker: 'original-END-evidence' });
+  render(<NavigationProvider><DatasetEventsTab analysisId="official-phase" /></NavigationProvider>);
+  await screen.findByText('PHASE_NONE (0)');
+  expect(screen.getByText('PHASE_BEGIN (1)')).not.toBeNull();
+  expect(screen.getByText('PHASE_END (2)')).not.toBeNull();
+  for (const [phase, name] of [[0, 'PHASE_NONE'], [1, 'PHASE_BEGIN'], [2, 'PHASE_END']] as const) {
+    fireEvent.change(screen.getByPlaceholderText('phase'), { target: { value: String(phase) } });
+    await waitFor(() => expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ phase })));
+    await waitFor(() => expect(screen.getAllByText(/PHASE_(NONE|BEGIN|END) \(\d\)/)).toHaveLength(1));
+    expect(screen.getByText(`${name} (${phase})`)).not.toBeNull();
+  }
+  fireEvent.click(screen.getByText('查看'));
+  await waitFor(() => expect(detail).toHaveBeenCalledWith({ analysisId: 'official-phase', eventId: 2 }));
+  await screen.findByText(/original-END-evidence/);
+  expect(screen.getByText(/"phase": 2/)).not.toBeNull();
+});
 
 function EvidenceJump() {
   const { navigateTo } = useNavigation();
@@ -77,7 +107,7 @@ it('opens the exact quality event, supports repeat jumps and rejects stale detai
   await waitFor(() => expect(detail).toHaveBeenCalledWith({ analysisId: 'quality', eventId: 42 }));
   fireEvent.click(screen.getByText('校验事件'));
   await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(screen.getByText(/latest-detail/)).not.toBeNull());
+  expect(await screen.findByText(/latest-detail/)).not.toBeNull();
   await act(async () => resolveOld({ qualityMarker: 'stale-detail' }));
   expect(screen.queryByText(/stale-detail/)).toBeNull();
 });
@@ -139,6 +169,6 @@ it.each(['manual', 'close', 'session'] as const)('invalidates a pending navigati
   }
   await act(async () => rejectOld(new Error('old request failed')));
   expect(screen.queryByText(/读取失败/)).toBeNull();
-  if (action === 'manual') expect(screen.queryByText(/latest-manual-event/)).not.toBeNull();
-  else expect(screen.queryByText('关闭详情')).toBeNull();
+  expect(screen.queryAllByText(/latest-manual-event/)).toHaveLength(action === 'manual' ? 1 : 0);
+  expect(screen.queryAllByText('关闭详情')).toHaveLength(action === 'manual' ? 1 : 0);
 });

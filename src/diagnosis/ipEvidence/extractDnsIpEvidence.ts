@@ -1,4 +1,5 @@
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { getHarKnownDurationMs } from '../shared/harTimingCompleteness';
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import { classifyDnsServer } from './classifyDnsServer';
 import { normalizeIp } from './ipNormalize';
@@ -161,10 +162,19 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       serverObservedClientIps.join(','),
     ].join('|');
     const uniqueItems = Array.from(new Map(row.items.map(item => [
-      [item.url || item.host || '-', item.statusCode || '', item.error || '', item.durationMs || ''].join('|'),
+      [item.url || item.host || '-', item.statusCode ?? '', item.error ?? '', item.durationMs ?? ''].join('|'),
       item,
     ])).values());
-    const sortedItems = uniqueItems.sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0));
+    // Unknown duration sorts after a measured zero and remains unavailable.
+    const sortedItems = uniqueItems.map(item => ({
+      ...item,
+      durationMs: item.durationMs !== undefined && Number.isFinite(item.durationMs) && item.durationMs >= 0
+        ? item.durationMs : undefined,
+    })).sort((a, b) => (b.durationMs ?? -1) - (a.durationMs ?? -1));
+    const durationCoverage = {
+      validCount: sortedItems.filter(item => item.durationMs !== undefined).length,
+      totalCount: sortedItems.length,
+    };
     const topItems = sortedItems.slice(0, 3);
     const representative = topItems[0] || sortedItems[0];
     const existing = mergedRows.get(key);
@@ -178,9 +188,15 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
 
     if (existing) {
       existing.representativeRequests = [...existing.representativeRequests, ...nextRequests]
-        .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
+        .sort((a, b) => (b.durationMs ?? -1) - (a.durationMs ?? -1))
         .slice(0, 3);
-      existing.durationMs = Math.max(existing.durationMs || 0, representative?.durationMs || 0);
+      const durations = [existing.durationMs, representative?.durationMs]
+        .filter((value): value is number => value !== undefined);
+      existing.durationMs = durations.length > 0 ? Math.max(...durations) : undefined;
+      existing.durationCoverage = {
+        validCount: (existing.durationCoverage?.validCount ?? 0) + durationCoverage.validCount,
+        totalCount: (existing.durationCoverage?.totalCount ?? 0) + durationCoverage.totalCount,
+      };
       existing.descriptions = Array.from(new Set([...existing.descriptions, ...row.descriptions])).slice(0, 6);
       continue;
     }
@@ -193,6 +209,7 @@ function buildRows(items: IpEvidenceItem[]): CipSipEvidenceRow[] {
       statusCode: representative?.statusCode,
       error: representative?.error,
       durationMs: representative?.durationMs,
+      durationCoverage,
       cipIps,
       sipIps,
       socketPeerIps,
@@ -257,7 +274,7 @@ export function extractDnsIpEvidenceFromHar(result: HarAnalysisResult): DnsIpEvi
       url: entry.url,
       impact,
       statusCode: entry.status,
-      durationMs: entry.time,
+      durationMs: getHarKnownDurationMs(entry),
     };
 
     addIpEvidence(itemMap, entry.remoteAddress, {

@@ -19,6 +19,7 @@ import type {
   RootCauseCluster,
 } from '../../diagnosis/shared';
 import { sanitizeDiagnosisText } from '../../diagnosis/shared';
+import { formatAffectedRequestCount } from '../../diagnosis/shared/impactScope';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
 import NoviceTroubleshootingFlow from './NoviceTroubleshootingFlow';
@@ -144,7 +145,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
     lines.push('', '主事件：');
     finalSummary.rootCauseClusters.slice(0, 3).forEach((cluster, index) => {
       lines.push(`${index + 1}. ${cluster.summary}`);
-      lines.push(`   影响：${cluster.affectedRequestCount} 个请求 / ${cluster.affectedDomainCount} 个域名`);
+      lines.push(`   影响：${formatAffectedRequestCount(cluster.affectedRequestCount, cluster.requestCountIsKnown, cluster.requestCountIsLowerBound)} / ${cluster.affectedDomainCount} 个域名`);
       cluster.keyEvidence.slice(0, 3).forEach(item => lines.push(`   证据：${item.label}=${item.value}`));
     });
   }

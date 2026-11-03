@@ -6,8 +6,9 @@ import {
   CloudDownloadOutlined,
   FieldTimeOutlined,
 } from '@ant-design/icons';
-import { HarAnalysisResult, formatBytes, formatHarTime, HAR_SLOW_THRESHOLD_MS } from '../../harParser';
+import { HarAnalysisResult, formatBytes, formatHarTime, getHarResponseStatus, HAR_SLOW_THRESHOLD_MS } from '../../harParser';
 import { SummaryCard } from '../shared/SummaryCard';
+import { getHarSpanCoveredRequestCount, getHarKnownDurationMs } from '../../diagnosis/shared/harTimingCompleteness';
 
 interface HarSummaryCardsProps {
   result: HarAnalysisResult;
@@ -17,6 +18,12 @@ interface HarSummaryCardsProps {
 }
 
 const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFailed, onFilterSlow, onFilterAll }) => {
+  const spanCount = getHarSpanCoveredRequestCount(result.entries);
+  const knownSizeCount = result.entries.filter(entry => Number.isFinite(entry.size) && entry.size >= 0).length;
+  const outcomeCount = result.entries.filter(entry => getHarResponseStatus(entry) !== undefined || entry.isFailed).length;
+  const durationCount = result.entries.filter(entry => getHarKnownDurationMs(entry) !== undefined).length;
+  const spanLabel = spanCount === 0 ? '无可用请求起止时间'
+    : spanCount === result.entries.length ? '已记录请求的起止跨度' : '已知请求子集跨度';
   const cards = [
     {
       title: '总请求数',
@@ -30,8 +37,8 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
     },
     {
       title: '失败请求',
-      value: result.failedCount,
-      suffix: result.failedCount > 0 ? '点击筛选失败请求 ›' : '无失败',
+      value: outcomeCount > 0 ? result.failedCount : '无可用数据',
+      suffix: `${result.failedCount > 0 ? '点击筛选失败请求 ›' : outcomeCount > 0 ? '已知结果中未记录失败' : '请求结果未知'} · 覆盖 ${outcomeCount}/${result.entries.length}`,
       color: '#f87171',
       valueColor: result.failedCount > 0 ? '#f87171' : undefined,
       icon: <CloseCircleOutlined />,
@@ -40,18 +47,18 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
     },
     {
       title: '慢请求',
-      value: result.slowCount,
-      suffix: result.slowCount > 0 ? `≥${HAR_SLOW_THRESHOLD_MS}ms · 点击筛选 ›` : `耗时 ≥${HAR_SLOW_THRESHOLD_MS}ms`,
+      value: durationCount > 0 ? result.slowCount : '无可用数据',
+      suffix: `耗时 ≥${HAR_SLOW_THRESHOLD_MS}ms${result.slowCount > 0 ? ' · 点击筛选 ›' : ''} · 覆盖 ${durationCount}/${result.entries.length}`,
       color: result.slowCount > 0 ? '#fb923c' : '#34d399',
-      valueColor: result.slowCount > 0 ? '#fb923c' : '#34d399',
+      valueColor: result.slowCount > 0 ? '#fb923c' : undefined,
       icon: <ClockCircleOutlined />,
       bg: 'linear-gradient(135deg, rgba(251, 146, 60, 0.12), rgba(248, 113, 113, 0.08))',
       onClick: result.slowCount > 0 ? onFilterSlow : undefined,
     },
     {
       title: '总传输大小',
-      value: formatBytes(result.totalSize),
-      suffix: '所有请求合计',
+      value: knownSizeCount > 0 ? formatBytes(result.totalSize) : '无可用数据',
+      suffix: `已知大小合计 · 覆盖 ${knownSizeCount}/${result.entries.length}`,
       color: '#22d3ee',
       valueColor: undefined, // 中性指标
       icon: <CloudDownloadOutlined />,
@@ -59,9 +66,9 @@ const HarSummaryCards: React.FC<HarSummaryCardsProps> = ({ result, onFilterFaile
       onClick: undefined,
     },
     {
-      title: '总耗时',
-      value: formatHarTime(result.totalTime),
-      suffix: '首尾请求时间跨度',
+      title: '请求时间跨度',
+      value: spanCount > 0 ? formatHarTime(result.totalTime) : '无可用数据',
+      suffix: `${spanLabel} · 覆盖 ${spanCount}/${result.entries.length}`,
       color: '#a78bfa',
       valueColor: undefined, // 中性指标
       icon: <FieldTimeOutlined />,

@@ -116,6 +116,16 @@ function makeCard(input: {
 }
 
 export function compareNetlogBaselines(baseline: AnalysisResult, current: AnalysisResult): DiagnosticCard[] {
+  if (baseline.totalEvents === 0 || current.totalEvents === 0) {
+    return [{
+      id: 'netlog-baseline-unavailable', source: 'netlog', category: 'quality',
+      severity: 'info', confidence: 'low', title: 'NetLog A-B 无可用事件样本',
+      conclusion: '一侧或两侧无可用事件，无法比较新增差异。',
+      scope: { type: 'unknown', summary: '无可用事件' },
+      evidence: [{ label: '事件样本覆盖', value: `${Number(baseline.totalEvents > 0) + Number(current.totalEvents > 0)}/2`, source: 'derived' }],
+      actions: [],
+    }];
+  }
   const incomplete = isIncomplete(baseline) || isIncomplete(current);
   const specs: Array<{
     id: string;

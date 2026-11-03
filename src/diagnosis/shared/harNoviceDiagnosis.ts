@@ -1,4 +1,4 @@
-import type { HarAnalysisResult } from '../../harParser';
+import { getHarResponseStatus, type HarAnalysisResult } from '../../harParser';
 import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { DiagnosticAction } from './types';
 import { buildHarIssueClusters, getHarEvidenceLevelLabel, getHarRoleLabel, type HarEvidenceLevel, type HarIssueCategory, type HarIssueCluster } from './harIssueClusters';
@@ -108,9 +108,11 @@ function roleReason(role: HarIssueCluster['roleHints'][number], cluster: HarIssu
 }
 
 function buildNoIssueDiagnosis(result: HarAnalysisResult): HarNoviceDiagnosis {
+  const outcomeCount = result.entries.filter(entry => getHarResponseStatus(entry) !== undefined || entry.isFailed).length;
+  const hasOutcomes = outcomeCount > 0;
   return {
-    headline: '当前 HAR 未发现明确失败或集中慢阶段',
-    summary: '当前 HAR 未发现明确失败或集中慢阶段。HAR 只能覆盖本次已记录请求；若用户仍感知异常，请确认是否复现到问题并补充 NetLog。',
+    headline: hasOutcomes ? '可用结果中未发现明确失败；慢阶段需依据 Timing 判断' : 'HAR 请求结果无可用数据',
+    summary: `${hasOutcomes ? '当前可用证据未形成明确问题组。' : '请求结果无可用数据，无法判断失败或慢阶段。'}结果覆盖 ${outcomeCount}/${result.entries.length}；请确认问题已经复现并补充同次证据。`,
     evidenceLevel: 'insufficient',
     impact: `${result.totalRequests} 个请求中未发现可升级为全局问题的问题组`,
     secondaryClusters: [],
@@ -130,7 +132,7 @@ export function buildHarNoviceDiagnosis(result: HarAnalysisResult): HarNoviceDia
   const primaryCluster = clusters[0];
   if (!primaryCluster) return buildNoIssueDiagnosis(result);
   const secondaryClusters = clusters.slice(1, 5);
-  const impact = `${primaryCluster.affectedRequestCount} 个请求 / ${primaryCluster.affectedDomainCount} 个域名${primaryCluster.maxDurationMs ? ` / 最慢 ${Math.round(primaryCluster.maxDurationMs)}ms` : ''}`;
+  const impact = `${primaryCluster.affectedRequestCount} 个请求 / ${primaryCluster.affectedDomainCount} 个域名${primaryCluster.maxDurationMs !== undefined ? ` / 最慢 ${Math.round(primaryCluster.maxDurationMs)}ms` : ' / 耗时无可用数据'}`;
   const immediateActions = uniqueActions([
     ...categoryAction(primaryCluster.category),
     ...secondaryClusters.flatMap(cluster => categoryAction(cluster.category).slice(0, 1)),
@@ -153,6 +155,6 @@ export function buildHarNoviceDiagnosis(result: HarAnalysisResult): HarNoviceDia
     immediateActions,
     handoffRoles,
     evidenceGap,
-    relatedRequestIds: primaryCluster.representativeRequestIds,
+    relatedRequestIds: primaryCluster.affectedRequestIds,
   };
 }

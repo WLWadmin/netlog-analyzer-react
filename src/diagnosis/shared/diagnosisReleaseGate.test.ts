@@ -144,6 +144,59 @@ const passingInput = {
 };
 
 describe('diagnosisReleaseGate', () => {
+  it('returns coverage numerators and denominators with each public rate', () => {
+    expect(buildDiagnosisReleaseGateReport(passingInput)).toMatchObject({
+      metricSamples: {
+        explicitFailureCoverageRate: { validCount: 1, totalCount: 1 },
+        mainProblemCoverageRate: { validCount: 1, totalCount: 1 },
+        moreEvidenceGapCoverageRate: { validCount: 1, totalCount: 1 },
+        topEpisodeEvidenceCoverageRate: { validCount: 1, totalCount: 1 },
+        topEpisodeActionCoverageRate: { validCount: 1, totalCount: 1 },
+      },
+    });
+    expect(buildDiagnosisReleaseGateReport({ ...passingInput, summaries: [], coverageReports: [] })).toMatchObject({
+      metricSamples: { explicitFailureCoverageRate: { validCount: 0, totalCount: 0 } },
+    });
+  });
+  it('does not pass absent performance measurements or an empty golden corpus', () => {
+    expect(buildDiagnosisReleaseGateReport({ ...passingInput, performance: {} }).passed).toBe(false);
+    expect(buildDiagnosisReleaseGateReport({ ...passingInput, goldenCorpus: [] }).passed).toBe(false);
+    expect(buildDiagnosisReleaseGateReport({
+      ...passingInput, performance: { ...passingInput.performance, datasetDetailMs: Number.NaN },
+    }).passed).toBe(false);
+    expect(buildDiagnosisReleaseGateReport({
+      ...passingInput, productAcceptance: { ...passingInput.productAcceptance, identifyScopeRate: Number.NaN },
+    }).passed).toBe(false);
+  });
+  it('does not report five perfect coverage metrics when no diagnosis samples were supplied', () => {
+    const report = buildDiagnosisReleaseGateReport({ ...passingInput, summaries: [], coverageReports: [] });
+    expect(Number.isNaN(report.metrics.explicitFailureCoverageRate)).toBe(true);
+    expect(Number.isNaN(report.metrics.mainProblemCoverageRate)).toBe(true);
+    expect(Number.isNaN(report.metrics.moreEvidenceGapCoverageRate)).toBe(true);
+    expect(Number.isNaN(report.metrics.topEpisodeEvidenceCoverageRate)).toBe(true);
+    expect(Number.isNaN(report.metrics.topEpisodeActionCoverageRate)).toBe(true);
+    expect(report.passed).toBe(false);
+  });
+  it.each([{ coverageReports: [] }, { coverageReports: passingInput.coverageReports }])(
+    'rejects empty summary objects even when coverage reports are supplied: %j',
+    ({ coverageReports }) => {
+      const report = buildDiagnosisReleaseGateReport({
+        ...passingInput,
+        summaries: [summary({ expertCards: [], headline: [], rootCauseClusters: [], missingInfo: [], actionPlan: [], executiveSummary: '' })],
+        coverageReports,
+      });
+      expect(report.passed).toBe(false);
+      expect(report.blockers).toContain('诊断汇总无可用样本，无法验证覆盖率');
+    },
+  );
+  it('does not let empty summaries invalidate other usable diagnostic samples', () => {
+    const report = buildDiagnosisReleaseGateReport({
+      ...passingInput,
+      summaries: [summary({ expertCards: [], headline: [], rootCauseClusters: [], missingInfo: [], actionPlan: [], executiveSummary: '' }), ...passingInput.summaries],
+    });
+    expect(report.passed).toBe(true);
+    expect(report.metricSamples.explicitFailureCoverageRate).toEqual({ validCount: 1, totalCount: 1 });
+  });
   it('passes when Batch 9 automatic, product and privacy gates are satisfied', () => {
     const report = buildDiagnosisReleaseGateReport(passingInput);
 

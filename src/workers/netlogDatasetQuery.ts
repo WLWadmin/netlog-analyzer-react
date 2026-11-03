@@ -210,9 +210,9 @@ function matches(index: CompactEventIndex, eventId: number, query: QueryNetlogEv
 }
 
 function phaseName(phase: number): string {
-  if (phase === 0) return 'PHASE_BEGIN';
-  if (phase === 1) return 'PHASE_END';
-  if (phase === 2) return 'PHASE_NONE';
+  if (phase === 0) return 'PHASE_NONE';
+  if (phase === 1) return 'PHASE_BEGIN';
+  if (phase === 2) return 'PHASE_END';
   return `PHASE_${phase}`;
 }
 

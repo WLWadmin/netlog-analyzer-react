@@ -31,7 +31,7 @@ const constants = {
     HTTP2_SESSION_INITIALIZED: 7,
     QUIC_SESSION: 8,
     HTTP_TRANSACTION_READ_RESPONSE_HEADERS: 9,
-    URL_REQUEST_ALIVE: 10,
+    REQUEST_ALIVE: 10,
     URL_REQUEST_JOB_BYTES_READ: 11,
   },
   logSourceType: {
@@ -44,6 +44,11 @@ const constants = {
     QUIC_SESSION: 7,
   },
 };
+
+// Chromium NetLogEventPhase; instant observations do not open a lifecycle.
+const NONE = 0;
+const BEGIN = 1;
+const END = 2;
 
 function eventAt(index) {
   const requestIndex = Math.floor(index / 96);
@@ -59,24 +64,27 @@ function eventAt(index) {
   const time = String(index * 0.25);
   const dependency = id => ({ source_dependency: { id } });
   const lifecycleEvents = [
-    { time, type: 1, phase: 0, source: { id: requestId, type: 1 }, params: { url: `https://${host}/api/${requestIndex}`, method: 'GET' } },
-    { time, type: 2, phase: 2, source: { id: proxyId, type: 2 }, params: { ...dependency(requestId), proxy_list: requestIndex % 37 === 0 ? 'PROXY proxy.example.invalid:8080' : 'DIRECT' } },
-    { time, type: 3, phase: 0, source: { id: dnsId, type: 3 }, params: { ...dependency(requestId), host } },
-    { time, type: 4, phase: 1, source: { id: dnsId, type: 3 }, params: { ...dependency(requestId), host, results: { aliases: [host], ip_endpoints: [{ endpoint_address: ip, endpoint_port: 0 }] } } },
-    { time, type: 5, phase: 0, source: { id: socketId, type: 4 }, params: { ...dependency(requestId), address: `${ip}:443` } },
-    { time, type: 5, phase: 1, source: { id: socketId, type: 4 }, params: { ...dependency(requestId), address: `${ip}:443` } },
-    { time, type: 6, phase: 0, source: { id: tlsId, type: 5 }, params: { ...dependency(socketId), host } },
-    { time, type: 6, phase: 1, source: { id: tlsId, type: 5 }, params: { ...dependency(socketId), host, version: 'TLS1.3' } },
-    { time, type: requestIndex % 5 === 0 ? 8 : 7, phase: 2, source: { id: protocolId, type: requestIndex % 5 === 0 ? 7 : 6 }, params: { ...dependency(requestId), host } },
-    { time, type: 9, phase: 0, source: { id: requestId, type: 1 }, params: { status_code: 200 } },
-    { time, type: 9, phase: 1, source: { id: requestId, type: 1 }, params: { status_code: 200 } },
+    { time, type: 10, phase: BEGIN, source: { id: requestId, type: 1 }, params: {} },
+    { time, type: 1, phase: BEGIN, source: { id: requestId, type: 1 }, params: { url: `https://${host}/api/${requestIndex}`, method: 'GET' } },
+    { time, type: 2, phase: NONE, source: { id: proxyId, type: 2 }, params: { ...dependency(requestId), proxy_list: requestIndex % 37 === 0 ? 'PROXY proxy.example.invalid:8080' : 'DIRECT' } },
+    { time, type: 3, phase: BEGIN, source: { id: dnsId, type: 3 }, params: { ...dependency(requestId), host } },
+    { time, type: 4, phase: BEGIN, source: { id: dnsId, type: 3 }, params: { ...dependency(requestId), host } },
+    { time, type: 4, phase: END, source: { id: dnsId, type: 3 }, params: { ...dependency(requestId), host, results: { aliases: [host], ip_endpoints: [{ endpoint_address: ip, endpoint_port: 0 }] } } },
+    { time, type: 3, phase: END, source: { id: dnsId, type: 3 }, params: { net_error: 0 } },
+    { time, type: 5, phase: BEGIN, source: { id: socketId, type: 4 }, params: { ...dependency(requestId), address: `${ip}:443` } },
+    { time, type: 5, phase: END, source: { id: socketId, type: 4 }, params: { ...dependency(requestId), address: `${ip}:443` } },
+    { time, type: 6, phase: BEGIN, source: { id: tlsId, type: 5 }, params: { ...dependency(socketId), host } },
+    { time, type: 6, phase: END, source: { id: tlsId, type: 5 }, params: { ...dependency(socketId), host, version: 'TLS1.3' } },
+    { time, type: requestIndex % 5 === 0 ? 8 : 7, phase: requestIndex % 5 === 0 ? BEGIN : NONE, source: { id: protocolId, type: requestIndex % 5 === 0 ? 7 : 6 }, params: { ...dependency(requestId), host } },
+    { time, type: 9, phase: BEGIN, source: { id: requestId, type: 1 }, params: { status_code: 200 } },
+    { time, type: 9, phase: END, source: { id: requestId, type: 1 }, params: { status_code: 200 } },
   ];
   if (step < lifecycleEvents.length) return lifecycleEvents[step];
   if (step < 95) {
     return {
       time,
       type: 11,
-      phase: 2,
+      phase: NONE,
       source: { id: requestId, type: 1 },
       params: { byte_count: 16_384, sequence: step - lifecycleEvents.length },
     };
@@ -84,7 +92,7 @@ function eventAt(index) {
   return {
     time,
     type: 10,
-    phase: 1,
+    phase: END,
     source: { id: requestId, type: 1 },
     params: requestIndex % 97 === 0 ? { net_error: -105 } : {},
   };

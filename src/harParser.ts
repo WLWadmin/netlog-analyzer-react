@@ -11,6 +11,8 @@ import {
 import { harEntryStructureIssue } from './utils/harEntryStructure';
 import type { HarRepairInfo, HarSourcePosition } from './utils/harRepair';
 import { checkHarEntry, createFileQualityCollector, fatalFileQuality, FileQualityError } from './parsers/shared/fileQuality';
+import type { FileQualityCollector } from './parsers/shared/fileQuality';
+import { getHarKnownRequestEndMs } from './diagnosis/shared/harTimingCompleteness';
 
 export interface HarTiming {
   blocked: number;
@@ -247,6 +249,8 @@ export interface HarStandardResponse {
   statusText?: string;
   httpVersion?: string;
   headers: HarHeader[];
+  /** Distinguishes an exported empty list from missing or invalid response headers. */
+  headersAvailable?: boolean;
   cookies: HarCookie[];
   content: HarStandardContent;
   redirectURL?: string;
@@ -311,7 +315,7 @@ export interface HarRequestEntry {
   mimeType: string;
   size: number; // 传输大小（字节）
   contentSize: number; // 解压后内容大小
-  time: number; // 总耗时 ms
+  time: number; // 总耗时 ms；NaN 表示标准字段缺失、不可用或非法。
   startedDateTime: string;
   startMs: number;
   pageRef?: string;
@@ -361,6 +365,7 @@ export interface HarAnalysisResult {
   failedCount: number;
   slowCount: number;
   totalSize: number;
+  /** 起止时间均已知的请求子集跨度；非空但无可用起止时间时为 NaN，不代表采集时长。 */
   totalTime: number;
   creator: string;
   typeCounts: Record<HarCategory, number>;
@@ -411,7 +416,7 @@ export function formatBytes(bytes: number): string {
 
 // 耗时格式化
 export function formatHarTime(ms: number): string {
-  if (ms === undefined || ms === null || ms < 0) return '-';
+  if (!Number.isFinite(ms) || ms < 0) return '-';
   if (ms < 1) return '<1 ms';
   if (ms < 1000) return Math.round(ms) + ' ms';
   return (ms / 1000).toFixed(2) + ' s';
@@ -496,13 +501,12 @@ function parseServerTiming(value: string): HarServerTiming[] {
   return result;
 }
 
-function num(v: any): number {
-  const n = Number(v);
-  return isNaN(n) || n < 0 ? 0 : n;
+function num(v: unknown): number {
+  return isAvailableTiming(v) ? v : 0;
 }
 
-function isAvailableTiming(v: any): boolean {
-  return typeof v === 'number' && v >= 0;
+function isAvailableTiming(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
 
 function firstNonEmptyString(values: any[]): string | undefined {
@@ -567,6 +571,9 @@ function parseNumericField(record: Record<string, unknown>, key: string): HarNum
   if (typeof value !== 'number' || !Number.isFinite(value)) return { state: 'invalid' };
   if (value === -1) return { state: 'not-available', value: -1 };
   if (value < 0) return { state: 'invalid' };
+  if (key === 'status' && value !== 0 && (!Number.isInteger(value) || value < 100 || value > 599)) {
+    return { state: 'invalid' };
+  }
   return { state: 'value', value };
 }
 
@@ -615,10 +622,14 @@ function parseBodyTextField(
     : { state: 'deferred', originalLength: content.text.length };
 }
 
-function parseStandardPages(value: unknown): HarStandardPage[] {
+function parseStandardPages(value: unknown, quality: FileQualityCollector): HarStandardPage[] {
   if (!Array.isArray(value)) return [];
   return value.reduce<HarStandardPage[]>((pages, rawPage, index) => {
-    if (!isRecord(rawPage)) return pages;
+    if (!isRecord(rawPage)) {
+      // Page metadata is optional; keep requests usable and retain its locator.
+      quality.add('structure', { jsonPath: '$.log.pages[' + index + ']' });
+      return pages;
+    }
     const timings = asRecord(rawPage.pageTimings);
     pages.push({
       id: optionalString(rawPage.id),
@@ -893,13 +904,17 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
 
   // 传输大小：优先 _transferSize，其次 bodySize，最后 content.size；-1 表示未记录。
   const size = optionalNonNegativeSize(resp._transferSize)
+    ?? optionalNonNegativeSize(entry._transferSize)
     ?? optionalNonNegativeSize(resp.bodySize)
     ?? optionalNonNegativeSize(content.size)
     ?? -1;
 
-  const status = num(resp.status);
-  const time = num(entry.time);
-  const isSlow = time >= HAR_SLOW_THRESHOLD_MS;
+  const status = responseStatusField.state === 'value' ? responseStatusField.value : Number.NaN;
+  const timeField = parseNumericField(asRecord(entry), 'time');
+  // Keep unknown duration distinct from a measured zero, including downstream
+  // comparisons; statistics consume only the validated standard value.
+  const time = timeField.state === 'value' ? timeField.value : Number.NaN;
+  const isSlow = timeField.state === 'value' && time >= HAR_SLOW_THRESHOLD_MS;
   const rawResponseBody = typeof content.text === 'string' ? content.text : '';
   const keepResponseBody = shouldKeepResponseBody(rawResponseBody, mimeType, status, options);
 
@@ -910,6 +925,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     entry.errorText,
     resp._error,
     resp.error,
+    resp.errorText,
     hasRecordedStatusZero || hasRecordedHttpError ? resp.statusText : '',
   ]);
   const explicitNetErrorText = firstNonEmptyString([
@@ -1003,7 +1019,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
   const standard: HarStandardEntry = {
     pageref: optionalString(entry.pageref),
     startedDateTime: optionalString(entry.startedDateTime),
-    time: parseNumericField(asRecord(entry), 'time'),
+    time: timeField,
     request: {
       method: optionalString(req.method),
       url: optionalRawString(req.url),
@@ -1021,6 +1037,7 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
       statusText: optionalRawString(resp.statusText),
       httpVersion: optionalString(resp.httpVersion),
       headers: responseHeaders,
+      headersAvailable: Array.isArray(resp.headers),
       cookies: responseCookies,
       content: {
         size: parseNumericField(contentRecord, 'size'),
@@ -1118,8 +1135,8 @@ function parseEntry(entry: any, id: number, options: HarParseOptions): HarReques
     postData,
     initiator,
     redirect,
-    requestCookies,
-    responseCookies,
+    requestCookies: Array.isArray(req.cookies) ? requestCookies : undefined,
+    responseCookies: Array.isArray(resp.cookies) ? responseCookies : undefined,
     priority,
     cacheInfo,
     connectionInfo,
@@ -1197,32 +1214,33 @@ export function parseHar(
 
   for (const e of entries) {
     typeCounts[e.category]++;
-    totalSize += Math.max(0, e.size);
+    if (Number.isFinite(e.size) && e.size >= 0) totalSize += e.size;
     if (e.isFailed) failedCount++;
     if (e.isSlow) slowCount++;
     if (e.responseBodyOmitted) {
       omittedCount++;
       omittedBytes += e.responseBodyOriginalLength || 0;
     }
-    if (e.startMs > 0) {
+    const endMs = getHarKnownRequestEndMs(e);
+    if (endMs !== undefined) {
       minStart = Math.min(minStart, e.startMs);
-      maxEnd = Math.max(maxEnd, e.startMs + e.time);
+      maxEnd = Math.max(maxEnd, endMs);
     }
   }
 
-  const totalTime = minStart !== Infinity && maxEnd > minStart ? maxEnd - minStart : 0;
+  const totalTime = minStart !== Infinity ? maxEnd - minStart : entries.length ? Number.NaN : 0;
   const creator = log.creator ? `${log.creator.name || ''} ${log.creator.version || ''}`.trim() : '';
-  const standardPages = parseStandardPages(log.pages);
+  const standardPages = parseStandardPages(log.pages, quality);
   const pageMarkers = Array.isArray(log.pages)
-    ? log.pages.map((page: any): HarPageMarker => {
-      const startedDateTime = optionalString(page.startedDateTime);
+    ? standardPages.map((page): HarPageMarker => {
+      const startedDateTime = page.startedDateTime;
       return {
-        pageId: optionalString(page.id),
-        title: optionalString(page.title),
+        pageId: page.id,
+        title: page.title,
         startedDateTime,
         startMs: startedDateTime ? (new Date(startedDateTime).getTime() || undefined) : undefined,
-        domContentLoadedMs: optionalNonNegativeNumber(page.pageTimings?.onContentLoad),
-        loadMs: optionalNonNegativeNumber(page.pageTimings?.onLoad),
+        domContentLoadedMs: page.pageTimings.onContentLoad.state === 'value' ? page.pageTimings.onContentLoad.value : undefined,
+        loadMs: page.pageTimings.onLoad.state === 'value' ? page.pageTimings.onLoad.value : undefined,
       };
     }).filter((page: HarPageMarker) => page.domContentLoadedMs !== undefined || page.loadMs !== undefined)
     : undefined;

@@ -18,6 +18,12 @@ export interface ParseNetlogRequest {
   payload: string | unknown; // raw file text or parsed JSON data
 }
 
+export interface CancelWorkerTaskRequest {
+  type: 'cancel-task';
+  id: string;
+  payload: { taskId: string };
+}
+
 export interface ParseLargeNetlogFileRequest {
   type: 'parse-large-netlog-file';
   id: string;
@@ -319,6 +325,7 @@ export interface HarResponseBodyPayload {
 }
 
 export type WorkerRequest =
+  | CancelWorkerTaskRequest
   | ParseNetlogRequest
   | ParseLargeNetlogFileRequest
   | ParseHarRequest
@@ -409,4 +416,10 @@ export interface WorkerProgressResponse {
   progress?: AnalysisProgress;
 }
 
-export type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse | WorkerProgressResponse;
+export interface WorkerCancelledResponse {
+  type: 'cancelled';
+  id: string;
+  taskId: string;
+}
+
+export type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse | WorkerProgressResponse | WorkerCancelledResponse;

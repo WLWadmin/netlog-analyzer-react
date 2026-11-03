@@ -3,7 +3,7 @@ import { describeRequestOutcome } from './requestOutcome';
 import type { ParsedEvent } from './parser';
 
 function event(typeName: string, phaseName: string, params: Record<string, unknown>, time: number): ParsedEvent {
-  return { time, type: 1, typeName, phase: 0, phaseName,
+  return { time, type: 1, typeName, phase: phaseName === 'BEGIN' ? 1 : phaseName === 'END' ? 2 : 0, phaseName,
     source: { id: 7, type: 1, typeName: 'URL_REQUEST' }, params };
 }
 
@@ -39,6 +39,7 @@ describe('request outcome evidence', () => {
     const socket = event('REQUEST_ALIVE', 'END', { net_error: -106, source_dependency: { id: 7 } }, 12);
     socket.source = { id: 9, type: 2, typeName: 'SOCKET' };
     const result = request([
+      event('REQUEST_ALIVE', 'NONE', { net_error: 0 }, 3),
       event('HTTP_TRANSACTION_READ_RESPONSE_HEADERS', 'END', { status_code: 200 }, 4),
       event('URL_REQUEST_START_JOB', 'END', { net_error: 0 }, 5), socket,
     ]);

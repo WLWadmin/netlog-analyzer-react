@@ -25,6 +25,8 @@ const fullRange = buildHarWaterfallRange(entries);
 it('previews locally, commits a drag interval, cancels and resets without changing global ticks', () => {
   const onChange = jest.fn();
   const { container, rerender } = render(<HarTimelineOverview entries={entries} fullRange={fullRange} selection={null} markers={[]} width={500} onChange={onChange} />);
+  // The track owns pointer bounds and has no role; selecting the group changes the target.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   const track = container.querySelector('.har-timeline-track') as HTMLElement;
   jest.spyOn(track, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 500 } as DOMRect);
   fireEvent.pointerDown(track, { button: 0, pointerId: 1, clientX: 100 });
@@ -61,6 +63,8 @@ it('clamps pointer panning and resizing, and discards a preview on a new capture
   const onChange = jest.fn();
   const selection = { ...fullRange, minStart: fullRange.minStart + 2000, maxEnd: fullRange.minStart + 6000, span: 4000 };
   const { container, rerender } = render(<HarTimelineOverview entries={entries} fullRange={fullRange} selection={selection} markers={[]} width={500} onChange={onChange} />);
+  // Measure the actual track rather than its independently positioned selection.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   const track = container.querySelector('.har-timeline-track') as HTMLElement;
   jest.spyOn(track, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 500 } as DOMRect);
   const group = screen.getByRole('group');
@@ -86,6 +90,8 @@ it('clamps pointer panning and resizing, and discards a preview on a new capture
 it('zooms around the centre on wheel and restores the full capture without scrolling the page', () => {
   const onChange = jest.fn();
   const { container } = render(<HarTimelineOverview entries={entries} fullRange={fullRange} selection={null} markers={[]} width={500} onChange={onChange} />);
+  // Dispatch on the track to exercise its native wheel listener.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   const track = container.querySelector('.har-timeline-track') as HTMLElement;
   const zoomIn = createEvent.wheel(track, { deltaY: -100, clientX: 10, bubbles: true, cancelable: true });
   fireEvent(track, zoomIn);
@@ -101,6 +107,8 @@ it('zooms around the centre on wheel and restores the full capture without scrol
 it('bounds repeated zoom, normalizes wheel units and removes the native listener on unmount', () => {
   const onChange = jest.fn();
   const { container, unmount } = render(<HarTimelineOverview entries={entries} fullRange={fullRange} selection={null} markers={[]} width={500} onChange={onChange} />);
+  // Retain the native listener target so cleanup can be checked after unmount.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   const track = container.querySelector('.har-timeline-track') as HTMLElement;
   fireEvent.wheel(track, { deltaY: -1, deltaMode: 1, bubbles: true, cancelable: true });
   expect(onChange.mock.calls[0][0].span).toBeCloseTo(fullRange.span * Math.exp(-0.032));

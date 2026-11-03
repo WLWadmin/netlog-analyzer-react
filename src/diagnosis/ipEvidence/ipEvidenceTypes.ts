@@ -77,6 +77,8 @@ export interface CipSipEvidenceRow {
   statusCode?: number;
   error?: string | number;
   durationMs?: number;
+  /** Coverage of exported duration facts, not unique physical requests. */
+  durationCoverage?: { validCount: number; totalCount: number };
   cipIps: string[];
   sipIps: string[];
   socketPeerIps?: string[];

@@ -4,7 +4,7 @@ function event(overrides: any) {
   return {
     time: '0',
     type: 2,
-    phase: 2,
+    phase: 0,
     source: { id: 1, type: 1 },
     params: {},
     ...overrides,
@@ -33,7 +33,7 @@ describe('createNetlogStreamingAnalyzer', () => {
         logSourceType: { URL_REQUEST: 9002 },
       },
     });
-    analyzer.accept(event({ time: '0', type: 9001, phase: 0, source: { id: 10, type: 9002 }, params: { url: 'https://api.example.com/data' } }));
+    analyzer.accept(event({ time: '0', type: 9001, phase: 1, source: { id: 10, type: 9002 }, params: { url: 'https://api.example.com/data' } }));
     const { eventsPreview, meta } = analyzer.finish();
 
     expect(eventsPreview[0].typeName).toBe('URL_REQUEST_START_JOB');
@@ -65,14 +65,15 @@ describe('createNetlogStreamingAnalyzer', () => {
 
   it('聚合 URL 请求、慢请求和失败域名', () => {
     const analyzer = createNetlogStreamingAnalyzer();
-    analyzer.accept(event({ time: '0', type: 111, phase: 0, source: { id: 10, type: 1 }, params: { url: 'https://api.example.com/data', method: 'GET' } }));
+    analyzer.accept(event({ time: '0', type: 111, phase: 1, source: { id: 10, type: 1 }, params: { url: 'https://api.example.com/data', method: 'GET' } }));
     analyzer.accept(event({ time: '100', type: 1, source: { id: 10, type: 1 }, params: { net_error: -105 } }));
-    analyzer.accept(event({ time: '4200', type: 2, phase: 1, source: { id: 10, type: 1 }, params: {} }));
+    analyzer.accept(event({ time: '4200', type: 2, phase: 2, source: { id: 10, type: 1 }, params: {} }));
     const { result, eventsPreview, meta } = analyzer.finish();
 
     expect(meta.parsedEvents).toBe(3);
     expect(result.totalEvents).toBe(3);
     expect(result.urlRequests).toHaveLength(1);
+    expect(result.urlRequests[0].duration).toBe(4200);
     expect(result.connectionFailures).toEqual([
       expect.objectContaining({ url: 'https://api.example.com/data', error: -105 }),
     ]);
@@ -103,10 +104,10 @@ describe('createNetlogStreamingAnalyzer', () => {
 
   it('仅用 URL_REQUEST source 计算并发请求数', () => {
     const analyzer = createNetlogStreamingAnalyzer();
-    analyzer.accept(event({ time: '0', type: 111, phase: 0, source: { id: 40, type: 1 }, params: { url: 'https://api.example.com/data' } }));
-    analyzer.accept(event({ time: '1', type: 395, phase: 0, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
-    analyzer.accept(event({ time: '2', type: 395, phase: 1, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
-    analyzer.accept(event({ time: '3', type: 2, phase: 1, source: { id: 40, type: 1 } }));
+    analyzer.accept(event({ time: '0', type: 111, phase: 1, source: { id: 40, type: 1 }, params: { url: 'https://api.example.com/data' } }));
+    analyzer.accept(event({ time: '1', type: 395, phase: 1, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
+    analyzer.accept(event({ time: '2', type: 395, phase: 2, source: { id: 41, type: 11 }, params: { hostname: 'api.example.com' } }));
+    analyzer.accept(event({ time: '3', type: 2, phase: 2, source: { id: 40, type: 1 } }));
 
     expect(analyzer.finish().result.peakConcurrency).toBe(1);
   });
@@ -257,7 +258,7 @@ describe('createNetlogStreamingAnalyzer', () => {
     analyzer.accept(event({
       time: '2',
       type: 7002,
-      phase: 0,
+      phase: 1,
       source: { id: 30, type: 8002 },
       params: { url: 'https://api.example.com/data' },
     }));

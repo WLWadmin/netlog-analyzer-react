@@ -61,6 +61,8 @@ describe('HAR persistent request overview', () => {
     expect(screen.getByRole('region', { name: '文件质量校验报告' })).toBeInTheDocument();
     const waitPath = screen.getByText('$.log.entries[0].timings.wait');
     expect(waitPath).toBeInTheDocument();
+    // summary has no implicit button role; open the disclosure containing this path.
+    // eslint-disable-next-line testing-library/no-node-access
     fireEvent.click(waitPath.closest('details')!.querySelector('summary')!);
     fireEvent.click(screen.getAllByRole('button', { name: '定位证据' })[0]);
     expect(onTabChange).toHaveBeenCalledWith('requests');
@@ -69,8 +71,12 @@ describe('HAR persistent request overview', () => {
   it.each(['summary', 'requests', 'raw-evidence'])('keeps overview before %s content', activeTab => {
     const { container } = render(<HarResultPage result={result} activeTab={activeTab} rawData={{ log: {} }} />);
     const summary = screen.getByRole('region', { name: '请求概览' });
+    // Check the exact layout wrapper shared by all tabs, which has no role.
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
     const content = container.querySelector('.har-result-content');
     expect(content).not.toBeNull();
+    // DOM adjacency is the contract here; visibility alone would miss reordering.
+    // eslint-disable-next-line testing-library/no-node-access
     expect(summary.nextElementSibling).toBe(content);
   });
 

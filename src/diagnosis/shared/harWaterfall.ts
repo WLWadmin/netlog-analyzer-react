@@ -1,7 +1,7 @@
 import type { HarPageMarker, HarRequestEntry } from '../../harParser';
 import type { HarDisplayTimingPhaseKey } from './harTimingNormalization';
 import { normalizeHarTiming } from './harTimingNormalization';
-import { getHarTimingCompleteness } from './harTimingCompleteness';
+import { getHarKnownDurationMs, getHarTimingCompleteness } from './harTimingCompleteness';
 
 export interface HarWaterfallRange {
   minStart: number;
@@ -48,7 +48,17 @@ function clampPercent(value: number): number {
 }
 
 export function isHarTimelineEntryAvailable(entry: HarRequestEntry): boolean {
-  return entry.standard.time.state === 'value' && Number.isFinite(entry.startMs) && entry.startMs > 0 && Number.isFinite(entry.time) && entry.time >= 0;
+  return getHarKnownDurationMs(entry) !== undefined && Number.isFinite(entry.startMs) && entry.startMs > 0;
+}
+
+// Diagnostic intervals describe all related requests, unlike a visible waterfall
+// subset. One unknown endpoint prevents a complete interval from being inferred.
+export function buildHarRequestTimeRange(entries: HarRequestEntry[]): { startMs: number; endMs: number } | undefined {
+  if (!entries.length || !entries.every(entry => isHarTimelineEntryAvailable(entry) && Number.isFinite(entry.startMs + entry.time))) return undefined;
+  return {
+    startMs: Math.min(...entries.map(entry => entry.startMs)),
+    endMs: Math.max(...entries.map(entry => entry.startMs + entry.time)),
+  };
 }
 
 export function buildHarWaterfallRange(entries: HarRequestEntry[]): HarWaterfallRange {
@@ -198,6 +208,7 @@ export function getHarWaterfallSegments(entry: HarRequestEntry, range?: HarWater
   }
 
   if (!range?.available) return segments;
+  if (!isHarTimelineEntryAvailable(entry)) return [];
   const clippedStart = Math.max(entry.startMs, range.minStart);
   const clippedEnd = Math.min(entry.startMs + entry.time, range.maxEnd);
   const visibleDuration = clippedEnd - clippedStart;

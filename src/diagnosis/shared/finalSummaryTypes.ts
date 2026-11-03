@@ -62,6 +62,10 @@ export interface RootCauseCluster {
   keyEvidence: FinalEvidence[];
   actions: FinalAction[];
   affectedRequestCount: number;
+  /** False only when neither affected IDs nor an explicit scope count exists. */
+  requestCountIsKnown?: boolean;
+  /** True when overlapping or unaligned source evidence establishes only a lower bound. */
+  requestCountIsLowerBound?: boolean;
   affectedDomainCount: number;
   confidence: DiagnosticConfidenceLevel;
   score: number;

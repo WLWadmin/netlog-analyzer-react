@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import UploadEntry from './UploadEntry';
 
 jest.mock('../netlog/UploadZone', () => ({
@@ -33,8 +33,8 @@ describe('UploadEntry', () => {
     expect(screen.queryByText('浏览器证据诊断工作台')).toBeNull();
     expect(screen.getByText('文件不会上传服务器')).not.toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
-    const header = screen.getByRole('heading', { name: '导入文件' }).closest('section');
-    expect(header?.querySelectorAll('.parser-mode-actions button')).toHaveLength(2);
+    const parserMode = screen.getByRole('region', { name: '文件解析方式' });
+    expect(within(parserMode).getAllByRole('button')).toHaveLength(2);
     expect(screen.queryByText('选择解析方式')).toBeNull();
     expect(screen.queryByText('DIAGNOSTIC CAPABILITY MAP')).toBeNull();
   });

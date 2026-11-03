@@ -1,6 +1,16 @@
 import { parseHar } from './harParser';
 
 describe('harParser', () => {
+  test('preserves unknown Cookie lists separately from exported empty lists', () => {
+    const result = parseHar({ log: { entries: [undefined, []].map(cookies => ({
+      request: { url: 'https://example.test/', cookies },
+      response: { status: 200, cookies },
+    })) } });
+    expect(result.entries[0].requestCookies).toBeUndefined();
+    expect(result.entries[0].responseCookies).toBeUndefined();
+    expect(result.entries[1].requestCookies).toEqual([]);
+    expect(result.entries[1].responseCookies).toEqual([]);
+  });
   test('rejects input without a complete HAR root structure', () => {
     expect(() => parseHar({ events: [] })).toThrow('未找到有效的 HAR 请求数据');
   });
@@ -368,8 +378,8 @@ describe('harParser', () => {
     const entry = parseHar(data as any).entries[0];
     expect(entry.initiator).toBeUndefined();
     expect(entry.redirect).toBeUndefined();
-    expect(entry.requestCookies).toEqual([]);
-    expect(entry.responseCookies).toEqual([]);
+    expect(entry.requestCookies).toBeUndefined();
+    expect(entry.responseCookies).toBeUndefined();
     expect(entry.priority).toBeUndefined();
     expect(entry.cacheInfo).toBeUndefined();
     expect(entry.connectionInfo).toBeUndefined();

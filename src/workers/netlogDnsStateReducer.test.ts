@@ -21,7 +21,7 @@ describe('netlogDnsStateReducer', () => {
       typeName: 'HOST_RESOLVER_MANAGER_CACHE_HIT',
       sourceId: 100,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: {
         results: {
           aliases: ['cache.example.com'],
@@ -38,7 +38,7 @@ describe('netlogDnsStateReducer', () => {
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 101,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: {
         results: [{
           domain_name: 'task.example.com',
@@ -55,7 +55,7 @@ describe('netlogDnsStateReducer', () => {
       typeName: 'HOST_RESOLVER_MANAGER_IPV6_REACHABILITY_CHECK',
       sourceId: 102,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: { ipv6_available: false },
     });
     reducer.accept({
@@ -66,7 +66,7 @@ describe('netlogDnsStateReducer', () => {
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 103,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: {
         results: [{
           domain_name: 'failed.example.com',
@@ -172,7 +172,7 @@ describe('netlogDnsStateReducer', () => {
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 501,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: {
         results: [
           {

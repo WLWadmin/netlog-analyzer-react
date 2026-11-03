@@ -243,6 +243,9 @@ export function getHarRequestIssue(entry: HarRequestEntry): HarRequestIssue {
   if (!completeness.complete) {
     return { label: 'Timing 不完整', detail: HAR_TIMING_LIMITATION, severity: 'info', kind: 'incomplete-timing' };
   }
+  if (status === undefined) {
+    return { label: '请求结果无可用数据', detail: 'HAR 未提供有效 HTTP 状态或明确失败字段；已有 Timing 不能证明请求成功。', severity: 'info', kind: 'incomplete-timing' };
+  }
 
   return {
     label: '正常',

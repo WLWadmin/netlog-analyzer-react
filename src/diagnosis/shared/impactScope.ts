@@ -5,7 +5,11 @@ export interface ImpactScopeResult {
   type: DiagnosticScopeType;
   summary: string;
   affectedRequestCount: number;
+  /** False only when neither affected IDs nor an explicit scope count exists. */
+  requestCountIsKnown: boolean;
   affectedDomainCount: number;
+  /** Partial card IDs cannot establish an exact deduplicated total. */
+  requestCountIsLowerBound: boolean;
   counterEvidenceSummary: string[];
   rankingReasons: string[];
   allowGlobal: boolean;
@@ -59,10 +63,28 @@ export function calculateImpactScope(input: {
   requestImportances?: RequestImportance[];
 }): ImpactScopeResult {
   const { cards, requestImportances = [] } = input;
-  const affectedRequestIds = uniq(cards.flatMap(card => card.relatedRequestIds || []).concat(cards.flatMap(card => card.evidence.flatMap(e => e.requestIds || []))));
-  const affectedRequestCount = affectedRequestIds.length || cards.reduce((sum, card) => sum + (card.scope.affectedRequestCount || 0), 0) || cards.length;
+  const affectedRequestIds = uniq(cards.flatMap(getAffectedRequestIds));
+  const requestSources = new Set(cards.flatMap(card => card.source === 'combined'
+    ? card.evidence.flatMap(item => item.originalSource || (item.source === 'derived' ? [] : [item.source]))
+    : [card.source]));
+  const hasUnalignedSources = requestSources.size > 1;
+  // Numeric HAR ordinals and NetLog source IDs are independent. Without alignment,
+  // neither their union nor their sum proves the unique physical request total.
+  const knownIdCount = hasUnalignedSources
+    ? Math.max(
+      ...(['har', 'netlog'] as const).map(source =>
+        uniq(cards.filter(card => card.source === source).flatMap(getAffectedRequestIds)).length),
+      ...cards.filter(card => card.source === 'combined').map(card => getAffectedRequestIds(card).length),
+      0,
+    )
+    : affectedRequestIds.length;
+  // Card scopes can overlap; a representative ID list must not replace a known total.
+  const affectedRequestCount = Math.max(knownIdCount, ...cards.map(card => card.scope.affectedRequestCount || 0), 0);
+  const hasUncountedCard = cards.some(card => card.scope.affectedRequestCount === undefined && getAffectedRequestIds(card).length === 0);
+  const requestCountIsKnown = affectedRequestCount > 0 || (cards.length > 0 && !hasUncountedCard);
+  const requestCountIsLowerBound = affectedRequestCount > 0 && (hasUnalignedSources || hasUncountedCard || cards.some(card => (card.scope.affectedRequestCount || 0) > getAffectedRequestIds(card).length));
   const domains = uniq(cards.flatMap(cardDomains));
-  const affectedDomainCount = domains.length || Math.max(...cards.map(card => card.scope.affectedDomainCount || 0), 1);
+  const affectedDomainCount = Math.max(domains.length, ...cards.map(card => card.scope.affectedDomainCount || 0), 0);
   const hasGlobal = hasGlobalEvidence(cards);
   const hasCounterSuccess = hasSuccessCounterEvidence(cards);
   const categories = new Set(cards.map(card => card.category));
@@ -82,7 +104,7 @@ export function calculateImpactScope(input: {
     counterEvidenceSummary.push('HTTP 5xx/Waiting 异常集中在单服务域名，不归为客户端全局网络问题；具体处理阶段仍需服务端证据。');
   } else if (hasHttpsOnlyEvidence(cards)) {
     type = 'https-only';
-  } else if (affectedRequestCount <= 1 && hasCounterSuccess) {
+  } else if (requestCountIsKnown && !requestCountIsLowerBound && affectedRequestCount === 1 && hasCounterSuccess) {
     type = 'single-request';
   } else if (affectedDomainCount <= 1) {
     type = 'single-domain';
@@ -95,7 +117,11 @@ export function calculateImpactScope(input: {
     }
   }
 
-  const summary = type === 'global'
+  const summary = !requestCountIsKnown
+    ? '影响请求数无可用数据'
+    : affectedRequestCount === 0
+    ? '影响 0 个请求'
+    : type === 'global'
     ? `全局影响：${affectedDomainCount} 个域名 / ${affectedRequestCount} 个请求`
     : type === 'single-request'
       ? '单请求影响'
@@ -109,11 +135,31 @@ export function calculateImpactScope(input: {
 
   return {
     type,
-    summary,
+    summary: requestCountIsLowerBound ? summary.replace(/(\d+) 个请求/, hasUnalignedSources
+      ? '至少 $1 个请求（跨来源 ID 尚未对齐）'
+      : '至少 $1 个请求（关联 ID 不完整）') : summary,
     affectedRequestCount,
+    requestCountIsKnown,
     affectedDomainCount,
+    requestCountIsLowerBound,
     counterEvidenceSummary: uniq(counterEvidenceSummary),
     rankingReasons: uniq(rankingReasons),
     allowGlobal: type === 'global',
   };
+}
+
+export function formatAffectedRequestCount(
+  count: number,
+  isKnown: boolean | undefined,
+  isLowerBound: boolean | undefined,
+  unit = '个请求',
+): string {
+  return isKnown === false ? '请求数无可用数据' : `${isLowerBound ? '至少 ' : ''}${count} ${unit}`;
+}
+
+// relatedRequestIds is the full affected set; evidence can also contain successful counterexamples.
+export function getAffectedRequestIds(card: DiagnosticCard): number[] {
+  return uniq(card.relatedRequestIds ?? card.evidence
+    .filter(item => !/反证|成功|successful|counter/i.test(item.label))
+    .flatMap(item => item.requestIds || []));
 }

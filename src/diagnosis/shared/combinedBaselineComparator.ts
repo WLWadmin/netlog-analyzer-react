@@ -36,8 +36,8 @@ function relationStats(input: CombinedBaselineInput) {
   return summarizeRequestCorrelations(correlateHarRequestsToNetlog(input.har.entries, input.netlog.urlRequests, context));
 }
 
-function episodeCount(input: CombinedBaselineInput): number {
-  return input.finalSummary?.rootCauseClusters.length || 0;
+function episodeCount(input: CombinedBaselineInput): number | undefined {
+  return input.finalSummary?.rootCauseClusters.length;
 }
 
 function topConclusionKeys(input: CombinedBaselineInput): string[] {
@@ -96,8 +96,19 @@ function compareRetainedCombinedBaselines(baseline: CombinedBaselineInput, curre
   const currentRelation = relationStats(current);
   const baselineEpisodes = episodeCount(baseline);
   const currentEpisodes = episodeCount(current);
-  const newTopConclusions = topConclusionKeys(current).filter(item => !topConclusionKeys(baseline).includes(item));
+  const hasSummaries = Boolean(baseline.finalSummary && current.finalSummary);
+  const newTopConclusions = hasSummaries ? topConclusionKeys(current).filter(item => !topConclusionKeys(baseline).includes(item)) : [];
   const cards: DiagnosticCard[] = [];
+  if (!hasSummaries) {
+    cards.push({
+      id: 'combined-baseline-summary-unavailable', source: 'combined', category: 'quality',
+      severity: 'info', confidence: 'low', title: '联合诊断汇总无可用数据',
+      conclusion: '一侧或两侧诊断汇总无可用数据，episode 数量和 Top 结论无法比较。',
+      scope: { type: 'unknown', summary: '诊断汇总无法比较' },
+      evidence: [{ label: '汇总覆盖', value: `${Number(Boolean(baseline.finalSummary)) + Number(Boolean(current.finalSummary))}/2`, source: 'derived' }],
+      actions: [], limitations: ['缺失汇总不表示零个故障或无退化。'],
+    });
+  }
 
   if (currentRelation.strongRate + 0.2 < baselineRelation.strongRate) {
     cards.push({
@@ -119,7 +130,7 @@ function compareRetainedCombinedBaselines(baseline: CombinedBaselineInput, curre
     });
   }
 
-  if (currentEpisodes > baselineEpisodes) {
+  if (currentEpisodes !== undefined && baselineEpisodes !== undefined && currentEpisodes > baselineEpisodes) {
     cards.push({
       id: 'combined-baseline-new-episodes',
       source: 'combined',

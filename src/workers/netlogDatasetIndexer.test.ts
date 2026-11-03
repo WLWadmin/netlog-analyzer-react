@@ -51,6 +51,33 @@ class ChunkedTextFile implements NetlogIndexableFile {
 }
 
 describe('netlogDatasetIndexer', () => {
+  it.each([0, 1, 2, undefined])('preserves phase %s across ordinary, lightweight and socket early paths', async phase => {
+    const raw = {
+      constants: {
+        logEventTypes: { SOCKET_BYTES_RECEIVED: 1, UDP_CONNECT: 2 },
+        logSourceType: { SOCKET: 20, UDP_SOCKET: 21 },
+      },
+      events: [
+        { time: '10', type: 1, source: { id: 10, type: 20 }, ...(phase === undefined ? {} : { phase }), params: { byte_count: 10, note: '中文跨块' } },
+        { time: '20', type: 2, source: { id: 11, type: 21 }, ...(phase === undefined ? {} : { phase }), params: { address: '203.0.113.20:443' } },
+      ],
+    };
+    const file = new ChunkedTextFile(JSON.stringify(raw), [1, 2, 3]);
+    const fast = await buildNetlogCompactEventIndex(file);
+    const ordinary = await buildNetlogCompactEventIndex(file, { onEvent: () => {} });
+    expect(fast.parseSkipStats.lightweightParseSkippedEvents).toBe(1);
+    expect(fast.parseSkipStats.socketParseSkippedEvents).toBe(1);
+    expect(ordinary.parseSkipStats.lightweightParseSkippedEvents).toBe(0);
+    expect(ordinary.parseSkipStats.socketParseSkippedEvents).toBe(0);
+    expect(Array.from(numericColumnValues(fast.index.phase))).toEqual([phase ?? 0, phase ?? 0]);
+    expect(Array.from(numericColumnValues(ordinary.index.phase))).toEqual([phase ?? 0, phase ?? 0]);
+    for (let eventId = 0; eventId < 2; eventId += 1) {
+      expect(numericColumnAt(fast.index.byteStart, eventId)).toBe(numericColumnAt(ordinary.index.byteStart, eventId));
+      expect(numericColumnAt(fast.index.byteEnd, eventId)).toBe(numericColumnAt(ordinary.index.byteEnd, eventId));
+      await expect(readNetlogEventDetail(file, fast.index, eventId)).resolves.toEqual(raw.events[eventId]);
+    }
+  });
+
   it('成功扫描后释放输入 stream reader', async () => {
     const bytes = new TextEncoder().encode('{"events":[]}');
     const StreamCtor = NodeReadableStream as unknown as typeof ReadableStream;
@@ -95,7 +122,7 @@ describe('netlogDatasetIndexer', () => {
   });
 
   it('为 events 建立真实 byteStart/byteEnd，并支持按 eventId 读取 detail', async () => {
-    const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21},"timeTickOffset":1741095022562},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21},"timeTickOffset":1741095022562},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":1,"params":{"url":"https://a.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":2,"params":{"net_error":-105}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11, 13]);
 
     const { index, endpointEvidence, dataLoaded } = await buildNetlogCompactEventIndex(file);
@@ -107,7 +134,7 @@ describe('netlogDatasetIndexer', () => {
     expect(index.eventTypeNames).toEqual({ 1: 'URL_REQUEST', 2: 'SOCKET_CONNECT' });
     expect(index.sourceTypeNames).toEqual({ 20: 'URL_REQUEST', 21: 'SOCKET' });
     expect(index.timeTickOffset).toBe(1741095022562);
-    expect(Array.from(numericColumnValues(index.phase))).toEqual([0, 2]);
+    expect(Array.from(numericColumnValues(index.phase))).toEqual([1, 2]);
     expect(Array.from(numericColumnValues(index.flags))).toEqual([0, 1]);
     expect(index.sourceUrls).toEqual({ 10: 'https://a.example' });
     expect(index.sourceHosts).toEqual({ 10: 'a.example' });
@@ -144,7 +171,7 @@ describe('netlogDatasetIndexer', () => {
       time: '1',
       type: 1,
       source: { id: 10, type: 20 },
-      phase: 0,
+      phase: 1,
       params: { url: 'https://a.example' },
     });
     await expect(readNetlogTopLevelValue(file, index, 'constants')).resolves.toEqual({
@@ -313,9 +340,9 @@ describe('netlogDatasetIndexer', () => {
       },
       events: [
         { time: '1', type: 1, source: { id: 30, type: 20 }, phase: 0, params: {} },
-        { time: '2', type: 2, source: { id: 10, type: 21 }, phase: 0, params: { url: 'https://single-scan.example.invalid', method: 'GET' } },
+        { time: '2', type: 2, source: { id: 10, type: 21 }, phase: 1, params: { url: 'https://single-scan.example.invalid', method: 'GET' } },
         { time: '3', type: 3, source: { id: 20, type: 22 }, phase: 0, params: { address: '203.0.113.10:443', source_dependency: { id: 10 } } },
-        { time: '4', type: 4, source: { id: 10, type: 21 }, phase: 1, params: {} },
+        { time: '4', type: 4, source: { id: 10, type: 21 }, phase: 2, params: {} },
       ],
     };
     const text = JSON.stringify(raw);
@@ -456,7 +483,7 @@ describe('netlogDatasetIndexer', () => {
   });
 
   it('带 dependency 的 socket 事件保留完整 parse 路径和 Endpoint Evidence socket peer', async () => {
-    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":100,"type":20},"phase":0,"params":{"url":"https://socket.example/api"}},{"time":"2","type":2,"source":{"id":200,"type":21},"phase":0,"params":{"address":"203.0.113.200:443","source_dependency":{"id":100}}}]}';
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"SOCKET_CONNECT":2},"logSourceType":{"URL_REQUEST":20,"SOCKET":21}},"events":[{"time":"1","type":1,"source":{"id":100,"type":20},"phase":1,"params":{"url":"https://socket.example/api"}},{"time":"2","type":2,"source":{"id":200,"type":21},"phase":1,"params":{"address":"203.0.113.200:443","source_dependency":{"id":100}}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
     const onEvent = jest.fn();
 
@@ -518,7 +545,7 @@ describe('netlogDatasetIndexer', () => {
   });
 
   it('构建 Dataset 时生成 Timeline、Modules 和 Prerender State', async () => {
-    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"NETWORK_SERVICE_MODULE_INITIALIZED":2,"PREFETCH_REQUEST_FAILED":3},"logSourceType":{"URL_REQUEST":20,"NETWORK_SERVICE":21,"PREFETCH":22}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":0,"params":{"url":"https://app.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"module_name":"network-service"}},{"time":"3","type":3,"source":{"id":12,"type":22},"phase":0,"params":{"url":"https://app.example/prefetch","net_error":-105}}]}';
+    const text = '{"constants":{"logEventTypes":{"URL_REQUEST_START_JOB":1,"NETWORK_SERVICE_MODULE_INITIALIZED":2,"PREFETCH_REQUEST_FAILED":3},"logSourceType":{"URL_REQUEST":20,"NETWORK_SERVICE":21,"PREFETCH":22}},"events":[{"time":"1","type":1,"source":{"id":10,"type":20},"phase":1,"params":{"url":"https://app.example"}},{"time":"2","type":2,"source":{"id":11,"type":21},"phase":0,"params":{"module_name":"network-service"}},{"time":"3","type":3,"source":{"id":12,"type":22},"phase":0,"params":{"url":"https://app.example/prefetch","net_error":-105}}]}';
     const file = new ChunkedTextFile(text, [3, 5, 7, 11]);
 
     const { timelineState, modulesState, prerenderState } = await buildNetlogCompactEventIndex(file);

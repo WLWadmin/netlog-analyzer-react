@@ -4,6 +4,7 @@ import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import { getNetErrorDescription } from '../../parsers/netlog/constants';
 import { getHarRequestIssue, type HarRequestIssue } from './harRequestIssue';
 import { getHarTimingPhase, normalizeHarTiming } from './harTimingNormalization';
+import { buildHarRequestTimeRange } from './harWaterfall';
 import type { DiagnosticCategory, DiagnosticEvidence } from './types';
 
 export type DiagnosisEvidenceLevel =
@@ -128,6 +129,7 @@ export function buildHarObservations(entries: HarRequestEntry[]): DiagnosisObser
     const level = harEvidenceLevel(issue);
     const requiresMoreEvidence = requiresHarMoreEvidence(issue);
     const severity = issue.severity === 'normal' ? 'info' : issue.severity;
+    const range = buildHarRequestTimeRange([entry]);
     const observation: DiagnosisObservation = {
       id: `har:request:${entry.id}:primary`,
       source: 'har',
@@ -138,8 +140,8 @@ export function buildHarObservations(entries: HarRequestEntry[]): DiagnosisObser
         safePath: parts.safePath,
         method: entry.method,
       },
-      timeRange: Number.isFinite(entry.startMs)
-        ? { startMs: entry.startMs, endMs: entry.startMs + entry.time, clock: 'epoch' }
+      timeRange: range
+        ? { ...range, clock: 'epoch' }
         : undefined,
       severity,
       evidenceLevel: level,
@@ -198,6 +200,9 @@ function buildFailedDomainObservation(domain: FailedDomain): DiagnosisObservatio
 
 function buildSlowRequestObservation(request: URLRequest): DiagnosisObservation {
   const parts = safeUrlParts(request.url);
+  const duration = typeof request.duration === 'number' && Number.isFinite(request.duration) && request.duration >= 0
+    ? request.duration : undefined;
+  const durationText = `${duration === undefined ? '无可用数据' : `${Math.round(duration)}ms`} · 覆盖 ${duration === undefined ? 0 : 1}/1`;
   return {
     id: `netlog:request:${request.id}:slow`,
     source: 'netlog',
@@ -208,15 +213,15 @@ function buildSlowRequestObservation(request: URLRequest): DiagnosisObservation 
       safePath: parts.safePath,
       method: request.method,
     },
-    timeRange: Number.isFinite(request.startTime)
-      ? { startMs: request.startTime, endMs: request.startTime + (request.duration || 0), clock: 'relative' }
+    timeRange: Number.isFinite(request.startTime) && duration !== undefined
+      ? { startMs: request.startTime, endMs: request.startTime + duration, clock: 'relative' }
       : undefined,
     severity: 'warning',
     evidenceLevel: 'supporting',
-    fact: `NetLog 记录请求耗时 ${Math.round(request.duration || 0)}ms`,
+    fact: `NetLog 记录请求耗时 ${durationText}`,
     evidence: [
       { label: '请求', value: `${request.method} ${parts.domain || 'unknown'}${parts.safePath || ''}`, source: 'netlog', sourceIds: [request.id] },
-      { label: '耗时', value: `${Math.round(request.duration || 0)}ms`, source: 'netlog', sourceIds: [request.id] },
+      { label: '耗时', value: durationText, source: 'netlog', sourceIds: [request.id] },
     ],
     requiresMoreEvidence: true,
     primary: true,

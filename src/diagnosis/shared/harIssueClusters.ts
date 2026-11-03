@@ -3,6 +3,8 @@ import { formatHarTime } from '../../harParser';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
 import { getHarRequestIssue, type HarRequestIssue } from './harRequestIssue';
 import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
+import { compareHarRequestDurations, getHarKnownDurationMs } from './harTimingCompleteness';
+import { buildHarRequestTimeRange } from './harWaterfall';
 
 export type HarIssueCategory =
   | 'dns'
@@ -252,7 +254,7 @@ function buildSummary(
 function representativeIds(items: Array<{ entry: HarRequestEntry; issue: HarRequestIssue }>): number[] {
   const picked = [
     [...items].sort((a, b) => SEVERITY_RANK[b.issue.severity === 'normal' ? 'info' : b.issue.severity] - SEVERITY_RANK[a.issue.severity === 'normal' ? 'info' : a.issue.severity])[0]?.entry.id,
-    [...items].sort((a, b) => b.entry.time - a.entry.time)[0]?.entry.id,
+    [...items].sort((a, b) => compareHarRequestDurations(a.entry, b.entry, 'descend'))[0]?.entry.id,
     [...items].sort((a, b) => a.entry.startMs - b.entry.startMs || a.entry.id - b.entry.id)[0]?.entry.id,
   ].filter((id): id is number => id !== undefined);
   return Array.from(new Set(picked)).slice(0, 3);
@@ -277,9 +279,9 @@ export function buildHarIssueClusters(entries: HarRequestEntry[], options?: { ma
     const category = items[0].category;
     const evidenceLevel = items[0].evidenceLevel;
     const domains = Array.from(new Set(entriesInGroup.map(entry => safeDomain(entry.domain))));
-    const startValues = entriesInGroup.map(entry => entry.startMs).filter(ms => Number.isFinite(ms) && ms > 0);
-    const endValues = entriesInGroup.map(entry => entry.startMs + entry.time).filter(ms => Number.isFinite(ms) && ms > 0);
-    const maxDurationMs = Math.max(...items.map(item => item.issue.durationMs || item.entry.time || 0), 0);
+    const durations = items.map(item => item.issue.durationMs ?? getHarKnownDurationMs(item.entry))
+      .filter((ms): ms is number => ms !== undefined && Number.isFinite(ms) && ms >= 0);
+    const maxDurationMs = durations.length ? Math.max(...durations) : undefined;
     const affectedRequestIds = entriesInGroup.map(entry => entry.id).sort((a, b) => a - b);
     const representativeRequestIds = representativeIds(items);
     const roles = Array.from(new Set(items.flatMap(item => [
@@ -300,11 +302,12 @@ export function buildHarIssueClusters(entries: HarRequestEntry[], options?: { ma
       affectedRequestIds,
       representativeRequestIds,
       maxDurationMs,
-      timeWindow: startValues.length ? { startMs: Math.min(...startValues), endMs: Math.max(...endValues) } : undefined,
+      timeWindow: buildHarRequestTimeRange(entriesInGroup),
       evidence: [
         { label: '归组依据', value: basis, source: 'derived' as const, requestIds: representativeRequestIds },
         { label: '涉及域名', value: domains.join('、'), source: 'derived' as const },
-        ...(maxDurationMs > 0 ? [{ label: '最大耗时', value: formatHarTime(maxDurationMs), source: 'har' as const, requestIds: representativeRequestIds }] : []),
+        { label: '耗时覆盖', value: `${durations.length}/${items.length}`, source: 'derived' as const },
+        { label: '最大耗时', value: maxDurationMs === undefined ? '无可用数据' : maxDurationMs === 0 ? '0ms' : formatHarTime(maxDurationMs), source: 'har' as const, requestIds: representativeRequestIds },
         { label: '代表请求', value: representativeRequestIds.map(id => `#${id + 1} ${safeRequestName(entries[id])}`).join('；'), source: 'har' as const, requestIds: representativeRequestIds },
       ],
       roleHints: roles as HarIssueCluster['roleHints'],

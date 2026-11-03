@@ -3,16 +3,16 @@ import { parseHarInput } from '../utils/parseHarInput';
 
 it('uses the real Worker handler for recovery and resolves deferred bodies by retained ID', async () => {
   let onResult: ((message: WorkerResponse) => void) | undefined;
-  const post = jest.spyOn(self, 'postMessage').mockImplementation(message => {
+  const post = jest.spyOn(window, 'postMessage').mockImplementation(message => {
     if (message.type === 'success' || message.type === 'error') onResult?.(message);
   });
-  const add = jest.spyOn(self, 'addEventListener');
+  const add = jest.spyOn(window, 'addEventListener');
   jest.isolateModules(() => { require('./analysisWorker'); });
   const listener = add.mock.calls.find(call => call[0] === 'message')?.[1];
   if (typeof listener !== 'function') throw new Error('Worker message handler missing');
   const send = (data: WorkerRequest) => new Promise<WorkerResponse>(resolve => {
     onResult = resolve;
-    self.dispatchEvent(new MessageEvent('message', { data }));
+    window.dispatchEvent(new MessageEvent('message', { data }));
   });
   try {
     const body = 'LARGE_BODY_'.repeat(900000);
@@ -33,10 +33,9 @@ it('uses the real Worker handler for recovery and resolves deferred bodies by re
       payload: { rawDataId: response.rawDataId!, entryId: 1 },
     });
     expect(loaded?.type).toBe('success');
-    if (loaded?.type === 'success') {
-      expect(loaded.payload).toMatchObject({ state: 'available', originalLength: body.length });
-      expect(JSON.stringify(loaded.payload).includes(body)).toBe(true);
-    }
+    if (loaded?.type !== 'success') throw new Error('HAR body Worker did not succeed');
+    expect(loaded.payload).toMatchObject({ state: 'available', originalLength: body.length });
+    expect(JSON.stringify(loaded.payload).includes(body)).toBe(true);
     const failure = await send({
       type: 'parse-har', id: 'bad', payload: '{"log":{"entries":[{"PRIVATE_FIXTURE":',
     });
@@ -44,7 +43,7 @@ it('uses the real Worker handler for recovery and resolves deferred bodies by re
     expect(JSON.stringify(failure)).not.toContain('PRIVATE_FIXTURE');
     await send({ type: 'release-raw-data', id: 'release', payload: { rawDataId: response.rawDataId } });
   } finally {
-    self.removeEventListener('message', listener);
+    window.removeEventListener('message', listener);
     add.mockRestore();
     post.mockRestore();
   }

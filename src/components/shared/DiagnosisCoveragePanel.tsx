@@ -17,7 +17,8 @@ const metricStyle: React.CSSProperties = {
 
 const DiagnosisCoveragePanel: React.FC<DiagnosisCoveragePanelProps> = ({ coverage: data, onOpenUnexplained }) => {
   if (!data) return null;
-  const percent = Math.round(data.coverageRate * 100);
+  const hasCoverage = data.totalAbnormalObjects > 0 && Number.isFinite(data.coverageRate);
+  const percent = hasCoverage ? Math.round(data.coverageRate * 100) : 0;
   const canOpenUnexplained = data.unexplainedRequestIds.length > 0 || data.unexplainedSourceIds.length > 0;
 
   return (
@@ -33,7 +34,7 @@ const DiagnosisCoveragePanel: React.FC<DiagnosisCoveragePanelProps> = ({ coverag
           percent={percent}
           size={92}
           strokeColor={percent >= 80 ? '#16a34a' : percent >= 50 ? '#f59e0b' : '#ef4444'}
-          format={() => `${percent}%`}
+          format={() => hasCoverage ? `${percent}%` : '无可用数据'}
         />
         <div style={{ display: 'grid', gap: 8 }}>
           <div style={metricStyle}>
@@ -63,7 +64,7 @@ const DiagnosisCoveragePanel: React.FC<DiagnosisCoveragePanelProps> = ({ coverag
       <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {data.denominatorMayBeIncomplete && <Tag color="orange">分母可能不完整</Tag>}
         {data.reasons.slice(0, 2).map(item => <Tag key={item.reason}>{item.reason}</Tag>)}
-        {data.totalAbnormalObjects === 0 && <Tag color="green">当前采集未发现明确问题</Tag>}
+        {data.totalAbnormalObjects === 0 && <Tag>无可用异常对象，无法计算解释覆盖率</Tag>}
       </div>
     </Card>
   );

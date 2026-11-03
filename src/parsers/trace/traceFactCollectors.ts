@@ -8,7 +8,7 @@ import {
 } from './eventAccessors';
 import { appendProfileChunkSamples } from './cpuProfileFacts';
 import { calculateEventTiming } from './interactionFacts';
-import { buildDispatchWaitFact, classifyRequest } from './requestFacts';
+import { buildDispatchWaitFact, classifyRequest, readTraceStatusCode } from './requestFacts';
 import { calculateSelfTime } from './taskFacts';
 import type {
   ChromiumTraceEvent,
@@ -97,6 +97,8 @@ interface MutableRequest {
   method?: string;
   resourceType?: string;
   statusCode?: number;
+  invalidStatusCode?: boolean;
+  isNonHttpResource: boolean;
   protocol?: string;
   fromCache?: boolean;
   failed?: boolean;
@@ -174,6 +176,17 @@ function sanitizeUrl(value: unknown): TraceSanitizedUrl | undefined {
     return { origin: parsed.origin, pathname: parsed.pathname };
   } catch {
     return undefined;
+  }
+}
+
+function isNonHttpResource(value: unknown): boolean {
+  const raw = readString(value);
+  if (!raw) return false;
+  try {
+    const protocol = new URL(raw).protocol;
+    return protocol !== 'http:' && protocol !== 'https:';
+  } catch {
+    return false;
   }
 }
 
@@ -636,6 +649,8 @@ export class Batch3FactCollector {
         frameId: readLocalId(data.frame),
         navigationId: readLocalId(data.navigationId),
         url: sanitizeUrl(data.url),
+        // Retain only the scheme distinction; non-HTTP payloads stay private.
+        isNonHttpResource: isNonHttpResource(data.url),
         method: readString(data.requestMethod),
         resourceType: readString(data.resourceType),
         explicitCancelled: false,
@@ -670,7 +685,9 @@ export class Batch3FactCollector {
       const length = readFiniteNumber(data.encodedDataLength);
       if (length !== undefined) request.encodedDataLength = (request.encodedDataLength ?? 0) + length;
     } else if (name === 'ResourceReceiveResponse') {
-      request.statusCode = readFiniteNumber(data.statusCode);
+      request.statusCode = readTraceStatusCode(data.statusCode);
+      request.invalidStatusCode = data.statusCode !== undefined && request.statusCode === undefined;
+      if (request.invalidStatusCode) this.warnings.add(SHAPE_WARNING);
       request.protocol = readString(data.protocol);
       request.fromCache = readBoolean(data.fromCache);
       const timing = readRecord(data.timing);
@@ -843,6 +860,7 @@ export class Batch3FactCollector {
           && item.startUs < (request.endUs ?? captureEndUs ?? request.startUs));
       const classification = classifyRequest({
         statusCode: request.statusCode,
+        isNonHttpResource: request.isNonHttpResource,
         failed: request.failed,
         cancelledSignal: request.explicitCancelled
           ? 'explicit'
@@ -866,6 +884,13 @@ export class Batch3FactCollector {
         }
       }
       const limitations = request.url ? [] : ['request-url-unavailable'];
+      if (request.invalidStatusCode) {
+        limitations.push('状态码不是合法整数或超出范围，HTTP 结果未知。');
+      } else if (request.statusCode === 0) {
+        limitations.push(request.isNonHttpResource
+          ? '非 HTTP 资源没有 HTTP 状态码；结果依据完成事件及失败标记。'
+          : '状态 0 未提供有效 HTTP 响应状态；不能仅凭 didFail=false 确认成功。');
+      }
       const hasTimingInput = request.calibratedNetworkSendMs !== undefined
         || request.calibratedNetworkResponseMs !== undefined
         || request.rendererResponseEventMs !== undefined

@@ -4,8 +4,10 @@
  */
 
 import { formatBytes, formatHarTime, getHarResponseStatus } from '../../harParser';
+import { getHarSpanCoveredRequestCount, getHarKnownDurationMs } from './harTimingCompleteness';
 import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { buildHarRequestTimeRange } from './harWaterfall';
 import type { HarDiagnosisResult, AttributionItem, NetworkPhaseStatus } from '../../harDiagnosis';
 import type {
   DiagnosticCard,
@@ -180,17 +182,17 @@ function buildPhaseEvidence(phase: NetworkPhaseStatus): DiagnosticEvidence[] {
   const evidence: DiagnosticEvidence[] = [
     {
       label: '平均耗时',
-      value: `${phase.avgMs} ms`,
+      value: `${phase.avgMs} ms · 覆盖 ${phase.validCount}/${phase.totalCount}`,
       source: 'har',
     },
     {
       label: 'P95 耗时',
-      value: `${phase.p95Ms} ms`,
+      value: `${phase.p95Ms} ms · 覆盖 ${phase.validCount}/${phase.totalCount}`,
       source: 'har',
     },
     {
       label: '最大耗时',
-      value: `${phase.maxMs} ms`,
+      value: `${phase.maxMs} ms · 覆盖 ${phase.validCount}/${phase.totalCount}`,
       source: 'har',
     },
   ];
@@ -226,7 +228,7 @@ function buildAttributionEvidence(attr: AttributionItem, entries: HarRequestEntr
   }
 
   // 查找相关请求 ID（使用集中阈值配置）
-  const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked, maxRelatedRequestsPerAttr } = HAR_EVIDENCE_THRESHOLDS;
+  const { attributionServerWait, attributionDns, attributionNetworkDns, attributionNetworkConnect, attributionClientBlocked } = HAR_EVIDENCE_THRESHOLDS;
   const relatedIds = entries
     .filter(e => {
       if (attr.type === 'server') return timingPhaseMs(e, 'wait') > attributionServerWait;
@@ -235,8 +237,7 @@ function buildAttributionEvidence(attr: AttributionItem, entries: HarRequestEntr
       if (attr.type === 'client') return blockedTimingMs(e) > attributionClientBlocked;
       return false;
     })
-    .map(e => e.id)
-    .slice(0, maxRelatedRequestsPerAttr);
+    .map(e => e.id);
 
   if (relatedIds.length > 0) {
     evidence.push({
@@ -415,11 +416,12 @@ function buildThirdPartyConcentrationCard(entries: HarRequestEntry[]): Diagnosti
   ));
   if (problemEntries.length < 3) return null;
 
-  const totalSize = thirdPartyEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0);
+  const knownSizeEntries = thirdPartyEntries.filter(entry => Number.isFinite(entry.size) && entry.size >= 0);
+  const totalSize = knownSizeEntries.reduce((sum, entry) => sum + entry.size, 0);
   const slowCount = problemEntries.filter(entry => entry.isSlow).length;
   const failedCount = problemEntries.filter(entry => entry.isFailed).length;
-  const domains = Array.from(new Set(problemEntries.map(entry => entry.domain).filter(Boolean))).slice(0, 8);
-  const relatedRequestIds = problemEntries.slice(0, 30).map(entry => entry.id);
+  const domains = Array.from(new Set(problemEntries.map(entry => entry.domain).filter(Boolean)));
+  const relatedRequestIds = problemEntries.map(entry => entry.id);
 
   return {
     id: generateId('har-third-party', 0),
@@ -436,8 +438,8 @@ function buildThirdPartyConcentrationCard(entries: HarRequestEntry[]): Diagnosti
     scope: buildScope(problemEntries.length, domains.length, domains.length > 1 ? 'multi-domain' : 'global'),
     evidence: [
       { label: '异常请求', value: `${problemEntries.length}/${thirdPartyEntries.length}`, source: 'derived', requestIds: relatedRequestIds },
-      { label: '总传输体积', value: `${(totalSize / 1024 / 1024).toFixed(1)} MB`, source: 'har' },
-      { label: '涉及域名', value: domains.join('、') || '未知', source: 'derived' },
+      { label: '总传输体积', value: `${knownSizeEntries.length ? `${(totalSize / 1024 / 1024).toFixed(1)} MB` : '无可用数据'} · 已知大小合计 · 覆盖 ${knownSizeEntries.length}/${thirdPartyEntries.length}`, source: 'har' },
+      { label: '涉及域名', value: `${domains.slice(0, 8).join('、') || '未知'} · 显示前 ${Math.min(8, domains.length)} / 共 ${domains.length}`, source: 'derived' },
     ],
     actions: [
       { role: 'frontend', title: '拆分非关键第三方依赖', detail: '将非首屏必要的 SDK、埋点、广告、监控资源延后加载或异步加载' },
@@ -452,7 +454,7 @@ function buildLargePayloadCard(entries: HarRequestEntry[]): DiagnosticCard | nul
   const largeEntries = entries.filter(entry => entry.size > 1024 * 1024 || entry.contentSize > 2 * 1024 * 1024);
   if (largeEntries.length === 0) return null;
 
-  const relatedRequestIds = largeEntries.slice(0, 20).map(entry => entry.id);
+  const relatedRequestIds = largeEntries.map(entry => entry.id);
   const totalBytes = largeEntries.reduce((sum, entry) => sum + Math.max(entry.size, entry.contentSize), 0);
   return {
     id: generateId('har-large-payload', 0),
@@ -487,7 +489,7 @@ function isAbortedRequest(entry: HarRequestEntry): boolean {
 }
 
 function percentile(values: number[], ratio: number): number {
-  if (values.length === 0) return 0;
+  if (values.length === 0) return Number.NaN;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
 }
@@ -506,12 +508,17 @@ function peakStartsInWindow(entries: HarRequestEntry[], windowMs = 1000): number
   return peak;
 }
 
-function maxConcurrentRequests(entries: HarRequestEntry[]): number {
+function maxConcurrentRequests(entries: HarRequestEntry[]): { value?: number; validCount: number; totalCount: number } {
+  let validCount = 0;
   const events = entries.flatMap(entry => {
-    if (!Number.isFinite(entry.startMs) || entry.startMs <= 0 || !Number.isFinite(entry.time) || entry.time <= 0) return [];
+    const duration = getHarKnownDurationMs(entry);
+    if (!Number.isFinite(entry.startMs) || entry.startMs <= 0 || duration === undefined) return [];
+    validCount++;
+    // A measured zero has an empty half-open interval, but remains a valid sample.
+    if (duration === 0) return [];
     return [
       { at: entry.startMs, delta: 1 },
-      { at: entry.startMs + entry.time, delta: -1 },
+      { at: entry.startMs + duration, delta: -1 },
     ];
   }).sort((a, b) => a.at - b.at || a.delta - b.delta);
   let current = 0;
@@ -520,7 +527,7 @@ function maxConcurrentRequests(entries: HarRequestEntry[]): number {
     current += event.delta;
     peak = Math.max(peak, current);
   });
-  return peak;
+  return { value: validCount ? peak : undefined, validCount, totalCount: entries.length };
 }
 
 function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCard | null {
@@ -550,7 +557,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
     };
   }).filter(candidate => (
     candidate.blockedEntries.length >= 10
-    && (candidate.peakStarts >= 20 || candidate.maxConcurrent >= 20)
+    && (candidate.peakStarts >= 20 || (candidate.maxConcurrent.value ?? 0) >= 20)
   )).sort((a, b) => (
     b.abortedNearThirtySeconds.length - a.abortedNearThirtySeconds.length
     || b.blockedEntries.length - a.blockedEntries.length
@@ -567,22 +574,28 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   const optionsCount = primary.entries.filter(entry => entry.method === 'OPTIONS').length;
   const getCount = primary.entries.filter(entry => entry.method === 'GET').length;
   const http11Count = primary.entries.filter(entry => entry.protocol.toLowerCase() === 'http/1.1').length;
-  const successfulBytes = successfulGets.reduce((sum, entry) => sum + Math.max(entry.size, entry.contentSize, 0), 0);
-  const ttfbP95 = percentile(successfulGets.map(entry => timingPhaseMs(entry, 'wait')).filter(value => value > 0), 0.95);
-  const receiveP95 = percentile(successfulGets.map(entry => timingPhaseMs(entry, 'receive')).filter(value => value > 0), 0.95);
+  const knownSizeGets = successfulGets.filter(entry => Number.isFinite(entry.size) && entry.size >= 0);
+  const successfulBytes = knownSizeGets.reduce((sum, entry) => sum + entry.size, 0);
+  const successfulPhaseP95 = (key: 'wait' | 'receive'): string => {
+    const values = successfulGets
+      .map(entry => getHarTimingPhase(normalizeHarTiming(entry), key)?.durationMs)
+      .filter((value): value is number => value !== undefined && Number.isFinite(value) && value >= 0);
+    const p95 = percentile(values, 0.95);
+    return `${values.length ? p95 === 0 ? '0ms' : formatHarTime(p95) : '无可用数据'} · 覆盖 ${values.length}/${successfulGets.length}`;
+  };
   const affectedRequestIds = Array.from(new Set([
     ...primary.blockedEntries.map(entry => entry.id),
     ...primary.abortedNearThirtySeconds.map(entry => entry.id),
   ]));
-  const startValues = primary.entries.map(entry => entry.startMs).filter(value => Number.isFinite(value) && value > 0);
-  const endValues = primary.entries.map(entry => entry.startMs + entry.time).filter(value => Number.isFinite(value) && value > 0);
+  const timeRange = buildHarRequestTimeRange(primary.entries);
   const cancelConclusion = primary.abortedNearThirtySeconds.length > 0
     ? `，其中 ${primary.abortedNearThirtySeconds.length} 个请求在约 30 秒后被取消且未取得 HTTP 响应`
     : '';
+  const concurrentText = `${primary.maxConcurrent.value === undefined ? '无可用数据' : `${primary.maxConcurrent.value} 个请求同时进行`} · 覆盖 ${primary.maxConcurrent.validCount}/${primary.maxConcurrent.totalCount}${primary.maxConcurrent.validCount < primary.maxConcurrent.totalCount ? '，仅基于已知请求子集' : ''}`;
 
   const evidence: DiagnosticEvidence[] = [
     { label: '同域请求突发', value: `${primary.domain} 在 1 秒内最多发起 ${primary.peakStarts} 个请求`, source: 'derived' },
-    { label: '最大并发', value: `${primary.maxConcurrent} 个请求同时进行`, source: 'derived' },
+    { label: '最大并发', value: concurrentText, source: 'derived' },
     { label: '浏览器排队', value: `${primary.blockedEntries.length} 个请求 blocked 超过 ${HAR_DIAG_THRESHOLDS.blockedSlow}ms`, source: 'har', requestIds: primary.blockedEntries.slice(0, 20).map(entry => entry.id) },
   ];
   if (primary.abortedNearThirtySeconds.length > 0) {
@@ -602,7 +615,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
   if (successfulGets.length > 0) {
     evidence.push({
       label: '成功 GET 响应',
-      value: `Waiting P95 ${formatHarTime(ttfbP95)}；下载 P95 ${formatHarTime(receiveP95)}；传输 ${formatBytes(successfulBytes)}`,
+      value: `Waiting P95 ${successfulPhaseP95('wait')}；下载 P95 ${successfulPhaseP95('receive')}；已知大小合计 ${knownSizeGets.length ? formatBytes(successfulBytes) : '无可用数据'} · 覆盖 ${knownSizeGets.length}/${successfulGets.length}`,
       source: 'har',
       requestIds: successfulGets.slice(0, 20).map(entry => entry.id),
     });
@@ -615,7 +628,7 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
     severity: primary.abortedNearThirtySeconds.length >= 10 ? 'critical' : 'warning',
     confidence: 'high',
     title: '同域请求突发导致浏览器排队',
-    conclusion: `${primary.domain} 在 1 秒内最多发起 ${primary.peakStarts} 个请求，最大并发 ${primary.maxConcurrent}；${primary.blockedEntries.length} 个请求长时间处于 blocked${cancelConclusion}。请求突发和浏览器连接调度是首要排查方向。`,
+    conclusion: `${primary.domain} 在 1 秒内最多发起 ${primary.peakStarts} 个请求，最大并发 ${concurrentText}；${primary.blockedEntries.length} 个请求长时间处于 blocked${cancelConclusion}。请求突发和浏览器连接调度是首要排查方向。`,
     scope: buildScope(affectedRequestIds.length, 1, 'single-domain'),
     evidence,
     actions: [
@@ -638,8 +651,8 @@ function buildBrowserQueuePressureCard(entries: HarRequestEntry[]): DiagnosticCa
     ],
     limitations: ['HAR 能确认请求突发、排队和取消现象；连接池、代理或协议降级的底层原因仍需同次 NetLog 验证。'],
     relatedRequestIds: affectedRequestIds,
-    timeRange: startValues.length && endValues.length
-      ? { startMs: Math.min(...startValues), endMs: Math.max(...endValues), clock: 'epoch' }
+    timeRange: timeRange
+      ? { ...timeRange, clock: 'epoch' }
       : undefined,
     navigationTarget: buildHarNavigationTarget('browser-queue', { requestIds: affectedRequestIds }),
   };
@@ -656,7 +669,6 @@ export function harDiagnosisToCards(
   const issueClusters = buildHarIssueClusters(entries);
   const clusterCategories = new Set(issueClusters.map(cluster => cluster.category));
   const clusterCards = issueClusters
-    .slice(0, 5)
     .map(clusterToDiagnosticCard);
   cards.push(...clusterCards);
 
@@ -670,8 +682,11 @@ export function harDiagnosisToCards(
       source: 'har',
       category: 'quality',
       severity: mapSeverity(diagnosis.overallStatus),
-      confidence: diagnosis.overallStatus === 'critical' ? 'high' : 'medium',
-      title: diagnosis.overallStatus === 'critical' ? '检测到严重网络问题' : '检测到网络异常',
+      confidence: !Number.isFinite(diagnosis.healthScore) ? 'low' : diagnosis.overallStatus === 'critical' ? 'high' : 'medium',
+      title: diagnosis.healthScoreUnavailableReason === 'phase-missing' ? '网络阶段无可用数据'
+        : diagnosis.healthScoreUnavailableReason === 'outcome-missing' ? '请求结果无可用数据'
+        : diagnosis.healthScoreUnavailableReason === 'coverage-insufficient' ? '诊断数据覆盖不足'
+        : diagnosis.overallStatus === 'critical' ? '检测到严重网络问题' : '检测到网络异常',
       conclusion: diagnosis.summary,
       scope: buildScope(diagnosis.totalRequests, diagnosis.domainCount, 'global'),
       evidence: diagnosis.findings.map(f => ({
@@ -695,7 +710,7 @@ export function harDiagnosisToCards(
 
   // 2. 网络阶段问题卡片（无 cluster 时保留旧兼容入口）
   if (clusterCards.length === 0) diagnosis.networkStatus.forEach((phase, idx) => {
-    if (phase.status === 'healthy') return;
+    if (phase.status === 'healthy' || phase.status === 'unknown') return;
 
     const categoryMap: Record<string, DiagnosticCategory> = {
       'DNS': 'dns',
@@ -712,7 +727,7 @@ export function harDiagnosisToCards(
       severity: mapSeverity(phase.status),
       confidence: phase.status === 'critical' ? 'high' : 'medium',
       title: `${phase.label}阶段${phase.status === 'critical' ? '严重' : ''}偏高`,
-      conclusion: `${phase.label}阶段平均 ${phase.avgMs}ms，P95 ${phase.p95Ms}ms，${phase.slowCount} 个请求超过阈值`,
+      conclusion: `${phase.label}阶段平均 ${phase.avgMs}ms，P95 ${phase.p95Ms}ms，${phase.slowCount} 个请求超过阈值 · 覆盖 ${phase.validCount}/${phase.totalCount}`,
       scope: buildScope(phase.slowCount, phase.slowDomains.length, phase.slowDomains.length > 1 ? 'multi-domain' : 'global'),
       evidence: buildPhaseEvidence(phase),
       actions: [
@@ -732,8 +747,7 @@ export function harDiagnosisToCards(
           if (phase.label === '下载') return timingPhaseMs(e, 'receive') > receiveSlow;
           return false;
         })
-        .map(e => e.id)
-        .slice(0, HAR_EVIDENCE_THRESHOLDS.maxRelatedRequestsPerPhase),
+        .map(e => e.id),
     });
   });
 
@@ -790,7 +804,7 @@ export function harDiagnosisToCards(
       scope: buildScope(diagnosis.httpStatus.countFailed, undefined, 'global'),
       evidence,
       actions,
-      relatedRequestIds: entries.filter(e => e.isFailed).map(e => e.id).slice(0, 10),
+      relatedRequestIds: entries.filter(e => e.isFailed).map(e => e.id),
       limitations: diagnosis.httpStatus.count0 > 0
         ? ['status = 0 的精确根因需要 NetLog 验证']
         : undefined,
@@ -803,7 +817,7 @@ export function harDiagnosisToCards(
   if ((authEntries.length > 0 || proxyAuthEntries.length > 0)
     && !clusterCategories.has('auth')
     && !clusterCategories.has('proxy')) {
-    const requestIds = [...authEntries, ...proxyAuthEntries].slice(0, 30).map(e => e.id);
+    const requestIds = [...authEntries, ...proxyAuthEntries].map(e => e.id);
     cards.push({
       id: generateId('har-auth', cards.length),
       source: 'har',
@@ -839,7 +853,7 @@ export function harDiagnosisToCards(
 
   const serverErrorEntries = entries.filter(e => e.status >= 500 && e.status < 600);
   if (serverErrorEntries.length > 0 && !clusterCategories.has('server-error')) {
-    const requestIds = serverErrorEntries.slice(0, 30).map(e => e.id);
+    const requestIds = serverErrorEntries.map(e => e.id);
     const logids = serverErrorEntries.map(e => e.xTtLogid).filter(Boolean).slice(0, 5);
     cards.push({
       id: generateId('har-5xx', cards.length),
@@ -903,7 +917,7 @@ export function harDiagnosisToCards(
 
   // 5. 缓存问题卡片
   const { cacheRateLow, cacheRateMinRequests } = HAR_SEVERITY_THRESHOLDS;
-  if (diagnosis.cacheStats.cacheRate < cacheRateLow && diagnosis.totalRequests > cacheRateMinRequests) {
+  if (diagnosis.cacheStats.cacheRate < cacheRateLow && diagnosis.cacheStats.validCount > cacheRateMinRequests) {
     cards.push({
       id: generateId('har-cache', 0),
       source: 'har',
@@ -911,12 +925,13 @@ export function harDiagnosisToCards(
       severity: 'warning',
       confidence: 'medium',
       title: '缓存命中率偏低',
-      conclusion: `缓存命中率仅 ${diagnosis.cacheStats.cacheRate}%，建议优化静态资源缓存策略`,
+      conclusion: `缓存命中率仅 ${diagnosis.cacheStats.cacheRate}% · 覆盖 ${diagnosis.cacheStats.validCount}/${diagnosis.totalRequests}，建议优化静态资源缓存策略`,
       scope: buildScope(diagnosis.cacheStats.uncachedCount, undefined, 'global'),
       evidence: [
         { label: '缓存命中率', value: `${diagnosis.cacheStats.cacheRate}%`, source: 'har' },
         { label: '已缓存', value: `${diagnosis.cacheStats.cachedCount} 个`, source: 'har' },
         { label: '未缓存', value: `${diagnosis.cacheStats.uncachedCount} 个`, source: 'har' },
+        { label: '缓存判断覆盖', value: `${diagnosis.cacheStats.validCount}/${diagnosis.totalRequests}`, source: 'har' },
       ],
       actions: [
         {
@@ -930,6 +945,9 @@ export function harDiagnosisToCards(
           detail: '确保前端正确利用浏览器缓存，避免重复请求相同资源',
         },
       ],
+      limitations: diagnosis.cacheStats.validCount < diagnosis.totalRequests
+        ? ['仅基于部分请求，缺失响应头的请求不能判断缓存状态']
+        : [],
     });
   }
 
@@ -950,6 +968,7 @@ export function harDiagnosisToCards(
         source: 'har',
         requestIds: [r.id],
       })),
+      relatedRequestIds: diagnosis.uncompressedLargeResources.map(resource => resource.id),
       actions: [
         {
           role: 'backend',
@@ -1012,6 +1031,10 @@ export function harDiagnosisToCards(
 
   // 8. 重复请求卡片
   if (diagnosis.duplicateRequests.length > 0) {
+    const duplicateKeys = new Set(diagnosis.duplicateRequests.map(duplicate => duplicate.url));
+    const wastedBytes = diagnosis.duplicateRequests.reduce((sum, duplicate) => sum + duplicate.totalWasted, 0);
+    const knownWastedCount = diagnosis.duplicateRequests.reduce((sum, duplicate) => sum + duplicate.knownWastedCount, 0);
+    const repeatedCount = diagnosis.duplicateRequests.reduce((sum, duplicate) => sum + duplicate.count - 1, 0);
     cards.push({
       id: generateId('har-dup', 0),
       source: 'har',
@@ -1019,13 +1042,17 @@ export function harDiagnosisToCards(
       severity: 'warning',
       confidence: 'high',
       title: `重复请求检测 (${diagnosis.duplicateRequests.length} 个)`,
-      conclusion: `检测到 ${diagnosis.duplicateRequests.length} 个 URL 被重复请求，浪费 ${(diagnosis.duplicateRequests.reduce((s, d) => s + d.totalWasted, 0) / 1024).toFixed(1)} KB 带宽`,
+      conclusion: `检测到 ${diagnosis.duplicateRequests.length} 个 URL 被重复请求，已知重复传输大小合计 ${knownWastedCount > 0 ? `${(wastedBytes / 1024).toFixed(1)} KB` : '无可用数据'} · 覆盖 ${knownWastedCount}/${repeatedCount}（不含首次请求）；重复请求不一定是无效传输`,
       scope: buildScope(diagnosis.duplicateRequests.reduce((s, d) => s + d.count, 0), undefined, 'global'),
-      evidence: diagnosis.duplicateRequests.slice(0, 5).map((d, i) => ({
+      relatedRequestIds: entries.filter(entry => duplicateKeys.has(`${entry.method} ${entry.url}`)).map(entry => entry.id),
+      evidence: [
+        { label: '展示范围', value: `显示前 ${Math.min(10, diagnosis.duplicateRequests.length)} / 共 ${diagnosis.duplicateRequests.length}`, source: 'derived' },
+        ...diagnosis.duplicateRequests.slice(0, 10).map((d, i) => ({
         label: `重复 ${i + 1}`,
         value: `${sanitizeHarEvidenceUrl(d.url)} (×${d.count})`,
-        source: 'har',
-      })),
+        source: 'har' as const,
+        })),
+      ],
       actions: [
         {
           role: 'frontend',
@@ -1051,7 +1078,7 @@ export function harDiagnosisToCards(
     );
     const isXhr = e.category === 'xhr';
     const hasOrigin = e.requestHeaders.some(h => h.name.toLowerCase() === 'origin');
-    return isXhr && hasOrigin && !hasCorsHeaders && e.status > 0;
+    return isXhr && hasOrigin && e.standard.response.headersAvailable !== false && !hasCorsHeaders && e.status > 0;
   });
   if ((corsFailedEntries.length > 0 || corsBlockedEntries.length > 0) && !clusterCategories.has('cors')) {
     const evidence: DiagnosticEvidence[] = [];
@@ -1061,7 +1088,7 @@ export function harDiagnosisToCards(
         label: 'OPTIONS 预检失败',
         value: `${corsFailedEntries.length} 个 OPTIONS 请求失败（status=0），可能是 CORS 预检被拦截`,
         source: 'har',
-        requestIds: corsFailedEntries.map(e => e.id).slice(0, 5),
+        requestIds: corsFailedEntries.map(e => e.id),
       });
       actions.push({
         role: 'backend',
@@ -1079,7 +1106,7 @@ export function harDiagnosisToCards(
         label: '可能被 CORS 阻止',
         value: `${corsBlockedEntries.length} 个 XHR 请求携带 Origin 但响应缺少 Access-Control-Allow-Origin`,
         source: 'derived',
-        requestIds: corsBlockedEntries.map(e => e.id).slice(0, 5),
+        requestIds: corsBlockedEntries.map(e => e.id),
       });
       if (!actions.some(a => a.title.includes('CORS'))) {
         actions.push({
@@ -1100,6 +1127,7 @@ export function harDiagnosisToCards(
         ? `${corsFailedEntries.length} 个 OPTIONS 预检请求失败，可能导致后续跨域请求被浏览器阻止`
         : `${corsBlockedEntries.length} 个 XHR 请求可能因缺少 CORS 响应头而被浏览器阻止`,
       scope: buildScope(corsFailedEntries.length + corsBlockedEntries.length, undefined, 'global'),
+      relatedRequestIds: [...corsFailedEntries, ...corsBlockedEntries].map(entry => entry.id),
       evidence,
       actions,
       limitations: corsFailedEntries.length > 0
@@ -1122,6 +1150,7 @@ export function harDiagnosisToCards(
       title: `重定向耗时过长 (${longRedirectChains.length} 个)`,
       conclusion: `${longRedirectChains.length} 个重定向请求耗时超过 500ms，可能存在重定向链路过长或目标服务器响应慢`,
       scope: buildScope(longRedirectChains.length, undefined, 'global'),
+      relatedRequestIds: longRedirectChains.map(entry => entry.id),
       evidence: longRedirectChains.slice(0, 5).map((e, i) => ({
         label: `慢重定向 ${i + 1}`,
         value: `${sanitizeHarEvidenceUrl(e.url)} → ${e.status} (${e.time}ms)`,
@@ -1161,9 +1190,10 @@ export function harDiagnosisToCards(
         title: `Server-Timing 自报耗时异常提示 (${slowServerTimings.length} 个)`,
         conclusion: `${slowServerTimings.length} 个请求的 Server-Timing 自报指标合计超过 ${serverTimingSlow}ms，需结合同次服务端日志核验具体阶段`,
         scope: buildScope(slowServerTimings.length, undefined, 'server-side'),
+        relatedRequestIds: slowServerTimings.map(entry => entry.id),
         evidence: slowServerTimings.slice(0, 5).map((e, i) => ({
           label: `慢请求 ${i + 1}`,
-          value: `${e.name} — ${e.serverTiming.map(st => `${st.name}: ${st.dur || '?'}ms`).join(', ')}`,
+          value: `${e.name} — ${e.serverTiming.map(st => `${st.name}: ${st.dur ?? '?'}ms`).join(', ')}`,
           source: 'har',
           requestIds: [e.id],
         })),
@@ -1202,6 +1232,7 @@ export function harDiagnosisToCards(
       title: `Cookie 体积过大 (${largeCookieEntries.length} 个请求)`,
       conclusion: `${largeCookieEntries.length} 个请求的 Cookie 超过 ${(cookieLarge / 1024).toFixed(0)}KB，最大 ${(maxCookieSize / 1024).toFixed(1)}KB，每次请求都会携带额外开销`,
       scope: buildScope(largeCookieEntries.length, undefined, 'global'),
+      relatedRequestIds: largeCookieEntries.map(entry => entry.id),
       evidence: [
         {
           label: '受影响请求数',
@@ -1250,6 +1281,7 @@ export function harDiagnosisToCards(
         ? `${failedWithLogid.length} 个失败请求包含 x-tt-logid，可直接用于服务端日志查询`
         : `共 ${entriesWithLogid.length} 个请求包含 x-tt-logid，可用于服务端日志关联查询`,
       scope: buildScope(entriesWithLogid.length, undefined, 'server-side'),
+      relatedRequestIds: entriesWithLogid.map(entry => entry.id),
       evidence: logidList.map((item, i) => ({
         label: `logid ${i + 1}`,
         value: `${item.logid} — ${item.url.substring(0, 80)}${item.url.length > 80 ? '...' : ''} (status: ${item.status})`,
@@ -1309,9 +1341,9 @@ export function harDiagnosisToCards(
         },
       ],
       limitations: ['部分 CDN 或中间代理会注入额外 Set-Cookie，不一定都来自目标服务端'],
-      relatedRequestIds: entriesWithManySetCookies.slice(0, 10).map(e => e.id),
+      relatedRequestIds: entriesWithManySetCookies.map(e => e.id),
       navigationTarget: buildHarNavigationTarget('security', {
-        requestIds: entriesWithManySetCookies.slice(0, 10).map(e => e.id),
+        requestIds: entriesWithManySetCookies.map(e => e.id),
         keyword: 'set-cookie',
       }),
     });
@@ -1417,14 +1449,24 @@ export function checkHarQuality(result: HarAnalysisResult): CollectionQuality {
     missingFields.push('responseHeaders');
   }
 
-  // 检查采集时间跨度
+  // 子集跨度不能证明采集过短；即使全部请求起止已知，也只能描述已记录请求的跨度。
   const timeSpan = result.totalTime;
-  if (timeSpan > 0 && timeSpan < 1000) {
+  const spanCount = getHarSpanCoveredRequestCount(result.entries);
+  const spanCoverage = `覆盖 ${spanCount}/${result.entries.length}`;
+  if (spanCount < result.entries.length) {
+    issues.push({
+      type: 'missing_field',
+      severity: 'info',
+      message: '请求时间跨度无法确定',
+      detail: `${spanCount > 0 ? `已知请求子集跨度 ${formatHarTime(timeSpan)}` : '无可用请求起止时间'}，${spanCoverage}；缺少可靠起止时间，无法据此判断采集是否过短`,
+    });
+    recommendations.push('核验请求 startedDateTime 和 time，必要时重新导出完整 HAR');
+  } else if (timeSpan > 0 && timeSpan < 1000) {
     issues.push({
       type: 'suspicious_pattern',
       severity: 'info',
-      message: '采集时间跨度过短',
-      detail: `仅 ${(timeSpan / 1000).toFixed(1)} 秒，可能未完整记录页面加载`,
+      message: '请求时间跨度过短',
+      detail: `已记录请求的起止跨度仅 ${(timeSpan / 1000).toFixed(1)} 秒，${spanCoverage}；不等同于完整采集时长，请核验是否记录了完整页面加载`,
     });
     recommendations.push('建议在页面完整加载后再停止 HAR 采集');
   }
@@ -1456,6 +1498,6 @@ export function buildHarDiagnosisSummary(
     cards,
     quality,
     overallSeverity,
-    healthScore: diagnosis.healthScore,
+    healthScore: Number.isFinite(diagnosis.healthScore) ? diagnosis.healthScore : undefined,
   };
 }

@@ -1,4 +1,5 @@
 import { parseHar } from '../harParser';
+import { getHarKnownDurationMs } from '../diagnosis/shared/harTimingCompleteness';
 import {
   alignClockDomains,
   type AlignmentAnchor,
@@ -137,6 +138,7 @@ function harFacts(sourceId: string, parsed: ReturnType<typeof parseHar>): CrossS
   };
   return parsed.entries.map(entry => {
     const url = safeUrl(entry.url);
+    const durationMs = getHarKnownDurationMs(entry);
     return {
       entityId: `${sourceId}:request:${entry.id}`,
       sourceId,
@@ -153,7 +155,7 @@ function harFacts(sourceId: string, parsed: ReturnType<typeof parseHar>): CrossS
       ...(Number.isFinite(entry.startMs) && entry.startMs > 0
         ? { startUs: entry.startMs * 1_000 }
         : {}),
-      durationUs: Math.max(0, entry.time * 1_000),
+      ...(durationMs === undefined ? {} : { durationUs: durationMs * 1_000 }),
       deliveryType: entry.cacheInfo?.fromServiceWorker
         ? 'service-worker'
         : entry.cacheInfo?.fromPrefetchCache
@@ -162,7 +164,7 @@ function harFacts(sourceId: string, parsed: ReturnType<typeof parseHar>): CrossS
             ? 'cache'
             : 'network',
       evidenceIds: [`${sourceId}:request:${entry.id}`],
-      limitations: [],
+      limitations: durationMs === undefined ? ['耗时未记录；仅开始时间点，不能推算结束时间或持续区间。'] : [],
     };
   });
 }
@@ -762,7 +764,7 @@ export class CrossSourceStore {
         confidence: item.confidence,
         facts: [
           `锚点：${item.anchorType}`,
-          `不确定性：${item.uncertaintyUs} μs`,
+          item.sampleCount > 0 ? `不确定性：${item.uncertaintyUs} μs · 有效锚点 ${item.sampleCount}` : '不确定性：无可用数据',
           `样本数：${item.sampleCount}`,
         ],
         evidenceIds: [],

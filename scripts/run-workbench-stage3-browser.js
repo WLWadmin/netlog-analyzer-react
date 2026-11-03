@@ -232,17 +232,17 @@ async function runCrossSourceChecks(cdp) {
     },
     events: [
       {
-        time: '100.01', type: 111, phase: 0,
+        time: '100.01', type: 111, phase: 1,
         source: { id: 1, type: 1 },
         params: { url: 'https://api.example.test/resource-1', method: 'GET' },
       },
       {
-        time: '200.01', type: 111, phase: 0,
+        time: '200.01', type: 111, phase: 1,
         source: { id: 2, type: 1 },
         params: { url: 'https://api.example.test/resource-2', method: 'GET' },
       },
       {
-        time: '101', type: 111, phase: 0,
+        time: '101', type: 111, phase: 1,
         source: { id: 3, type: 1 },
         params: { url: 'https://api.example.test/resource-1', method: 'POST' },
       },
@@ -389,7 +389,7 @@ async function runCrossSourceChecks(cdp) {
       logSourceType: { URL_REQUEST: 1 },
     },
     events: [{
-      time: '100', type: 111, phase: 0,
+      time: '100', type: 111, phase: 1,
       source: { id: 1, type: 1 },
       params: { url: 'https://api.example.test/resource-1', method: 'GET' },
     }],

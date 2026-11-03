@@ -1,6 +1,40 @@
 import { createNetlogEndpointEvidenceReducer } from './netlogEndpointEvidenceReducer';
 
 describe('netlogEndpointEvidenceReducer', () => {
+  it.each([[999, 'normal'], [1000, 'slow'], [1001, 'slow']])(
+    'only END records duration and classifies the %s ms IP evidence as %s', (duration, impact) => {
+      const reducer = createNetlogEndpointEvidenceReducer();
+      const seed = {
+        eventId: 0, time: 10, typeName: 'URL_REQUEST_START_JOB',
+        sourceId: 100, sourceTypeName: 'URL_REQUEST', phase: 1,
+        params: { url: 'https://phase.example.invalid/data' },
+      };
+      reducer.accept(seed);
+      reducer.accept({
+        ...seed, eventId: 1, time: 510, typeName: 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS',
+        params: { headers: ['x-request-ip: 198.51.100.7'] },
+      });
+      const beginning = reducer.finish().failedOrSlowIps.find(item => item.eventId === 1);
+      expect(beginning?.durationMs).toBeUndefined();
+      expect(beginning?.impact).toBe('normal');
+      reducer.accept({
+        ...seed, eventId: 2, time: 710, phase: 0,
+        params: { headers: ['x-request-ip: 198.51.100.8'] },
+      });
+      expect(reducer.finish().failedOrSlowIps.find(item => item.eventId === 2)?.durationMs).toBeUndefined();
+      reducer.accept({
+        ...seed, eventId: 3, time: 10 + duration, typeName: 'REQUEST_ALIVE', phase: 2,
+        params: { net_error: 0, headers: ['x-request-ip: 198.51.100.9'] },
+      });
+      const summary = reducer.finish();
+      expect(summary.failedOrSlowIps.find(item => item.eventId === 3)).toMatchObject({
+        durationMs: duration, impact, sourceId: 100, ip: '198.51.100.9',
+      });
+      expect(summary.cipSipRows.find(row => row.host === 'phase.example.invalid')).toMatchObject({
+        durationMs: duration, impact,
+      });
+    });
+
   it('从全量事件 seed 产出 x-request-ip、socket peer 和 DNS answer 证据', () => {
     const reducer = createNetlogEndpointEvidenceReducer();
 
@@ -12,7 +46,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://api.example.com/data', method: 'GET' },
     });
     reducer.accept({
@@ -23,7 +57,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'HTTP_TRANSACTION_READ_RESPONSE_HEADERS',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 2,
+      phase: 0,
       params: { headers: ['x-request-ip: 198.51.100.7'] },
     });
     reducer.accept({
@@ -45,7 +79,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'HOST_RESOLVER_DNS_TASK_EXTRACTION_RESULTS',
       sourceId: 300,
       sourceTypeName: 'HOST_RESOLVER_IMPL_JOB',
-      phase: 2,
+      phase: 0,
       params: {
         results: {
           aliases: ['api.example.com'],
@@ -93,7 +127,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://graph.example.com/data', method: 'GET' },
     });
     reducer.accept({
@@ -104,7 +138,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'HTTP_STREAM_JOB',
       sourceId: 200,
       sourceTypeName: 'HTTP_STREAM_JOB',
-      phase: 2,
+      phase: 1,
       params: { source_dependency: { id: 100, type: 'URL_REQUEST' } },
     });
     reducer.accept({
@@ -184,7 +218,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://probe.example.com/data', method: 'GET' },
     });
     reducer.accept({
@@ -278,7 +312,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://nested.example.com/data' },
     });
     reducer.accept({
@@ -289,7 +323,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'HTTP_STREAM_JOB',
       sourceId: 200,
       sourceTypeName: 'HTTP_STREAM_JOB',
-      phase: 2,
+      phase: 1,
       params: {
         source_dependencies: [
           { id: 100, type: 'URL_REQUEST' },
@@ -366,7 +400,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://source-id.example.com/data' },
     });
     reducer.accept({
@@ -441,7 +475,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'URL_REQUEST_START_JOB',
       sourceId: 100,
       sourceTypeName: 'URL_REQUEST',
-      phase: 0,
+      phase: 1,
       params: { url: 'https://deep.example.com/data' },
     });
     for (let index = 0; index < 6; index += 1) {
@@ -453,7 +487,7 @@ describe('netlogEndpointEvidenceReducer', () => {
         typeName: 'SOCKET_ALIVE',
         sourceId: 200 + index,
         sourceTypeName: 'SOCKET',
-        phase: 2,
+        phase: 1,
         params: { source_dependency: { id: index === 0 ? 100 : 199 + index } },
       });
     }
@@ -479,7 +513,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'UDP_LOCAL_ADDRESS',
       sourceId: 301,
       sourceTypeName: 'UDP_SOCKET',
-      phase: 2,
+      phase: 0,
       params: { address: '192.168.0.2:55000' },
     });
 
@@ -521,7 +555,7 @@ describe('netlogEndpointEvidenceReducer', () => {
       typeName: 'HTTP_STREAM_JOB',
       sourceId: 200,
       sourceTypeName: 'HTTP_STREAM_JOB',
-      phase: 2,
+      phase: 1,
       params: { source_dependency: { id: 201, type: 'SOCKET_POOL' } },
     });
     reducer.accept({

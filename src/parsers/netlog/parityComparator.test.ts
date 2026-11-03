@@ -18,7 +18,7 @@ function requestLifecycleFixture() {
   const events: RawEvent[] = [{
     time: '100',
     type: 111,
-    phase: 0,
+    phase: 1,
     source: { id: 10, type: 1 },
     params: {
       url: 'https://parity.example.invalid/api?token=SECRET_VALUE',
@@ -29,7 +29,7 @@ function requestLifecycleFixture() {
     events.push({
       time: String(110 + index),
       type: 1,
-      phase: 2,
+      phase: 0,
       source: { id: 10, type: 1 },
       params: { byte_count: index + 1 },
     });
@@ -37,7 +37,7 @@ function requestLifecycleFixture() {
   events.push({
     time: '200',
     type: 181,
-    phase: 2,
+    phase: 0,
     source: { id: 10, type: 1 },
     params: {
       status_code: 200,
@@ -47,7 +47,7 @@ function requestLifecycleFixture() {
   events.push({
     time: '4200',
     type: 2,
-    phase: 1,
+    phase: 2,
     source: { id: 10, type: 1 },
     params: {},
   });
@@ -72,7 +72,8 @@ describe('NetLog full-vs-stream parity comparator', () => {
     const signature = buildNetlogParitySignature(full);
     const serialized = JSON.stringify(signature);
 
-    expect(hashNetlogParityValue(signature)).toBe('fnv1a32:3fe43f5c');
+    // Coverage-aware duration copy and deduplicated impact are part of this signature.
+    expect(hashNetlogParityValue(signature)).toBe('fnv1a32:b2fca178');
     expect(serialized).not.toContain('SECRET_VALUE');
     expect(serialized).not.toContain('parity.example.invalid');
   });
@@ -115,7 +116,7 @@ describe('NetLog full-vs-stream parity comparator', () => {
           typeId: 111,
           sourceId: 10,
           sourceTypeId: 1,
-          phase: 0,
+          phase: 1,
           hasError: false,
           byteStart: 128,
           byteEnd: 256,

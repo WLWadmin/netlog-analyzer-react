@@ -127,6 +127,12 @@ function summary(clusterCount: number, topTitle: string): FinalDiagnosisSummary 
 }
 
 describe('combinedBaselineComparator', () => {
+  it('does not infer zero episodes or no regression from absent final summaries', () => {
+    const input = { har: har(['/a']), netlog: netlog(['/a']) };
+    const cards = compareCombinedBaselines(input, input);
+    expect(cards.some(item => item.id === 'combined-baseline-no-regression')).toBe(false);
+    expect(cards.some(item => item.conclusion.includes('无可用'))).toBe(true);
+  });
   it('detects newly added episodes and top conclusions', () => {
     const cards = compareCombinedBaselines(
       { har: har(['/a', '/b']), netlog: netlog(['/a', '/b']), finalSummary: summary(1, '正常') },

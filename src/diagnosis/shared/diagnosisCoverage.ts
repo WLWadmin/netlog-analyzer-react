@@ -28,7 +28,7 @@ function emptyCoverage(denominatorMayBeIncomplete = false): DiagnosisCoverage {
     partiallyExplained: 0,
     unexplained: 0,
     excluded: 0,
-    coverageRate: 1,
+    coverageRate: Number.NaN,
     denominatorMayBeIncomplete,
     unexplainedRequestIds: [],
     unexplainedSourceIds: [],

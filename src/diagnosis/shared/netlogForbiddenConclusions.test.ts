@@ -7,7 +7,7 @@ import {
 import { assessProtocolHealth } from '../../components/netlog/ProtocolTab';
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import { buildFinalDiagnosisSummary } from './finalSummaryBuilder';
-import { buildNetlogDiagnosisSummary } from './fromNetlog';
+import { buildNetlogDiagnosisSummary, netlogToCards } from './fromNetlog';
 import { compareNetlogBaselines } from './netlogBaselineComparator';
 import { buildNetlogExpertEvidencePackage } from './netlogExpertEvidenceExport';
 
@@ -110,6 +110,25 @@ function result(): AnalysisResult {
 }
 
 describe('NetLog forbidden conclusions', () => {
+  it('does not substitute DNS event counts or proxy environment coverage for affected requests', () => {
+    const input = result();
+    input.failedDomains.forEach(domain => { domain.count = 35; });
+    const cards = netlogToCards(input, []);
+    expect(cards.find(card => card.id.startsWith('netlog-dns-detail'))?.scope.affectedRequestCount).toBeUndefined();
+    const environmentCard = cards.find(card => card.title === '检测到代理服务器配置');
+    expect(environmentCard).toBeDefined();
+    expect(environmentCard?.scope.affectedRequestCount).toBeUndefined();
+  });
+  it('keeps failure impact unknown without a request identifier or URL match', () => {
+    const input = result();
+    input.urlRequests = [];
+    input.connectionFailures.forEach(failure => { failure.requestId = undefined; });
+    const cards = netlogToCards(input, [{
+      title: '连接失败', icon: '❌', conclusion: '连接失败', detail: '- 已记录错误\n- 需要复核请求链', actions: [],
+      errorCode: -105,
+    }]);
+    expect(cards.find(card => card.id === 'netlog-0')?.scope.affectedRequestCount).toBeUndefined();
+  });
   it('普通页、专家页、行动建议与导出不暴露无样本概率或责任方断言', () => {
     const analysis = result();
     analysis.http2Events = [{

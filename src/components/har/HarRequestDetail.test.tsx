@@ -111,6 +111,13 @@ beforeAll(() => {
 });
 
 describe('HarRequestDetail', () => {
+  it('distinguishes exported empty cookie arrays from absent arrays', async () => {
+    render(<HarRequestDetail entry={entry({ requestCookies: [], responseCookies: undefined })} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Cookies' }));
+    expect(screen.getByText('已记录 0 个 Cookie。')).toBeInTheDocument();
+    expect(screen.getByText('HAR 未提供此侧结构化 Cookie 字段。')).toBeInTheDocument();
+    expect(screen.queryByText('HAR 未提供结构化 Cookie 字段。')).not.toBeInTheDocument();
+  });
   it('provides Response, Initiator and Cookies tabs with explicit cookie reveal', async () => {
     render(<HarRequestDetail entry={entry()} />);
 

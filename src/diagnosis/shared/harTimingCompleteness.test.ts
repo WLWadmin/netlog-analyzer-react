@@ -83,3 +83,24 @@ it('does not put missing total time on a timeline as zero milliseconds', () => {
   expect(getHarTimingCompleteness(missing).totalAvailable).toBe(false);
   expect(buildHarWaterfallRange([missing]).available).toBe(false);
 });
+
+it('omits unknown cluster duration and interval and avoids NaN waterfall clipping', () => {
+  const missing = request({ send: 0, wait: 50, receive: 0 }, 'bad', 500);
+  const cluster = buildHarIssueClusters([missing])[0];
+  expect(cluster.maxDurationMs).toBeUndefined();
+  expect(cluster.timeWindow).toBeUndefined();
+  const range = buildHarWaterfallRange([request({ send: 0, wait: 100, receive: 0 })]);
+  expect(getHarWaterfallSegments(missing, range)).toEqual([]);
+});
+
+it('does not let unknown duration mask the longest representative or truncate a cluster interval', () => {
+  const parsed = parseHar({ log: { entries: [undefined, 100, 5000].map(time => ({
+    request: { url: 'https://example.test/', headers: [] },
+    response: { status: 500, headers: [], content: {} },
+    startedDateTime: '2026-10-28T00:00:00Z', time, timings: { send: 0, wait: 0, receive: 0 },
+  })) } });
+  const cluster = buildHarIssueClusters(parsed.entries)[0];
+  expect(cluster.representativeRequestIds).toContain(2);
+  expect(cluster.maxDurationMs).toBe(5000);
+  expect(cluster.timeWindow).toBeUndefined();
+});

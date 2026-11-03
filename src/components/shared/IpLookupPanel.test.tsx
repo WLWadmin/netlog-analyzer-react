@@ -67,6 +67,8 @@ it('shows all attribution fields without a disclosure and copies only displayed 
   expect(screen.getByText('AS64500')).not.toBeNull();
   expect(screen.getByText('EXAMPLE')).not.toBeNull();
   expect(screen.getByText('Example/Zone')).not.toBeNull();
+  // Also rule out empty disclosures, which a text query cannot detect.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector('details')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '复制归属信息' }));
   await waitFor(() => expect(copy).toHaveBeenCalledTimes(1));
@@ -88,13 +90,13 @@ it('clears stale results while editing and ignores an older query response', asy
   let resolveFirst: (result: IpLookupResult) => void = () => {};
   lookup.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
   lookup.mockResolvedValueOnce({ ...success, ip: '8.8.8.8', isp: '第二次查询' });
-  const { container } = render(<IpLookupPanel />);
+  render(<IpLookupPanel />);
   submit();
   expect(screen.getByRole('button', { name: '查询中…' }).hasAttribute('disabled')).toBe(true);
   submit('8.8.8.8');
   await screen.findByText('第二次查询', { selector: '.ip-lookup-fields dd' });
   await act(async () => { resolveFirst(success); });
-  expect(container.querySelector('.ip-lookup-result-heading strong')?.textContent).toBe('8.8.8.8');
+  expect(screen.getByText('8.8.8.8', { selector: '.ip-lookup-result-heading strong' }).textContent).toBe('8.8.8.8');
   fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } });
   expect(screen.queryByRole('button', { name: '复制 IP' })).toBeNull();
 });

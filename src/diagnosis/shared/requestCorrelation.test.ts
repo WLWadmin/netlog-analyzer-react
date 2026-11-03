@@ -60,6 +60,13 @@ function req(overrides: Partial<URLRequest>): URLRequest {
 }
 
 describe('requestCorrelation', () => {
+  it('keeps zero-sample correlation rates unavailable', () => {
+    const summary = summarizeRequestCorrelations([]);
+    expect(summary.total).toBe(0);
+    expect(Number.isNaN(summary.strongRate)).toBe(true);
+    expect(Number.isNaN(summary.weakRate)).toBe(true);
+    expect(Number.isNaN(summary.noneRate)).toBe(true);
+  });
   it('uses verified NetLog clock context to enable time window', () => {
     const context = buildTimeAlignmentContext([har({})], [req({})], {
       kind: 'time-tick-offset',

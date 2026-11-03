@@ -123,6 +123,23 @@ function expectNoSensitiveLeak(value: unknown) {
 }
 
 describe('diagnosisObservation', () => {
+  it('does not invent zero duration for a NetLog slow request with missing timing', () => {
+    const observations = buildNetlogObservations(netlogResult({
+      slowRequests: [request({ duration: undefined })],
+    }));
+    const slow = observations.find(item => item.id.endsWith(':slow'));
+    expect(slow?.timeRange).toBeUndefined();
+    expect(slow?.fact).toContain('无可用');
+    expect(slow?.evidence.find(item => item.label === '耗时')?.value).toContain('覆盖 0/1');
+  });
+  it('keeps an HTTP 500 observation without a fabricated end time for unknown duration', () => {
+    const har = parseFixtureHar(500, { time: undefined });
+    const observations = buildHarObservations(har.entries);
+    expect(observations).toHaveLength(1);
+    expect(observations[0].timeRange).toBeUndefined();
+    expect(observations[0].category).toBe('server');
+  });
+
   it.each([
     ['DNS status=0', parseFixtureHar(0, { _failureText: 'net::ERR_NAME_NOT_RESOLVED' }), 'unknown', 'insufficient'],
     ['HTTP 5xx', parseFixtureHar(500), 'server', 'confirmed-observation'],

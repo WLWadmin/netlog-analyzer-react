@@ -14,34 +14,16 @@ import { getHarRequestIssue } from './harRequestIssue';
 import { compareBaselines } from './baselineComparator';
 import { buildTimeAlignmentContext } from './timeAlignment';
 import type { FinalDiagnosisSummary } from './finalSummaryTypes';
-import type { DiagnosisCoverage } from './diagnosisCoverage';
 import { buildRealSampleValidationGateReport } from './realSampleValidationGate';
 
-function emptySummary(): FinalDiagnosisSummary {
-  return {
-    mode: 'combined',
-    status: 'limited-conclusion',
-    headline: [],
-    rootCauseClusters: [],
-    actionPlan: [],
-    missingInfo: [],
-    expertCards: [],
-    executiveSummary: '仅用于 release gate 测试。',
-  };
+function calibratedSummary(): FinalDiagnosisSummary {
+  const parsed = parseHarSample({
+    time: 2500,
+    response: { status: 500, statusText: 'Server Error' },
+    timings: { blocked: 0, dns: 0, connect: 0, ssl: 0, send: 1, wait: 2498, receive: 1 },
+  });
+  return buildFinalDiagnosisSummary(buildHarDiagnosisSummary(parsed, diagnoseHar(parsed)), 'har');
 }
-
-const coverage: DiagnosisCoverage = {
-  totalAbnormalObjects: 0,
-  explained: 0,
-  partiallyExplained: 0,
-  unexplained: 0,
-  excluded: 0,
-  coverageRate: 1,
-  denominatorMayBeIncomplete: false,
-  unexplainedRequestIds: [],
-  unexplainedSourceIds: [],
-  reasons: [],
-};
 
 const realSampleValidation = buildRealSampleValidationGateReport({
   RUN_HAR_REAL_SAMPLES: '1',
@@ -112,11 +94,13 @@ function netlogOutput(code: number): string {
   const { events, result } = parseLog({
     constants: {},
     events: [
-      { time: '0', type: 111, phase: 0, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
-      { time: '20', type: 1, phase: 2, source: { id: 10, type: 1 }, params: { net_error: code } },
-      { time: '30', type: 2, phase: 1, source: { id: 10, type: 1 }, params: {} },
+      { time: '0', type: 111, phase: 1, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
+      { time: '20', type: 1, phase: 0, source: { id: 10, type: 1 }, params: { net_error: code } },
+      { time: '30', type: 2, phase: 2, source: { id: 10, type: 1 }, params: {} },
     ],
   });
+  expect(result.urlRequests[0].duration).toBe(30);
+  expect(result.peakConcurrency).toBe(1);
   const final = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(result, generateSuggestions(result), events), 'netlog');
   return JSON.stringify({ failures: result.connectionFailures, final });
 }
@@ -125,12 +109,14 @@ function quicFallbackOutput(): string {
   const { events, result } = parseLog({
     constants: {},
     events: [
-      { time: '0', type: 111, phase: 0, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
-      { time: '10', type: 252, phase: 2, source: { id: 20, type: 10 }, params: { source_dependency: { id: 10, type: 1 }, error_code: 42 } },
-      { time: '20', type: 181, phase: 2, source: { id: 10, type: 1 }, params: { status_code: 200 } },
-      { time: '30', type: 2, phase: 1, source: { id: 10, type: 1 }, params: {} },
+      { time: '0', type: 111, phase: 1, source: { id: 10, type: 1 }, params: { url: 'https://api.example.test/v1/resource', method: 'GET' } },
+      { time: '10', type: 252, phase: 0, source: { id: 20, type: 10 }, params: { source_dependency: { id: 10, type: 1 }, error_code: 42 } },
+      { time: '20', type: 181, phase: 0, source: { id: 10, type: 1 }, params: { status_code: 200 } },
+      { time: '30', type: 2, phase: 2, source: { id: 10, type: 1 }, params: {} },
     ],
   });
+  expect(result.urlRequests[0].duration).toBe(30);
+  expect(result.peakConcurrency).toBe(1);
   const final = buildFinalDiagnosisSummary(buildNetlogDiagnosisSummary(result, generateSuggestions(result), events), 'netlog');
   return JSON.stringify({ protocols: result.protocols, failures: result.connectionFailures, final });
 }
@@ -179,8 +165,8 @@ describe('diagnosisGoldenCorpusGate', () => {
   it('accepts a fully calibrated and sanitized golden corpus matrix', () => {
     expect(matrix.filter(item => !item.passed)).toEqual([]);
     const report = buildDiagnosisReleaseGateReport({
-      summaries: [emptySummary()],
-      coverageReports: [coverage],
+      summaries: [calibratedSummary()],
+      coverageReports: [],
       performance: { harObservationClusterCoverageMs: 50, netlogFirstDiagnosisMs: 200, datasetQueryMs: 20, datasetDetailMs: 20, addedFullFileScans: 0 },
       goldenCorpus: matrix,
       productAcceptance: {
@@ -207,8 +193,8 @@ describe('diagnosisGoldenCorpusGate', () => {
       : item);
 
     const report = buildDiagnosisReleaseGateReport({
-      summaries: [emptySummary()],
-      coverageReports: [coverage],
+      summaries: [calibratedSummary()],
+      coverageReports: [],
       performance: { harObservationClusterCoverageMs: 50, netlogFirstDiagnosisMs: 200, datasetQueryMs: 20, datasetDetailMs: 20, addedFullFileScans: 0 },
       goldenCorpus: badMatrix,
       productAcceptance: {

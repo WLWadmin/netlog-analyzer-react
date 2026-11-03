@@ -16,7 +16,7 @@ describe('parseBaselineNetlogFile', () => {
         logEventTypes: { URL_REQUEST_START_JOB: 1 },
         logSourceType: { URL_REQUEST: 1 },
       },
-      events: [{ time: '1', type: 1, source: { id: 1, type: 1 }, phase: 0, params: { url: 'https://api.example.test/data' } }],
+      events: [{ time: '1', type: 1, source: { id: 1, type: 1 }, phase: 1, params: { url: 'https://api.example.test/data' } }],
     })));
 
     expect(result.totalEvents).toBe(1);

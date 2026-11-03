@@ -17,6 +17,9 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
     const family = missingRequiredEventFamilies(context, 'N1', ['network']);
     if (family) return [family];
     if (!context.requests?.length) return [disabled('N1', 'REQUIRED_FACTS_MISSING')];
+    if (!context.requests.some(item => item.statusCode !== undefined && Number.isFinite(item.statusCode))) {
+      return [disabled('N1', 'REQUIRED_FACTS_MISSING')];
+    }
     const errors = context.requests.filter(item => (item.statusCode ?? 0) >= 400);
     if (!errors.length) return [notMatched('N1', '未记录 HTTP 4xx/5xx。')];
     return errors.map(request => matched({
@@ -122,6 +125,9 @@ export const networkDispatchRules: readonly TraceDiagnosisRule[] = [{
     const family = missingRequiredEventFamilies(context, 'S1', ['network']);
     if (family) return [family];
     if (!context.requests?.length) return [disabled('S1', 'REQUIRED_FACTS_MISSING')];
+    if (!context.requests.some(item => item.statusCode !== undefined && Number.isFinite(item.statusCode))) {
+      return [disabled('S1', 'REQUIRED_FACTS_MISSING')];
+    }
     const observations = context.requests.filter(item => item.statusCode === 401 || item.statusCode === 403);
     if (!observations.length) return [notMatched('S1', '未记录明确的认证或拒绝状态。')];
     return observations.map(request => matched({

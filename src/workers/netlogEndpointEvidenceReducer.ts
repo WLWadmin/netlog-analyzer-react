@@ -501,7 +501,7 @@ export function createNetlogEndpointEvidenceReducer() {
       requests.set(seed.sourceId, req);
     }
     if (req) {
-      if (seed.phase === 1) {
+      if (seed.phase === 2) {
         req.endTime = seed.time;
         if (req.startTime !== undefined) req.durationMs = seed.time - req.startTime;
       }

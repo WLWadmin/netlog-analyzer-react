@@ -178,16 +178,17 @@ export function buildIpLookupConclusions(
   }
 
   if (conclusions.length === 0 && lookupMap.size > 0) {
+    const validCount = Array.from(lookupMap.values()).filter(item => item.status === 'success').length;
     conclusions.push({
       level: 'info',
-      title: '暂未发现明显跨境或跨运营商线索',
-      detail: '已查询的公网 IP 未显示明确海外目标或可归一化的运营商不一致。仍需结合失败码、DNS、TLS、代理和链路测试继续判断。',
-      evidence: [`已查询 IP：${lookupMap.size} 个`],
+      title: validCount > 0 ? '当前可用 IP 归属结果仅作背景' : 'IP 归属无可用数据',
+      detail: `${validCount > 0 ? '仅凭已查询 IP 的归属不能判断链路正常或异常。' : '查询未获得可用归属结果，无法判断跨境或运营商线索。'}覆盖 ${validCount}/${lookupMap.size}`,
+      evidence: [`有效 IP 查询覆盖：${validCount}/${lookupMap.size}`],
       nextAction: '优先查看最终诊断结论、错误码和请求阶段；如仍无法定位，补充 MTR / traceroute。',
     });
   }
 
-  return conclusions.slice(0, 6);
+  return conclusions;
 }
 
 export function collectRowLookupIps(row: CipSipEvidenceRow): string[] {

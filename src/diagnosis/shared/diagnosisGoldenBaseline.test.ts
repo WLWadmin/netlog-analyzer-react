@@ -12,6 +12,20 @@ const SECRET_BODY = 'SECRET_BODY_VALUE';
 const SECRET_AUTH = 'SECRET_AUTH_VALUE';
 const SECRET_COOKIE = 'SECRET_COOKIE_VALUE';
 
+it.each([false, true])('omits combined card ranges when a related HTTP 500 duration is unknown (mixed=%s)', mixed => {
+  const har = parseFixtureHar([
+    { time: undefined, response: { status: 500, headers: [], content: {} } },
+    ...(mixed ? [{ time: 1800, response: { status: 500, headers: [], content: {} } }] : []),
+  ]);
+  // Exercise the combined fallback for a request marked slow from its recorded
+  // Waiting phase, while the total duration remains unavailable.
+  har.entries.forEach(entry => { entry.isSlow = true; });
+  const cards = combinedDiagnosisToCards(har, netlogResult({ urlRequests: [urlRequest({})] }));
+  const failures = cards.filter(card => card.relatedRequestIds?.includes(har.entries[0].id));
+  expect(failures.length).toBeGreaterThan(0);
+  failures.forEach(card => expect(card.timeRange).toBeUndefined());
+});
+
 function rawHarEntry(overrides: Record<string, any>) {
   return {
     startedDateTime: '2026-07-12T00:00:00.000Z',
@@ -187,7 +201,7 @@ describe('Diagnosis Golden Baseline', () => {
     const cards = harDiagnosisToCards(har, harDiagnosis());
 
     expect(cardSignature(cards)).toEqual([
-      { source: 'har', category: 'server', severity: 'critical', confidence: 'high', evidenceCount: 4, limitationCount: 1 },
+      { source: 'har', category: 'server', severity: 'critical', confidence: 'high', evidenceCount: 5, limitationCount: 1 },
     ]);
     expectNoSensitiveLeak(cards);
     expectNoConfirmedRootCause(cards);
@@ -278,7 +292,7 @@ describe('Diagnosis Golden Baseline', () => {
     expect(card?.conclusion).not.toContain('服务端');
   });
 
-  it('reports the full matched failure scope even when navigation ids are capped', () => {
+  it('preserves the full matched failure scope and navigation IDs', () => {
     const requests = Array.from({ length: 12 }, (_, index) => urlRequest({
       id: index + 1,
       url: `https://api.example.test/v1/resource/${index}`,
@@ -298,7 +312,7 @@ describe('Diagnosis Golden Baseline', () => {
     const card = netlogToCards(result, generateSuggestions(result), [])
       .find(item => item.title.includes('-2'));
 
-    expect(card?.relatedRequestIds).toHaveLength(10);
+    expect(card?.relatedRequestIds).toHaveLength(12);
     expect(card?.scope.affectedRequestCount).toBe(12);
   });
 

@@ -239,7 +239,7 @@ describe('exportReport', () => {
         typeName: 'PROXY_CONFIG_CHANGED',
         source: { id: 10, type: 1, typeName: 'PROXY_CONFIG' },
         phase: 0,
-        phaseName: 'PHASE_BEGIN',
+        phaseName: 'NONE',
         params: { proxy_server: 'proxy.example.com:8080' },
       }],
       proxyInfo: {

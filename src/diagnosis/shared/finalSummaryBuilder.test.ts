@@ -3,6 +3,7 @@ import { buildHarDiagnosisSummary } from './fromHar';
 import { buildTroubleshootingPlan } from './troubleshootingSop';
 import { buildNetlogDiagnosisSummary } from './fromNetlog';
 import { buildCombinedDiagnosisSummary } from './fromCombined';
+import { netlogLifecycleToCards } from './fromNetlogLifecycle';
 import type { DiagnosticCard, DiagnosisSummary } from './types';
 import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import { diagnoseHar } from '../../harDiagnosis';
@@ -42,6 +43,27 @@ function summary(cards: DiagnosticCard[]): DiagnosisSummary {
   };
 }
 
+it('counts the union of overlapping request scopes in final clusters', () => {
+  const ids = Array.from({ length: 35 }, (_, index) => index);
+  const cards = [0, 1].map(index => card({
+    id: `overlap-${index}`,
+    relatedRequestIds: ids,
+    scope: { type: 'single-domain', summary: '影响 35 个请求', affectedRequestCount: 35, affectedDomainCount: 1 },
+  }));
+  const result = buildFinalDiagnosisSummary(summary(cards), 'netlog');
+  expect(result.rootCauseClusters[0].affectedRequestCount).toBe(35);
+});
+it('preserves the cross-source lower bound in final clusters', () => {
+  const cards = [
+    card({ id: 'har-1', source: 'har', conclusion: 'example.test DNS 失败', relatedRequestIds: [1, 2], scope: { type: 'single-domain', summary: '影响 2 个请求', affectedRequestCount: 2 } }),
+    card({ id: 'netlog-3', source: 'netlog', conclusion: 'example.test DNS 失败', relatedRequestIds: [3, 4], scope: { type: 'single-domain', summary: '影响 2 个请求', affectedRequestCount: 2 } }),
+  ];
+  cards.forEach(item => { item.timeRange = { startMs: 1000, endMs: 1200, clock: 'relative' }; });
+  const result = buildFinalDiagnosisSummary(summary(cards), 'combined');
+  expect(result.rootCauseClusters[0]).toMatchObject({ affectedRequestCount: 2, requestCountIsLowerBound: true });
+  expect(result.rootCauseClusters[0].summary).toContain('至少 2 个请求');
+  expect(result.rootCauseClusters[0].summary).not.toContain('至少 4');
+});
 function netlogEvent(overrides: Partial<ParsedEvent>): ParsedEvent {
   return {
     time: 1,
@@ -49,7 +71,7 @@ function netlogEvent(overrides: Partial<ParsedEvent>): ParsedEvent {
     typeName: 'PROXY_CONFIG_CHANGED',
     source: { id: 10, type: 1, typeName: 'PROXY_CONFIG' },
     phase: 0,
-    phaseName: 'PHASE_BEGIN',
+    phaseName: 'NONE',
     params: {},
     ...overrides,
   };
@@ -185,6 +207,35 @@ function harResult(overrides: Partial<HarAnalysisResult> = {}): HarAnalysisResul
 }
 
 describe('buildFinalDiagnosisSummary', () => {
+  it('counts all twelve TLS hosts and retains all related IDs in NetLog cards', () => {
+    const requests = Array.from({ length: 35 }, (_, index) => urlRequest({
+      id: index, duration: undefined, error: -107,
+      url: `https://host-${index % 12}.example.test/`,
+    }));
+    const sslIssues = Array.from({ length: 12 }, (_, index) => ({
+      host: `host-${index}.example.test`, error: -107, category: 'protocol' as const,
+      event: netlogEvent({}),
+    }));
+    const cards = buildNetlogDiagnosisSummary(analysisResult({ urlRequests: requests, sslIssues }), []).cards;
+    const tls = cards.find(item => item.id.startsWith('netlog-tls-detail'));
+    expect(tls?.scope.affectedDomainCount).toBe(12);
+    expect(tls?.relatedRequestIds).toHaveLength(35);
+    expect(tls?.timeRange).toBeUndefined();
+  });
+  it('retains all twelve lifecycle cards and all thirty-five related sources without fake duration', () => {
+    const requests = Array.from({ length: 12 }, (_, index) => urlRequest({
+      id: index,
+      duration: undefined,
+      relatedSourceIds: Array.from({ length: 35 }, (_, source) => source),
+      relatedSourceTypeNames: ['URL_REQUEST'],
+      lifecycleStageDurations: {},
+    }));
+    const cards = netlogLifecycleToCards(analysisResult({ slowRequests: requests }), []);
+    expect(cards).toHaveLength(12);
+    expect(cards[0].relatedSourceIds).toHaveLength(35);
+    expect(cards[0].evidence.find(item => item.label === '总耗时')?.value).toContain('无可用');
+    expect(cards[0].conclusion).not.toContain('耗时占比偏高');
+  });
   it('HAR 连接重置将排查方向留在解释中，首步使用可执行的连接对比', () => {
     const har = parseHar({ log: { entries: Array.from({ length: 3 }, (_, index) => ({
       startedDateTime: `2026-10-08T00:00:0${index}.000Z`,
@@ -305,6 +356,7 @@ describe('buildFinalDiagnosisSummary', () => {
           { label: '错误码', value: 'ERR_NAME_NOT_RESOLVED api.example.com', source: 'netlog', originalSource: 'netlog', detail: 'startMs=1000; endMs=1200', requestIds: [1] },
         ],
         relatedRequestIds: [1],
+        scope: { type: 'single-request', summary: '影响 1 个请求', affectedRequestCount: 1 },
       }),
       card({
         id: 'dns-2',
@@ -318,6 +370,7 @@ describe('buildFinalDiagnosisSummary', () => {
           { label: '错误码', value: 'ERR_NAME_NOT_RESOLVED api.example.com', source: 'netlog', originalSource: 'netlog', detail: 'startMs=3000; endMs=3200', requestIds: [2] },
         ],
         relatedRequestIds: [2],
+        scope: { type: 'single-request', summary: '影响 1 个请求', affectedRequestCount: 1 },
       }),
       card({
         id: 'tls-1',

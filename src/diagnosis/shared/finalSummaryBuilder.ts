@@ -22,6 +22,7 @@ import type {
 import { buildNetErrorKnowledgeActionGroups } from './netErrorActionKnowledge';
 import { buildIncidentEpisodes, type IncidentEpisode } from './incidentEpisode';
 import { enrichActionsWithPlaybook, getPlaybookActions } from './actionPlaybook';
+import { calculateImpactScope } from './impactScope';
 
 const CATEGORY_LABELS: Record<DiagnosticCategory, string> = {
   dns: 'DNS',
@@ -586,6 +587,7 @@ function buildCluster(
       .map((action, actionIndex) => toFinalAction(action, card.id, cardIndex * 10 + actionIndex + 1))
   );
   const keyEvidence = sortedCards.flatMap(card => card.evidence.map(toFinalEvidence)).slice(0, 5);
+  const impactScope = calculateImpactScope({ cards: sortedCards });
 
   return {
     id: `cluster-${category}`,
@@ -596,8 +598,10 @@ function buildCluster(
     cards: sortedCards,
     keyEvidence,
     actions,
-    affectedRequestCount: sortedCards.reduce((sum, card) => sum + (card.scope.affectedRequestCount || 0), 0),
-    affectedDomainCount: uniq(sortedCards.map(card => card.scope.affectedDomainCount || 0).filter(Boolean)).reduce((sum, count) => sum + count, 0),
+    affectedRequestCount: impactScope.affectedRequestCount,
+    requestCountIsKnown: impactScope.requestCountIsKnown,
+    requestCountIsLowerBound: impactScope.requestCountIsLowerBound,
+    affectedDomainCount: impactScope.affectedDomainCount,
     confidence: highestConfidence(sortedCards),
     score,
   };
@@ -642,6 +646,8 @@ function buildClusterFromEpisode(
     keyEvidence: explainEvidence,
     actions,
     affectedRequestCount: episode.impactScope.affectedRequestCount,
+    requestCountIsKnown: episode.impactScope.requestCountIsKnown,
+    requestCountIsLowerBound: episode.impactScope.requestCountIsLowerBound,
     affectedDomainCount: episode.impactScope.affectedDomainCount,
     confidence: episode.confidence,
     score: episode.score + cardScore,

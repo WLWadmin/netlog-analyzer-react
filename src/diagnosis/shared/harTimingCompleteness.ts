@@ -1,10 +1,43 @@
 import type { HarRequestEntry, HarNumericField } from '../../harParser';
 import { harTimingContradictions } from '../../parsers/shared/harTimingValidity';
 
+export const HAR_REQUIRED_TIMING_PHASES = ['send', 'wait', 'receive'] as const;
+
+export function getHarKnownDurationMs(entry: HarRequestEntry): number | undefined {
+  return entry.standard.time.state === 'value' && Number.isFinite(entry.time) && entry.time >= 0
+    ? entry.time
+    : undefined;
+}
+
+/** 跨度只纳入起止时间都可靠的请求，未知耗时不能推算成零耗时结束点。 */
+export function getHarKnownRequestEndMs(entry: HarRequestEntry): number | undefined {
+  const duration = getHarKnownDurationMs(entry);
+  if (duration === undefined || !Number.isFinite(entry.startMs) || entry.startMs <= 0) return undefined;
+  const endMs = entry.startMs + duration;
+  return Number.isFinite(endMs) ? endMs : undefined;
+}
+
+export function getHarSpanCoveredRequestCount(entries: HarRequestEntry[]): number {
+  return entries.reduce((count, entry) => count + (getHarKnownRequestEndMs(entry) !== undefined ? 1 : 0), 0);
+}
+
+// Unknown durations stay last in both directions; they are not zero-duration requests.
+export function compareHarRequestDurations(
+  left: HarRequestEntry,
+  right: HarRequestEntry,
+  order: 'ascend' | 'descend' = 'ascend',
+): number {
+  const a = getHarKnownDurationMs(left);
+  const b = getHarKnownDurationMs(right);
+  if (a === undefined) return b === undefined ? left.id - right.id : 1;
+  if (b === undefined) return -1;
+  return (order === 'descend' ? b - a : a - b) || left.id - right.id;
+}
+
 export function getHarTimingCompleteness(entry: HarRequestEntry) {
   const fields: Array<{ key: string; path: string; field: HarNumericField }> = [
     { key: 'time', path: 'time', field: entry.standard.time },
-    ...(['send', 'wait', 'receive'] as const).map(key => ({
+    ...HAR_REQUIRED_TIMING_PHASES.map(key => ({
       key, path: `timings.${key}`, field: entry.standard.timings[key],
     })),
   ];

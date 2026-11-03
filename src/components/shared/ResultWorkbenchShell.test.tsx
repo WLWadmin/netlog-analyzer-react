@@ -32,7 +32,7 @@ describe('ResultWorkbenchShell', () => {
   });
 
   it('persists collapse state independently for each parser', () => {
-    const harView = render(
+    const { unmount } = render(
       <ResultWorkbenchShell
         parser="har"
         parserLabel="HAR"
@@ -47,7 +47,7 @@ describe('ResultWorkbenchShell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '收起分析导航' }));
     expect(window.localStorage.getItem('netlog-workbench-sidebar-collapsed-v1-har')).toBe('1');
-    harView.unmount();
+    unmount();
 
     render(
       <ResultWorkbenchShell

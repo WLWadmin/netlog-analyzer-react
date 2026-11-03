@@ -1,6 +1,6 @@
 import type { DiagnosticCard, DiagnosticCategory, DiagnosticEvidence } from './types';
 import { buildIncidentNarrative } from './incidentNarrative';
-import { calculateImpactScope, type ImpactScopeResult } from './impactScope';
+import { calculateImpactScope, getAffectedRequestIds, type ImpactScopeResult } from './impactScope';
 import { summarizeRequestImportance, type RequestImportance } from './requestImportance';
 
 export type IncidentRecoveryState = 'recovered' | 'ongoing' | 'unknown';
@@ -22,6 +22,7 @@ export interface IncidentEpisode {
   affectedEventIds: string[];
   affectedDomainCount: number;
   affectedRequestCount: number;
+  requestCountIsKnown: boolean;
   impactScope: ImpactScopeResult;
   counterEvidenceSummary: string[];
   rankingReasons: string[];
@@ -159,11 +160,10 @@ function episodeFromCards(index: number, cards: DiagnosticCard[], options: Build
   const startMs = timeComparable ? Math.min(...ranges.map(item => item.startMs as number)) : undefined;
   const endMs = timeComparable ? Math.max(...ranges.map(item => item.endMs as number)) : undefined;
   const category = cards[0].category;
-  const affectedRequestIds = uniq(cards.flatMap(card => card.relatedRequestIds || []).concat(cards.flatMap(card => card.evidence.flatMap(e => e.requestIds || []))));
+  const affectedRequestIds = uniq(cards.flatMap(getAffectedRequestIds));
   const affectedSourceIds = uniq(cards.flatMap(card => card.relatedSourceIds || []).concat(cards.flatMap(card => card.evidence.flatMap(e => e.sourceIds || []))));
   const affectedEventIds = uniq(cards.flatMap(card => card.relatedEventIds || []).concat(cards.flatMap(card => card.evidence.flatMap(e => e.eventIds || []))));
-  const affectedDomainCount = Math.max(1, uniq(cards.flatMap(cardDomains)).length || Math.max(...cards.map(card => card.scope.affectedDomainCount || 0), 0));
-  const affectedRequestCount = affectedRequestIds.length || cards.reduce((sum, card) => sum + (card.scope.affectedRequestCount || 0), 0);
+  const affectedDomainCount = Math.max(uniq(cards.flatMap(cardDomains)).length, ...cards.map(card => card.scope.affectedDomainCount || 0), 0);
   const severity = severityMax(cards);
   const confidence = confidenceMax(cards);
   const recovery = options.dataIncomplete
@@ -174,6 +174,7 @@ function episodeFromCards(index: number, cards: DiagnosticCard[], options: Build
     .map(id => options.requestImportancesByRequestId?.get(id))
     .filter((item): item is RequestImportance => Boolean(item));
   const impactScope = calculateImpactScope({ cards, requestImportances });
+  const affectedRequestCount = impactScope.affectedRequestCount;
   const importanceSummary = summarizeRequestImportance(requestImportances);
   const representativeRequestIds = [...affectedRequestIds].sort((a, b) => {
     const ai = options.requestImportancesByRequestId?.get(a)?.score || 0;
@@ -201,6 +202,7 @@ function episodeFromCards(index: number, cards: DiagnosticCard[], options: Build
     affectedEventIds,
     affectedDomainCount,
     affectedRequestCount,
+    requestCountIsKnown: impactScope.requestCountIsKnown,
     impactScope,
     counterEvidenceSummary: impactScope.counterEvidenceSummary,
     rankingReasons,

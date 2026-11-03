@@ -54,6 +54,18 @@ function baseResult(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
 }
 
 describe('buildNetlogExpertEvidencePackage', () => {
+  it('does not export a measured zero duration for an empty timeline', () => {
+    const report = buildNetlogExpertEvidencePackage({
+      result: baseResult(), datasetReady: true,
+      timelineState: {
+        timeRange: { start: 0, end: 0, duration: 0 }, bucketSizeMs: 1000,
+        buckets: [], topEventTypes: [], topSourceTypes: [], sourceActivity: [],
+        notableEvents: [], evidenceGaps: [],
+      },
+    });
+    expect(report).toContain('| 持续时间(ms) | 无可用数据 |');
+    expect(report).toContain('| 时间范围 | 无可用数据 |');
+  });
   it('masks sensitive URL values in request evidence', () => {
     const report = buildNetlogExpertEvidencePackage({
       result: baseResult({

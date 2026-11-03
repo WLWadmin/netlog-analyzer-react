@@ -15,18 +15,18 @@ const reportFor = (entry: unknown) => parseHar({ log: { entries: [entry] } }).qu
 
 describe('file quality checks', () => {
   it.each(['method', 'url'])('rejects unsafe request %s before UI consumers receive it', key => {
+    let failure: unknown;
     try {
       parseHar({ log: { entries: [harEntry, { ...harEntry, request: { ...harEntry.request, [key]: 42 } }] } });
-      throw new Error('expected validation failure');
     } catch (error) {
-      expect(error).toBeInstanceOf(FileQualityError);
-      if (error instanceof FileQualityError) {
-        expect(error.qualityReport).toMatchObject({ status: 'fatal', scope: 'partial', checkedRecords: 2 });
-        expect(error.qualityReport.issues.flatMap(issue => issue.samples)).toContainEqual({
-          jsonPath: `$.log.entries[1].request.${key}`, requestId: 1,
-        });
-      }
+      failure = error;
     }
+    expect(failure).toBeInstanceOf(FileQualityError);
+    if (!(failure instanceof FileQualityError)) throw new Error('expected validation failure');
+    expect(failure.qualityReport).toMatchObject({ status: 'fatal', scope: 'partial', checkedRecords: 2 });
+    expect(failure.qualityReport.issues.flatMap(issue => issue.samples)).toContainEqual({
+      jsonPath: `$.log.entries[1].request.${key}`, requestId: 1,
+    });
   });
 
   it('reports unsafe content types and does not turn numeric timestamps into timeline positions', () => {
@@ -76,16 +76,16 @@ describe('file quality checks', () => {
   });
 
   it('propagates structural fatal errors with the actual request position', () => {
+    let failure: unknown;
     try {
       parseHar({ log: { entries: [harEntry, { request: {} }] } });
-      throw new Error('expected validation failure');
     } catch (error) {
-      expect(error).toBeInstanceOf(FileQualityError);
-      if (error instanceof FileQualityError) {
-        expect(error.qualityReport.status).toBe('fatal');
-        expect(error.qualityReport.issues[0].samples[0].requestId).toBe(1);
-      }
+      failure = error;
     }
+    expect(failure).toBeInstanceOf(FileQualityError);
+    if (!(failure instanceof FileQualityError)) throw new Error('expected validation failure');
+    expect(failure.qualityReport.status).toBe('fatal');
+    expect(failure.qualityReport.issues[0].samples[0].requestId).toBe(1);
   });
 
   it('always retains the fatal locator after the warning sample limit is reached', () => {
@@ -119,24 +119,29 @@ describe('file quality checks', () => {
   });
 
   it('retains original logEvents positions and source IDs', () => {
+    let failure: unknown;
     try {
       parseLog({ logEvents: [event, { ...event, time: 'bad' }] });
-      throw new Error('expected validation failure');
     } catch (error) {
-      expect(error).toBeInstanceOf(FileQualityError);
-      if (error instanceof FileQualityError) expect(error.qualityReport.issues[0].samples[0]).toEqual({
-        jsonPath: '$.logEvents[1].time', eventId: 1, sourceId: 7,
-      });
+      failure = error;
     }
+    expect(failure).toBeInstanceOf(FileQualityError);
+    if (!(failure instanceof FileQualityError)) throw new Error('expected validation failure');
+    expect(failure.qualityReport.issues[0].samples[0]).toEqual({
+      jsonPath: '$.logEvents[1].time', eventId: 1, sourceId: 7,
+    });
   });
 
   it('sanitizes JSON syntax exceptions and malformed HAR input', () => {
     expect(() => parseNetlogJson('{"SECRET":broken}')).toThrow(FileQualityError);
     expect(() => parseHarInput('SECRET not json')).toThrow(FileQualityError);
+    let failure: unknown;
     try { parseNetlogJson('{"SECRET":broken}'); }
     catch (error) {
-      expect(JSON.stringify(error)).not.toContain('SECRET');
-      expect(String(error)).not.toContain('SECRET');
+      failure = error;
     }
+    expect(failure).toBeInstanceOf(FileQualityError);
+    expect(JSON.stringify(failure)).not.toContain('SECRET');
+    expect(String(failure)).not.toContain('SECRET');
   });
 });

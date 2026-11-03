@@ -408,7 +408,8 @@ export const SOURCE_TYPES: Record<number, string> = {
   36: 'UDP_CLIENT_SOCKET',
 };
 
-export const PHASE: Record<number, string> = { 0: 'BEGIN', 1: 'END', 2: 'NONE' };
+// Chromium NetLogEventPhase numeric order; missing phase remains NONE (0).
+export const PHASE: Record<number, string> = { 0: 'NONE', 1: 'BEGIN', 2: 'END' };
 
 interface NetLogEventLike {
   type?: number;

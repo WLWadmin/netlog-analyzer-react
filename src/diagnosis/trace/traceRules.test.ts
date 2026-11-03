@@ -52,6 +52,20 @@ const request = {
 };
 
 describe('Trace diagnosis rules', () => {
+  it('disables status rules when requests have no HTTP status samples', () => {
+    const facts = context({ requests: [{ ...request, result: 'unknown-failure' }] });
+    ['N1', 'S1'].forEach(id => {
+      expect(evaluation(networkDispatchRules, id as TraceRuleId, facts).status).toBe('disabled');
+    });
+  });
+  it('does not declare an empty frame summary below the threshold', () => {
+    const facts = context({ animationFrameSummary: {
+      totalCount: 0, overBudgetCount: 0, droppedCount: 0, maxDurationMs: 0,
+      completeness: 'partial', limitations: [],
+      budgetMs: 16.7, budgetBasis: '60hz-reference', refreshRate: 'unknown',
+    } });
+    expect(evaluation(renderingRules, 'R2', facts).status).toBe('disabled');
+  });
   it('exports the fixed rules through the six PRD groups', () => {
     expect([...qualityRules, ...loadingRules, ...networkDispatchRules, ...mainThreadRules,
       ...renderingRules, ...interactionRules].map(rule => rule.id)).toEqual([

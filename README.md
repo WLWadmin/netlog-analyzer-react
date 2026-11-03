@@ -326,6 +326,8 @@ CI=true npm test -- --watchAll=false --runTestsByPath <test-path>
 
 诊断共享层门禁：
 
+发布门禁需要实际诊断输出；只有空汇总对象时，即使另行提供覆盖率报告，也不能视为有效诊断样本或通过发布验收。
+
 ```bash
 CI=true npm test -- --watchAll=false --runTestsByPath \
   src/diagnosis/shared/diagnosisReleaseGate.test.ts \

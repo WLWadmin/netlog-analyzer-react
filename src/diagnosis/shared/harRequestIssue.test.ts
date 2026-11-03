@@ -46,6 +46,14 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
 }
 
 describe('harRequestIssue', () => {
+  it('does not call complete Timing normal when the HTTP outcome is entirely unknown', () => {
+    const parsed = parseHar({ log: { entries: [{
+      request: { url: 'https://example.test/' }, response: {},
+      time: 100, timings: { send: 0, wait: 100, receive: 0 },
+    }] } });
+    expect(getHarRequestIssue(parsed.entries[0]).label).toContain('结果');
+    expect(getHarRequestIssue(parsed.entries[0]).kind).not.toBe('normal');
+  });
   test('netError has priority over blockedReason, HTTP error and slow phase', () => {
     const issue = getHarRequestIssue(entry({
       status: 500,

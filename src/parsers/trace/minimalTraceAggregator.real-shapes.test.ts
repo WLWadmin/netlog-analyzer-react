@@ -1,5 +1,6 @@
 import { MinimalTraceAggregator } from './minimalTraceAggregator';
 import type { ChromiumTraceEvent, ChromiumTraceFile } from './types';
+import { buildNetworkFactsViewModel } from '../../components/trace/traceFactsViewModel';
 
 const intake = {
   encoding: 'plain-json' as const,
@@ -38,6 +39,45 @@ const context = [
 ];
 
 describe('MinimalTraceAggregator real Chromium event shapes', () => {
+  it.each([-1, 99, 200.5, 600, Infinity, '200'])(
+    'does not retain invalid status %s as an HTTP fact or count it as success',
+    async statusCode => {
+      const result = await aggregate([
+        ...context,
+        { name: 'ResourceSendRequest', ts: 10, args: { data: {
+          requestId: 'request', url: 'https://example.test/resource',
+        } } },
+        { name: 'ResourceReceiveResponse', ts: 20, args: { data: { requestId: 'request', statusCode } } },
+        { name: 'ResourceFinish', ts: 30, args: { data: { requestId: 'request', didFail: false } } },
+      ]);
+      const facts = result.facts.context;
+      expect(facts.requests?.[0].statusCode).toBeUndefined();
+      expect(facts.requests?.[0]).toEqual(expect.objectContaining({
+        result: 'unknown-failure', resultConfidence: 'observation',
+        limitations: expect.arrayContaining(['状态码不是合法整数或超出范围，HTTP 结果未知。']),
+      }));
+      expect(buildNetworkFactsViewModel(facts).counts.success).toBe(0);
+    },
+  );
+
+  it.each([
+    ['https://example.test/resource', 'unknown-failure'],
+    ['data:text/plain,synthetic-content', 'success'],
+    ['file:///synthetic-resource.txt', 'success'],
+    [undefined, 'unknown-failure'],
+  ])('interprets status zero using resource source %s', async (url, expectedResult) => {
+    const result = await aggregate([
+      ...context,
+      { name: 'ResourceSendRequest', ts: 10, args: { data: { requestId: 'request', url } } },
+      { name: 'ResourceReceiveResponse', ts: 20, args: { data: { requestId: 'request', statusCode: 0 } } },
+      { name: 'ResourceFinish', ts: 30, args: { data: { requestId: 'request', didFail: false } } },
+    ]);
+    expect(result.facts.context.requests?.[0].result).toBe(expectedResult);
+    expect(buildNetworkFactsViewModel(result.facts.context).counts.success).toBe(expectedResult === 'success' ? 1 : 0);
+    expect(JSON.stringify(result.facts.context)).not.toContain('synthetic-content');
+    expect(JSON.stringify(result.facts.context)).not.toContain('synthetic-resource.txt');
+  });
+
   it('keeps finite initiator evidence when Chromium provides metadata without a request id', async () => {
     const result = await aggregate([
       ...context,

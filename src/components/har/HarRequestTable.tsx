@@ -21,6 +21,7 @@ import HarWaterfallCell from './HarWaterfallCell';
 import { sanitizeHarUrl } from './buildHarRequestCopyText';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { getHarRequestIssue, type HarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
+import { compareHarRequestDurations } from '../../diagnosis/shared/harTimingCompleteness';
 import {
   buildHarWaterfallRange,
   getHarWaterfallMarkers,
@@ -532,7 +533,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       width: 115,
       align: 'right',
       sorter: (a, b) => (a.requestCookies?.length || 0) - (b.requestCookies?.length || 0),
-      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.requestCookies?.length || 0}</span>,
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.requestCookies?.length ?? '无可用数据'}</span>,
     },
     {
       title: 'Set-Cookies',
@@ -540,7 +541,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       width: 110,
       align: 'right',
       sorter: (a, b) => (a.responseCookies?.length || 0) - (b.responseCookies?.length || 0),
-      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.responseCookies?.length || 0}</span>,
+      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{r.responseCookies?.length ?? '无可用数据'}</span>,
     },
     {
       title: 'Cache Source',
@@ -555,7 +556,10 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'time',
       width: 90,
       align: 'right',
-      sorter: (a, b) => a.time - b.time,
+      // Ant Design reverses descending results after calling the comparator.
+      sorter: (a, b, order) => order === 'descend'
+        ? -compareHarRequestDurations(a, b, order)
+        : compareHarRequestDurations(a, b),
       render: (t: number, r) => (
         <span style={{ fontFamily: 'var(--font-mono)', color: r.isSlow ? 'var(--accent-orange)' : 'var(--text-secondary)', fontWeight: r.isSlow ? 600 : 400, whiteSpace: 'nowrap' }}>
           {getHarTimingCompleteness(r).totalAvailable ? formatHarTime(t) : '未记录'}

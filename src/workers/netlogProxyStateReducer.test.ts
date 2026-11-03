@@ -60,7 +60,7 @@ describe('createNetlogProxyStateReducer', () => {
       typeName: 'PROXY_RESOLUTION_SERVICE_RESOLVED_PROXY_LIST',
       sourceId: 200,
       sourceTypeName: 'PROXY_RESOLUTION_SERVICE',
-      phase: 2,
+      phase: 0,
       params: {
         pac_url: 'https://proxy.example.com/proxy.pac',
         proxy_server: 'PROXY proxy.example.com:8080',
@@ -74,7 +74,7 @@ describe('createNetlogProxyStateReducer', () => {
       typeName: 'BAD_PROXY_LIST_REPORTED',
       sourceId: 201,
       sourceTypeName: 'PROXY_RESOLUTION_SERVICE',
-      phase: 2,
+      phase: 0,
       params: {
         bad_proxy: 'PROXY bad.example.com:8080',
         error: -130,
@@ -148,7 +148,7 @@ describe('createNetlogProxyStateReducer', () => {
       typeName: 'HTTP_STREAM_JOB_CONTROLLER_PROXY_SERVER_RESOLVED',
       sourceId: 301,
       sourceTypeName: 'URL_REQUEST',
-      phase: 2,
+      phase: 0,
       params: {
         url: 'https://api.example.com/data',
         proxy_server: 'PROXY proxy.example.com:8080',

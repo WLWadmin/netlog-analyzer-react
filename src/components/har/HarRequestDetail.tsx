@@ -181,9 +181,14 @@ function maskCookieValue(value?: string): string {
   return `${value.slice(0, 3)}••••${value.slice(-3)}`;
 }
 
-const CookieList: React.FC<{ title: string; cookies?: HarCookie[] }> = ({ title, cookies = [] }) => {
+const CookieList: React.FC<{ title: string; cookies?: HarCookie[] }> = ({ title, cookies }) => {
   const [visibleValues, setVisibleValues] = useState<Set<number>>(new Set());
-  if (!cookies.length) return null;
+  if (!cookies?.length) return (
+    <div>
+      {sectionTitle(title)}
+      <EmptyState text={cookies ? '已记录 0 个 Cookie。' : 'HAR 未提供此侧结构化 Cookie 字段。'} />
+    </div>
+  );
 
   return (
     <div>
@@ -746,12 +751,6 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <CookieList title="Request Cookies" cookies={entry.requestCookies} />
       <CookieList title="Response Cookies" cookies={entry.responseCookies} />
-      {!entry.requestCookies?.length && !entry.responseCookies?.length && (
-        <div>
-          {sectionTitle('Cookies')}
-          <EmptyState text="HAR 未提供结构化 Cookie 字段。" />
-        </div>
-      )}
     </div>
   );
 

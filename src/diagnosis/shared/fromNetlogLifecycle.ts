@@ -148,14 +148,12 @@ export function netlogLifecycleToCards(
   result: AnalysisResult,
   events: ParsedEvent[],
   opts?: {
-    maxCards?: number;
     graph?: SourceGraph;
     eventsBySourceId?: Map<number, ParsedEvent[]>;
     measure?: LifecycleMeasure;
   }
 ): DiagnosticCard[] {
-  const maxCards = opts?.maxCards ?? 5;
-  const candidates = (result.slowRequests || []).slice(0, maxCards);
+  const candidates = result.slowRequests || [];
   if (candidates.length === 0) return [];
 
   const measure: LifecycleMeasure = opts?.measure ?? identityMeasure;
@@ -223,13 +221,14 @@ export function netlogLifecycleToCards(
       })();
       const dominantStage = dominantLifecycleStage?.stage || 'unknown';
       const dominantDuration = dominantLifecycleStage?.duration || 0;
+      const hasDuration = typeof req.duration === 'number' && Number.isFinite(req.duration) && req.duration >= 0;
 
       const host = hostFromUrl(req.url);
       const category = stageToCategory(dominantStage);
       const evidence: DiagnosticEvidence[] = [
         { label: 'URL', value: sanitizeLifecycleUrl(req.url), source: 'netlog' },
-        { label: '总耗时', value: `${(req.duration || 0).toFixed(0)}ms`, source: 'netlog' },
-        { label: '主要阶段', value: `${stageLabel(dominantStage)}（约 ${dominantDuration.toFixed(0)}ms）`, source: 'derived' },
+        { label: '总耗时', value: `${hasDuration ? `${req.duration!.toFixed(0)}ms` : '无可用数据'} · 覆盖 ${hasDuration ? 1 : 0}/1`, source: 'netlog' },
+        { label: '主要阶段', value: dominantLifecycleStage ? `${stageLabel(dominantStage)}（约 ${dominantDuration.toFixed(0)}ms）` : '无可用阶段数据 · 覆盖 0/1', source: 'derived' },
         ...buildStageBreakdownEvidence(req),
         {
           label: 'source 链路',
@@ -245,8 +244,10 @@ export function netlogLifecycleToCards(
         category,
         severity: req.error ? 'warning' : 'info',
         confidence: 'medium',
-        title: `请求生命周期：${stageLabel(dominantStage)} 阶段耗时偏高`,
-        conclusion: `${stageLabel(dominantStage)} 阶段耗时占比偏高，建议优先围绕该阶段补充证据与排查。该结论为启发式推断，需结合事件列表进一步确认。`,
+        title: dominantLifecycleStage ? `请求生命周期：${stageLabel(dominantStage)} 阶段耗时偏高` : '请求生命周期：无可用阶段数据',
+        conclusion: dominantLifecycleStage
+          ? `${stageLabel(dominantStage)} 阶段耗时占比偏高，建议优先围绕该阶段补充证据与排查。该结论为启发式推断，需结合事件列表进一步确认。`
+          : '阶段耗时无可用数据，无法判断主要耗时阶段，请补充同次原始证据。',
         scope: { type: 'single-request', summary: '影响 1 个请求', affectedRequestCount: 1 },
         evidence,
         actions: buildActionsForStage(dominantStage, host),
@@ -255,7 +256,7 @@ export function netlogLifecycleToCards(
           '生命周期基于 source_dependency 关系追踪；如果 NetLog 缺失依赖边，底层证据可能不完整',
         ],
         relatedRequestIds: [req.id],
-        relatedSourceIds: relatedSourceIds.slice(0, 15),
+        relatedSourceIds,
         navigationTarget: { tab: 'requests', requestIds: [req.id], keyword: host },
       });
     }

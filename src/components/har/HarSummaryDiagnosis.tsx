@@ -19,8 +19,8 @@ import {
   QuestionCircleOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
-import { HarAnalysisResult, HarRequestEntry, HarTimingPhaseKey, formatBytes, formatHarTime, categoryStyle, statusStyle } from '../../harParser';
-import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus, type DiagnosisStatus } from '../../harDiagnosis';
+import { HarAnalysisResult, HarRequestEntry, HarTimingPhaseKey, formatBytes, formatHarTime, categoryStyle, statusStyle, getHarResponseStatus } from '../../harParser';
+import { diagnoseHar, type HarDiagnosisResult, type TopRequest, type NetworkPhaseStatus } from '../../harDiagnosis';
 import { HealthAssessmentCard } from '../shared/HealthAssessmentCard';
 import { CHART_COLORS } from '../../constants/chartColors';
 import { buildFinalDiagnosisSummary, buildHarDiagnosisSummary } from '../../diagnosis/shared';
@@ -36,19 +36,21 @@ interface HarSummaryDiagnosisProps {
 
 // ========== 工具函数 ==========
 
-function statusToColor(status: DiagnosisStatus): string {
+function statusToColor(status: NetworkPhaseStatus['status']): string {
   switch (status) {
     case 'healthy': return CHART_COLORS.semantic.success;
     case 'warning': return CHART_COLORS.semantic.warning;
     case 'critical': return CHART_COLORS.semantic.error;
+    case 'unknown': return 'var(--text-muted)';
   }
 }
 
-function statusToText(status: DiagnosisStatus): string {
+function statusToText(status: NetworkPhaseStatus['status']): string {
   switch (status) {
     case 'healthy': return '正常';
     case 'warning': return '偏高';
     case 'critical': return '严重';
+    case 'unknown': return '无可用数据';
   }
 }
 
@@ -112,7 +114,9 @@ function shortRequestName(entry: HarRequestEntry): string {
   }
 }
 
-function buildMustSeeInsights(entries: HarRequestEntry[]): MustSeeInsight[] {
+function buildMustSeeInsights(entries: HarRequestEntry[], diagnosis: HarDiagnosisResult): MustSeeInsight[] {
+  const outcomeCount = entries.filter(entry => getHarResponseStatus(entry) !== undefined || entry.isFailed).length;
+  const noPhaseData = diagnosis.networkStatus.every(phase => phase.validCount === 0);
   const issueItems = entries.map(entry => ({ entry, issue: getHarRequestIssue(entry) }));
 
   const slowByPhase = new Map<HarTimingPhaseKey, { count: number; maxMs: number; entry: HarRequestEntry }>();
@@ -154,9 +158,9 @@ function buildMustSeeInsights(entries: HarRequestEntry[]): MustSeeInsight[] {
       color: '#f59e0b',
     } : {
       title: '最主要慢因',
-      value: '未发现集中慢因',
-      detail: '当前 HAR 未显示某个 timing 阶段集中超阈值。',
-      color: '#15803d',
+      value: noPhaseData ? '无可用阶段数据' : '可用数据中未发现集中慢因',
+      detail: noPhaseData ? '无法判断耗时集中在哪个阶段，请补采 Timing。' : '仅基于可用 Timing；未记录的阶段不能据此排除异常。',
+      color: noPhaseData ? 'var(--text-muted)' : '#15803d',
     },
     failureText ? {
       title: '失败请求原因',
@@ -165,9 +169,9 @@ function buildMustSeeInsights(entries: HarRequestEntry[]): MustSeeInsight[] {
       color: '#ef4444',
     } : {
       title: '失败请求原因',
-      value: '未发现失败请求',
-      detail: '当前 HAR 未显示明确的失败请求现象。',
-      color: '#15803d',
+      value: outcomeCount > 0 ? '可用结果中未记录明确失败' : '请求结果无可用数据',
+      detail: `结果覆盖 ${outcomeCount}/${entries.length}；缺失结果无法判断。`,
+      color: 'var(--text-muted)',
     },
     {
       title: '需要补充证据',
@@ -200,7 +204,7 @@ const PhaseCard: React.FC<{ phase: NetworkPhaseStatus }> = ({ phase }) => {
         padding: '14px 16px',
         background: 'var(--bg-surface)',
         borderRadius: 10,
-        border: `1px solid ${phase.status === 'healthy' ? 'var(--border-color)' : color + '30'}`,
+        border: `1px solid ${phase.status === 'healthy' || phase.status === 'unknown' ? 'var(--border-color)' : color + '30'}`,
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -211,9 +215,9 @@ const PhaseCard: React.FC<{ phase: NetworkPhaseStatus }> = ({ phase }) => {
         <Tag color={color} style={{ fontWeight: 600, fontSize: 12 }}>{statusToText(phase.status)}</Tag>
       </div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>平均 <strong style={{ color: 'var(--text-primary)' }}>{phase.avgMs}ms</strong></span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>P95 <strong style={{ color: 'var(--text-primary)' }}>{phase.p95Ms}ms</strong></span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>最大 <strong style={{ color: 'var(--text-primary)' }}>{phase.maxMs}ms</strong></span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>平均 <strong style={{ color: 'var(--text-primary)' }}>{phase.validCount ? `${phase.avgMs}ms` : '无可用数据'}</strong>（{phase.validCount}/{phase.totalCount}）</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>P95 <strong style={{ color: 'var(--text-primary)' }}>{phase.validCount ? `${phase.p95Ms}ms` : '无可用数据'}</strong>（{phase.validCount}/{phase.totalCount}）</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>最大 <strong style={{ color: 'var(--text-primary)' }}>{phase.validCount ? `${phase.maxMs}ms` : '无可用数据'}</strong>（{phase.validCount}/{phase.totalCount}）</span>
       </div>
       {phase.slowCount > 0 && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -230,8 +234,9 @@ const PhaseCard: React.FC<{ phase: NetworkPhaseStatus }> = ({ phase }) => {
 /** HTTP 状态分布条 */
 const StatusBar: React.FC<{ diag: HarDiagnosisResult }> = ({ diag }) => {
   const { httpStatus } = diag;
-  const total = httpStatus.total || 1;
+  const total = httpStatus.count1xx + httpStatus.count2xx + httpStatus.count3xx + httpStatus.count4xx + httpStatus.count5xx + httpStatus.count0;
   const segments = [
+    { key: '1xx', count: httpStatus.count1xx, color: CHART_COLORS.phases.dns, label: '1xx' },
     { key: '2xx', count: httpStatus.count2xx, color: CHART_COLORS.semantic.success, label: '2xx' },
     { key: '3xx', count: httpStatus.count3xx, color: CHART_COLORS.phases.dns, label: '3xx' },
     { key: '4xx', count: httpStatus.count4xx, color: CHART_COLORS.semantic.warning, label: '4xx' },
@@ -241,6 +246,7 @@ const StatusBar: React.FC<{ diag: HarDiagnosisResult }> = ({ diag }) => {
 
   return (
     <div>
+      <div>{total === 0 ? 'HTTP 状态无可用数据' : '已知 HTTP 状态分布'} · 覆盖 {total}/{httpStatus.total}</div>
       <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 10 }}>
         {segments.map(s => (
           <Tooltip key={s.key} title={`${s.label}: ${s.count} (${((s.count / total) * 100).toFixed(1)}%)`}>
@@ -287,7 +293,7 @@ const SlowBreakdownBars: React.FC<{ diag: HarDiagnosisResult }> = ({ diag }) => 
         </div>
       ))}
       {items.length === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>无慢请求</div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>当前可用阶段未形成慢阶段计数；缺失阶段无法判断</div>
       )}
     </div>
   );
@@ -355,7 +361,7 @@ function useTopRequestColumns(): ColumnsType<TopRequest> {
 const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => {
   const diag = useMemo(() => diagnoseHar(result), [result]);
   const topColumns = useTopRequestColumns();
-  const mustSeeInsights = useMemo(() => buildMustSeeInsights(result.entries), [result.entries]);
+  const mustSeeInsights = useMemo(() => buildMustSeeInsights(result.entries, diag), [result.entries, diag]);
   const [expandedAttributions, setExpandedAttributions] = useState<string[]>([]);
 
   // 为 HealthAssessmentCard 构造数据
@@ -363,7 +369,9 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
     const findings = diag.findings.map(text => {
       let severity: 'info' | 'warning' | 'error' = 'info';
       let icon: string = 'ℹ️';
-      if (text.includes('异常') || text.includes('严重') || text.includes('错误')) {
+      if (text.includes('无可用数据') || text.includes('数据不完整') || text.includes('矛盾')) {
+        icon = 'ℹ️';
+      } else if (text.includes('异常') || text.includes('严重') || text.includes('错误')) {
         severity = 'error';
         icon = '🚨';
       } else if (text.includes('偏高') || text.includes('慢') || text.includes('未启用') || text.includes('重复')) {
@@ -455,7 +463,10 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
       </div>
 
       {/* 原始诊断视图（保留原有详细统计） */}
-      <HealthAssessmentCard title="辅助健康评估（仅供参考）" assessment={healthAssessment} />
+      {Number.isFinite(diag.healthScore)
+        ? <HealthAssessmentCard title="辅助健康评估（仅供参考）" assessment={healthAssessment} />
+        : <Card title={`辅助健康评估：${diag.healthScoreUnavailableReason === 'phase-missing' ? '无可用阶段数据'
+          : diag.healthScoreUnavailableReason === 'outcome-missing' ? '请求结果无可用数据' : '数据覆盖不足'}`}>{diag.summary}</Card>}
 
       {/* 2. 网络状态 */}
       <Card
@@ -500,7 +511,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             </div>
             <Table
               columns={topColumns}
-              dataSource={diag.failedRequests}
+              dataSource={diag.failedRequests.slice(0, 10)}
               rowKey="id"
               size="small"
               pagination={false}
@@ -519,7 +530,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             </div>
             <Table
               columns={topColumns}
-              dataSource={diag.slowRequests}
+              dataSource={diag.slowRequests.slice(0, 10)}
               rowKey="id"
               size="small"
               pagination={false}
@@ -548,7 +559,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
                   <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 24, textAlign: 'center', flexShrink: 0 }}>{d.count}</span>
                   <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.domain}</span>
                   {d.failedCount > 0 && <Tag color="error" style={{ fontSize: 11 }}>{d.failedCount} 失败</Tag>}
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{formatBytes(d.totalSize)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{d.knownSizeCount ? formatBytes(d.totalSize) : '无可用数据'} · 已知大小合计 · 覆盖 {d.knownSizeCount}/{d.count}</span>
                 </div>
               ))}
             </div>
@@ -585,13 +596,13 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
           <div style={{ marginTop: 16, padding: '12px 14px', background: 'rgba(251, 191, 36, 0.06)', borderRadius: 8, border: '1px solid rgba(251, 191, 36, 0.2)' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               <LinkOutlined />
-              重复请求检测
+              重复请求检测 · 显示前 {Math.min(10, diag.duplicateRequests.length)} / 共 {diag.duplicateRequests.length}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {diag.duplicateRequests.slice(0, 5).map(d => (
+              {diag.duplicateRequests.slice(0, 10).map(d => (
                 <div key={d.url} style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={d.url}>{d.url}</span>
-                  <span style={{ color: '#fbbf24', fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>×{d.count} · 浪费 {formatBytes(d.totalWasted)}</span>
+                  <span style={{ color: '#fbbf24', fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>×{d.count} · 已知重复大小 {d.knownWastedCount ? formatBytes(d.totalWasted) : '无可用数据'} · 覆盖 {d.knownWastedCount}/{d.count - 1}（不含首次请求）</span>
                 </div>
               ))}
             </div>
@@ -620,7 +631,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
                       <div style={{ width: `${(r.count / maxCount) * 100}%`, height: '100%', background: cs.color, borderRadius: 4, opacity: 0.7, transition: 'width 0.4s' }} />
                     </div>
                     <span style={{ width: 50, fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right' }}>{r.count}</span>
-                    <span style={{ width: 70, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>{formatBytes(r.totalSize)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>{r.knownSizeCount ? formatBytes(r.totalSize) : '无可用数据'} · 已知大小合计 · 覆盖 {r.knownSizeCount}/{r.count}</span>
                   </div>
                 );
               })}
@@ -653,15 +664,18 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <Progress
                 type="circle"
-                percent={diag.cacheStats.cacheRate}
+                percent={Number.isFinite(diag.cacheStats.cacheRate) ? diag.cacheStats.cacheRate : 0}
                 size={80}
                 strokeColor={diag.cacheStats.cacheRate > 50 ? CHART_COLORS.semantic.success : CHART_COLORS.semantic.warning}
                 railColor="var(--bg-base)"
-                format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p}%</span>}
+                format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{Number.isFinite(diag.cacheStats.cacheRate) ? `${p}%` : '无可用数据'}</span>}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>已缓存 <strong style={{ color: 'var(--text-primary)' }}>{diag.cacheStats.cachedCount}</strong> 个</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>未缓存 <strong style={{ color: 'var(--text-primary)' }}>{diag.cacheStats.uncachedCount}</strong> 个</span>
+                <span>覆盖 {diag.cacheStats.validCount}/{diag.cacheStats.totalCount}</span>
+                {diag.cacheStats.validCount > 0 && <>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>已缓存 <strong style={{ color: 'var(--text-primary)' }}>{diag.cacheStats.cachedCount}</strong> 个</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>未缓存 <strong style={{ color: 'var(--text-primary)' }}>{diag.cacheStats.uncachedCount}</strong> 个</span>
+                </>}
               </div>
             </div>
           </Col>
@@ -670,15 +684,18 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <Progress
                 type="circle"
-                percent={diag.compressionStats.compressionRate}
+                percent={Number.isFinite(diag.compressionStats.compressionRate) ? diag.compressionStats.compressionRate : 0}
                 size={80}
                 strokeColor={diag.compressionStats.compressionRate > 50 ? CHART_COLORS.semantic.success : CHART_COLORS.semantic.warning}
                 railColor="var(--bg-base)"
-                format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p}%</span>}
+                format={p => <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{Number.isFinite(diag.compressionStats.compressionRate) ? `${p}%` : '无可用数据'}</span>}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>已压缩 <strong style={{ color: 'var(--text-primary)' }}>{diag.compressionStats.compressedCount}</strong> 个</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>未压缩 <strong style={{ color: 'var(--text-primary)' }}>{diag.compressionStats.uncompressedCount}</strong> 个</span>
+                <span>覆盖 {diag.compressionStats.validCount}/{diag.compressionStats.totalCount}</span>
+                {diag.compressionStats.validCount > 0 && <>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>已压缩 <strong style={{ color: 'var(--text-primary)' }}>{diag.compressionStats.compressedCount}</strong> 个</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>未压缩 <strong style={{ color: 'var(--text-primary)' }}>{diag.compressionStats.uncompressedCount}</strong> 个</span>
+                </>}
               </div>
             </div>
           </Col>
@@ -712,7 +729,7 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
         <SectionTitle icon={<SafetyOutlined />} title="安全与协议" />
         <Row gutter={[16, 16]}>
           <Col flex="1 1 140px">
-            <div style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+            <div role="group" aria-label="HTTPS 请求指标" style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: diag.securityStats.httpsCount === diag.totalRequests ? CHART_COLORS.semantic.success : CHART_COLORS.semantic.warning }}>
                 {diag.securityStats.httpsCount}
                 <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>/{diag.totalRequests}</span>
@@ -721,13 +738,14 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             </div>
           </Col>
           <Col flex="1 1 140px">
-            <div style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: CHART_COLORS.phases.connect }}>{diag.securityStats.h2Count + diag.securityStats.h3Count}</div>
+            <div role="group" aria-label="HTTP/2 + HTTP/3 指标" style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: CHART_COLORS.phases.connect }}>{diag.securityStats.protocolValidCount > 0 ? diag.securityStats.h2Count + diag.securityStats.h3Count : '无可用数据'}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>HTTP/2 + HTTP/3</div>
+              <div>协议覆盖 {diag.securityStats.protocolValidCount}/{diag.totalRequests}</div>
             </div>
           </Col>
           <Col flex="1 1 140px">
-            <div style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+            <div role="group" aria-label="混合内容指标" style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: diag.securityStats.mixedContentCount > 0 ? CHART_COLORS.semantic.error : CHART_COLORS.semantic.success }}>
                 {diag.securityStats.mixedContentCount}
               </div>
@@ -735,11 +753,12 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
             </div>
           </Col>
           <Col flex="1 1 140px">
-            <div style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+            <div role="group" aria-label="缺失安全头指标" style={{ textAlign: 'center', padding: '14px 10px', background: 'var(--bg-surface)', borderRadius: 10 }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: diag.securityStats.missingSecurityHeaders.length > 0 ? CHART_COLORS.semantic.warning : CHART_COLORS.semantic.success }}>
-                {diag.securityStats.missingSecurityHeaders.length}
+                {diag.securityStats.securityHeaderValidCount > 0 ? diag.securityStats.missingSecurityHeaders.length : '无可用数据'}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>缺失安全头</div>
+              <div>目标响应头覆盖 {diag.securityStats.securityHeaderValidCount}/{diag.securityStats.securityHeaderTotalCount}</div>
             </div>
           </Col>
         </Row>
@@ -852,8 +871,8 @@ const HarSummaryDiagnosis: React.FC<HarSummaryDiagnosisProps> = ({ result }) => 
           styles={{ body: { padding: '24px 20px', textAlign: 'center' } }}
         >
           <CheckCircleOutlined style={{ fontSize: 32, color: CHART_COLORS.semantic.success, marginBottom: 10 }} />
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>未发现明显问题</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>所有指标均在正常范围内，网络状况良好</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>当前证据未形成修复建议</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{diag.findings.join('；')}</div>
         </Card>
       )}
     </div>

@@ -43,8 +43,8 @@ export const renderingRules: readonly TraceDiagnosisRule[] = [{
     const family = missingRequiredEventFamilies(context, 'R2', ['rendering']);
     if (family) return [family];
     const summary = context.animationFrameSummary;
-    if (summary && context.animationFrames?.length) {
-      const ratio = summary.totalCount === 0 ? 0 : summary.overBudgetCount / summary.totalCount;
+    if (summary && summary.totalCount > 0 && context.animationFrames?.length) {
+      const ratio = summary.overBudgetCount / summary.totalCount;
       const severity = severityForThreshold(ratio, TRACE_RULE_THRESHOLDS.droppedFrameRatio);
       if (severity) {
         const frames = context.animationFrames.filter(item => item.overBudget || item.dropped);
@@ -65,7 +65,7 @@ export const renderingRules: readonly TraceDiagnosisRule[] = [{
     const rendering = (context.rendering ?? []).filter(item => RENDERING_BOTTLENECK_NAMES.has(item.name))
       .sort((a, b) => b.durationMs - a.durationMs)[0];
     if (!rendering) {
-      return summary ? [notMatched('R2', '超预算帧比例未超过阈值。')]
+      return summary && summary.totalCount > 0 ? [notMatched('R2', '超预算帧比例未超过阈值。')]
         : [disabled('R2', 'REQUIRED_FACTS_MISSING')];
     }
     const severity = severityForThreshold(rendering.durationMs, TRACE_RULE_THRESHOLDS.renderingEventMs);

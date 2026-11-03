@@ -1,6 +1,12 @@
 import type { AnalysisResult } from '../../parsers/netlog/parser';
 import { compareNetlogBaselines } from './netlogBaselineComparator';
 
+it('does not declare no new differences from two empty NetLog samples', () => {
+  const cards = compareNetlogBaselines(result({ totalEvents: 0 }), result({ totalEvents: 0 }));
+  expect(cards[0].conclusion).toContain('无可用');
+  expect(cards[0].confidence).toBe('low');
+});
+
 function result(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
   return {
     totalEvents: 100,

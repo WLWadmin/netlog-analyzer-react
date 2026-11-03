@@ -44,6 +44,7 @@ import {
   RAW_EVIDENCE_VALUE_PREVIEW_MAX_CHARS,
 } from '../constants/analysisThresholds';
 import { registerAnalysisWorkerTerminator } from './analysisWorkerRegistry';
+import { workerResultResources } from './workerResultResources';
 
 export interface WorkerClientOptions {
   onProgress?: (phase: string, percent?: number) => void;
@@ -69,6 +70,7 @@ class WorkerDispatchError extends Error {
 let worker: Worker | null = null;
 let taskCounter = 0;
 const pendingTasks = new Map<string, PendingTask>();
+const pendingCancellations = new Map<string, string>();
 
 /**
  * 获取或创建共享 Worker 实例
@@ -85,8 +87,25 @@ function getWorker(): Worker {
 
 function handleWorkerMessage(event: MessageEvent<WorkerResponse>) {
   const msg = event.data;
+  if (msg.type === 'cancelled') {
+    if (pendingCancellations.get(msg.id) === msg.taskId) pendingCancellations.delete(msg.id);
+    return;
+  }
   const task = pendingTasks.get(msg.id);
-  if (!task) return;
+  if (!task) {
+    // Success may already be queued when timeout/cancel crosses the boundary.
+    // Release only resources owned by that result, never a queried/shared Dataset.
+    if (msg.type === 'success' && worker) {
+      const { analysisId, rawDataId } = workerResultResources(msg);
+      if (analysisId) worker.postMessage({
+        type: 'release-netlog-dataset', id: nextId(), payload: { analysisId },
+      } satisfies WorkerRequest);
+      if (rawDataId) worker.postMessage({
+        type: 'release-raw-data', id: nextId(), payload: { rawDataId },
+      } satisfies WorkerRequest);
+    }
+    return;
+  }
 
   switch (msg.type) {
     case 'progress':
@@ -129,6 +148,11 @@ function sendToWorker(
 
     const timer = setTimeout(() => {
       pendingTasks.delete(request.id);
+      const cancelId = nextId();
+      pendingCancellations.set(cancelId, request.id);
+      w.postMessage({
+        type: 'cancel-task', id: cancelId, payload: { taskId: request.id },
+      } satisfies WorkerRequest);
       reject(new Error(`Worker timeout after ${timeout}ms`));
     }, timeout);
 
@@ -858,6 +882,7 @@ export function terminateWorker(): void {
     task.reject(new Error('Worker terminated'));
   }
   pendingTasks.clear();
+  pendingCancellations.clear();
 }
 
 registerAnalysisWorkerTerminator(terminateWorker);

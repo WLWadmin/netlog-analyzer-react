@@ -23,7 +23,10 @@ it('shows exact missing paths and avoids a distributed-time or normality claim',
 it('keeps known durations visible but suppresses bars whose predecessor is missing', () => {
   const { container } = render(<HarTimingChart entry={entry({ wait: 50, receive: 50 }, 100)} />);
   expect(screen.getAllByText('50 ms')).toHaveLength(2);
+  // These decorative bars have no role; their absence protects timing attribution.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector('[style*="background: rgb(74, 222, 128)"]')).toBeNull();
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector('[style*="background: rgb(22, 163, 74)"]')).toBeNull();
 });
 
@@ -40,6 +43,8 @@ it('keeps contradictory durations visible without bars or a request-start positi
   expect(screen.getByRole('note')).toHaveTextContent('Timing 数据矛盾');
   expect(screen.getByRole('note')).toHaveTextContent('$.log.entries[0].timings');
   expect(screen.getAllByText('8.00 s')).toHaveLength(2);
+  // Contradictory raw durations must not render a decorative attributed bar.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
   expect(container.querySelector('[style*="background: rgb(74, 222, 128)"]')).toBeNull();
   expect(screen.queryByText(/主要耗时/)).not.toBeInTheDocument();
 });

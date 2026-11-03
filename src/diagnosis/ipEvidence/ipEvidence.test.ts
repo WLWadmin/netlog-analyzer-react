@@ -15,6 +15,36 @@ import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../ha
 import type { AnalysisResult, URLRequest } from '../../parsers/netlog/parser';
 import type { DnsIpEvidenceSummary } from './ipEvidenceTypes';
 import type { IpLookupResult } from './ipLookupTypes';
+import { buildCipSipRowsText } from './buildCopyText';
+
+it('preserves missing HAR durations in IP rows and copy text', () => {
+  const parsed = parseHar({ log: { entries: [{
+    request: { url: 'https://example.test/', headers: [] },
+    response: { status: 500, headers: [], content: {} },
+    startedDateTime: '2026-10-28T00:00:00Z',
+    serverIPAddress: '203.0.113.10',
+    timings: { send: 0, wait: 50, receive: 0 },
+  }] } });
+  const rows = extractDnsIpEvidenceFromHar(parsed).cipSipRows;
+  expect(rows).toHaveLength(1);
+  expect(rows[0].durationMs).toBeUndefined();
+  expect(rows[0].representativeRequests[0].durationMs).toBeUndefined();
+  expect(buildCipSipRowsText(rows)).not.toContain('NaN');
+});
+
+it('retains a measured zero duration beside unknown IP evidence and reports its coverage', () => {
+  const parsed = parseHar({ log: { entries: [undefined, 0].map((time, index) => ({
+    request: { url: `https://example.test/${index}`, headers: [] },
+    response: { status: 500, headers: [], content: {} },
+    time, serverIPAddress: '203.0.113.10',
+    timings: { send: 0, wait: 0, receive: 0 },
+  })) } });
+  const rows = extractDnsIpEvidenceFromHar(parsed).cipSipRows;
+  expect(rows[0]).toMatchObject({
+    durationMs: 0, durationCoverage: { validCount: 1, totalCount: 2 },
+  });
+  expect(buildCipSipRowsText(rows)).toContain('耗时证据覆盖: 1/2');
+});
 
 function harEntry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
   return {
@@ -52,6 +82,7 @@ function harEntry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
       log: { entries: [{
         request: { method: 'GET', url: 'https://example.test/', headers: [] },
         response: { status: overrides.status ?? 200, headers: [], content: {} },
+        time: overrides.time ?? 1200,
         timings: { send: 0, wait: 0, receive: 0 },
       }] },
     }).entries[0].standard,
@@ -135,6 +166,13 @@ function lookupSummary(overrides: Partial<DnsIpEvidenceSummary> = {}): DnsIpEvid
 }
 
 describe('ipEvidence', () => {
+  it('does not count failed IP lookups as usable routing evidence', () => {
+    const conclusions = buildIpLookupConclusions(lookupSummary(), new Map([
+      ['203.0.113.10', { ip: '203.0.113.10', status: 'fail', message: '查询失败' }],
+    ]));
+    expect(conclusions.map(item => item.title).join(' ')).not.toContain('暂未发现');
+    expect(conclusions[0]?.detail).toContain('覆盖 0/1');
+  });
   it('按 DNS 类型分类公共 DNS 与本地网关 DNS', () => {
     expect(classifyDnsServer('8.8.8.8').type).toBe('overseas-public-dns');
     expect(classifyDnsServer('114.114.114.114').type).toBe('public-dns');

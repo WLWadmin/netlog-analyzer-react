@@ -550,7 +550,8 @@ function suggestionToCard(suggestion: Suggestion, index: number, result: Analysi
     if (failure.requestId !== undefined) return [failure.requestId];
     return result.urlRequests.filter(request => request.url === failure.url).map(request => request.id);
   })));
-  const affectedCount = matchingRequestIds.length || matchingFailures.length || relatedRequestIds.length;
+  // Connection failures are event records, not a deduplicated request population.
+  const affectedCount = matchingRequestIds.length || relatedRequestIds.length;
   const domainCount = new Set([
     ...relatedRequestIds.map(id => {
       const req = result.urlRequests.find(r => r.id === id);
@@ -635,7 +636,7 @@ function findRelatedRequests(suggestion: Suggestion, result: AnalysisResult): nu
       .filter(r => r.error && classifyNetError(r.error).catName === 'DNS')
       .forEach(r => { if (!ids.includes(r.id)) ids.push(r.id); });
   }
-  return ids.slice(0, 10);
+  return ids;
 }
 
 function buildActionsFromSuggestion(suggestion: Suggestion, category: DiagnosticCategory): DiagnosticAction[] {
@@ -774,11 +775,11 @@ export function netlogToCards(
         confidence: 'high',
         title: `DNS 解析失败 (${dnsErrors.length} 个域名)`,
         conclusion: `${dnsErrors.length} 个域名出现 DNS 解析失败（ERR_NAME_NOT_RESOLVED / ERR_NAME_RESOLUTION_FAILED），所有相关请求均无法完成`,
-        scope: buildScope(
-          dnsErrors.reduce((s, d) => s + d.count, 0),
-          dnsErrors.length,
-          dnsErrors.length > 1 ? 'multi-domain' : 'single-domain'
-        ),
+        scope: {
+          type: dnsErrors.length > 1 ? 'multi-domain' : 'single-domain',
+          summary: `${dnsErrors.length} 个失败域名，失败事件次数不能代替受影响请求数`,
+          affectedDomainCount: dnsErrors.length,
+        },
         evidence: dnsErrors.slice(0, 5).map((d, i) => ({
           label: `失败域名 ${i + 1}`,
           value: `${d.domain} — 错误码: ${d.errorCodes.join(', ')}，失败 ${d.count} 次`,
@@ -810,7 +811,11 @@ export function netlogToCards(
   const tlsDetailStart = performance.now();
   // ========== 批次 C 增强：TLS/证书诊断卡片 ==========
   if (result.sslIssues.length > 0 && !cards.some(c => c.category === 'tls')) {
-    const certHosts = [...new Set(result.sslIssues.map(si => si.host))].slice(0, 10);
+    const certHosts = [...new Set(result.sslIssues.map(si => si.host))];
+    const tlsRequestIds = result.urlRequests.filter(request => {
+      if (!request.error || !/SSL|TLS|CERT/.test(getNetErrorDescription(request.error))) return false;
+      try { return certHosts.includes(new URL(request.url).hostname); } catch { return false; }
+    }).map(request => request.id);
     const timeoutCerts = result.sslIssues.filter(si => si.category === 'timeout');
     const certCerts = result.sslIssues.filter(si => si.category === 'cert');
     const protocolCerts = result.sslIssues.filter(si => si.category === 'protocol');
@@ -831,7 +836,13 @@ export function netlogToCards(
       confidence: 'high',
       title: `TLS/证书问题 (${result.sslIssues.length} 个)`,
       conclusion,
-      scope: buildScope(result.sslIssues.length, certHosts.length, certHosts.length > 1 ? 'multi-domain' : 'single-domain'),
+      scope: {
+        type: certHosts.length > 1 ? 'multi-domain' : 'single-domain',
+        summary: `${result.sslIssues.length} 个 TLS 问题，涉及 ${certHosts.length} 个主机`,
+        affectedRequestCount: tlsRequestIds.length || undefined,
+        affectedDomainCount: certHosts.length,
+      },
+      relatedRequestIds: tlsRequestIds,
       evidence: [
         {
           label: '涉及主机',
@@ -945,7 +956,7 @@ export function netlogToCards(
       confidence: 'high',
       title: `检测到网络切换 (${networkChangeCount} 次)`,
       conclusion: `采集期间记录到 ${networkChangeCount} 次网络切换；只有与失败请求时间和 source chain 对齐时，才能把它作为请求异常的关联线索。`,
-      scope: buildScope(networkChangeCount, undefined, 'global'),
+      scope: { type: 'global', summary: `记录 ${networkChangeCount} 次网络切换，受影响请求数无可用数据` },
       evidence: changeTimes.slice(0, 5).map((c, i) => ({
         label: `切换 ${i + 1}`,
         value: `${c.time} — ${c.type}`,
@@ -1005,7 +1016,7 @@ export function netlogToCards(
 
   const lifecycleStart = performance.now();
   // ========== Phase 3 增强：请求生命周期证据 ==========
-  const lifecycleCandidates = result.slowRequests.slice(0, 5);
+  const lifecycleCandidates = result.slowRequests;
   const hasCompactLifecycle = lifecycleCandidates.length > 0
     && lifecycleCandidates.every(request => (
       request.relatedSourceIds
@@ -1027,7 +1038,6 @@ export function netlogToCards(
 
     const lifecycleCardsStart = performance.now();
     const lifecycleCards = netlogLifecycleToCards(result, events || [], {
-      maxCards: 5,
       graph,
       eventsBySourceId,
     });
@@ -1044,12 +1054,14 @@ export function netlogToCards(
     const requests = (enriched.relatedSourceIds || [])
       .map(id => requestById.get(id))
       .filter((request): request is URLRequest => Boolean(request && Number.isFinite(request.startTime)));
-    if (requests.length === 0) return enriched;
+    if (requests.length === 0 || requests.some(request => (
+      typeof request.duration !== 'number' || !Number.isFinite(request.duration) || request.duration < 0
+    ))) return enriched;
     return {
       ...enriched,
       timeRange: {
         startMs: Math.min(...requests.map(request => request.startTime)),
-        endMs: Math.max(...requests.map(request => request.startTime + (request.duration || 0))),
+        endMs: Math.max(...requests.map(request => request.startTime + (request.duration ?? 0))),
         clock: 'relative' as const,
       },
     };
@@ -1141,7 +1153,7 @@ function buildTemporalCorrelationCards(result: AnalysisResult, events?: ParsedEv
 
   const aggregateStart = performance.now();
   const allRelatedRequestIds = Array.from(new Set(failuresWithContext.flatMap(item => item.requestIds)));
-  const relatedRequestIds = allRelatedRequestIds.slice(0, 30);
+  const relatedRequestIds = allRelatedRequestIds;
   const kindCounts = failuresWithContext.reduce<Record<string, number>>((acc, item) => {
     item.context.forEach(ctx => { acc[ctx.kind] = (acc[ctx.kind] || 0) + 1; });
     return acc;
@@ -1241,7 +1253,7 @@ function buildCacheDecisionCard(result: AnalysisResult): DiagnosticCard | null {
         detail: '对静态资源设置稳定的 max-age/immutable，对接口响应避免错误缓存',
       },
     ],
-    relatedSourceIds: result.cacheEvents.slice(0, 20).map(e => e.source.id),
+    relatedSourceIds: Array.from(new Set(result.cacheEvents.map(e => e.source.id))),
     navigationTarget: { tab: 'events', keyword: 'cache' },
     limitations: ['缓存事件数不是受影响请求数；只有同一请求 source chain 上的终态错误才能提高归因置信度。'],
   }, finalCacheFailureCount > 0 ? [
@@ -1260,7 +1272,7 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
     failure.requestId !== undefined
       ? [failure.requestId]
       : result.urlRequests.filter(request => request.url === failure.url).map(request => request.id)
-  ))).slice(0, 20);
+  )));
 
   return addConfidenceDetails({
     id: generateId('netlog-proxy-decision', 0),
@@ -1300,7 +1312,7 @@ function buildProxyDecisionCard(result: AnalysisResult): DiagnosticCard | null {
       },
     ],
     relatedRequestIds,
-    relatedSourceIds: result.proxyEvents.slice(0, 20).map(e => e.source.id),
+    relatedSourceIds: Array.from(new Set(result.proxyEvents.map(e => e.source.id))),
     navigationTarget: { tab: 'events', keyword: 'proxy' },
   }, [
     ...(relatedFailures.length > 0 ? [{ label: '代理终态错误', impact: 'positive' as const, detail: `${relatedFailures.length} 个请求记录代理类 net_error` }] : []),
@@ -1382,7 +1394,7 @@ function buildProtocolDecisionCard(result: AnalysisResult): DiagnosticCard | nul
         detail: '对照代理/VPN 状态、协议错误和回退结果；只有同一请求链与开关对比对齐时，才提高代理路径相关性',
       },
     ],
-    relatedSourceIds: [...result.http2Events, ...result.quicEvents].slice(0, 20).map(e => e.source.id),
+    relatedSourceIds: Array.from(new Set([...result.http2Events, ...result.quicEvents].map(e => e.source.id))),
     navigationTarget: { tab: 'ssl-protocol', keyword: 'protocol' },
   }, [
     { label: '协议事件', impact: 'positive', detail: `HTTP/2 ${http2EventCount} 条，QUIC ${quicEventCount} 条` },
@@ -1409,7 +1421,7 @@ function buildTlsCertificateEvidenceCard(result: AnalysisResult): DiagnosticCard
     confidence: 'medium',
     title: `TLS 证书字段证据 (${detailedIssues.length} 条)`,
     conclusion: `NetLog 中有 ${detailedIssues.length} 条 TLS/证书异常携带证书字段，可进一步核验证书主体、SAN、颁发者、有效期和验证状态`,
-    scope: buildScope(result.certIssues.length, hosts.length || undefined, hosts.length > 1 ? 'multi-domain' : 'single-domain'),
+    scope: { type: hosts.length > 1 ? 'multi-domain' : 'single-domain', summary: `${hosts.length} 个主机的证书事件，受影响请求数尚未确认`, affectedDomainCount: hosts.length },
     evidence: detailedIssues.slice(0, 6).map((item, i) => ({
       label: `证书字段 ${i + 1}`,
       value: `${item.issue.host || '未知主机'} · 错误 ${item.issue.error} · ${item.details.join('；')}`,
@@ -1424,7 +1436,7 @@ function buildTlsCertificateEvidenceCard(result: AnalysisResult): DiagnosticCard
         detail: '对照证书 subject/SAN、issuer、有效期和浏览器错误码，确认服务器证书链是否完整且覆盖访问域名',
       },
     ],
-    relatedSourceIds: detailedIssues.slice(0, 20).map(item => item.issue.event.source.id),
+    relatedSourceIds: Array.from(new Set(detailedIssues.map(item => item.issue.event.source.id))),
     navigationTarget: { tab: 'ssl-protocol', keyword: 'certificate' },
   }, [
     { label: '证书字段', impact: 'positive', detail: `${detailedIssues.length} 条异常包含可读证书字段` },
@@ -1465,7 +1477,7 @@ function buildProxyCard(proxyInfo: ProxyInfo, result: AnalysisResult): Diagnosti
     conclusion: proxyInfo.isVPN
       ? '日志中检测到 VPN 使用迹象；这说明网络路径可能被改变，但不能单独证明 VPN 导致请求失败或变慢'
       : `当前配置了代理（模式: ${proxyInfo.proxyType}）；配置存在是环境事实，不等于代理故障`,
-    scope: buildScope(result.urlRequests.length, undefined, 'global'),
+    scope: { type: 'global', summary: '代理环境事实，受影响请求数尚未确认' },
     evidence,
     actions: [
       {
@@ -1491,7 +1503,7 @@ function buildDnsHijackCard(hijackedDomains: FailedDomain[]): DiagnosticCard {
     confidence: 'high',
     title: `域名解析到本机或空地址 (${hijackedDomains.length} 个域名)`,
     conclusion: 'NetLog 记录到域名解析为 127.0.0.1、0.0.0.0 或 ::1，可能来自 hosts、广告过滤、安全软件、企业 DNS 或本机代理策略，需要先核对该解析是否符合预期。',
-    scope: buildScope(hijackedDomains.reduce((s, d) => s + d.count, 0), hijackedDomains.length, 'multi-domain'),
+    scope: { type: 'multi-domain', summary: `${hijackedDomains.length} 个域名记录本地地址，受影响请求数尚未确认`, affectedDomainCount: hijackedDomains.length },
     evidence: hijackedDomains.map((d, i) => ({
       label: `本地地址映射 ${i + 1}`,
       value: `${d.domain} → ${d.ips.filter(ip => ip === '127.0.0.1' || ip === '0.0.0.0').join(', ')}`,

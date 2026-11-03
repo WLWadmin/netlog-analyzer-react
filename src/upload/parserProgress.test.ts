@@ -12,7 +12,7 @@ describe('parser record progress', () => {
         logSourceType: { URL_REQUEST: 1 },
       },
       events: [
-        { time: '1', type: 1, phase: 0, source: { id: 1, type: 1 }, params: {} },
+        { time: '1', type: 1, phase: 1, source: { id: 1, type: 1 }, params: {} },
         { time: '2', type: 1, phase: 2, source: { id: 1, type: 1 }, params: {} },
       ],
     }, onProgress);

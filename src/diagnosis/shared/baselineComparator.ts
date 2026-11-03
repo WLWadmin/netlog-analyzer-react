@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { buildHarNavigationTarget } from './navigation';
 import { getHarTimingPhase, normalizeHarTiming, type HarDisplayTimingPhaseKey } from './harTimingNormalization';
+import { getHarKnownDurationMs } from './harTimingCompleteness';
 
 // ========== 对比维度 ==========
 
@@ -47,14 +48,18 @@ interface PhaseDiff {
   baselineAvg: number;
   currentAvg: number;
   deltaMs: number;
+  baselineTiming: TotalTimingStats;
+  currentTiming: TotalTimingStats;
 }
 
 interface DomainDiff {
   host: string;
-  baselineAvgTime: number;
-  currentAvgTime: number;
-  deltaMs: number;
-  deltaPercent: number;
+  baselineAvgTime?: number;
+  currentAvgTime?: number;
+  deltaMs?: number;
+  deltaPercent?: number;
+  baselineTiming: TotalTimingStats;
+  currentTiming: TotalTimingStats;
   baselineCount: number;
   currentCount: number;
   baselineFailedCount: number;
@@ -124,17 +129,49 @@ function dominant<T extends string>(values: T[]): T | undefined {
   return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
 }
 
-function avgTiming(entries: HarRequestEntry[], phase: PhaseKey): number {
+function avgTiming(entries: HarRequestEntry[], phase: PhaseKey): TotalTimingStats {
   const values = entries
     .map(entry => getHarTimingPhase(normalizeHarTiming(entry), phase))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item?.available && item.durationMs > 0))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item?.available && Number.isFinite(item.durationMs) && item.durationMs >= 0))
     .map(item => item.durationMs);
-  return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  return {
+    averageMs: values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : undefined,
+    validCount: values.length,
+    totalCount: entries.length,
+    coverage: entries.length > 0 ? values.length / entries.length : 0,
+  };
 }
 
-function avgTotal(entries: HarRequestEntry[]): number {
-  if (entries.length === 0) return 0;
-  return entries.reduce((sum, entry) => sum + Math.max(entry.time, 0), 0) / entries.length;
+interface TotalTimingStats {
+  averageMs?: number;
+  validCount: number;
+  totalCount: number;
+  coverage: number;
+}
+
+function totalTiming(entries: HarRequestEntry[]): TotalTimingStats {
+  let sum = 0;
+  let validCount = 0;
+  for (const entry of entries) {
+    const duration = getHarKnownDurationMs(entry);
+    if (duration === undefined) continue;
+    sum += duration;
+    validCount += 1;
+  }
+  return {
+    averageMs: validCount > 0 ? sum / validCount : undefined,
+    validCount,
+    totalCount: entries.length,
+    coverage: entries.length > 0 ? validCount / entries.length : 0,
+  };
+}
+
+function timingCoverageEvidence(baseline: TotalTimingStats, current: TotalTimingStats): DiagnosticEvidence {
+  return {
+    label: '耗时覆盖度',
+    value: `正常 ${baseline.validCount}/${baseline.totalCount} (${Math.round(baseline.coverage * 100)}%)；异常 ${current.validCount}/${current.totalCount} (${Math.round(current.coverage * 100)}%)；仅指 time，不代表全阶段覆盖`,
+    source: 'derived',
+  };
 }
 
 function computePhaseDiffs(
@@ -142,17 +179,22 @@ function computePhaseDiffs(
   currentEntries: HarRequestEntry[]
 ): PhaseDiff[] {
   return COMPARED_PHASES
-    .map(phase => {
-      const baselineAvg = avgTiming(baselineEntries, phase.key);
-      const currentAvg = avgTiming(currentEntries, phase.key);
-      return {
+    .flatMap(phase => {
+      const baselineTiming = avgTiming(baselineEntries, phase.key);
+      const currentTiming = avgTiming(currentEntries, phase.key);
+      const baselineAvg = baselineTiming.averageMs;
+      const currentAvg = currentTiming.averageMs;
+      if (baselineAvg === undefined || currentAvg === undefined) return [];
+      return [{
         key: phase.key,
         label: phase.label,
         category: phase.category,
         baselineAvg: Math.round(baselineAvg),
         currentAvg: Math.round(currentAvg),
         deltaMs: Math.round(currentAvg - baselineAvg),
-      };
+        baselineTiming,
+        currentTiming,
+      }];
     })
     .sort((a, b) => b.deltaMs - a.deltaMs);
 }
@@ -186,7 +228,7 @@ function buildPhaseEvidence(diff: DomainDiff): DiagnosticEvidence[] {
   if (topPhases.length === 0) return [];
   return topPhases.map((phase, i) => ({
     label: `阶段退化 ${i + 1}`,
-    value: `${phase.label}: ${phase.baselineAvg}ms → ${phase.currentAvg}ms（+${phase.deltaMs}ms）`,
+    value: `${phase.label}: ${phase.baselineAvg}ms → ${phase.currentAvg}ms（+${phase.deltaMs}ms）；阶段覆盖：正常 ${phase.baselineTiming.validCount}/${phase.baselineTiming.totalCount}；异常 ${phase.currentTiming.validCount}/${phase.currentTiming.totalCount}${phase.baselineTiming.coverage < 1 || phase.currentTiming.coverage < 1 ? '，仅基于部分请求' : ''}`,
     source: 'derived' as const,
   }));
 }
@@ -301,7 +343,7 @@ function buildRequestShapeDiffCards(
       confidenceFactors: [{ label: '共同请求状态变化', impact: 'positive', detail: `${statusChanges.length} 个共同 method+host+path 状态类别变化` }],
       title: '异常样本出现共同请求状态变化',
       conclusion: '相同 method/host/path 在异常样本中的 HTTP 状态类别发生变化，这是新增差异，不等同于自动根因。',
-      scope: { type: 'multi-domain', summary: `${statusChanges.length} 个共同请求状态变化`, affectedRequestCount: statusChanges.length },
+      scope: { type: 'multi-domain', summary: `${statusChanges.length} 个共同请求 key 状态变化`, affectedRequestCount: statusChanges.flatMap(item => item.ids).length },
       evidence: statusChanges.slice(0, 10).map((item, index) => ({
         label: `状态变化 ${index + 1}`,
         value: `${item.key}: ${item.baseline} → ${item.current}`,
@@ -314,7 +356,7 @@ function buildRequestShapeDiffCards(
         title: '核对状态变化请求',
         detail: '按共同请求 path、状态码和时间点查询服务端/网关日志。',
       }],
-      relatedRequestIds: statusChanges.flatMap(item => item.ids).slice(0, 30),
+      relatedRequestIds: statusChanges.flatMap(item => item.ids),
     });
   }
 
@@ -328,7 +370,7 @@ function buildRequestShapeDiffCards(
       confidenceFactors: [{ label: '共同请求协议变化', impact: 'positive', detail: `${protocolChanges.length} 个共同请求协议不同` }],
       title: '异常样本出现协议变化',
       conclusion: '共同请求在异常样本中协议不同，可能是 HTTP/2、HTTP/3、QUIC 或代理/CDN 路径变化的线索。',
-      scope: { type: 'multi-domain', summary: `${protocolChanges.length} 个共同请求协议变化`, affectedRequestCount: protocolChanges.length },
+      scope: { type: 'multi-domain', summary: `${protocolChanges.length} 个共同请求 key 协议变化`, affectedRequestCount: protocolChanges.flatMap(item => item.ids).length },
       evidence: protocolChanges.slice(0, 10).map((item, index) => ({
         label: `协议变化 ${index + 1}`,
         value: `${item.key}: ${item.baseline} → ${item.current}`,
@@ -341,7 +383,7 @@ function buildRequestShapeDiffCards(
         title: '核对协议和代理/CDN 路径',
         detail: '检查异常环境是否经过不同代理、CDN、HTTP/2/HTTP/3/QUIC 策略。',
       }],
-      relatedRequestIds: protocolChanges.flatMap(item => item.ids).slice(0, 30),
+      relatedRequestIds: protocolChanges.flatMap(item => item.ids),
     });
   }
 
@@ -355,7 +397,7 @@ function buildRequestShapeDiffCards(
       confidenceFactors: [{ label: '共同请求缓存来源变化', impact: 'neutral', detail: `${cacheChanges.length} 个共同请求缓存来源不同` }],
       title: '异常样本出现缓存来源变化',
       conclusion: '共同请求在正常/异常样本中的缓存来源不同，这可能解释耗时变化，但缓存命中本身不是性能问题。',
-      scope: { type: 'multi-domain', summary: `${cacheChanges.length} 个共同请求缓存来源变化`, affectedRequestCount: cacheChanges.length },
+      scope: { type: 'multi-domain', summary: `${cacheChanges.length} 个共同请求 key 缓存来源变化`, affectedRequestCount: cacheChanges.flatMap(item => item.ids).length },
       evidence: cacheChanges.slice(0, 10).map((item, index) => ({
         label: `缓存变化 ${index + 1}`,
         value: `${item.key}: ${item.baseline} → ${item.current}`,
@@ -368,7 +410,7 @@ function buildRequestShapeDiffCards(
         title: '核对缓存策略',
         detail: '对比 Cache-Control、Service Worker、CDN 缓存命中和刷新方式。',
       }],
-      relatedRequestIds: cacheChanges.flatMap(item => item.ids).slice(0, 30),
+      relatedRequestIds: cacheChanges.flatMap(item => item.ids),
     });
   }
 
@@ -426,11 +468,10 @@ function compareRetainedBaselines(
 
   const currentOnlyProblemHosts = currentOnlyHosts
     .map(host => ({ host, entries: currentByHost.get(host)! }))
-    .filter(item => item.entries.some(e => e.isFailed || e.isSlow || e.status >= 400))
-    .slice(0, 10);
+    .filter(item => item.entries.some(e => e.isFailed || e.isSlow || e.status >= 400));
 
   if (currentOnlyProblemHosts.length > 0) {
-    const affectedRequestIds = currentOnlyProblemHosts.flatMap(item => item.entries.map(e => e.id)).slice(0, 30);
+    const affectedRequestIds = currentOnlyProblemHosts.flatMap(item => item.entries.map(e => e.id));
     cards.push({
       id: 'baseline-current-only-hosts',
       source: 'har',
@@ -444,7 +485,7 @@ function compareRetainedBaselines(
       title: `异常样本新增问题域名 (${currentOnlyProblemHosts.length} 个)`,
       conclusion: '异常样本中出现了正常样本没有覆盖的慢请求或失败域名，这可能代表异常路径新增依赖、降级链路或采集步骤不一致',
       scope: { type: 'multi-domain', summary: `新增 ${currentOnlyProblemHosts.length} 个问题域名`, affectedDomainCount: currentOnlyProblemHosts.length },
-      evidence: currentOnlyProblemHosts.map((item, i) => ({
+      evidence: currentOnlyProblemHosts.slice(0, 10).map((item, i) => ({
         label: `新增域名 ${i + 1}`,
         value: `${item.host} · ${item.entries.length} 个请求 · 失败 ${item.entries.filter(e => e.isFailed || e.status >= 400).length} 个 · 慢请求 ${item.entries.filter(e => e.isSlow).length} 个`,
         source: 'derived',
@@ -468,26 +509,37 @@ function compareRetainedBaselines(
   }
 
   const diffs: DomainDiff[] = [];
+  const incompleteTimingEvidence: DiagnosticEvidence[] = [];
+  let comparableTimingHostCount = 0;
   for (const host of commonHosts) {
     const bEntries = baselineByHost.get(host)!;
     const cEntries = currentByHost.get(host)!;
-    const bAvg = avgTotal(bEntries);
-    const cAvg = avgTotal(cEntries);
-    const deltaMs = cAvg - bAvg;
-    const deltaPercent = bAvg > 0 ? (deltaMs / bAvg) * 100 : 0;
+    const baselineTiming = totalTiming(bEntries);
+    const currentTiming = totalTiming(cEntries);
+    const bAvg = baselineTiming.averageMs;
+    const cAvg = currentTiming.averageMs;
+    if (bAvg !== undefined && cAvg !== undefined) comparableTimingHostCount++;
+    const deltaMs = bAvg !== undefined && cAvg !== undefined ? cAvg - bAvg : undefined;
+    const deltaPercent = bAvg !== undefined && bAvg > 0 && deltaMs !== undefined ? (deltaMs / bAvg) * 100 : undefined;
+    // Missing requests may be the slow ones: partial coverage cannot prove no regression.
+    if (baselineTiming.coverage < 1 || currentTiming.coverage < 1) {
+      incompleteTimingEvidence.push({ ...timingCoverageEvidence(baselineTiming, currentTiming), label: `${host} 耗时覆盖度` });
+    }
     const baselineFailedCount = bEntries.filter(e => e.isFailed || e.status >= 400).length;
     const currentFailedCount = cEntries.filter(e => e.isFailed || e.status >= 400).length;
     const newFailures = Math.max(0, currentFailedCount - baselineFailedCount);
 
-    if (deltaMs > 200 || newFailures > 0) {
+    if ((deltaMs !== undefined && deltaMs > 200) || newFailures > 0) {
       const phaseDiffs = computePhaseDiffs(bEntries, cEntries);
       const category = classifyDiff(phaseDiffs);
       diffs.push({
         host,
-        baselineAvgTime: Math.round(bAvg),
-        currentAvgTime: Math.round(cAvg),
-        deltaMs: Math.round(deltaMs),
-        deltaPercent: Math.round(deltaPercent),
+        baselineAvgTime: bAvg === undefined ? undefined : Math.round(bAvg),
+        currentAvgTime: cAvg === undefined ? undefined : Math.round(cAvg),
+        deltaMs: deltaMs === undefined ? undefined : Math.round(deltaMs),
+        deltaPercent: deltaPercent === undefined ? undefined : Math.round(deltaPercent),
+        baselineTiming,
+        currentTiming,
         baselineCount: bEntries.length,
         currentCount: cEntries.length,
         baselineFailedCount,
@@ -495,13 +547,29 @@ function compareRetainedBaselines(
         currentRequestIds: cEntries.map(e => e.id),
         phaseDiffs,
         category,
-        severity: computeSeverity(deltaPercent, deltaMs, newFailures),
+        severity: computeSeverity(deltaPercent ?? 0, deltaMs ?? 0, newFailures),
       });
     }
   }
 
   if (diffs.length === 0) {
+    if (incompleteTimingEvidence.length > 0) {
+      return cards.concat([{
+        id: 'baseline-timing-incomplete',
+        source: 'har', category: 'performance', severity: 'info', confidence: 'low',
+        title: '正常/异常样本耗时无法完整比较',
+        conclusion: comparableTimingHostCount === 0
+          ? '共同域名无可比较耗时，无法比较平均耗时是否退化；未知耗时不代表 0ms。'
+          : '已知耗时中未发现超过 200ms 的平均耗时退化，但缺失请求可能包含慢请求，无法确认整体无退化。',
+        confidenceFactors: [{ label: '耗时覆盖不足', impact: 'negative', detail: '双方共同域名的请求耗时需完整才能排除明显退化' }],
+        scope: { type: 'multi-domain', summary: `共同域名 ${commonHosts.length} 个；${comparableTimingHostCount > 0 ? `可比较耗时 ${comparableTimingHostCount} 个` : '无可比较耗时'}` },
+        evidence: incompleteTimingEvidence,
+        limitations: ['均值仅覆盖已验证耗时；全部未知的域名无法比较，未知耗时不代表 0ms。'],
+        actions: [{ role: 'user', title: '补采完整耗时', detail: '按相同步骤重新采集正常和异常 HAR，并检查请求 time 是否完整。' }],
+      }], requestShapeCards);
+    }
     if (requestShapeCards.length > 0) return cards.concat(requestShapeCards);
+    if (cards.length > 0) return cards;
     return [{
       id: 'baseline-no-regression',
       source: 'har',
@@ -526,36 +594,53 @@ function compareRetainedBaselines(
 
   diffs.sort((a, b) => {
     const severityWeight = { critical: 3, warning: 2, info: 1 };
-    return severityWeight[b.severity] - severityWeight[a.severity] || b.deltaMs - a.deltaMs;
+    return severityWeight[b.severity] - severityWeight[a.severity] || (b.deltaMs ?? 0) - (a.deltaMs ?? 0);
   });
 
-  for (const diff of diffs.slice(0, 10)) {
+  for (const diff of diffs) {
     const newFailureCount = Math.max(0, diff.currentFailedCount - diff.baselineFailedCount);
-    const relatedRequestIds = diff.currentRequestIds.slice(0, 30);
+    const relatedRequestIds = diff.currentRequestIds;
+    const timingComplete = diff.baselineTiming.coverage === 1 && diff.currentTiming.coverage === 1;
+    const partialRegressions = diff.phaseDiffs.filter(phase =>
+      phase.deltaMs > 50 && (phase.baselineTiming.coverage < 1 || phase.currentTiming.coverage < 1)
+    );
+    const durationComparable = diff.deltaMs !== undefined;
+    const deltaText = diff.deltaPercent === undefined ? `+${diff.deltaMs}ms` : `+${diff.deltaMs}ms (+${diff.deltaPercent}%)`;
     cards.push({
       id: `baseline-diff-${diff.host}`,
       source: 'har',
       category: diff.category,
       severity: diff.severity,
-      confidence: newFailureCount > 0 || diff.phaseDiffs.some(p => p.deltaMs > 300) ? 'high' : 'medium',
+      confidence: !timingComplete || partialRegressions.length > 0 ? 'low' : newFailureCount > 0 || diff.phaseDiffs.some(p => p.deltaMs > 300) ? 'high' : 'medium',
       confidenceFactors: [
         { label: '同域名直接对比', impact: 'positive', detail: `正常 ${diff.baselineCount} 个请求，异常 ${diff.currentCount} 个请求` },
+        ...(!timingComplete ? [{ label: '耗时覆盖不足', impact: 'negative' as const, detail: timingCoverageEvidence(diff.baselineTiming, diff.currentTiming).value }] : []),
+        ...partialRegressions.map(phase => ({ label: `${phase.label}阶段覆盖不足`, impact: 'negative' as const, detail: `正常 ${phase.baselineTiming.validCount}/${phase.baselineTiming.totalCount}；异常 ${phase.currentTiming.validCount}/${phase.currentTiming.totalCount}，仅基于部分请求` })),
         ...(diff.phaseDiffs.some(p => p.deltaMs > 300) ? [{ label: '阶段退化明显', impact: 'positive' as const, detail: `最大阶段退化 ${diff.phaseDiffs[0].label} +${diff.phaseDiffs[0].deltaMs}ms` }] : []),
         ...(newFailureCount > 0 ? [{ label: '新增失败', impact: 'positive' as const, detail: `异常样本新增 ${newFailureCount} 个失败请求` }] : []),
       ],
-      title: `${diff.host} 耗时退化 ${diff.deltaPercent}%`,
-      conclusion: `该域名平均耗时从 ${diff.baselineAvgTime}ms 退化到 ${diff.currentAvgTime}ms（+${diff.deltaMs}ms），主因可能是 ${categoryLabel(diff.category)}`,
+      title: !durationComparable || (diff.deltaMs ?? 0) <= 200
+        ? `${diff.host} 新增失败 ${newFailureCount} 个`
+        : `${diff.host} 耗时退化 ${diff.deltaPercent === undefined ? `${diff.deltaMs}ms` : `${diff.deltaPercent}%`}`,
+      conclusion: durationComparable
+        ? `该域名已知请求平均耗时从 ${diff.baselineAvgTime}ms 变化到 ${diff.currentAvgTime}ms（${diff.deltaMs}ms），差异本身不等于根因。`
+        : '该域名出现新增失败，但正常或异常样本耗时全部未知，平均耗时无法比较。',
       scope: { type: 'single-domain', summary: `影响 ${diff.host}`, affectedRequestCount: diff.currentCount },
       evidence: [
-        { label: '正常样本平均耗时', value: `${diff.baselineAvgTime}ms`, source: 'har' },
-        { label: '异常样本平均耗时', value: `${diff.currentAvgTime}ms`, source: 'har', requestIds: relatedRequestIds },
-        { label: '退化幅度', value: `+${diff.deltaMs}ms (+${diff.deltaPercent}%)`, source: 'derived' },
+        { label: '正常样本平均耗时', value: diff.baselineAvgTime === undefined ? '未知' : `${diff.baselineAvgTime}ms`, source: 'har' },
+        { label: '异常样本平均耗时', value: diff.currentAvgTime === undefined ? '未知' : `${diff.currentAvgTime}ms`, source: 'har', requestIds: relatedRequestIds },
+        timingCoverageEvidence(diff.baselineTiming, diff.currentTiming),
+        ...(durationComparable ? [{ label: '退化幅度', value: deltaText, source: 'derived' as const }] : []),
         { label: '疑似慢因阶段', value: categoryLabel(diff.category), source: 'derived' },
         ...(newFailureCount > 0 ? [{ label: '新增失败请求', value: `${newFailureCount} 个`, source: 'har' as const, requestIds: relatedRequestIds }] : []),
         ...buildPhaseEvidence(diff),
       ],
       actions: buildDiffActions(diff),
-      limitations: ['基于域名粒度对比；若两次操作路径不同，新增请求或域名可能造成误判'],
+      limitations: [
+        '基于域名粒度对比；若两次操作路径不同，新增请求或域名可能造成误判',
+        ...(!timingComplete ? ['耗时只覆盖已验证请求，缺失部分无法比较，不能据此确认整体耗时变化。'] : []),
+        ...(partialRegressions.length > 0 ? ['阶段退化仅基于部分请求；请补采对应阶段数据，现有排查方向需进一步核验。'] : []),
+      ],
       relatedRequestIds,
       navigationTarget: buildHarNavigationTarget(diff.category, { requestIds: relatedRequestIds }),
     });
@@ -577,6 +662,16 @@ function buildBaselineQuality(
     baselineHostCount > 0 ? commonHosts / baselineHostCount : 0,
     currentHostCount > 0 ? commonHosts / currentHostCount : 0
   );
+  const baselineTiming = totalTiming(baseline.entries);
+  const currentTiming = totalTiming(current.entries);
+  const timingIncomplete = baselineTiming.coverage < 1 || currentTiming.coverage < 1;
+  if (timingIncomplete) {
+    issues.push({
+      type: 'insufficient_data', severity: 'warning', message: 'A-B 样本耗时覆盖不完整',
+      detail: timingCoverageEvidence(baselineTiming, currentTiming).value,
+    });
+    recommendations.push('重新采集完整 time 字段；未知耗时不能用于排除退化');
+  }
 
   if (baseline.totalRequests < 5 || current.totalRequests < 5) {
     issues.push({
@@ -609,7 +704,7 @@ function buildBaselineQuality(
 
   return {
     source: 'har',
-    ...(baseline.repairInfo?.repaired || current.repairInfo?.repaired ? { dataIncomplete: true } : {}),
+    ...(timingIncomplete || baseline.repairInfo?.repaired || current.repairInfo?.repaired ? { dataIncomplete: true } : {}),
     isDiagnosable: baseline.totalRequests >= 3 && current.totalRequests >= 3 && commonHosts > 0,
     issues,
     recommendations: recommendations.length > 0 ? recommendations : undefined,

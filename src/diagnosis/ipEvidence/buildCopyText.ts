@@ -8,7 +8,8 @@ export function buildCipSipRowsText(rows: CipSipEvidenceRow[]): string {
   return rows.map(row => [
     `域名: ${row.host}`,
     `状态: ${row.impact}${row.statusCode ? ` ${row.statusCode}` : ''}${row.error ? ` error=${row.error}` : ''}`,
-    `耗时: ${row.durationMs ?? '-'}ms`,
+    `耗时: ${row.durationMs === undefined ? '无可用数据' : `${row.durationMs}ms`}`,
+    ...(row.durationCoverage ? [`耗时证据覆盖: ${row.durationCoverage.validCount}/${row.durationCoverage.totalCount}`] : []),
     `CIP: ${row.cipIps.join(', ') || '-'}`,
     `SIP: ${row.sipIps.join(', ') || '-'}`,
     `Socket peer: ${(row.socketPeerIps || []).join(', ') || '-'}`,

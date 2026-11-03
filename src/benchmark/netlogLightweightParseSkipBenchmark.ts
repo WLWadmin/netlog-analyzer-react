@@ -82,7 +82,7 @@ function buildSyntheticNetlogText(lightweightEvents: number, heavyEvents: number
       time: String(2000 + i / 10),
       type: 2,
       source: { id: 2000 + i, type: 21 },
-      phase: 0,
+      phase: 1,
       params: {
         url: `https://example.com/resource/${i}`,
         method: 'GET',

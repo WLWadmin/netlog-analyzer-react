@@ -128,7 +128,11 @@ export function checkHarEntry(collector: FileQualityCollector, value: unknown, r
   ] as const) {
     if (record[key] !== undefined && typeof record[key] !== 'string') unsafeStructure(path);
   }
-  numeric(response, 'status', 'response.status', true);
+  const responseStatus = numeric(response, 'status', 'response.status', true);
+  if (responseStatus !== undefined && responseStatus !== 0
+    && (!Number.isInteger(responseStatus) || responseStatus < 100 || responseStatus > 599)) {
+    collector.add('number', location('response.status'));
+  }
   for (const [prefix, record] of [['request', request], ['response', response]] as const) {
     numeric(record, 'headersSize', `${prefix}.headersSize`);
     numeric(record, 'bodySize', `${prefix}.bodySize`);

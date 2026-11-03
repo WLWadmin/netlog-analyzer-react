@@ -182,8 +182,8 @@ export function summarizeRequestCorrelations(correlations: RequestCorrelation[])
     strong,
     weak,
     none,
-    strongRate: correlations.length ? strong / correlations.length : 0,
-    weakRate: correlations.length ? weak / correlations.length : 0,
-    noneRate: correlations.length ? none / correlations.length : 0,
+    strongRate: correlations.length ? strong / correlations.length : Number.NaN,
+    weakRate: correlations.length ? weak / correlations.length : Number.NaN,
+    noneRate: correlations.length ? none / correlations.length : Number.NaN,
   };
 }

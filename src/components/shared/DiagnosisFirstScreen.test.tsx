@@ -1,7 +1,8 @@
 import React from 'react';
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { DiagnosisCoverage, FinalDiagnosisSummary } from '../../diagnosis/shared';
+import type { DiagnosisCoverage, FinalDiagnosisSummary, DiagnosticCard } from '../../diagnosis/shared';
+import { buildFinalDiagnosisSummary } from '../../diagnosis/shared/finalSummaryBuilder';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
 import FinalDiagnosisPanel from './FinalDiagnosisPanel';
@@ -80,6 +81,64 @@ function finalSummary(): FinalDiagnosisSummary {
     }],
   };
 }
+
+it('shows and copies lower-bound request counts for primary and secondary incidents', async () => {
+  const summary = finalSummary();
+  Object.assign(summary.rootCauseClusters[0], { requestCountIsLowerBound: true });
+  summary.rootCauseClusters.push({ ...summary.rootCauseClusters[0], id: 'secondary', affectedRequestCount: 3 });
+  const { container } = render(<IncidentEpisodeList finalSummary={summary} />);
+  expect(container).toHaveTextContent('至少 2 请求');
+  expect(container).toHaveTextContent('至少 3 请求');
+  render(<FinalDiagnosisPanel finalSummary={summary} />);
+  fireEvent.click(screen.getByRole('button', { name: '复制给 IT / 客服' }));
+  const copy = await screen.findByLabelText('手动选择以下全文复制');
+  expect(copy).toHaveProperty('value', expect.stringContaining('影响：至少 2 个请求 / 1 个域名'));
+  expect(copy).toHaveProperty('value', expect.stringContaining('影响：至少 3 个请求 / 1 个域名'));
+});
+
+it.each([
+  ['unknown', undefined, [], '请求数无可用数据'],
+  ['explicit zero', 0, [], '0 个请求'],
+  ['positive', 2, [1, 2], '2 个请求'],
+  ['lower bound', 3, [1], '至少 3 个请求'],
+] as const)('preserves %s from card through final cluster, episode label and copy', async (_, count, ids, expected) => {
+  const diagnosticCard: DiagnosticCard = {
+    id: 'count-card', source: 'netlog', category: 'dns', severity: 'warning', confidence: 'medium',
+    title: 'DNS 异常', conclusion: 'api.example.test DNS 异常',
+    scope: { type: 'single-domain', summary: 'api.example.test', affectedRequestCount: count },
+    evidence: [{ label: 'DNS', value: 'api.example.test', source: 'netlog', requestIds: [...ids] }],
+    relatedRequestIds: [...ids], actions: [],
+  };
+  const result = buildFinalDiagnosisSummary({
+    cards: [diagnosticCard], overallSeverity: 'warning',
+    quality: { source: 'netlog', isDiagnosable: true, issues: [] },
+  }, 'netlog');
+  expect(result.rootCauseClusters).toHaveLength(1);
+  const cluster = result.rootCauseClusters[0];
+  expect(cluster.requestCountIsKnown).toBe(count !== undefined || ids.length > 0);
+  expect(cluster.summary).toContain(expected);
+  const { container } = render(<IncidentEpisodeList finalSummary={result} />);
+  expect(container).toHaveTextContent(expected.replace('个请求', '请求'));
+  render(<FinalDiagnosisPanel finalSummary={result} />);
+  fireEvent.click(screen.getByRole('button', { name: '复制给 IT / 客服' }));
+  const copy = await screen.findByLabelText('手动选择以下全文复制');
+  expect(copy).toHaveProperty('value', expect.stringContaining(`影响：${expected} /`));
+});
+
+it('does not infer single-request scope from an unknown zero count', () => {
+  const summary = finalSummary();
+  const cluster = summary.rootCauseClusters[0];
+  cluster.cards[0].scope.type = 'unknown';
+  cluster.summary = '无可用范围信息';
+  cluster.affectedRequestCount = 0;
+  cluster.requestCountIsKnown = false;
+  const { container, rerender } = render(<IncidentEpisodeList finalSummary={summary} />);
+  expect(container).toHaveTextContent('未知范围');
+  expect(container).not.toHaveTextContent('单请求');
+  cluster.cards[0].scope.type = 'single-domain';
+  rerender(<IncidentEpisodeList finalSummary={summary} />);
+  expect(container).toHaveTextContent('单域名');
+});
 
 const coverage: DiagnosisCoverage = {
   totalAbnormalObjects: 2,

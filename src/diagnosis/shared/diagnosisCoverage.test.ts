@@ -97,6 +97,17 @@ function netlogResult(overrides: Partial<AnalysisResult>): AnalysisResult {
 }
 
 describe('diagnosisCoverage', () => {
+  it('does not claim full coverage without abnormal objects in any source mode', () => {
+    const results = [
+      calculateHarDiagnosisCoverage([], []),
+      calculateNetlogDiagnosisCoverage(netlogResult({}), []),
+      calculateCombinedDiagnosisCoverage([], [], []),
+    ];
+    results.forEach(result => {
+      expect(result.totalAbnormalObjects).toBe(0);
+      expect(Number.isNaN(result.coverageRate)).toBe(true);
+    });
+  });
   it('calculates HAR explained, partial and unexplained coverage', () => {
     const har = parseFixtureHar();
     const observations = buildHarObservations(har.entries);

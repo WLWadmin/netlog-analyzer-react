@@ -14,6 +14,7 @@ import type {
 import { formatHarTime, getHarResponseStatus } from './harParser';
 import { HAR_DIAG_THRESHOLDS } from './diagnosis/shared/harThresholds';
 import { getHarTimingPhase, normalizeHarTiming } from './diagnosis/shared/harTimingNormalization';
+import { compareHarRequestDurations, HAR_REQUIRED_TIMING_PHASES } from './diagnosis/shared/harTimingCompleteness';
 
 // 兼容既有代码变量名，实际阈值统一收口到 HAR_DIAG_THRESHOLDS。
 const THRESHOLDS = HAR_DIAG_THRESHOLDS;
@@ -24,7 +25,10 @@ export type DiagnosisStatus = 'healthy' | 'warning' | 'critical';
 
 export interface NetworkPhaseStatus {
   label: string;
-  status: DiagnosisStatus;
+  status: DiagnosisStatus | 'unknown';
+  validCount: number;
+  totalCount: number;
+  /** 无可用阶段样本时为 NaN；不代表测得 0ms。 */
   avgMs: number;
   maxMs: number;
   p95Ms: number;
@@ -35,6 +39,7 @@ export interface NetworkPhaseStatus {
 
 export interface HttpStatusBreakdown {
   total: number;
+  count1xx: number;
   count2xx: number;
   count3xx: number;
   count4xx: number;
@@ -58,7 +63,9 @@ export interface DomainStats {
   count: number;
   failedCount: number;
   avgTime: number;
+  unknownTimeCount: number;
   totalSize: number;
+  knownSizeCount: number;
   ips: string[];
 }
 
@@ -67,6 +74,7 @@ export interface IpStats {
   count: number;
   failedCount: number;
   avgTime: number;
+  unknownTimeCount: number;
   domains: string[];
   type: 'public' | 'private' | 'loopback' | 'ipv6' | 'unknown';
 }
@@ -75,17 +83,23 @@ export interface ResourceStats {
   category: HarCategory;
   count: number;
   totalSize: number;
+  knownSizeCount: number;
   avgTime: number;
+  unknownTimeCount: number;
   failedCount: number;
 }
 
 export interface CacheStats {
+  validCount: number;
+  totalCount: number;
   cachedCount: number;
   uncachedCount: number;
   cacheRate: number;
 }
 
 export interface CompressionStats {
+  validCount: number;
+  totalCount: number;
   compressedCount: number;
   uncompressedCount: number;
   compressionRate: number;
@@ -93,6 +107,9 @@ export interface CompressionStats {
 }
 
 export interface SecurityStats {
+  protocolValidCount: number;
+  securityHeaderValidCount: number;
+  securityHeaderTotalCount: number;
   httpsCount: number;
   httpCount: number;
   h2Count: number;
@@ -126,6 +143,8 @@ export interface HarDiagnosisResult {
   // 1. 诊断结论
   overallStatus: DiagnosisStatus;
   healthScore: number;
+  /** An unavailable overall score does not imply that measured zero-duration phases are missing. */
+  healthScoreUnavailableReason?: 'phase-missing' | 'outcome-missing' | 'coverage-insufficient';
   summary: string;
   findings: string[];
 
@@ -152,7 +171,7 @@ export interface HarDiagnosisResult {
   // 5. 域名/IP
   domainStats: DomainStats[];
   ipStats: IpStats[];
-  duplicateRequests: { url: string; count: number; totalWasted: number }[];
+  duplicateRequests: { url: string; count: number; totalWasted: number; knownWastedCount: number }[];
 
   // 6. 资源分析
   resourceStats: ResourceStats[];
@@ -176,18 +195,19 @@ export interface HarDiagnosisResult {
 // ========== 工具函数 ==========
 
 function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0;
+  if (values.length === 0) return Number.NaN;
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.ceil((sorted.length - 1) * p);
   return sorted[Math.min(idx, sorted.length - 1)];
 }
 
 function max(values: number[]): number {
+  if (values.length === 0) return Number.NaN;
   return values.reduce((current, value) => Math.max(current, value), 0);
 }
 
 function avg(arr: number[]): number {
-  if (arr.length === 0) return 0;
+  if (arr.length === 0) return Number.NaN;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
@@ -246,8 +266,11 @@ function classifyIP(ip: string): IpStats['type'] {
   return 'public';
 }
 
-function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number, total: number, threshold: number, label: string): NetworkPhaseStatus {
-  const slowRate = total > 0 ? slowCount / total : 0;
+function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number, validCount: number, total: number, threshold: number, label: string): NetworkPhaseStatus {
+  if (validCount === 0) {
+    return { label, status: 'unknown', avgMs: Number.NaN, maxMs: Number.NaN, p95Ms: Number.NaN, validCount, totalCount: total, slowCount: 0, slowDomains: [], detail: '无可用数据' };
+  }
+  const slowRate = slowCount / validCount;
   let status: DiagnosisStatus = 'healthy';
   let detail = `${label}正常`;
 
@@ -259,7 +282,7 @@ function getPhaseStatus(avg: number, max: number, p95: number, slowCount: number
     detail = `${label}偏高`;
   }
 
-  return { label, status, avgMs: Math.round(avg), maxMs: Math.round(max), p95Ms: Math.round(p95), slowCount, slowDomains: [], detail };
+  return { label, status, avgMs: Math.round(avg), maxMs: Math.round(max), p95Ms: Math.round(p95), validCount, totalCount: total, slowCount, slowDomains: [], detail: `${detail} · 覆盖 ${validCount}/${total}${validCount < total ? '，仅基于部分请求' : ''}` };
 }
 
 // ========== 主计算函数 ==========
@@ -284,6 +307,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   let receiveSlow = 0;
   let blockedSlow = 0;
 
+  let count1xx = 0;
   let count2xx = 0;
   let count3xx = 0;
   let count4xx = 0;
@@ -297,27 +321,34 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   let mixedContentCount = 0;
   let cachedCount = 0;
   let compressedCount = 0;
+  let cacheValidCount = 0;
+  let compressionValidCount = 0;
 
   // domain/ip 统计（O(N) 单次遍历 + Map 累加）
   const domainMap = new Map<string, DomainStats & { _totalTime: number }>();
   const ipMap = new Map<string, IpStats & { _totalTime: number }>();
-  const urlMap = new Map<string, { count: number; totalWasted: number }>();
-  const catStatsMap = new Map<HarCategory, { count: number; totalSize: number; totalTime: number; failedCount: number }>();
+  const urlMap = new Map<string, { count: number; totalWasted: number; knownWastedCount: number }>();
+  const catStatsMap = new Map<HarCategory, { count: number; totalSize: number; knownSizeCount: number; totalTime: number; failedCount: number; unknownTimeCount: number }>();
 
   for (const e of entries) {
+    // Unknown durations neither contribute zero nor increase the average denominator.
+    const knownTime = e.standard.time.state === 'value' ? e.standard.time.value : undefined;
     const responseStatus = getHarResponseStatus(e);
     // timings
     const t = e.timings;
     const normalizedTiming = normalizeHarTiming(e);
     if (!normalizedTiming.contradictory) {
       timingEvidenceEntries.push(e);
+      const dnsMs = getHarTimingPhase(normalizedTiming, 'dns')?.durationMs;
       const tcpMs = getHarTimingPhase(normalizedTiming, 'tcp')?.durationMs;
       const sslMs = getHarTimingPhase(normalizedTiming, 'ssl')?.durationMs;
-      if (t.dns > 0) dnsArr.push(t.dns);
-      if (tcpMs !== undefined && tcpMs > 0) connectArr.push(tcpMs);
-      if (sslMs !== undefined && sslMs > 0) sslArr.push(sslMs);
-      if (t.wait > 0) waitArr.push(t.wait);
-      if (t.receive > 0) receiveArr.push(t.receive);
+      const waitMs = getHarTimingPhase(normalizedTiming, 'wait')?.durationMs;
+      const receiveMs = getHarTimingPhase(normalizedTiming, 'receive')?.durationMs;
+      if (dnsMs !== undefined) dnsArr.push(dnsMs);
+      if (tcpMs !== undefined) connectArr.push(tcpMs);
+      if (sslMs !== undefined) sslArr.push(sslMs);
+      if (waitMs !== undefined) waitArr.push(waitMs);
+      if (receiveMs !== undefined) receiveArr.push(receiveMs);
 
       if (t.dns > THRESHOLDS.dnsSlow) dnsSlow++;
       if (tcpMs !== undefined && tcpMs > THRESHOLDS.connectSlow) connectSlow++;
@@ -328,7 +359,8 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     }
 
     // HTTP status
-    if (responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300) count2xx++;
+    if (responseStatus !== undefined && responseStatus >= 100 && responseStatus < 200) count1xx++;
+    else if (responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300) count2xx++;
     else if (responseStatus !== undefined && responseStatus >= 300 && responseStatus < 400) count3xx++;
     else if (responseStatus !== undefined && responseStatus >= 400 && responseStatus < 500) count4xx++;
     else if (responseStatus !== undefined && responseStatus >= 500) count5xx++;
@@ -343,18 +375,29 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
     // cache
     const cc = e.responseHeaders.find(h => h.name.toLowerCase() === 'cache-control')?.value || '';
-    if (cc.includes('max-age') || cc.includes('immutable') || responseStatus === 304) cachedCount++;
+    if (e.standard.response.headersAvailable || e.responseHeaders.length > 0 || responseStatus === 304) {
+      cacheValidCount++;
+      if (cc.includes('max-age') || cc.includes('immutable') || responseStatus === 304) cachedCount++;
+    }
 
     // compression
     const ce = e.responseHeaders.find(h => h.name.toLowerCase() === 'content-encoding')?.value || '';
-    if (ce.includes('gzip') || ce.includes('br') || ce.includes('deflate')) compressedCount++;
+    if (e.standard.response.headersAvailable || e.responseHeaders.length > 0) {
+      compressionValidCount++;
+      if (ce.includes('gzip') || ce.includes('br') || ce.includes('deflate')) compressedCount++;
+    }
 
     // domain stats (累加 totalTime，避免后续 O(N²) 回查)
-    const d = domainMap.get(e.domain) || { domain: e.domain, count: 0, failedCount: 0, avgTime: 0, totalSize: 0, ips: [], _totalTime: 0 };
+    const knownSize = Number.isFinite(e.size) && e.size >= 0;
+    const d = domainMap.get(e.domain) || { domain: e.domain, count: 0, failedCount: 0, avgTime: 0, unknownTimeCount: 0, totalSize: 0, knownSizeCount: 0, ips: [], _totalTime: 0 };
     d.count++;
     if (e.isFailed) d.failedCount++;
-    d.totalSize += e.size;
-    d._totalTime += e.time;
+    if (knownSize) {
+      d.totalSize += e.size;
+      d.knownSizeCount++;
+    }
+    if (knownTime !== undefined) d._totalTime += knownTime;
+    else d.unknownTimeCount++;
     if (e.remoteAddress && e.remoteAddress !== '-' && !d.ips.includes(e.remoteAddress)) {
       d.ips.push(e.remoteAddress);
     }
@@ -364,10 +407,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     if (e.remoteAddress && e.remoteAddress !== '-') {
       const ip = extractHostFromAddress(e.remoteAddress);
       if (ip !== '-') {
-        const i = ipMap.get(ip) || { ip, count: 0, failedCount: 0, avgTime: 0, domains: [], type: classifyIP(ip), _totalTime: 0 };
+        const i = ipMap.get(ip) || { ip, count: 0, failedCount: 0, avgTime: 0, unknownTimeCount: 0, domains: [], type: classifyIP(ip), _totalTime: 0 };
         i.count++;
         if (e.isFailed) i.failedCount++;
-        i._totalTime += e.time;
+        if (knownTime !== undefined) i._totalTime += knownTime;
+        else i.unknownTimeCount++;
         if (!i.domains.includes(e.domain)) i.domains.push(e.domain);
         ipMap.set(ip, i);
       }
@@ -375,17 +419,24 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
     // duplicate requests
     const urlKey = `${e.method} ${e.url}`;
-    const u = urlMap.get(urlKey) || { count: 0, totalWasted: 0 };
+    const u = urlMap.get(urlKey) || { count: 0, totalWasted: 0, knownWastedCount: 0 };
     u.count++;
-    if (u.count > 1) u.totalWasted += e.size;
+    if (u.count > 1 && knownSize) {
+      u.totalWasted += e.size;
+      u.knownWastedCount++;
+    }
     urlMap.set(urlKey, u);
 
     // category stats
     const cat = e.category;
-    const cs = catStatsMap.get(cat) || { count: 0, totalSize: 0, totalTime: 0, failedCount: 0 };
+    const cs = catStatsMap.get(cat) || { count: 0, totalSize: 0, knownSizeCount: 0, totalTime: 0, failedCount: 0, unknownTimeCount: 0 };
     cs.count++;
-    cs.totalSize += e.size;
-    cs.totalTime += e.time;
+    if (knownSize) {
+      cs.totalSize += e.size;
+      cs.knownSizeCount++;
+    }
+    if (knownTime !== undefined) cs.totalTime += knownTime;
+    else cs.unknownTimeCount++;
     if (e.isFailed) cs.failedCount++;
     catStatsMap.set(cat, cs);
   }
@@ -404,11 +455,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
 
   // ---- 网络状态 ----
   const networkStatus: NetworkPhaseStatus[] = [
-    getPhaseStatus(avgDns, max(dnsArr), p95Dns, dnsSlow, total, THRESHOLDS.dnsSlow, 'DNS'),
-    getPhaseStatus(avgConnect, max(connectArr), p95Connect, connectSlow, total, THRESHOLDS.connectSlow, 'TCP'),
-    getPhaseStatus(avgSsl, max(sslArr), p95Ssl, sslSlow, total, THRESHOLDS.sslSlow, 'TLS'),
-    getPhaseStatus(avgWait, max(waitArr), p95Wait, ttfbSlow, total, THRESHOLDS.ttfbSlow, 'Waiting'),
-    getPhaseStatus(avgReceive, max(receiveArr), p95Receive, receiveSlow, total, THRESHOLDS.receiveSlow, '下载'),
+    getPhaseStatus(avgDns, max(dnsArr), p95Dns, dnsSlow, dnsArr.length, total, THRESHOLDS.dnsSlow, 'DNS'),
+    getPhaseStatus(avgConnect, max(connectArr), p95Connect, connectSlow, connectArr.length, total, THRESHOLDS.connectSlow, 'TCP'),
+    getPhaseStatus(avgSsl, max(sslArr), p95Ssl, sslSlow, sslArr.length, total, THRESHOLDS.sslSlow, 'TLS'),
+    getPhaseStatus(avgWait, max(waitArr), p95Wait, ttfbSlow, waitArr.length, total, THRESHOLDS.ttfbSlow, 'Waiting'),
+    getPhaseStatus(avgReceive, max(receiveArr), p95Receive, receiveSlow, receiveArr.length, total, THRESHOLDS.receiveSlow, '下载'),
   ];
 
   // 填充慢域名
@@ -429,13 +480,13 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
     }
     ns.slowDomains = Array.from(slowMap.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
       .map(([d]) => d);
   }
 
   // ---- HTTP 状态统计 ----
   const httpStatus: HttpStatusBreakdown = {
     total,
+    count1xx,
     count2xx,
     count3xx,
     count4xx,
@@ -458,14 +509,12 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   // ---- 失败/慢请求 Top ----
   const failedRequests: TopRequest[] = entries
     .filter(e => e.isFailed)
-    .sort((a, b) => b.time - a.time)
-    .slice(0, 10)
+    .sort((a, b) => compareHarRequestDurations(a, b, 'descend'))
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   const slowRequests: TopRequest[] = entries
     .filter(e => e.isSlow)
-    .sort((a, b) => b.time - a.time)
-    .slice(0, 10)
+    .sort((a, b) => compareHarRequestDurations(a, b, 'descend'))
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 域名统计（O(N) 计算 avgTime） ----
@@ -475,8 +524,10 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       domain: d.domain,
       count: d.count,
       failedCount: d.failedCount,
-      avgTime: Math.round(d._totalTime / d.count),
+      avgTime: Math.round(d._totalTime / (d.count - d.unknownTimeCount)),
+      unknownTimeCount: d.unknownTimeCount,
       totalSize: d.totalSize,
+      knownSizeCount: d.knownSizeCount,
       ips: d.ips,
     });
   }
@@ -489,7 +540,8 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       ip: i.ip,
       count: i.count,
       failedCount: i.failedCount,
-      avgTime: Math.round(i._totalTime / i.count),
+      avgTime: Math.round(i._totalTime / (i.count - i.unknownTimeCount)),
+      unknownTimeCount: i.unknownTimeCount,
       domains: i.domains,
       type: i.type,
     });
@@ -500,8 +552,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const duplicateRequests = Array.from(urlMap.entries())
     .filter(([, v]) => v.count > 1)
     .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 10)
-    .map(([url, v]) => ({ url, count: v.count, totalWasted: v.totalWasted }));
+    .map(([url, v]) => ({ url, count: v.count, totalWasted: v.totalWasted, knownWastedCount: v.knownWastedCount }));
 
   // ---- 资源类型统计（O(1) 从 catStatsMap 取） ----
   const resourceStats: ResourceStats[] = (Object.keys(result.typeCounts) as HarCategory[])
@@ -511,7 +562,9 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
         category: cat,
         count: result.typeCounts[cat],
         totalSize: cs ? cs.totalSize : 0,
-        avgTime: cs && cs.count > 0 ? Math.round(cs.totalTime / cs.count) : 0,
+        knownSizeCount: cs?.knownSizeCount ?? 0,
+        avgTime: cs ? Math.round(cs.totalTime / (cs.count - cs.unknownTimeCount)) : Number.NaN,
+        unknownTimeCount: cs?.unknownTimeCount ?? 0,
         failedCount: cs ? cs.failedCount : 0,
       };
     })
@@ -522,32 +575,35 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   const largestResources: TopRequest[] = entries
     .filter(e => e.size > 0)
     .sort((a, b) => b.size - a.size)
-    .slice(0, 10)
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 缓存统计 ----
   const cacheStats: CacheStats = {
+    validCount: cacheValidCount,
+    totalCount: total,
     cachedCount,
-    uncachedCount: total - cachedCount,
-    cacheRate: total > 0 ? Math.round((cachedCount / total) * 100) : 0,
+    uncachedCount: cacheValidCount - cachedCount,
+    cacheRate: cacheValidCount > 0 ? Math.round((cachedCount / cacheValidCount) * 100) : Number.NaN,
   };
 
   // ---- 压缩统计 ----
   const compressionStats: CompressionStats = {
+    validCount: compressionValidCount,
+    totalCount: total,
     compressedCount,
-    uncompressedCount: total - compressedCount,
-    compressionRate: total > 0 ? Math.round((compressedCount / total) * 100) : 0,
+    uncompressedCount: compressionValidCount - compressedCount,
+    compressionRate: compressionValidCount > 0 ? Math.round((compressedCount / compressionValidCount) * 100) : Number.NaN,
     savingsPotential: 0, // 简化处理
   };
 
   // ---- 未压缩大资源 ----
   const uncompressedLargeResources: TopRequest[] = entries
     .filter(e => {
+      if (!e.standard.response.headersAvailable && e.responseHeaders.length === 0) return false;
       const ce = e.responseHeaders.find(h => h.name.toLowerCase() === 'content-encoding')?.value || '';
       return e.size > THRESHOLDS.largeResource && !ce.includes('gzip') && !ce.includes('br') && !ce.includes('deflate');
     })
     .sort((a, b) => b.size - a.size)
-    .slice(0, 10)
     .map(e => ({ id: e.id, name: e.name, url: e.url, domain: e.domain, status: getHarResponseStatus(e), time: e.time, size: e.size, category: e.category }));
 
   // ---- 安全与协议统计 ----
@@ -562,7 +618,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
       && (getHarResponseStatus(e) ?? 0) >= 200
       && (getHarResponseStatus(e) ?? 0) < 400
   );
-  if (securityHeaderTarget) {
+  if (securityHeaderTarget && (securityHeaderTarget.standard.response.headersAvailable || securityHeaderTarget.responseHeaders.length > 0)) {
     const respHeaders = securityHeaderTarget.responseHeaders.map(h => h.name.toLowerCase());
     const required = ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options'];
     for (const h of required) {
@@ -571,6 +627,9 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   }
 
   const securityStats: SecurityStats = {
+    protocolValidCount: entries.filter(entry => Boolean(entry.protocol && entry.protocol !== 'unknown' && entry.protocol !== '-')).length,
+    securityHeaderValidCount: securityHeaderTarget && (securityHeaderTarget.standard.response.headersAvailable || securityHeaderTarget.responseHeaders.length > 0) ? 1 : 0,
+    securityHeaderTotalCount: securityHeaderTarget ? 1 : 0,
     httpsCount,
     httpCount: total - httpsCount,
     h2Count,
@@ -581,9 +640,11 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   };
 
   // ---- 健康评分 ----
+  const outcomeCount = entries.filter(entry => getHarResponseStatus(entry) !== undefined || entry.isFailed).length;
+  const durationCount = entries.filter(entry => entry.standard.time.state === 'value').length;
   let healthScore = 100;
-  const failRate = total > 0 ? httpStatus.countFailed / total : 0;
-  const slowRate = total > 0 ? result.slowCount / total : 0;
+  const failRate = outcomeCount > 0 ? httpStatus.countFailed / outcomeCount : 0;
+  const slowRate = durationCount > 0 ? result.slowCount / durationCount : 0;
 
   if (failRate > 0.1) healthScore -= 35;
   else if (failRate > 0.03) healthScore -= 20;
@@ -605,12 +666,35 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   let overallStatus: DiagnosisStatus = 'healthy';
   if (healthScore < 60) overallStatus = 'critical';
   else if (healthScore < 85) overallStatus = 'warning';
+  // Displayed network stages are not the full set of required HAR timing evidence.
+  const scoringPhases = [
+    ...networkStatus,
+    ...HAR_REQUIRED_TIMING_PHASES.map(key => ({
+      label: `timings.${key}`,
+      validCount: timingEvidenceEntries.filter(entry => entry.standard.timings[key].state === 'value').length,
+    })),
+  ];
+  const noPhaseData = scoringPhases.every(phase => phase.validCount === 0);
+  const incompletePhases = scoringPhases.filter(phase => phase.validCount < total || phase.validCount === 0);
+  const healthScoreUnavailableReason = noPhaseData ? 'phase-missing'
+    : outcomeCount === 0 ? 'outcome-missing'
+    : outcomeCount < total || incompletePhases.length > 0 ? 'coverage-insufficient'
+    : undefined;
+  if (healthScoreUnavailableReason) {
+    // Partial outcomes or stages cannot establish the health of the entire capture.
+    healthScore = Number.NaN;
+    if (overallStatus === 'healthy') overallStatus = 'warning';
+  }
 
   // ---- 核心发现 ----
   const findings: string[] = [];
+  if (outcomeCount === 0) findings.push(`请求结果无可用数据 · 覆盖 0/${total}，不能确认网络健康`);
+  else if (outcomeCount < total) findings.push(`请求结果覆盖不足 · 覆盖 ${outcomeCount}/${total}，仅基于部分请求，不能确认整体网络健康`);
+  if (noPhaseData) findings.push('网络阶段无可用数据，无法评估阶段耗时与网络健康状态');
+  else if (incompletePhases.length > 0) findings.push(`网络阶段数据不完整：${incompletePhases.map(phase => `${phase.label} ${phase.validCount}/${total}`).join('、')}；仅基于可用请求，不能确认整体网络健康`);
   if (timingEvidenceEntries.length < total) findings.push(`${total - timingEvidenceEntries.length} 个请求的 Timing 数据矛盾，不能据此判断慢阶段，请重新导出核验`);
-  if (httpStatus.countFailed > 0) findings.push(`存在 ${httpStatus.countFailed} 个异常请求，其中 ${httpStatus.count5xx} 个为 5xx 服务端错误`);
-  if (result.slowCount > 0) findings.push(`存在 ${result.slowCount} 个慢请求，P95 Waiting 为 ${formatHarTime(p95Wait)}`);
+  if (httpStatus.countFailed > 0) findings.push(`存在 ${httpStatus.countFailed} 个异常请求，其中 ${httpStatus.count5xx} 个为 5xx 服务端错误；失败率 ${(failRate * 100).toFixed(1)}% · 结果覆盖 ${outcomeCount}/${total}`);
+  if (result.slowCount > 0) findings.push(`存在 ${result.slowCount} 个慢请求，P95 Waiting 为 ${waitArr.length ? `${p95Wait === 0 ? '0ms' : formatHarTime(p95Wait)}` : '无可用数据'} · 覆盖 ${waitArr.length}/${total}`);
   if (networkStatus.some(n => n.status === 'critical')) {
     const critical = networkStatus.filter(n => n.status === 'critical').map(n => n.label).join('、');
     findings.push(`${critical} 阶段严重偏高`);
@@ -707,6 +791,7 @@ export function diagnoseHar(result: HarAnalysisResult): HarDiagnosisResult {
   return {
     overallStatus,
     healthScore,
+    healthScoreUnavailableReason,
     summary,
     findings,
 

@@ -1,6 +1,13 @@
 import { parseHar, type HarAnalysisResult, type HarRequestEntry } from '../../harParser';
 import { buildHarNoviceDiagnosis } from './harNoviceDiagnosis';
 
+it('does not claim no failures or slow stages when all outcome and timing data are missing', () => {
+  const parsed = parseHar({ log: { entries: [{ request: { url: 'https://example.test/' }, response: {} }] } });
+  const diagnosis = buildHarNoviceDiagnosis(parsed);
+  expect(diagnosis.headline).not.toContain('未发现');
+  expect(diagnosis.summary).toContain('无可用');
+});
+
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
   return {
     id: 0,

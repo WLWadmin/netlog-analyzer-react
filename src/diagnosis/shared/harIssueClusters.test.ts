@@ -1,6 +1,17 @@
 import { parseHar, type HarRequestEntry } from '../../harParser';
 import { buildHarIssueClusters } from './harIssueClusters';
 
+describe('cluster duration coverage', () => {
+  it('binds the maximum duration to its measured subset', () => {
+    const parsed = parseHar({ log: { entries: [undefined, 0, 100].map(time => ({
+      request: { url: 'https://example.test/' }, response: { status: 500 }, time,
+    })) } });
+    expect(buildHarIssueClusters(parsed.entries)[0].evidence).toContainEqual(expect.objectContaining({
+      label: '耗时覆盖', value: '2/3',
+    }));
+  });
+});
+
 function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
   return {
     id: 0,
@@ -40,6 +51,7 @@ function entry(overrides: Partial<HarRequestEntry>): HarRequestEntry {
       log: { entries: [{
         request: { method: 'GET', url: 'https://example.test/', headers: [] },
         response: { status: overrides.status ?? 200, headers: [], content: {} },
+        time: overrides.time ?? 120,
         timings: { send: 0, wait: 0, receive: 0 },
       }] },
     }).entries[0].standard,

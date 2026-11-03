@@ -8,6 +8,7 @@
  */
 
 import type { HarAnalysisResult, HarRequestEntry } from '../../harParser';
+import { buildHarRequestTimeRange } from './harWaterfall';
 import { HAR_RECOVERY_LIMITATION } from '../../utils/harRepair';
 import type { AnalysisResult, URLRequest, FailedDomain, SslIssue } from '../../parsers/netlog/parser';
 import { classifyNetError } from '../../parsers/netlog/errorClassifier';
@@ -211,16 +212,15 @@ function uniqueHosts(entries: AlignedEntry[]): string[] {
   return [...new Set(entries.map(e => e.host).filter(Boolean))];
 }
 
-function collectRequestIds(entries: AlignedEntry[], limit = 10): number[] {
-  return entries.slice(0, limit).map(e => e.harEntry.id);
+function collectRequestIds(entries: AlignedEntry[]): number[] {
+  return entries.map(e => e.harEntry.id);
 }
 
-function collectSourceIdsFromRequests(entries: AlignedEntry[], limit = 10): number[] {
+function collectSourceIdsFromRequests(entries: AlignedEntry[]): number[] {
   const ids = new Set<number>();
   for (const entry of entries) {
     for (const ref of entry.netlogRequests) {
       ids.add(ref.request.id);
-      if (ids.size >= limit) return Array.from(ids);
     }
   }
   return Array.from(ids);
@@ -558,13 +558,13 @@ export function combinedDiagnosisToCards(
   const withTimeRanges = dedupeCombinedCards(cards).map(card => {
     if (card.timeRange) return card;
     const requestIds = new Set(card.relatedRequestIds || []);
-    const entries = harResult.entries.filter(entry => requestIds.has(entry.id) && Number.isFinite(entry.startMs));
-    if (entries.length === 0) return card;
+    const entries = harResult.entries.filter(entry => requestIds.has(entry.id));
+    const range = buildHarRequestTimeRange(entries);
+    if (!range || entries.length !== requestIds.size) return card;
     return {
       ...card,
       timeRange: {
-        startMs: Math.min(...entries.map(entry => entry.startMs)),
-        endMs: Math.max(...entries.map(entry => entry.startMs + entry.time)),
+        ...range,
         clock: 'epoch' as const,
       },
     };
