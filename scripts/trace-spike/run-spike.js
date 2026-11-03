@@ -1327,7 +1327,6 @@ async function runRealSpike(options) {
       samples: sampleReports,
       capabilities,
       stability: manifest.samples.map(sample => {
-        const runs = sampleRuns.get(sample.id) || [];
         const comparison = sampleStability.get(sample.id);
         const summary = comparison?.summaries?.[0];
         return {

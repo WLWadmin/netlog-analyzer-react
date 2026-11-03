@@ -2,6 +2,10 @@
   "name": "netlog-analyzer-react",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
+  "packageManager": "npm@11.12.1",
   "homepage": "https://wlwadmin.github.io/netlog-analyzer-react",
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
@@ -26,6 +30,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "lint": "eslint src scripts --ext .js,.cjs,.ts,.tsx --no-cache --max-warnings=0",
+    "typecheck": "tsc --noEmit",
     "benchmark:synthetic-netlog": "node scripts/benchmark-synthetic-netlog.js",
     "benchmark:netlog-worker": "node scripts/benchmark-netlog-worker.js",
     "benchmark:netlog-browser": "node scripts/benchmark-netlog-browser.js",
@@ -48,12 +54,6 @@
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
   },
   "browserslist": {
     "production": [

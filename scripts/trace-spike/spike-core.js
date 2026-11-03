@@ -601,7 +601,7 @@ function scanToolSource(value) {
     ['hard-coded-secret', /\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*["'][^"'*\s]{8,}["']/i],
   ];
   const failures = checks.filter(([, pattern]) => pattern.test(text)).map(([code]) => code);
-  const quotedFilePattern = /["']([^"'\/\\\s]+\.(?:json2?|trace)(?:\.gz)?)["']/gi;
+  const quotedFilePattern = /["']([^"'/\\\s]+\.(?:json2?|trace)(?:\.gz)?)["']/gi;
   for (const match of text.matchAll(quotedFilePattern)) {
     const fileName = match[1].toLowerCase();
     const allowedToolAsset = ['example', 'minimal', 'synthetic', 'spike', 'report', 'package']
