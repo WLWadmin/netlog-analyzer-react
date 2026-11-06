@@ -1,8 +1,24 @@
-import { formatHarTime, parseHar } from './harParser';
+import { formatHarTime, getHarRecordedTransferSize, parseHar } from './harParser';
 import { getHarRequestIssue } from './diagnosis/shared/harRequestIssue';
 import { isHarTimelineEntryAvailable } from './diagnosis/shared/harWaterfall';
 
 describe('HAR 1.2 standard evidence model', () => {
+  it('distinguishes recorded transfer bytes from legacy body and content fallbacks', () => {
+    const result = parseHar({ log: { entries: [
+      { request: {}, response: { _transferSize: 0, content: { size: 1024 } } },
+      { _transferSize: 100, request: {}, response: { content: { size: 1024 } } },
+      { request: {}, response: { bodySize: 512, headersSize: 128, content: { size: 1024 } } },
+      { request: {}, response: { bodySize: -1, content: { size: 1024 } } },
+      { request: {}, response: { _transferSize: -1, content: { size: 1024 } } },
+      { request: {}, response: { _transferSize: Infinity, content: { size: 1024 } } },
+    ] } });
+    expect(result.entries.map(getHarRecordedTransferSize)).toEqual([
+      0, 100, undefined, undefined, undefined, undefined,
+    ]);
+    // Existing analysis consumers retain their legacy size contract.
+    expect(result.entries.map(entry => entry.size)).toEqual([0, 100, 512, 1024, 1024, 1024]);
+  });
+
   it('sums only known transfer sizes, including top-level Chromium transfer size', () => {
     const result = parseHar({ log: { entries: [
       { _transferSize: 100, request: { url: 'https://example.test/a' }, response: { status: 200, bodySize: -1, content: {} } },

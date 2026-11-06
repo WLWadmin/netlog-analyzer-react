@@ -387,6 +387,12 @@ export function getHarResponseStatus(entry: HarRequestEntry): number | undefined
   return field.state === 'value' ? field.value : undefined;
 }
 
+/** Legacy size fields can fall back to body/content bytes; only the extension records transfer bytes. */
+export function getHarRecordedTransferSize(entry: HarRequestEntry): number | undefined {
+  const value = entry.extensions?.transferSize;
+  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 // 慢请求阈值（毫秒）
 export const HAR_SLOW_THRESHOLD_MS = 1000;
 

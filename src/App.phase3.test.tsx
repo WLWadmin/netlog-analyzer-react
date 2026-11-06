@@ -182,6 +182,7 @@ jest.mock('./components/netlog/UploadZone', () => ({
       <button onClick={() => onFileLoaded({ events: [] }, false, undefined, 'netlog')}>{compact ? '追加 NetLog' : '上传 NetLog'}</button>
       <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'large-netlog.json', { type: 'application/json' }), false, undefined, 'netlog')}>上传大 NetLog 文件</button>
       <button onClick={() => onFileLoaded({ log: { entries: [] } }, false, undefined, 'har')}>{compact ? '追加 HAR' : '上传 HAR'}</button>
+      <button onClick={() => onFileLoaded(new File(['{} '], 'replacement.har'), false, undefined, 'har')}>追加 HAR 文件</button>
       <button onClick={() => onFileLoaded('[worker] Success GET:https://example.com +10ms', true, undefined, 'log')}>上传 Log</button>
       <button onClick={() => onFileLoaded(new File(['{}'], 'sample.trace'), false, undefined, 'trace')}>{compact ? '追加 Trace' : '上传 Trace'}</button>
       {compact && <button onClick={() => onFileLoaded(new File(['{"events":[]}'], 'misleading.json'))}>追加未绑定 JSON</button>}
@@ -281,7 +282,10 @@ jest.mock('./components/netlog/ExpertAnalysisTab', () => ({ __esModule: true, de
 jest.mock('./components/shared/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 jest.mock('./components/shared/AnalysisDisclaimer', () => ({ AnalysisDisclaimer: () => <div>AnalysisDisclaimer</div> }));
 jest.mock('./components/shared/LoadingOverlay', () => ({ LoadingOverlay: () => null }));
-jest.mock('./components/har/HarResultPage', () => ({ __esModule: true, default: () => <div>HarResultPage</div> }));
+jest.mock('./components/har/HarResultPage', () => ({
+  __esModule: true,
+  default: ({ fileSize }: { fileSize?: number }) => <div>HarResultPage<span data-testid="har-file-size">{fileSize ?? 'unknown'}</span></div>,
+}));
 jest.mock('./components/log/LogResultPage', () => ({ __esModule: true, default: () => <div>LogResultPage</div> }));
 jest.mock('./components/trace/TraceResultPage', () => ({ __esModule: true, default: () => <div>TraceResultPage</div> }));
 jest.mock('./components/raw/RawEvidenceExplorer', () => ({ __esModule: true, default: () => <div>RawEvidenceExplorer</div> }));
@@ -374,6 +378,24 @@ describe('App Phase 3 upload behavior', () => {
     await userEvent.click(screen.getByText('上传 HAR'));
 
     await waitFor(() => expect(window.location.hash).toBe('#har/summary'));
+    expect((await screen.findByTestId('har-file-size')).textContent).toBe('2');
+  });
+
+  it('replaces HAR file metadata on append and clears it when no source file is supplied', async () => {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'har', result: { totalRequests: 1, entries: [] },
+    });
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 HAR'));
+    expect((await screen.findByTestId('har-file-size')).textContent).toBe('2');
+    await userEvent.click(screen.getByText('追加 HAR 文件'));
+    await waitFor(() => expect(screen.getByTestId('har-file-size').textContent).toBe('3'));
+    await userEvent.click(screen.getByText('追加 HAR'));
+    await waitFor(() => expect(screen.getByTestId('har-file-size').textContent).toBe('unknown'));
+    await userEvent.click(screen.getByText('重新上传'));
+    expect(screen.queryByTestId('har-file-size')).toBeNull();
+    await userEvent.click(screen.getByText('上传 HAR'));
+    expect((await screen.findByTestId('har-file-size')).textContent).toBe('2');
   });
 
   it('Log 首次上传后进入概览入口', async () => {

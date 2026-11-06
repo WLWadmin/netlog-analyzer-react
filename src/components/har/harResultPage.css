@@ -23,6 +23,30 @@
   padding-top: 2px;
 }
 
+.har-size-explanation {
+  margin: 8px 10px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.har-request-size {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.har-request-size > span {
+  font-family: var(--font-mono);
+}
+
+.har-request-size > small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .har-session-summary > .ant-row {
   margin-inline: 0 !important;
   padding: 6px 10px;

@@ -12,6 +12,7 @@ import {
   formatBytes,
   formatHarTime,
   getHarResponseStatus,
+  getHarRecordedTransferSize,
   statusStyle,
 } from '../../harParser';
 import { StatusTag } from '../../components/shared/StatusTag';
@@ -120,6 +121,13 @@ const COLUMN_OPTIONS: { key: HarColumnKey; label: string }[] = [
   { key: 'cacheSource', label: 'Cache Source' },
   { key: 'resourceSize', label: 'Resource Size' },
 ];
+
+const CACHE_SOURCE_LABELS = {
+  disk: '磁盘缓存',
+  memory: '内存缓存',
+  'service-worker': 'Service Worker',
+  prefetch: '预取缓存',
+};
 
 function issueStyle(severity: HarRequestIssue['severity']): { color: string; bg: string } {
   switch (severity) {
@@ -511,20 +519,33 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       },
     },
     {
-      title: 'Size',
+      title: '大小（传输 / 资源）',
       dataIndex: 'size',
       key: 'size',
-      width: 90,
+      width: 200,
       align: 'right',
-      sorter: (a, b) => (a.sizeInfo?.transferSize ?? a.size) - (b.sizeInfo?.transferSize ?? b.size),
-      render: (s: number, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatBytes(r.sizeInfo?.transferSize ?? s)}</span>,
+      sorter: (a, b) => (getHarRecordedTransferSize(a) ?? -1) - (getHarRecordedTransferSize(b) ?? -1),
+      render: (_: unknown, r) => {
+        const transferSize = getHarRecordedTransferSize(r);
+        const resourceSize = r.sizeInfo?.resourceSize ?? r.contentSize;
+        return (
+          <div className="har-request-size" title="传输大小 / 响应内容大小；传输大小仅统计明确记录的 _transferSize，不用正文或资源大小推算。未记录显示为 —，排序依据传输大小。">
+            <span>
+              {transferSize !== undefined ? formatBytes(transferSize) : '—'}
+              {' / '}
+              {Number.isFinite(resourceSize) && resourceSize >= 0 ? formatBytes(resourceSize) : '—'}
+            </span>
+            {r.cacheInfo?.source && <small>{CACHE_SOURCE_LABELS[r.cacheInfo.source]}</small>}
+          </div>
+        );
+      },
     },
     {
       title: 'Resource Size',
       key: 'resourceSize',
       width: 120,
       align: 'right',
-      sorter: (a, b) => (a.sizeInfo?.resourceSize || a.contentSize || 0) - (b.sizeInfo?.resourceSize || b.contentSize || 0),
+      sorter: (a, b) => (a.sizeInfo?.resourceSize ?? a.contentSize) - (b.sizeInfo?.resourceSize ?? b.contentSize),
       render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{formatBytes(r.sizeInfo?.resourceSize ?? r.contentSize)}</span>,
     },
     {
@@ -548,7 +569,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
       key: 'cacheSource',
       width: 120,
       sorter: (a, b) => (a.cacheInfo?.source || '').localeCompare(b.cacheInfo?.source || ''),
-      render: (_: unknown, r) => <span style={{ fontFamily: 'var(--font-mono)', color: r.cacheInfo?.source ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{r.cacheInfo?.source || '-'}</span>,
+      render: (_: unknown, r) => <span style={{ color: r.cacheInfo?.source ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{r.cacheInfo?.source ? CACHE_SOURCE_LABELS[r.cacheInfo.source] : '-'}</span>,
     },
     {
       title: 'Time',
@@ -587,7 +608,7 @@ const HarRequestTable: React.FC<HarRequestTableProps> = ({ result, statusFilter,
     const key = column.key as HarColumnKey | undefined;
     return key ? visibleColumnKeys.includes(key) : true;
   });
-  const compactColumnKeys: HarColumnKey[] = ['status', 'issue', 'protocol', 'category', 'size', 'time'];
+  const compactColumnKeys: HarColumnKey[] = ['status', 'issue', 'protocol', 'category', 'time'];
   const compactWidth = 112;
   const hasManualWidths = Object.keys(columnWidths).length > 0;
   const sizes = selectedColumns.map(column => {

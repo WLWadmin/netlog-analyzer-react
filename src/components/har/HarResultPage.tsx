@@ -16,6 +16,7 @@ import FileQualityPanel from '../shared/FileQualityPanel';
 
 interface HarResultPageProps {
   result: HarAnalysisResult;
+  fileSize?: number;
   rawData?: unknown;
   rawDataId?: string;
   /** 外层控制的 activeTab，由 App hash 路由驱动 */
@@ -25,7 +26,7 @@ interface HarResultPageProps {
 }
 
 // HAR 解析结果整体页面：请求详情优先，现象摘要仅描述请求层表现。
-const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
+const HarResultPage: React.FC<HarResultPageProps> = ({ result, fileSize, rawData, rawDataId, activeTab: externalActiveTab, onTabChange }) => {
   const [internalActiveKey, setInternalActiveKey] = useState('summary');
   const validTabs = ['requests', 'summary', 'raw-evidence'];
   const activeKey = externalActiveTab && validTabs.includes(externalActiveTab) ? externalActiveTab : internalActiveKey;
@@ -133,6 +134,7 @@ const HarResultPage: React.FC<HarResultPageProps> = ({ result, rawData, rawDataI
           </div>
           <HarSummaryCards
             result={result}
+            fileSize={fileSize}
             onFilterFailed={() => jumpToRequests('failed')}
             onFilterSlow={() => jumpToRequests('slow')}
             onFilterAll={() => jumpToRequests('all')}

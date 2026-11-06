@@ -144,6 +144,7 @@ const AppContent: React.FC = () => {
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
+  const [harFileSize, setHarFileSize] = useState<number | undefined>();
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
   const [traceResult, setTraceResult] = useState<TraceAnalysisResult | null>(null);
   const [traceWorkbenchClient, setTraceWorkbenchClient] = useState<TraceWorkbenchClient | null>(null);
@@ -485,6 +486,7 @@ const AppContent: React.FC = () => {
 
       if (parsed.kind === 'har') {
         setHarResult(parsed.result);
+        setHarFileSize(data instanceof File ? data.size : undefined);
         harResultRef.current = parsed.result;
         const previousHarRawDataId = rawDataIdByTypeRef.current.har;
         if (useWorker && parsed.rawDataId && previousHarRawDataId && previousHarRawDataId !== parsed.rawDataId) {
@@ -637,6 +639,7 @@ const AppContent: React.FC = () => {
 
     if (parsed.kind === 'har') {
       setHarResult(parsed.result);
+      setHarFileSize(intakeFileRef.current?.size);
       harResultRef.current = parsed.result;
       const previousRawDataId = rawDataIdByTypeRef.current.har;
       if (
@@ -802,6 +805,7 @@ const AppContent: React.FC = () => {
     setEvents([]);
     setResult(null);
     setHarResult(null);
+    setHarFileSize(undefined);
     setLogResult(null);
     setTraceResult(null);
     setTraceWorkbenchClient(null);
@@ -1194,6 +1198,7 @@ const AppContent: React.FC = () => {
             <Suspense fallback={<LazyFallback text="正在加载 HAR 页面..." />}>
               <HarResultPage
                 result={harResult}
+                fileSize={harFileSize}
                 rawData={rawUploadDataByType.har}
                 rawDataId={rawDataIdByType.har}
                 activeTab={activeTab}

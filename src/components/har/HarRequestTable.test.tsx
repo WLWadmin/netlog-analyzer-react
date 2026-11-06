@@ -77,6 +77,34 @@ function result(count = 2) {
   })) } });
 }
 
+it('shows transfer and resource sizes with cache evidence without treating missing sizes as zero', () => {
+  const parsed = parseHar({ log: { entries: [
+    { request: { url: 'https://example.test/cached.js' }, response: {
+      status: 200, _transferSize: 0, _fromCache: 'disk', content: { size: 1024 },
+    } },
+    { request: { url: 'https://example.test/network.js' }, response: {
+      status: 200, _transferSize: 512, content: { size: 2048 },
+    } },
+    { request: { url: 'https://example.test/unknown.js' }, response: { status: 200 } },
+    { request: { url: 'https://example.test/resource-only.js' }, response: {
+      status: 200, bodySize: -1, content: { size: 1048576 },
+    } },
+    { request: { url: 'https://example.test/body-only.js' }, response: {
+      status: 200, bodySize: 256, headersSize: 128, content: { size: 4096 },
+    } },
+  ] } });
+  render(<HarRequestTable result={parsed} />);
+  expect(screen.getByText('0 B / 1.0 KB')).toBeInTheDocument();
+  expect(screen.getByText('512 B / 2.0 KB')).toBeInTheDocument();
+  expect(screen.getByText('— / —')).toBeInTheDocument();
+  expect(screen.getByText('— / 1.0 MB')).toBeInTheDocument();
+  expect(screen.getByText('— / 4.0 KB')).toBeInTheDocument();
+  expect(screen.getByText('磁盘缓存')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByText('大小（传输 / 资源）', { selector: '.ant-table-column-title' })[0]);
+  const rows = screen.getAllByRole('row').filter(row => row.classList.contains('ant-table-row'));
+  expect(rows.map(row => row.getAttribute('data-row-key'))).toEqual(['2', '3', '4', '0', '1']);
+});
+
 it('sorts known durations around a missing duration without NaN comparisons', () => {
   const parsed = parseHar({ log: { entries: [5000, undefined, 100].map((time, index) => ({
     request: { url: `https://example.test/duration-${index}`, headers: [] },
@@ -95,7 +123,8 @@ it('sorts known durations around a missing duration without NaN comparisons', ()
 it('initializes compact columns equally and divides spare space between Name and Domain', () => {
   render(<HarRequestTable result={result()} />);
   const width = (label: string) => Number(screen.getByRole('separator', { name: `调整 ${label} 列宽` }).getAttribute('aria-valuenow'));
-  ['Status', '主问题', 'Protocol', 'Type', 'Size', 'Time'].forEach(label => expect(width(label)).toBe(112));
+  ['Status', '主问题', 'Protocol', 'Type', 'Time'].forEach(label => expect(width(label)).toBe(112));
+  expect(width('大小（传输 / 资源）')).toBeGreaterThanOrEqual(200);
   expect(width('Name')).toBe(width('Domain'));
   expect(width('Waterfall')).toBe(300);
 });
