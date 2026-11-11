@@ -27,6 +27,11 @@ function cleanInline(value: unknown, maxLength = 240): string {
 }
 
 export function sanitizeHarUrl(rawUrl: string): string {
+  // URL() 会修复缺斜线和反斜线；摘要不能将修复结果当作采集到的请求地址。
+  if (/^https?:/i.test(rawUrl)
+    && (!/^https?:\/\/[^/\\\s]/i.test(rawUrl) || /[\s\\]/.test(rawUrl))) {
+    return cleanInline(rawUrl.split(/[?#]/, 1)[0], 500);
+  }
   try {
     const url = new URL(rawUrl);
     return cleanInline(`${url.origin}${url.pathname}`, 500);

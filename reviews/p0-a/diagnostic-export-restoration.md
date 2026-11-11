@@ -12,7 +12,7 @@
 | `src/components/log/exportLogEntries.ts`、`LogRawList.tsx` | Go 默认 JSON 恢复全部旧 DTO 字段和类型，TXT 为原始行；全部筛选结果导出，原 ID 不重编号 | L-RAW-007–008 |
 | `src/components/shared/useExportPreview.tsx` | 单一 text 快照；删除双模式、专家生成器/缓存和分级文案。保留完整复制/下载、32768 字符 DOM 预算、UTF-16 边界、取消、owner 重置与过期回调保护 | 以上出口的共用预览 |
 | `src/diagnosis/shared/maskedExport.ts`、`src/components/shared/ExportSummaryButton.tsx`、`DiagnosticCard.tsx`、`FinalDiagnosisPanel.tsx` | 删除新增 sanitizer 外层；诊断卡片和 MD 保留原 maskEvidenceValue，IT/客服摘要保留旧 sanitizeDiagnosisText。原域名/IP 和未被旧规则处理的文本默认可见；原 query/凭据/本地路径处理未删除；交接预览按钮改为“导出交接摘要” | X-OUT-004、G-VERIFY-001–002 |
-| `src/components/har/buildHarRequestCopyText.ts`、`buildHarClusterCopyText.ts`、`HarRequestDetail.tsx`、`HarIssueClusterList.tsx` | 恢复原域名/路径/Remote Address/x-tt-logid；旧摘要原本移除 query/hash、不含 Headers/Body，维持该边界。缺失 URL 说明未记录，未补造 URL；请求导出按钮改为“导出请求摘要” | H-FIELDS-010–011 |
+| `src/components/har/buildHarRequestCopyText.ts`、`buildHarClusterCopyText.ts`、`HarRequestDetail.tsx`、`HarIssueClusterList.tsx` | 恢复原域名/路径/Remote Address/x-tt-logid；旧摘要原本移除 query/hash、不含 Headers/Body，维持该边界。缺失 URL 说明未记录；HTTP 地址缺斜线/反斜线时保留原文本，不调用 URL() 修补；请求导出按钮改为“导出请求摘要” | H-FIELDS-010–011 |
 | `src/components/trace/TraceResultPage.tsx`、`src/parsers/trace/exportTraceReport.ts` | MD 用原报告，JSON 原 origin/pathname 原值；序列化器更名为 serializeTraceJsonExport。保留仅实际 URL 节点可放行 origin/pathname、已登记 ID/引用保护、旧 DTO/白名单/引用校验，不读 args/sourceText | T-BASE-004–005 |
 | `src/utils/sharingFieldState.ts`（删除） | redactions 状态投影无产品调用方，移除 | 已撤销的匿名分享内部契约 |
 | `reviews/p0-a/review-c-sharing-v1.schema.json`、`verify-sharing-v1.cjs`（删除） | 版本化匿名 JSON 已退出产品，移除活跃契约与专用验证脚本；原文件及全部历史报告保留在 Git 固定历史快照 | 同上 |
@@ -36,6 +36,7 @@
 | 错误数值 | -101 / -202 / 0 / 缺失 | 相同数值 / 同样缺失；不归零、不推断新的错误原因 |
 | HAR 摘要 | 域名/IP 别名、追踪标识占位 | 原域名/路径/IP/追踪标识；原摘要不支持 query/hash/Body 的边界保持 |
 | Trace URL | 匿名 origin/resource pathname | 旧结构原 origin/pathname；不扩大为原始 args |
+| HAR 不规范地址 `https:example.test/a` | 旧内容处理可被 URL() 修补为 `https://example.test/a` | 保留 `https:example.test/a`，不伪造有效地址 |
 
 NetLog JSON 仍按旧出口的请求字段（url、method、status、statusCode、duration、error、timeline）导出；错误描述/详情按既有 errors 及报告出口呈现，未增加原来没有的完整请求事件或原始大字段。请求/证据 ID 保留在原本支持它们的 Go JSON、Trace、报告/证据包与交接出口；未为了新字段破坏旧 JSON 布局。
 
@@ -74,6 +75,7 @@ NetLog JSON 仍按旧出口的请求字段（url、method、status、statusCode�
 | shared preview 四项 | 单一快照、完整复制/下载、DOM 截断、代理对、元数据冻结、过期打开、取消/替换后旧回调失效全部保留；仅移除模式/缓存断言 |
 | HAR Request Copy / IT handoff | 旧内容边界仍测试，改为默认域名/IP/追踪标识可见；不要求专家切换 |
 | diagnosticExportRestoration（新增） | 修改前五项确实失败；真实 builder 验证 -101/-202/0/缺失、URL/代理/detail、输入不变以及 Go 筛选顺序和原始 TXT |
+| HAR malformed address（补充三项） | 二次边界测试复现旧 URL() 对缺斜线、过多斜线、反斜线的自动修补；修正导出摘要以保留采集事实，旧 query/hash 省略规则维持 |
 
 ## 实际检查
 
@@ -81,9 +83,9 @@ NetLog JSON 仍按旧出口的请求字段（url、method、status、statusCode�
 
 | 检查 | 状态 | 实际结果 |
 |---|---|---|
-| 修改前恢复测试 | failed（预期 RED） | 修正空事件测试输入后，五项仍因匿名根布局/字段损失失败 |
-| 定向回归 | passed | 12 套、157 项 |
-| 全量 `CI=true npm test -- --watchAll=false --runInBand` | passed | 211 套、1758 项；既有 4 套/12 项跳过保持 |
+| 修改前恢复测试 | failed（预期 RED） | 修正空事件测试输入后，五项仍因匿名根布局/字段损失失败；补充 HAR 三项复现 URL 自动修补 |
+| 定向回归 | passed | 首轮 12 套、157 项；补充 HAR 最终 10 项通过 |
+| 全量 `CI=true npm test -- --watchAll=false --runInBand` | passed | 补充修正后重新全量验证：211 套、1761 项；既有 4 套/12 项跳过保持 |
 | `npm run lint` | passed | 清理基准脚本无用 path 导入后，0 警告 |
 | `npm run typecheck` | passed | tsc --noEmit |
 | `REACT_APP_ENABLE_TRACE_ANALYSIS=1 npm run build` | passed | CRA 编译成功；既有 Node fs.F_OK 弃用提示不影响成功 |
@@ -93,6 +95,7 @@ NetLog JSON 仍按旧出口的请求字段（url、method、status、statusCode�
 | `node --expose-gc scripts/benchmark-export-preview.cjs 50000` | passed（合成观测） | Node v24.13.0，JSON 16483933 字符/CSV 5783497，DOM 32768；JSON 38.39ms、CSV 61.43ms、打开 6.68ms、取消 3.88ms、reset 1.08ms；owner invalidated=true |
 | 同设备真实 500/800MB、真实样本与实际消费者 | not-run | 无本轮可用样本/消费者，不宣称真实诊断或现场性能已验收 |
 | 安全 Edge / Excel 复制与下载验收 | blocked | 当前未确认不触及钥匙串的安全自动化路径；未启动浏览器/读取私人配置。沿用历史运行报告的人工步骤，对当前单一模式执行 |
+| 首次纠偏提交 GitHub CI | passed（历史候选） | `d8a2d33647da33b4cf65f653364f4278282a17d0` 的 [run 43003261223](https://github.com/WLWadmin/netlog-analyzer-react/actions/runs/43003261223) 成功；不替代补充 HAR 修正后的新 HEAD 检查 |
 
 性能为单次 Node/JSDOM 观测，非 Edge 延迟和内存验收。堆起始 68607600 bytes、生成 JSON/CSV 后 92043880、打开后 93089856；输入/输出字符串仍在脚本作用域，取消后的数值不能证明全部内存立即释放。未新增 Worker 全量读取，取消双模式后也不再构建/缓存第二份专家导出。
 

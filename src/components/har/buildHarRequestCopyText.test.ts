@@ -88,4 +88,11 @@ describe('buildHarRequestCopyText', () => {
   it('sanitizes malformed URLs without leaking query or hash', () => {
     expect(sanitizeHarUrl('not-a-url/path?secret=1#hash')).toBe('not-a-url/path');
   });
+
+  it.each(['https:///example.test/a', 'https:example.test/a', 'https:\\\\example.test\\a'])(
+    'does not repair a malformed recorded address into a valid URL: %s', url => {
+      expect(sanitizeHarUrl(url)).toBe(url);
+      expect(buildHarRequestCopyText(entry({ url })).split('\n')[1]).toBe(`URL: ${url}`);
+    },
+  );
 });

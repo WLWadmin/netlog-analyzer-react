@@ -12,11 +12,12 @@
 - Restore existing NetLog reports, evidence packages, HAR summaries, Trace and IT handoff paths without the added anonymization layer. Keep their pre-existing content policies and bounded DTOs.
 - Retain CSV BOM, quoting/newline and formula defenses; zero/negative errors, recorded times and optional values; complete copy/download; bounded DOM preview; cancellation/reset/stale-snapshot guards; Trace whitelist and identity/reference integrity.
 - Do not change parsers, Worker/Dataset behavior, diagnostic rules, dependencies or Feature Flags.
+- Preserve malformed recorded HTTP addresses in HAR summaries rather than letting URL() repair them into apparent valid requests; keep the established query/hash omission policy.
 
 ## Validation
 
-- Five restoration regressions failed before implementation; final targeted run: 12 suites / 157 tests passed.
-- Full Jest: 211 suites / 1758 tests passed; 4 existing suites / 12 tests remain skipped.
+- Five restoration regressions failed before implementation; initial targeted run: 12 suites / 157 tests passed. Three supplementary malformed-HAR regressions failed before correction; final HAR targeted run: 10 tests passed.
+- Full Jest after the supplementary correction: 211 suites / 1761 tests passed; 4 existing suites / 12 tests remain skipped.
 - `npm run lint`, `npm run typecheck`, Trace-enabled production build passed.
 - Legacy synthetic fixture/consumer verification passed; independent CSV reader: 45 checks passed.
 - 50,000 synthetic requests: full JSON 16,483,933 characters, DOM preview 32,768; Node/JSDOM JSON generation 38.39ms, opening 6.68ms. These are observations, not browser or real-file performance acceptance.
