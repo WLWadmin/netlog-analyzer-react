@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-11",
+  "codeHead": "d45fd3a1a088fa12af1adf8dc15e0b874a1851ea",
+  "pr": 3,
+  "draft": true,
+  "reviewC": "passed",
+  "reviewSource": "Owner supplied independent technical review in the current conversation; no GitHub APPROVED review is asserted",
+  "releaseAcceptance": "blocked",
+  "productionChanges": false,
+  "checks": [
+    {"id": "REV-C", "status": "passed", "scope": "independent static review supplied by owner"},
+    {"id": "CI", "status": "passed", "scope": "GitHub Test and build for codeHead", "run": 42993461216},
+    {"id": "AUTO", "status": "passed", "executed": true, "scope": "Jest/JSDOM/mock", "suites": 6, "tests": 111},
+    {"id": "JSON-SYN", "status": "passed", "executed": true, "scope": "synthetic actual parser/builder and minimal consumer probes", "assertions": 15, "artifacts": 8},
+    {"id": "CSV-SYN", "status": "passed", "executed": true, "scope": "independent Python CSV reader plus ZIP single-file validation; no Excel", "checks": 45},
+    {"id": "PERF-SYN", "status": "passed", "executed": true, "scope": "measurement execution only; no browser performance PASS", "samples": 6},
+    {"id": "REAL-NETLOG", "status": "blocked", "executed": false, "reason": "No explicitly provided real sanitized NetLog sample"},
+    {"id": "REAL-GO", "status": "blocked", "executed": false, "reason": "No explicitly provided real sanitized Go sample"},
+    {"id": "WEB", "status": "blocked", "executed": false, "reason": "No confirmed safe Edge automation path avoiding keychain and daily profile access"},
+    {"id": "CSV-EXCEL", "status": "blocked", "executed": false, "reason": "Excel installed but not running; no confirmed keychain-free launch path; no LibreOffice CLI"},
+    {"id": "LARGE-500", "status": "blocked", "executed": false, "reason": "No approved real 500MB sample or safe browser session"},
+    {"id": "LARGE-800", "status": "blocked", "executed": false, "reason": "No approved real 800MB sample or safe browser session"},
+    {"id": "MIG-REAL", "status": "not-run", "executed": false, "reason": "No actual machine consumer/application was provided"}
+  ],
+  "totals": {"passed": 6, "failed": 0, "blocked": 6, "not-run": 1},
+  "environmentPreflight": {
+    "attachmentDirectoryAvailable": false,
+    "declaredNetlogSampleDirectoryConfigured": false,
+    "declaredLargeFileManifestConfigured": false,
+    "declaredAcceptanceRecordConfigured": false,
+    "excelInstalled": true,
+    "excelRunning": false,
+    "libreOfficeCliAvailable": false,
+    "edgeInstalled": true,
+    "browserStarted": false,
+    "spreadsheetAppStarted": false,
+    "privateProfilesAccessed": false,
+    "keychainAccessed": false
+  },
+  "historicalValidation": {"fullSuitesPassed": 210, "fullTestsPassed": 1789, "existingTestsSkipped": 12, "source": "Prior validation of same codeHead; not rerun in this documentation-only task"},
+  "limitations": ["Synthetic probes do not certify real samples, Excel, clipboard/system downloads or actual consumers", "No approved browser latency/heap budget was found; no invented performance threshold", "CI/review facts bind codeHead; subsequent documentation HEAD CI must be read separately"]
+}

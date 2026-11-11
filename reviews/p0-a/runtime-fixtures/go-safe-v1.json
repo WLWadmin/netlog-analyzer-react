@@ -1,0 +1,3856 @@
+{
+  "schema": "netlog-analyzer-sharing",
+  "version": 1,
+  "profile": "safe-sharing",
+  "kind": "go",
+  "data": {
+    "exportTime": "2026-11-11T00:00:00.000Z",
+    "total": 120,
+    "entries": [
+      {
+        "id": "entry-1",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-1",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "0",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-2",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-2",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "1",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-3",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-3",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "2",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-4",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-4",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "3",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-5",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-5",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "4",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-6",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-6",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "5",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-7",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-7",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "6",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-8",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-8",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "7",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-9",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-9",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "8",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-10",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-10",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "9",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-11",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-11",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "10",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-12",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-12",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "11",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-13",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-13",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "12",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-14",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-14",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "13",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-15",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-15",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "14",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-16",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-16",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "15",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-17",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-17",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "16",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-18",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-18",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "17",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-19",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-19",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "18",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-20",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-20",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "19",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-21",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-21",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "20",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-22",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-22",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "21",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-23",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-23",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "22",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-24",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-24",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "23",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-25",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-25",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "24",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-26",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-26",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "25",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-27",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-27",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "26",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-28",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-28",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "27",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-29",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-29",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "28",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-30",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-30",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "29",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-31",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-31",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "30",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-32",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-32",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "31",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-33",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-33",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "32",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-34",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-34",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "33",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-35",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-35",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "34",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-36",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-36",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "35",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-37",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-37",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "36",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-38",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-38",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "37",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-39",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-39",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "38",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-40",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-40",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "39",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-41",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-41",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "40",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-42",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-42",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "41",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-43",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-43",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "42",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-44",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-44",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "43",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-45",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-45",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "44",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-46",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-46",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "45",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-47",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-47",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "46",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-48",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-48",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "47",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-49",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-49",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "48",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-50",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-50",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "49",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-51",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-51",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "50",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-52",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-52",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "51",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-53",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-53",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "52",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-54",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-54",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "53",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-55",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-55",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "54",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-56",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-56",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "55",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-57",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-57",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "56",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-58",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-58",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "57",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-59",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-59",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "58",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-60",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-60",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "59",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-61",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-61",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "60",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-62",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-62",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "61",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-63",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-63",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "62",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-64",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-64",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "63",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-65",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-65",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "64",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-66",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-66",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "65",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-67",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-67",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "66",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-68",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-68",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "67",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-69",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-69",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "68",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-70",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-70",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "69",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-71",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-71",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "70",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-72",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-72",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "71",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-73",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-73",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "72",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-74",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-74",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "73",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-75",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-75",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "74",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-76",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-76",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "75",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-77",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-77",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "76",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-78",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-78",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "77",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-79",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-79",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "78",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-80",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-80",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "79",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-81",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-81",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "80",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-82",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-82",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "81",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-83",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-83",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "82",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-84",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-84",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "83",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-85",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-85",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "84",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-86",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-86",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "85",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-87",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-87",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "86",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-88",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-88",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "87",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-89",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-89",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "88",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-90",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-90",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "89",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-91",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-91",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "90",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-92",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-92",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "91",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-93",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-93",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "92",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-94",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-94",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "93",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-95",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-95",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "94",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-96",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-96",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "95",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-97",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-97",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "96",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-98",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-98",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "97",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-99",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-99",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "98",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-100",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-100",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "99",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-101",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-101",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "100",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-102",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-102",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "101",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-103",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-103",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "102",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-104",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-104",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "103",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-105",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-105",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "104",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-106",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-106",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "105",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-107",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-107",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "106",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-108",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-108",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "107",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-109",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-109",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "108",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-110",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-110",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "109",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-111",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-111",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "110",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-112",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-112",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "111",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-113",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-113",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "112",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-114",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-114",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "113",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-115",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-115",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "114",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-116",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-116",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "115",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-117",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-117",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "116",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-118",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-118",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "117",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-119",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-119",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "118",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      },
+      {
+        "id": "entry-120",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "[worker masked]",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://host-1.invalid/resource-120",
+        "domain": "host-1.invalid",
+        "path": "[path masked]",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "119",
+        "redactions": {
+          "headers": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          },
+          "body": {
+            "state": "null"
+          },
+          "bodyRaw": {
+            "state": "redacted",
+            "valueType": "string",
+            "emptiness": "nonempty"
+          }
+        },
+        "rawLine": "[expert only]"
+      }
+    ],
+    "identity": {
+      "scope": "analysis-local",
+      "crossFileUnique": false
+    }
+  }
+}

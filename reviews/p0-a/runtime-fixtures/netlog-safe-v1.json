@@ -1,0 +1,1091 @@
+{
+  "schema": "netlog-analyzer-sharing",
+  "version": 1,
+  "profile": "safe-sharing",
+  "kind": "netlog",
+  "data": {
+    "exportTime": "2026-11-11T00:00:00.000Z",
+    "overview": {
+      "totalEvents": 450,
+      "uniqueSources": 150,
+      "peakConcurrency": 1,
+      "urlRequestCount": 150,
+      "errorCount": 0,
+      "warningCount": 0,
+      "slowRequestCount": 0
+    },
+    "proxyInfo": {
+      "hasProxy": false,
+      "proxyType": null,
+      "redactions": {
+        "proxySettings": {
+          "state": "null"
+        },
+        "effectiveProxy": {
+          "state": "null"
+        },
+        "originalProxy": {
+          "state": "null"
+        }
+      },
+      "pacUrl": null,
+      "proxyList": [],
+      "proxyFallback": null,
+      "isVPN": false,
+      "vpnHints": []
+    },
+    "requests": [
+      {
+        "url": "https://host-1.invalid/resource-1",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-2",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-3",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-4",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-5",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-6",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-7",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-8",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-9",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-10",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-11",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-12",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-13",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-14",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-15",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-16",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-17",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-18",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-19",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-20",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-21",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-22",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-23",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-24",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-25",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-26",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-27",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-28",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-29",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-30",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-31",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-32",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-33",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-34",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-35",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-36",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-37",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-38",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-39",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-40",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-41",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-42",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-43",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-44",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-45",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-46",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-47",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-48",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-49",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-50",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-51",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-52",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-53",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-54",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-55",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-56",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-57",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-58",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-59",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-60",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-61",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-62",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-63",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-64",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-65",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-66",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-67",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-68",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-69",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-70",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-71",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-72",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-73",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-74",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-75",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-76",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-77",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-78",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-79",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-80",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-81",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-82",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-83",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-84",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-85",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-86",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-87",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-88",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-89",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-90",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-91",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-92",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-93",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-94",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-95",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-96",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-97",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-98",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-99",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-100",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-101",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-102",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-103",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-104",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-105",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-106",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-107",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-108",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-109",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-110",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-111",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-112",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-113",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-114",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-115",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-116",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-117",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-118",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-119",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-120",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-121",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-122",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-123",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-124",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-125",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-126",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-127",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-128",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-129",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-130",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-131",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-132",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-133",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-134",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-135",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-136",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-137",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-138",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-139",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-140",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-141",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-142",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-143",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-144",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-145",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-146",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-147",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-148",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-149",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      },
+      {
+        "url": "https://host-1.invalid/resource-150",
+        "method": "GET",
+        "status": "pending",
+        "duration": 5,
+        "timeline": {}
+      }
+    ],
+    "errors": []
+  }
+}

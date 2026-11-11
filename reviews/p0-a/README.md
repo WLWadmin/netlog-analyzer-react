@@ -2,9 +2,13 @@
 
 本分支仅实施 P0-A，交由技术顾问 Review；不合并、不部署、不启动其他 P0 单元。
 
-REVIEW-C 当前交付为 [限定实现与验证](review-c-implementation.md)、[获批 schema](review-c-sharing-v1.schema.json)、[真实 builder 合成对照](review-c-actual-examples.json)和[可复验脚本](verify-sharing-v1.cjs)。D-C-V1、D-C-META 已明确批准并实施；此前被拒绝的字符串/顺序别名方案已替换，不据此批准旧兼容损失。默认分享 JSON v1 与旧默认布局不兼容，专家兼容 JSON 保留旧结构；等待独立技术复核，PR 继续 Draft。
+**REVIEW-C：PASSED。** 负责人本次提供独立技术复核结论，绑定生产 HEAD `d45fd3a1a088fa12af1adf8dc15e0b874a1851ea`：D-C-V1 / D-C-META 静态审查通过，未发现需再次修改 C-01～C-03 的明确代码阻塞项。GitHub [同一 HEAD 的 CI](https://github.com/WLWadmin/netlog-analyzer-react/actions/runs/42993461216) 已另行读取确认通过；这不是 GitHub 上已提交 APPROVED Review 的声明。
 
-以下首轮实现记录及 A～E 的 [review-remediation.md](review-remediation.md)、旧 [json-compatibility.md](json-compatibility.md)保留为历史。当前状态由限定实现记录覆盖；独立 Review、真实样本/大文件验收尚未完成，合并/发布仍 blocked。
+**P0-A 运行/发布验收：blocked，PR #3 继续 Draft。** 最新 [最终运行验收报告与人工清单](runtime-acceptance.md)、[四态检查记录](runtime-checks.json)、[当前合成性能观测](runtime-performance.json) 区分已执行的契约/编码/合成交互检查与缺少条件的真实样本、浏览器、Excel、大文件和真实机器消费者验证。本轮只增加评审与验收材料，生产代码不变；不转 Ready、不合并、不部署。
+
+实现材料：[限定实现](review-c-implementation.md)、[获批 schema](review-c-sharing-v1.schema.json)、[实际 builder 合成对照](review-c-actual-examples.json)、[可复验脚本](verify-sharing-v1.cjs)。默认安全分享 JSON v1 与旧默认布局不兼容，专家兼容 JSON 保持旧结构；该边界已批准并通过独立复核。
+
+以下首轮实现记录及 A～E 的 [review-remediation.md](review-remediation.md)、旧 [json-compatibility.md](json-compatibility.md)保留为历史。后续状态仅在本入口和最终运行报告追加，不改写旧报告；下方旧“待批准/未复核”等措辞不代表当前结论。
 
 ## 授权与基线
 
