@@ -56,20 +56,20 @@ describe('buildHarRequestCopyText', () => {
   it('marks a runtime missing HAR address explicitly', () => {
     const value = entry();
     Object.defineProperty(value, 'url', { value: undefined });
-    expect(buildHarRequestCopyText(value).split('\n')[1]).toBe('URL: [address missing]');
+    expect(buildHarRequestCopyText(value).split('\n')[1]).toBe('URL: 未记录');
   });
 
   it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
     'keeps HAR non-absolute URL semantics for %s', url => {
       const line = buildHarRequestCopyText(entry({ url })).split('\n')[1];
-      expect(line.startsWith('URL: https://')).toBe(false);
+      expect(line).toBe(`URL: ${sanitizeHarUrl(url)}`);
     },
   );
 
   it('removes query, body, cookie and authorization values from the summary', () => {
     const text = buildHarRequestCopyText(entry());
 
-    expect(text).toContain('URL: https://host-1.invalid/resource-1');
+    expect(text).toContain('URL: https://example.com/api');
     expect(text).toContain('Status: 浏览器未拿到 HTTP 响应');
     expect(text).toContain('DNS: 未记录');
     expect(text).toContain('Queueing: 0 ms');
@@ -81,13 +81,8 @@ describe('buildHarRequestCopyText', () => {
     expect(text).not.toContain('SECRET_SET_COOKIE');
     expect(text).not.toContain('SECRET_REQUEST_BODY');
     expect(text).not.toContain('SECRET_RESPONSE_BODY');
-    expect(text).not.toContain('203.0.113.10');
-    expect(text).not.toContain('log-1');
-    const expert = buildHarRequestCopyText(entry(), true);
-    expect(expert).toContain('https://example.com/api');
-    expect(expert).toContain('203.0.113.10');
-    expect(expert).toContain('x-tt-logid: log-1');
-    expect(expert).not.toContain('SECRET_RESPONSE_BODY');
+    expect(text).toContain('203.0.113.10');
+    expect(text).toContain('x-tt-logid: log-1');
   });
 
   it('sanitizes malformed URLs without leaking query or hash', () => {

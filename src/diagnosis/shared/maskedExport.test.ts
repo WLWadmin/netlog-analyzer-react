@@ -4,40 +4,10 @@ import {
   maskUrl,
   sanitizeDiagnosisText,
   generateMaskedReport,
-  createSharingTextSanitizer,
 } from './maskedExport';
 import type { DiagnosticCard } from './types';
 
-describe('sharing address semantics', () => {
-  it.each([
-    ['https://example.test/a?token=FAKE_VALUE', 'https://host-1.invalid/resource-1'],
-    ['http://example.test/a', 'http://host-1.invalid/resource-1'],
-    ['/private/path?token=FAKE_VALUE', '[relative address: resource-1]'],
-    ['../private/path', '[relative address: resource-1]'],
-    ['asset.js', '[relative address: resource-1]'],
-    ['//example.test/private', '[relative address: resource-1]'],
-    ['', ''],
-    ['   ', '[address empty]'],
-    ['unknown', '[address unknown]'],
-    ['https://[broken?token=FAKE_VALUE', '[address invalid or uncertain]'],
-    ['possibly https://example.test/a', '[address invalid or uncertain]'],
-    ['https://example.test/a [uncertain]', '[address invalid or uncertain]'],
-    ['https:\\\\example.test\\a', '[address invalid or uncertain]'],
-    ['https:///example.test/a', '[address invalid or uncertain]'],
-    ['https:example.test/a', '[address invalid or uncertain]'],
-    ['file:///private/example.txt', '[local address: resource-1]'],
-  ])('retains the recorded address category for %s', (raw, expected) => {
-    expect(createSharingTextSanitizer()(raw, true)).toBe(expected);
-  });
-
-  it('does not assign an address to a missing or null value at a runtime boundary', () => {
-    const sanitize = createSharingTextSanitizer();
-    expect(sanitize(undefined, true)).toBeUndefined();
-    expect(sanitize(null, true)).toBeNull();
-  });
-});
-
-it('covers every free-text section in sharing summaries and preserves the old expert report', () => {
+it('restores the established diagnostic report without an extra address projection', () => {
   const privateText = 'https://private.example.test/account?token=FAKE_VALUE';
   const card: DiagnosticCard = {
     id: 'card-1', source: 'netlog', category: 'network-change', severity: 'warning',
@@ -49,12 +19,10 @@ it('covers every free-text section in sharing summaries and preserves the old ex
     confidenceFactors: [{ label: privateText, detail: privateText, impact: 'neutral' }],
   };
   const before = JSON.stringify(card);
-  const sharing = generateMaskedReport([card]);
-  expect(sharing.includes('FAKE_VALUE')).toBe(false);
-  expect(sharing.includes('private.example.test')).toBe(false);
-  expect(sharing.match(/https:\/\/host-1.invalid\/resource-1/g)?.length).toBeGreaterThan(8);
-  expect(findSensitiveDataLeaks(sharing)).toEqual([]);
-  expect(generateMaskedReport([card], false).includes(privateText)).toBe(true);
+  const report = generateMaskedReport([card]);
+  expect(report).toContain(privateText);
+  expect(report).toContain(maskEvidenceValue(privateText));
+  expect(report).not.toContain('host-1.invalid');
   expect(JSON.stringify(card)).toBe(before);
 });
 

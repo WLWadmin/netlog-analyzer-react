@@ -144,9 +144,7 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
     openExportPreview({
       filename: `诊断-${card.category}-${Date.now()}.md`,
       mime: 'text/markdown;charset=utf-8',
-      sharingText: report,
-      buildExpertText: () => generateMaskedReport([card], false),
-      expertFields: '原诊断标题、结论、命令、地址与限制文本；沿用原证据脱敏',
+      text: report,
     });
   };
 

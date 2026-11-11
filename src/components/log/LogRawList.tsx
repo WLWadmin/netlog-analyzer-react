@@ -100,17 +100,12 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
   const { openExportPreview, exportPreview } = useExportPreview(filteredEntries);
   const prepareExport = (format: 'json' | 'txt') => {
     const generatedAt = new Date();
-    const build = (expert: boolean) => format === 'json'
-      ? buildLogEntriesJson(filteredEntries, expert, generatedAt)
-      : buildLogEntriesText(filteredEntries, expert);
     openExportPreview({
       filename: `log-filtered-${Date.now()}.${format}`,
       mime: format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8',
-      sharingText: build(false),
-      buildExpertText: () => build(true),
-      sharingLabel: format === 'json' ? '安全分享 JSON v1' : undefined,
-      expertLabel: format === 'json' ? '专家兼容 JSON（旧结构）' : undefined,
-      expertFields: 'JSON 原 URL、标识、Headers、Body、原始行；TXT 完整原始行（仅当前筛选范围）',
+      text: format === 'json'
+        ? buildLogEntriesJson(filteredEntries, generatedAt)
+        : buildLogEntriesText(filteredEntries),
     });
   };
 

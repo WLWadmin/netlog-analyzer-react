@@ -17,9 +17,7 @@ const ExportSummaryButton: React.FC<ExportSummaryButtonProps> = ({ summary }) =>
         openExportPreview({
           filename: `network-diagnosis-report-${new Date().toISOString().slice(0, 10)}.md`,
           mime: 'text/markdown;charset=utf-8',
-          sharingText: generateMaskedReport(summary.cards),
-          buildExpertText: () => generateMaskedReport(summary.cards, false),
-          expertFields: '原诊断标题、结论、命令、地址与限制文本；沿用原证据脱敏',
+          text: generateMaskedReport(summary.cards),
         });
       }}>生成协作摘要</Button>
       {exportPreview}

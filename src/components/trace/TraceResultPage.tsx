@@ -9,11 +9,10 @@ import {
   NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { TraceAnalysisResult } from '../../diagnosis/trace';
-import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceSharingExport } from '../../parsers/trace/exportTraceReport';
+import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceJsonExport } from '../../parsers/trace/exportTraceReport';
 import { useNavigation } from '../../contexts/NavigationContext';
 import type { TraceTab } from '../../utils/hashRouting';
 import { useExportPreview } from '../shared/useExportPreview';
-import { createSharingTextSanitizer } from '../../diagnosis/shared/maskedExport';
 import type { TraceWorkbenchClient } from '../../workbench/client';
 import { isTraceWorkbenchEnabled } from '../../workbench/featureFlag';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
@@ -64,9 +63,7 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
       openExportPreview({
         filename: `chromium-trace-analysis-${Date.now()}.md`,
         mime: 'text/markdown;charset=utf-8',
-        sharingText: createSharingTextSanitizer()(report),
-        buildExpertText: () => report,
-        expertFields: '既有白名单报告中的地址、路径和文本；不新增原始 Trace args/sourceText',
+        text: report,
       });
     } catch {
       setExportError('Markdown 导出失败，请重试。');
@@ -80,9 +77,7 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
       openExportPreview({
         filename: `chromium-trace-analysis-${Date.now()}.json`,
         mime: 'application/json;charset=utf-8',
-        sharingText: serializeTraceSharingExport(payload),
-        buildExpertText: () => JSON.stringify(payload, null, 2),
-        expertFields: '既有 schemaVersion=1 白名单中的地址、路径和文本；原脱敏与引用校验保持',
+        text: serializeTraceJsonExport(payload),
       });
     } catch {
       setExportError('JSON 导出失败，请重试。');

@@ -209,96 +209,10 @@ export function sanitizeDiagnosisText(value: string): string {
 }
 
 /**
- * 单报告内的分享别名。字典只存活于一次投影，不导出反向映射；
- * 不改变用于本地展示的 maskUrl/maskEvidenceValue 兼容语义。
- */
-export function createSharingTextSanitizer() {
-  const hosts = new Map<string, string>();
-  const resources = new Map<string, string>();
-  const hostAlias = (host: string) => {
-    const key = host.toLowerCase();
-    let alias = hosts.get(key);
-    if (!alias) {
-      alias = `host-${hosts.size + 1}.invalid`;
-      hosts.set(key, alias);
-    }
-    return alias;
-  };
-  const resourceAlias = (raw: string) => {
-    let resource = resources.get(raw);
-    if (!resource) {
-      resource = `resource-${resources.size + 1}`;
-      resources.set(raw, resource);
-    }
-    return resource;
-  };
-  function sanitize(value: string, address?: boolean): string;
-  function sanitize(value: undefined, address: true): undefined;
-  function sanitize(value: null, address: true): null;
-  function sanitize(value: string | null | undefined, address = false): string | null | undefined {
-    if (value == null) return value;
-    if (address) {
-      if (value === '') return '';
-      if (!value.trim()) return '[address empty]';
-      if (/^(?:unknown|unavailable|未记录|未知|-|null|undefined)$/i.test(value.trim())) return '[address unknown]';
-      // URL() 会修复缺斜线、反斜线和空白；分享边界不能把修复结果当作已采集地址。
-      if (/[\s\\]/.test(value)) return '[address invalid or uncertain]';
-      if (/^(?:https?|wss?|ftp|file):\/\//i.test(value)) {
-        try {
-          const parsed = new URL(value);
-          if (parsed.protocol === 'file:') return `[local address: ${resourceAlias(value)}]`;
-          if (parsed.hostname && /^(?:https?|wss?|ftp):\/\/[^/?#]/i.test(value)) {
-            return `${parsed.protocol}//${hostAlias(parsed.hostname)}/${resourceAlias(value)}`;
-          }
-        } catch { /* 原始地址不可解析：保留不确定性，不分配主机别名。 */ }
-        return '[address invalid or uncertain]';
-      }
-      // 相对引用没有已知 origin；即使形如 //host/path 也不能补造协议。
-      if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && !/[[\]<>]/.test(value)) {
-        return `[relative address: ${resourceAlias(value)}]`;
-      }
-      return '[address invalid or uncertain]';
-    }
-    const timestamps: string[] = [];
-    const aliases: string[] = [];
-    const protectAlias = (alias: string) => {
-      aliases.push(alias);
-      return `[export address ${aliases.length}]`;
-    };
-    // 已记录的 ISO 时刻不是电话号码；只保护严格格式，其余数字仍走既有脱敏。
-    let text = value.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g, timestamp => {
-      timestamps.push(timestamp);
-      return `[export timestamp ${timestamps.length}]`;
-    });
-    text = text.replace(
-      /\b(?:https?|wss?|ftp|file):\/\/[^\s"'<>`*，。；)]+/gi,
-      raw => {
-        return protectAlias(sanitize(raw, true));
-      },
-    );
-    text = text.replace(/\b[^\s:/@]+:[^\s/@]+@/g, '[credentials masked]@');
-    text = text.replace(/\/[^\s"'<>`，。；]*[?#][^\s"'<>`，。；]+/g, '[relative URL masked]');
-    text = sanitizeDiagnosisText(text);
-    // URL 之外的主机/端点同样属于分享边界；数字错误码及时间不参与别名。
-    text = text.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, host => protectAlias(hostAlias(host)));
-    text = text.replace(/\[[0-9a-f:]*:[0-9a-f:]+\]|(?:[0-9a-f]{0,4}:){1,7}:[0-9a-f:]*|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}/gi,
-      host => protectAlias(hostAlias(host)));
-    text = text.replace(/\b(?:[a-z0-9_-]+\.)+[a-z][a-z0-9-]*\b/gi, hostAlias);
-    return text.split('\n').map(line => findSensitiveDataLeaks(line).length
-      ? '[expert only: unstructured sensitive text]' : line).join('\n')
-      .replace(/\[export timestamp (\d+)\]/g, (match, index: string) => timestamps[Number(index) - 1] ?? match)
-      .replace(/\[export address (\d+)\]/g, (match, index: string) => aliases[Number(index) - 1] ?? match);
-  }
-  return sanitize;
-}
-
-/**
  * 生成脱敏后的诊断摘要文本（用于导出）
  */
-export function generateMaskedReport(cards: DiagnosticCard[], sharing = true): string {
+export function generateMaskedReport(cards: DiagnosticCard[]): string {
   const lines: string[] = [];
-  // 分享在整份报告上一次投影，避免先改写 query 导致同一 URL 被分成两个别名。
-  const evidenceText = sharing ? (value: string) => value : maskEvidenceValue;
 
   lines.push('# 网络诊断报告');
   lines.push(`> 生成时间：${new Date().toLocaleString()}`);
@@ -332,9 +246,9 @@ export function generateMaskedReport(cards: DiagnosticCard[], sharing = true): s
     if (card.evidence.length > 0) {
       lines.push('### 证据链');
       card.evidence.forEach(ev => {
-        lines.push(`- **${ev.label}**：${evidenceText(ev.value)}`);
+        lines.push(`- **${ev.label}**：${maskEvidenceValue(ev.value)}`);
         if (ev.detail) {
-          lines.push(`  - 详情：${evidenceText(ev.detail)}`);
+          lines.push(`  - 详情：${maskEvidenceValue(ev.detail)}`);
         }
         if (ev.fieldPath) {
           lines.push(`  - 字段路径：${ev.fieldPath}`);
@@ -347,7 +261,7 @@ export function generateMaskedReport(cards: DiagnosticCard[], sharing = true): s
       lines.push('### 置信度依据');
       card.confidenceFactors.forEach(factor => {
         const impact = factor.impact === 'positive' ? '正向证据' : factor.impact === 'negative' ? '限制因素' : '参考信息';
-        lines.push(`- **${factor.label}**（${impact}）：${evidenceText(factor.detail)}`);
+        lines.push(`- **${factor.label}**（${impact}）：${maskEvidenceValue(factor.detail)}`);
       });
       lines.push('');
     }
@@ -381,8 +295,7 @@ export function generateMaskedReport(cards: DiagnosticCard[], sharing = true): s
     lines.push('');
   });
 
-  const report = lines.join('\n');
-  return sharing ? createSharingTextSanitizer()(report) : report;
+  return lines.join('\n');
 }
 
 function roleLabel(role: string): string {

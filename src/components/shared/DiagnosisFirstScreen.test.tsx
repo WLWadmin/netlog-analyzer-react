@@ -210,9 +210,9 @@ describe('Diagnosis first screen components', () => {
       expect((fallback as HTMLTextAreaElement).value).toContain('缺少关联 source：补采同次 NetLog');
       expect((fallback as HTMLTextAreaElement).value).toContain('用户已尝试：');
       expect((fallback as HTMLTextAreaElement).value).not.toContain('FAKE_TOKEN_VALUE');
-      expect((fallback as HTMLTextAreaElement).value).not.toContain('example.test');
-      fireEvent.click(screen.getByRole('button', { name: '本地专家交接' }));
-      fireEvent.click(screen.getByRole('checkbox'));
+      expect((fallback as HTMLTextAreaElement).value).toContain('example.test');
+      fireEvent.click(screen.getByRole('button', { name: '导出交接摘要' }));
+      expect(screen.queryByRole('checkbox')).toBeNull();
       const expertPreview = screen.getByRole('textbox', { name: '导出内容' }) as HTMLTextAreaElement;
       expect(expertPreview.value).toContain('example.test');
       expect(expertPreview.value).not.toContain('FAKE_TOKEN_VALUE');

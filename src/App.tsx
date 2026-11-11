@@ -74,7 +74,6 @@ import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from './components/shared/ResultWorkbenchShell';
 import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
 import { buildNetlogJsonExport, buildNetlogCsvExport } from './utils/netlogExport';
-import { createSharingTextSanitizer } from './diagnosis/shared/maskedExport';
 import { useExportPreview } from './components/shared/useExportPreview';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import './appShell.css';
@@ -859,9 +858,7 @@ const AppContent: React.FC = () => {
       openExportPreview({
         filename: `netlog-analysis-report-${Date.now()}.md`,
         mime: 'text/markdown;charset=utf-8',
-        sharingText: createSharingTextSanitizer()(report),
-        buildExpertText: () => report,
-        expertFields: '原报告中的 URL、域名、IP、路径和诊断文本（沿用既有字段）',
+        text: report,
       });
     } catch {
       message.error('报告模块暂时无法加载，分析数据已保留，请重试导出。');
@@ -874,11 +871,7 @@ const AppContent: React.FC = () => {
     openExportPreview({
       filename: `netlog-analysis-${Date.now()}.json`,
       mime: 'application/json;charset=utf-8',
-      sharingText: buildNetlogJsonExport(result, false, generatedAt),
-      buildExpertText: () => buildNetlogJsonExport(result, true, generatedAt),
-      sharingLabel: '安全分享 JSON v1',
-      expertLabel: '专家兼容 JSON（旧结构）',
-      expertFields: '原 URL、代理配置及凭据、完整错误详情',
+      text: buildNetlogJsonExport(result, generatedAt),
     });
   };
 
@@ -887,9 +880,7 @@ const AppContent: React.FC = () => {
     openExportPreview({
       filename: `netlog-requests-${Date.now()}.csv`,
       mime: 'text/csv;charset=utf-8',
-      sharingText: buildNetlogCsvExport(result),
-      buildExpertText: () => buildNetlogCsvExport(result, true),
-      expertFields: '原 URL（含查询参数）与请求文本；CSV 公式保护始终开启',
+      text: buildNetlogCsvExport(result),
     });
   };
 
@@ -940,9 +931,7 @@ const AppContent: React.FC = () => {
       openExportPreview({
         filename: `netlog-expert-evidence-${Date.now()}.md`,
         mime: 'text/markdown;charset=utf-8',
-        sharingText: createSharingTextSanitizer()(report),
-        buildExpertText: () => report,
-        expertFields: '既有证据索引中的地址和状态文本；原有脱敏、Top 样例范围保持',
+        text: report,
       });
       if (!datasetReady) message.warning('Dataset 尚未就绪，预览为 summary-only 证据包');
     } catch (error) {

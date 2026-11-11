@@ -1,6 +1,6 @@
 import { findSensitiveDataLeaks } from '../../diagnosis/shared/maskedExport';
 import type { TraceAnalysisResult, TraceDiagnosis } from '../../diagnosis/trace';
-import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceSharingExport } from './exportTraceReport';
+import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceJsonExport } from './exportTraceReport';
 
 function diagnosis(overrides: Partial<TraceDiagnosis> = {}): TraceDiagnosis {
   return {
@@ -133,7 +133,7 @@ it('restricts origin/pathname exceptions to actual whitelist URL nodes, includin
     pathname: '/Users/synthetic/private.txt',
     url: { origin: 'token=FAKE_FUTURE', pathname: '/account?token=FAKE_QUERY' },
   });
-  const parsed = JSON.parse(serializeTraceSharingExport(payload));
+  const parsed = JSON.parse(serializeTraceJsonExport(payload));
   expect(JSON.stringify(parsed).includes('FAKE_')).toBe(false);
   expect(JSON.stringify(parsed).includes('/Users/')).toBe(false);
   expect(parsed.referencedEvidence.map((item: { origin: string }) => item.origin)).toEqual(
@@ -149,10 +149,10 @@ it.each([
 ])('keeps invalid Trace URL objects structured without inventing an origin: %p', url => {
   const payload = buildTraceJsonExport(result());
   payload.boundedRequests[0].url = url;
-  const parsed = JSON.parse(serializeTraceSharingExport(payload));
+  const parsed = JSON.parse(serializeTraceJsonExport(payload));
   expect(typeof parsed.boundedRequests[0].url.origin).toBe('string');
   expect(typeof parsed.boundedRequests[0].url.pathname).toBe('string');
-  expect(parsed.boundedRequests[0].url.origin.startsWith('https://')).toBe(false);
+  expect(parsed.boundedRequests[0].url).toEqual(url);
   expect(parsed.boundedRequests[0].id).toBe(payload.boundedRequests[0].id);
   expect(parsed.boundedRequests[0].evidenceIds).toEqual(payload.boundedRequests[0].evidenceIds);
 });
@@ -164,25 +164,26 @@ it('does not sanitize fact IDs or reference IDs as free text', () => {
   payload.boundedRequests[0].requestId = id;
   if (!payload.primaryDiagnosis) throw new Error('missing primary diagnosis');
   payload.primaryDiagnosis.factIds = [id];
-  const parsed = JSON.parse(serializeTraceSharingExport(payload));
+  const parsed = JSON.parse(serializeTraceJsonExport(payload));
   expect(parsed.boundedRequests[0].id).toBe(id);
   expect(parsed.boundedRequests[0].requestId).toBe(id);
   expect(parsed.primaryDiagnosis.factIds).toEqual([id]);
 });
 
-it('sharing Trace JSON aliases addresses and paths without changing original whitelist, IDs or values', () => {
+it('Trace JSON preserves diagnostic addresses, paths, whitelist, IDs and values', () => {
   const input = result();
   const before = JSON.stringify(input);
   const payload = buildTraceJsonExport(input);
-  const safe = serializeTraceSharingExport(payload);
+  const safe = serializeTraceJsonExport(payload);
   const parsed = JSON.parse(safe);
-  expect(safe.includes('example.test')).toBe(false);
-  expect(safe.includes('/api/items')).toBe(false);
+  expect(safe.includes('example.test')).toBe(true);
+  expect(safe.includes('/api/items')).toBe(true);
   expect(parsed.schemaVersion).toBe(payload.schemaVersion);
   expect(parsed.boundedRequests[0].id).toBe(payload.boundedRequests[0].id);
   expect(parsed.boundedRequests[0].durationMs).toBe(payload.boundedRequests[0].durationMs);
   expect(parsed.boundedRequests[0].evidenceIds).toEqual(payload.boundedRequests[0].evidenceIds);
   expect(payload.boundedRequests[0].url).toEqual({ origin: 'https://example.test', pathname: '/api/items' });
+  expect(parsed.boundedRequests[0].url).toEqual(payload.boundedRequests[0].url);
   expect(JSON.stringify(input)).toBe(before);
   expect(findSensitiveDataLeaks(safe)).toEqual([]);
 });

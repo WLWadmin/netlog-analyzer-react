@@ -19,10 +19,6 @@ const { parseLogFile } = taskRequire('./src/logParser');
 const { parseLog } = taskRequire('./src/parsers/netlog/parser');
 const { buildLogEntriesJson } = taskRequire('./src/components/log/exportLogEntries');
 const { buildNetlogJsonExport, buildNetlogCsvExport } = taskRequire('./src/utils/netlogExport');
-const Ajv = taskRequire('ajv');
-const validate = new Ajv({ allErrors: true }).compile(JSON.parse(fs.readFileSync(
-  path.join(__dirname, 'review-c-sharing-v1.schema.json'), 'utf8',
-)));
 const timestamp = new Date('2026-11-11T00:00:00.000Z');
 const netlogInput = {
   constants: {
@@ -49,17 +45,12 @@ assert.strictEqual(entries.length, 120);
 const outputs = {
   'synthetic-netlog.json': JSON.stringify(netlogInput, null, 2) + '\n',
   'synthetic-go.log': logInput,
-  'netlog-safe-v1.json': buildNetlogJsonExport(result, false, timestamp),
-  'netlog-expert-legacy.json': buildNetlogJsonExport(result, true, timestamp),
-  'go-safe-v1.json': buildLogEntriesJson(entries, false, timestamp),
-  'go-expert-legacy.json': buildLogEntriesJson(entries, true, timestamp),
+  // 历史 expert 文件就是旧 DTO；当前默认出口应与其逐字一致。
+  'netlog-expert-legacy.json': buildNetlogJsonExport(result, timestamp),
+  'go-expert-legacy.json': buildLogEntriesJson(entries, timestamp),
 };
 let assertions = 0;
 function check(run) { run(); assertions += 1; }
-function safeConsumer(payload) {
-  assert.strictEqual(validate(payload), true);
-  return payload.kind === 'go' ? payload.data.entries : payload.data.requests;
-}
 // Minimal legacy root consumer; this is a contract probe, not a real downstream app.
 function legacyConsumer(payload, kind) {
   assert(!Object.prototype.hasOwnProperty.call(payload, 'schema'));
@@ -67,18 +58,12 @@ function legacyConsumer(payload, kind) {
   return kind === 'go' ? payload.entries : payload.requests;
 }
 for (const [kind, count] of [['netlog', 150], ['go', 120]]) {
-  const safe = JSON.parse(outputs[`${kind}-safe-v1.json`]);
-  const expert = JSON.parse(outputs[`${kind}-expert-legacy.json`]);
-  check(() => assert.strictEqual(safeConsumer(safe).length, count));
-  check(() => assert.strictEqual(legacyConsumer(expert, kind).length, count));
-  check(() => assert.throws(() => legacyConsumer(safe, kind)));
-  check(() => assert.throws(() => safeConsumer(expert)));
-  check(() => assert.throws(() => safeConsumer({ ...safe, version: 2 })));
-  check(() => assert(!JSON.stringify(safe).includes('SYNTHETIC_ONLY')));
+  const payload = JSON.parse(outputs[`${kind}-expert-legacy.json`]);
+  check(() => assert.strictEqual(legacyConsumer(payload, kind).length, count));
+  check(() => assert(JSON.stringify(payload).includes('SYNTHETIC_ONLY')));
 }
-const goSafe = JSON.parse(outputs['go-safe-v1.json']).data;
-check(() => assert.deepStrictEqual(goSafe.entries.map(e => e.id), entries.map(e => e.id)));
-check(() => assert.deepStrictEqual(goSafe.identity, { scope: 'analysis-local', crossFileUnique: false }));
+const goData = JSON.parse(outputs['go-expert-legacy.json']);
+check(() => assert.deepStrictEqual(goData.entries.map(e => e.id), entries.map(e => e.id)));
 check(() => assert.deepStrictEqual(JSON.parse(outputs['go-expert-legacy.json']).entries,
   JSON.parse(JSON.stringify(entries))));
 const csvCases = [
@@ -95,7 +80,7 @@ const csvResult = {
     statusCode: 0, duration: 0, error: -106,
   })),
 };
-outputs['excel-safety-synthetic.csv'] = buildNetlogCsvExport(csvResult, true);
+outputs['excel-safety-synthetic.csv'] = buildNetlogCsvExport(csvResult);
 outputs['csv-expected.json'] = JSON.stringify({
   columns: 12, cases: csvCases, expectedNumericCells: ['0', '0', '-106'],
   note: 'Synthetic expert CSV is used to preserve each formula-prefix input while retaining formula protection.',

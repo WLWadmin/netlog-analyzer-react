@@ -19,7 +19,6 @@ import type {
   RootCauseCluster,
 } from '../../diagnosis/shared';
 import { sanitizeDiagnosisText } from '../../diagnosis/shared';
-import { createSharingTextSanitizer } from '../../diagnosis/shared/maskedExport';
 import { useExportPreview } from './useExportPreview';
 import { formatAffectedRequestCount } from '../../diagnosis/shared/impactScope';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
@@ -111,7 +110,7 @@ function conclusionRequestIds(
   ]));
 }
 
-function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string, expert = false): string {
+function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
     `摘要：${finalSummary.executiveSummary}`,
@@ -152,8 +151,7 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
     });
   }
 
-  const text = lines.join('\n');
-  return expert ? sanitizeDiagnosisText(text) : createSharingTextSanitizer()(text);
+  return sanitizeDiagnosisText(lines.join('\n'));
 }
 
 const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
@@ -239,10 +237,8 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
           <Button size="small" onClick={() => openExportPreview({
             filename: 'diagnosis-handoff.txt',
             mime: 'text/plain;charset=utf-8',
-            sharingText: copyableText,
-            buildExpertText: () => buildCopyText(finalSummary, troubleshootingRecordText, true),
-            expertFields: '既有摘要中的地址、证据和尝试记录；沿用原凭据/query/路径脱敏',
-          })}>本地专家交接</Button>
+            text: copyableText,
+          })}>导出交接摘要</Button>
         </div>
       </div>
       {exportPreview}

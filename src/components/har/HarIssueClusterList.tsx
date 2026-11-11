@@ -79,9 +79,7 @@ const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onO
             <Button size="small" icon={<CopyOutlined />} onClick={() => openExportPreview({
               filename: 'har-issue-summary.txt',
               mime: 'text/plain;charset=utf-8',
-              sharingText: buildHarClusterCopyText(cluster),
-              buildExpertText: () => buildHarClusterCopyText(cluster, true),
-              expertFields: '既有问题组标题和关键证据文本；沿用原 URL/Header 脱敏',
+              text: buildHarClusterCopyText(cluster),
             })}>复制摘要</Button>
             <Button size="small" type="primary" icon={<ArrowRightOutlined />} onClick={() => onOpenCluster(cluster)}>查看请求</Button>
           </div>

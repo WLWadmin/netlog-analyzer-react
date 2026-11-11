@@ -1,7 +1,6 @@
 import type { HarRequestEntry, HarTimingPhaseKey } from '../../harParser';
 import { formatHarTime, getHarResponseStatus } from '../../harParser';
 import { getHarRequestIssue } from '../../diagnosis/shared/harRequestIssue';
-import { createSharingTextSanitizer } from '../../diagnosis/shared/maskedExport';
 
 const ROLE_LABELS = {
   user: '用户',
@@ -60,16 +59,14 @@ function formatServerTiming(entry: HarRequestEntry): string {
     .join(', ');
 }
 
-export function buildHarRequestCopyText(entry: HarRequestEntry, expert = false): string {
-  const sanitize = createSharingTextSanitizer();
-  const sharedUrl = expert ? '' : sanitize(entry.url, true) ?? '[address missing]';
+export function buildHarRequestCopyText(entry: HarRequestEntry): string {
   const issue = getHarRequestIssue(entry);
   const role = issue.roleHint ? ROLE_LABELS[issue.roleHint] : '无需优先转交';
   const timingLines = TIMING_ROWS.map(row => `  ${row.label}: ${formatTiming(entry, row.key)}`);
 
-  const text = [
+  return [
     'HAR 请求摘要',
-    `URL: ${expert ? sanitizeHarUrl(entry.url) || '-' : '[request address]'}`,
+    `URL: ${entry.url === undefined ? '未记录' : sanitizeHarUrl(entry.url)}`,
     `Method: ${cleanInline(entry.method) || '-'}`,
     `Status: ${formatStatus(entry)}`,
     `主问题: ${cleanInline(issue.label)}`,
@@ -78,10 +75,9 @@ export function buildHarRequestCopyText(entry: HarRequestEntry, expert = false):
     ...timingLines,
     `Remote Address: ${cleanInline(entry.remoteAddress) || '未记录'}`,
     `Protocol: ${cleanInline(entry.protocol) || '未记录'}`,
-    `x-tt-logid: ${expert ? cleanInline(entry.xTtLogid) || '未记录' : '[expert only]'}`,
+    `x-tt-logid: ${cleanInline(entry.xTtLogid) || '未记录'}`,
     `Server-Timing: ${formatServerTiming(entry)}`,
     `建议先看: ${role}`,
     '证据边界: HAR 可看到请求现象；若要确认 DNS、TLS、代理或系统网络栈原因，请补充 NetLog。',
   ].join('\n');
-  return expert ? text : sanitize(text).replace('[request address]', sharedUrl);
 }

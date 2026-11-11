@@ -1,4 +1,14 @@
-# P0-A · F05 导出安全修复
+# P0-A · 恢复真实诊断数据与保留有效导出修复
+
+**当前产品决定（2026-11-11）：负责人已撤销默认匿名分享与 D-C-V1 / D-C-META 的产品使用决定。** 本工具默认导出原出口支持的真实诊断数据；不再提供分享/专家双模式、地址别名或 redactions 状态投影。当前实现与验证见 [导出纠偏记录](diagnostic-export-restoration.md)；当前 PR 说明见 [pr-description.md](pr-description.md)。
+
+当前默认 NetLog/Go JSON 恢复实施前 master 的字段结构与含义，Go TXT 恢复原始行。CSV 编码/公式保护、0 与负数、时间与可选字段、Go 原 ID、完整复制/下载、有限 DOM 预览和旧快照失效保留。HAR、Trace、证据包及摘要原本已有的内容边界保留，撤销其外层新增匿名化；不新增原始大字段读取。
+
+PR #3 继续 Draft；不转 Ready、不合并、不部署。本轮检查只证明导出纠偏候选；真实样本、安全 Edge/Excel、500/800MB 和真实消费者尚未验收。旧匿名 Schema、字段状态 helper 及对应验证脚本已退出当前树；其历史源码可在 [已审核 f4dd913 快照](https://github.com/WLWadmin/netlog-analyzer-react/tree/f4dd91380da343d97faa02a6f0ecae49dad2fe19/reviews/p0-a) 复核。
+
+## 历史记录（截至 f4dd913；不代表当前产品契约）
+
+以下保留原审查结论、当时的授权和验收限制。历史“安全分享”“专家切换”“待批准”及旧 Schema/脚本的相对链接均对应上述固定历史快照，不能用来要求当前默认出口继续匿名化。历史 REVIEW-C PASSED 是对当时实现的结论，不代表本轮新代码已获独立复核。
 
 本分支仅实施 P0-A，交由技术顾问 Review；不合并、不部署、不启动其他 P0 单元。
 

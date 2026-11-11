@@ -1,155 +1,94 @@
 import { parseLog } from '../parsers/netlog/parser';
 import { buildNetlogCsvExport, buildNetlogJsonExport, encodeCsvCell } from './netlogExport';
-import { createSharingTextSanitizer, findSensitiveDataLeaks } from '../diagnosis/shared/maskedExport';
 
 function fixture() {
   const result = parseLog({ events: [{
     time: '0', type: 1, phase: 0, source: { id: 1, type: 1 }, params: {},
   }] }).result;
   result.urlRequests.push({
-    id: 7, url: 'https://user:FAKE_PASSWORD@private.example.test/account?token=FAKE_QUERY',
+    id: 7, url: 'https://api.example.test/account?id=123',
     method: 'GET', startTime: 0, duration: 0, statusCode: 0, error: -106, events: [],
     timeline: { dns: { start: 0, end: 0, duration: 0 } },
   });
-  result.proxyInfo.proxySettings = { Authorization: 'Bearer FAKE_PROXY_SECRET' };
-  result.errors.push({
-    severity: 'error', category: 'network', message: 'Failure private.example.test',
-    detail: 'opaque-private-value /Users/synthetic/example.txt', time: 0,
-  });
+  result.proxyInfo.proxySettings = { server: '203.0.113.7:8080' };
+  result.errors.push({ severity: 'error', category: 'network',
+    message: 'Failure api.example.test', detail: 'recorded connection detail', time: 0 });
   return result;
 }
 
-describe('NetLog export boundary', () => {
-  it('keeps absent addresses absent rather than fabricating URL/PAC facts', () => {
+it('keeps absent addresses absent rather than fabricating URL/PAC facts', () => {
+  const result = fixture();
+  Object.defineProperty(result.urlRequests[0], 'url', { value: undefined });
+  Object.defineProperty(result.proxyInfo, 'pacUrl', { value: undefined });
+  const data = JSON.parse(buildNetlogJsonExport(result));
+  expect(data.requests[0]).not.toHaveProperty('url');
+  expect(data.proxyInfo).not.toHaveProperty('pacUrl');
+  expect(buildNetlogCsvExport(result).split('\r\n')[1].startsWith('"",')).toBe(true);
+});
+
+it.each([null, {}, ['synthetic'], 'synthetic', 0, false, undefined])(
+  'preserves the original proxy fields and types: %p', settings => {
     const result = fixture();
-    Object.defineProperty(result.urlRequests[0], 'url', { value: undefined });
-    Object.defineProperty(result.proxyInfo, 'pacUrl', { value: undefined });
-    const shared = JSON.parse(buildNetlogJsonExport(result)).data;
-    expect(Object.prototype.hasOwnProperty.call(shared.requests[0], 'url')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(shared.proxyInfo, 'pacUrl')).toBe(false);
-    expect(buildNetlogCsvExport(result).split('\r\n')[1].startsWith('"",')).toBe(true);
-  });
+    result.proxyInfo.proxySettings = settings;
+    result.proxyInfo.effectiveProxy = settings;
+    result.proxyInfo.originalProxy = settings;
+    expect(JSON.parse(buildNetlogJsonExport(result)).proxyInfo).toEqual(JSON.parse(JSON.stringify(result.proxyInfo)));
+  },
+);
 
-  it.each([null, {}, ['synthetic'], 'synthetic', 0, false])(
-    'replaces opaque value slots with explicit state and preserves expert value %p', settings => {
-      const result = fixture();
-      result.proxyInfo.proxySettings = settings;
-      result.proxyInfo.effectiveProxy = settings;
-      result.proxyInfo.originalProxy = settings;
-      const safe = JSON.parse(buildNetlogJsonExport(result)).data;
-      const expert = JSON.parse(buildNetlogJsonExport(result, true));
-      for (const key of ['proxySettings', 'effectiveProxy', 'originalProxy']) {
-        expect(safe.proxyInfo).not.toHaveProperty(key);
-        expect(safe.proxyInfo.redactions[key].state).toBe(settings === null ? 'null' : 'redacted');
-        expect(expert.proxyInfo[key]).toEqual(settings);
-      }
-    },
-  );
-
-  it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
-    'JSON and CSV never invent a host for recorded non-absolute address %s', url => {
-      const result = fixture();
-      result.urlRequests[0].url = url;
-      result.proxyInfo.pacUrl = url;
-      const shared = JSON.parse(buildNetlogJsonExport(result)).data;
-      expect(shared.requests[0].url.startsWith('https://')).toBe(false);
-      expect(shared.proxyInfo.pacUrl.startsWith('https://')).toBe(false);
-      expect(buildNetlogCsvExport(result).includes('https://')).toBe(false);
-      expect(JSON.parse(buildNetlogJsonExport(result, true)).requests[0].url).toBe(url);
-    },
-  );
-
-  it('uses a whitelist without reading raw event/dataset/proxy objects or mutating local input', () => {
+it.each(['', '/relative/private', 'unknown', 'https://[broken', '   ', 'https:///example.test/a'])(
+  'keeps recorded address text without normalization or invented hosts: %s', url => {
     const result = fixture();
-    const before = JSON.stringify(result);
-    Object.defineProperty(result.urlRequests[0], 'events', { get() { throw new Error('raw events read'); } });
-    Object.defineProperty(result.proxyInfo, 'proxySettings', { get() { throw new Error('opaque settings read'); } });
-    Object.freeze(result.urlRequests[0].timeline.dns);
-    Object.freeze(result.urlRequests[0]);
-    Object.freeze(result.urlRequests);
-    Object.freeze(result.errors);
-    Object.freeze(result);
-    const safe = buildNetlogJsonExport(result);
-    for (const value of ['FAKE_PASSWORD', 'FAKE_QUERY', 'FAKE_PROXY_SECRET', 'private.example.test', 'opaque-private-value', '/Users/']) {
-      expect(safe.includes(value)).toBe(false);
-    }
-    // 既有启发式 scanner 把 ISO 日期当电话号码；检查所有非受控文本字段。
-    const scanPayload = JSON.parse(safe).data;
-    expect(Number.isNaN(Date.parse(scanPayload.exportTime))).toBe(false);
-    delete scanPayload.exportTime;
-    expect(findSensitiveDataLeaks(JSON.stringify(scanPayload))).toEqual([]);
-    expect(safe).toContain('"statusCode": 0');
-    expect(safe).toContain('"error": -106');
-    expect(before.includes('FAKE_QUERY')).toBe(true);
-    expect(result.urlRequests[0].url.includes('FAKE_QUERY')).toBe(true);
-    expect(result.errors[0].detail.includes('opaque-private-value')).toBe(true);
-  });
+    result.urlRequests[0].url = url;
+    result.proxyInfo.pacUrl = url;
+    const data = JSON.parse(buildNetlogJsonExport(result));
+    expect(data.requests[0].url).toBe(url);
+    expect(data.proxyInfo.pacUrl).toBe(url);
+    expect(buildNetlogCsvExport(result).split('\r\n')[1].startsWith(`${encodeCsvCell(url)},`)).toBe(true);
+  },
+);
 
-  it('expert JSON preserves existing top-level and request keys, raw proxy and detail', () => {
-    const result = fixture();
-    const expert = JSON.parse(buildNetlogJsonExport(result, true));
-    expect(Object.keys(expert)).toEqual(['exportTime', 'overview', 'proxyInfo', 'requests', 'errors']);
-    expect(expert.proxyInfo).toEqual(result.proxyInfo);
-    expect(expert.requests[0]).toEqual({
-      url: result.urlRequests[0].url, method: 'GET', statusCode: 0,
-      duration: 0, error: -106, timeline: { dns: { start: 0, end: 0, duration: 0 } },
-    });
-    expect(expert.errors).toEqual(result.errors);
+it('uses the existing DTO without reading request events/dataset or mutating local input', () => {
+  const result = fixture();
+  const before = JSON.stringify(result);
+  const { events, ...requestBefore } = result.urlRequests[0];
+  Object.defineProperty(result.urlRequests[0], 'events', { get() { throw new Error('raw events read'); } });
+  Object.freeze(result.urlRequests[0].timeline.dns);
+  Object.freeze(result.urlRequests[0]);
+  Object.freeze(result);
+  const data = JSON.parse(buildNetlogJsonExport(result));
+  expect(Object.keys(data)).toEqual(['exportTime', 'overview', 'proxyInfo', 'requests', 'errors']);
+  expect(data.proxyInfo).toEqual(result.proxyInfo);
+  expect(data.errors).toEqual(result.errors);
+  expect(data.requests[0]).toEqual({
+    url: requestBefore.url, method: 'GET', statusCode: 0, duration: 0, error: -106,
+    timeline: { dns: { start: 0, end: 0, duration: 0 } },
   });
+  expect(JSON.parse(JSON.stringify({ ...result, urlRequests: [{ ...requestBefore, events }] }))).toEqual(JSON.parse(before));
+});
 
-  it('CSV keeps twelve columns, BOM, missing vs zero, and safe numeric negative values', () => {
-    const result = fixture();
-    const safe = buildNetlogCsvExport(result);
-    expect(safe.startsWith('\uFEFFURL,Method,Status,')).toBe(true);
-    const cells = safe.split('\r\n')[1].split(',');
-    expect(cells).toHaveLength(12);
-    expect(cells.slice(2, 7)).toEqual(['""', '"0"', '"0"', '"-106"', '"0"']);
-    expect(cells.slice(7)).toEqual(Array(5).fill('""'));
-    expect(safe.includes('FAKE_QUERY')).toBe(false);
-    expect(buildNetlogCsvExport(result, true).includes('FAKE_QUERY')).toBe(true);
-  });
+it('CSV keeps twelve columns, BOM, missing vs zero, and numeric negative values', () => {
+  const csv = buildNetlogCsvExport(fixture());
+  expect(csv.startsWith('\uFEFFURL,Method,Status,')).toBe(true);
+  const cells = csv.split('\r\n')[1].split(',');
+  expect(cells).toHaveLength(12);
+  expect(cells.slice(2, 7)).toEqual(['""', '"0"', '"0"', '"-106"', '"0"']);
+  expect(cells.slice(7)).toEqual(Array(5).fill('""'));
+  expect(csv).toContain('https://api.example.test/account?id=123');
+});
 
-  it.each(['=SUM(1,2)', '+1', '-cmd', '@SUM(1)', '\t=1', '\r+1', '\uFEFF -cmd', ' \t@1', '\ttext', '\ntext'])(
-    'protects text formula prefixes without losing text: %s', value => {
-      expect(encodeCsvCell(value)).toBe(`"'${value.replace(/"/g, '""')}"`);
-    },
-  );
+it.each(['=SUM(1,2)', '+1', '-cmd', '@SUM(1)', '\t=1', '\r+1', '\uFEFF -cmd', ' \t@1', '\ttext', '\ntext'])(
+  'protects text formula prefixes without losing text: %s', value => {
+    expect(encodeCsvCell(value)).toBe(`"'${value.replace(/"/g, '""')}"`);
+  },
+);
 
-  it('round trips quoted text/newline/comma and preserves numeric cells', () => {
-    const value = '中文,"quoted"\nnext';
-    const encoded = encodeCsvCell(value);
-    expect(encoded.slice(1, -1).replace(/""/g, '"')).toBe(value);
-    expect(encodeCsvCell(0)).toBe('"0"');
-    expect(encodeCsvCell(-101)).toBe('"-101"');
-    expect(encodeCsvCell(undefined)).toBe('""');
-  });
-
-  it('keeps aliases stable within a report without collisions or credential/proxy leakage', () => {
-    const sanitize = createSharingTextSanitizer();
-    const url = 'https://private.example.test/account?debug=FAKE_VALUE';
-    expect(sanitize(url)).toBe('https://host-1.invalid/resource-1');
-    expect(sanitize(url)).toBe('https://host-1.invalid/resource-1');
-    expect(sanitize('private.example.test')).toBe('host-1.invalid');
-    expect(sanitize('https://other.example.test/a')).toBe('https://host-2.invalid/resource-2');
-    expect(sanitize('2026-11-11T00:00:00.000Z')).toBe('2026-11-11T00:00:00.000Z');
-    expect(sanitize('/private/account', true)).toBe('[relative address: resource-3]');
-    expect(sanitize('/private/account', true)).not.toContain('/private/account');
-    for (const raw of ['user:FAKE_VALUE@proxy.example.test:80', '[2001:db8::1]', '2001:db8::2',
-      '203.0.113.1', '/Users/example/private.txt', '/relative/path?debug=FAKE_VALUE',
-      'https://[broken?token=FAKE_VALUE', 'Authorization: Bearer FAKE_VALUE',
-      'args={"custom":"FAKE_VALUE"}']) {
-      const shared = sanitize(raw);
-      expect(shared.includes('FAKE_VALUE')).toBe(false);
-      expect(shared.includes('2001:db8')).toBe(false);
-      expect(shared.includes('203.0.113.1')).toBe(false);
-      expect(findSensitiveDataLeaks(shared)).toEqual([]);
-    }
-  });
-
-  it('does not treat original hosts matching the alias spelling as already sanitized', () => {
-    const sanitize = createSharingTextSanitizer();
-    expect(sanitize('https://real.example.test/a')).toBe('https://host-1.invalid/resource-1');
-    expect(sanitize('https://host-1.invalid/resource-1')).toBe('https://host-2.invalid/resource-2');
-    expect(sanitize('host-1.invalid')).toBe('host-2.invalid');
-  });
+it('round trips quoted text/newline/comma and preserves numeric cells', () => {
+  const value = '中文,"quoted"\nnext';
+  const encoded = encodeCsvCell(value);
+  expect(encoded.slice(1, -1).replace(/""/g, '"')).toBe(value);
+  expect(encodeCsvCell(0)).toBe('"0"');
+  expect(encodeCsvCell(-101)).toBe('"-101"');
+  expect(encodeCsvCell(-202)).toBe('"-202"');
+  expect(encodeCsvCell(undefined)).toBe('""');
 });

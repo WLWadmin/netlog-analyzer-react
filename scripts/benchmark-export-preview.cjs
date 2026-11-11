@@ -1,26 +1,15 @@
 // Synthetic DTO + React/JSDOM measurement; deliberately never starts a browser.
 const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
 const Module = require('module');
 const { performance } = require('perf_hooks');
 const ts = require('typescript');
 const React = require('react');
 const { JSDOM } = require('jsdom');
-const baseline = process.argv[3] === '--baseline';
-const baselineSha = '0d1581aff49ee143e7cd3185152c591264129ca5';
-const repoRoot = path.resolve(__dirname, '..');
-const baselineFiles = new Set([
-  'src/utils/netlogExport.ts', 'src/diagnosis/shared/maskedExport.ts',
-  'src/components/shared/useExportPreview.tsx',
-]);
 
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
   if (request === 'antd') return {
     Button: ({ children, onClick }) => React.createElement('button', { onClick }, children),
-    Checkbox: ({ children, checked, onChange }) => React.createElement('label', null,
-      React.createElement('input', { type: 'checkbox', checked, onChange }), children),
     Modal: ({ children, footer }) => React.createElement('div', { role: 'dialog' }, children, footer),
     message: { success() {}, error() {} },
   };
@@ -28,10 +17,7 @@ Module._load = function load(request, parent, isMain) {
 };
 for (const extension of ['.ts', '.tsx']) {
   require.extensions[extension] = (module, filename) => {
-    const relative = path.relative(repoRoot, filename);
-    const source = baseline && baselineFiles.has(relative)
-      ? execFileSync('git', ['show', `${baselineSha}:${relative}`], { cwd: repoRoot, encoding: 'utf8' })
-      : fs.readFileSync(filename, 'utf8');
+    const source = fs.readFileSync(filename, 'utf8');
     const { outputText } = ts.transpileModule(source, {
       fileName: filename, compilerOptions: {
         module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
@@ -72,48 +58,34 @@ const heap = () => {
   return process.memoryUsage().heapUsed;
 };
 const heapStart = heap();
-const sharing = measure(() => buildNetlogJsonExport(result, false, new Date(0)));
+const exported = measure(() => buildNetlogJsonExport(result, new Date(0)));
 const csv = measure(() => buildNetlogCsvExport(result));
-const heapSharing = heap();
+const heapExported = heap();
 let controls;
-let expertMs = 0;
 function Harness({ owner }) {
   controls = useExportPreview(owner);
   return controls.exportPreview;
 }
 const root = createRoot(document.getElementById('root'));
 React.act(() => root.render(React.createElement(Harness, { owner: result })));
-const open = measure(() => React.act(() => controls.openExportPreview({
-  filename: 'synthetic.json', mime: 'application/json', sharingText: sharing.value,
-  buildExpertText: () => {
-    const built = measure(() => buildNetlogJsonExport(result, true, new Date(0)));
-    expertMs = built.ms;
-    return built.value;
-  },
-})));
+const job = { filename: 'synthetic.json', mime: 'application/json', text: exported.value };
+const open = measure(() => React.act(() => controls.openExportPreview(job)));
 const previewChars = document.querySelector('textarea').value.length;
 const heapOpen = heap();
-const toggle = () => document.querySelector('input').click();
-const expert = measure(() => React.act(toggle));
-const heapExpert = heap();
-const shareAgain = measure(() => React.act(toggle));
-const heapAfterShare = heap();
 const cancel = measure(() => React.act(() => [...document.querySelectorAll('button')]
   .find(button => button.textContent === '取消').click()));
 const heapCancel = heap();
-React.act(() => controls.openExportPreview({ filename: 'synthetic.json', mime: 'application/json', sharingText: sharing.value }));
+React.act(() => controls.openExportPreview(job));
 const reset = measure(() => React.act(() => root.render(React.createElement(Harness, { owner: {} }))));
 const invalidated = !document.querySelector('textarea');
 React.act(() => root.unmount());
 console.log(JSON.stringify({
-  benchmark: 'synthetic-export-react-jsdom', mode: baseline ? 'reviewed-baseline' : 'working-tree',
-  baselineSha, count, node: process.version, gc: Boolean(global.gc),
-  jsonChars: sharing.value.length, csvChars: csv.value.length, previewChars,
-  ms: { sharingBuild: sharing.ms, csvBuild: csv.ms, open: open.ms,
-    expertBuild: expertMs, expertSwitch: expert.ms, sharingSwitch: shareAgain.ms,
+  benchmark: 'synthetic-export-react-jsdom', mode: 'diagnostic-working-tree',
+  count, node: process.version, gc: Boolean(global.gc),
+  jsonChars: exported.value.length, csvChars: csv.value.length, previewChars,
+  ms: { jsonBuild: exported.ms, csvBuild: csv.ms, open: open.ms,
     cancel: cancel.ms, ownerReset: reset.ms },
-  heapBytes: { start: heapStart, sharingAndCsv: heapSharing, open: heapOpen,
-    expert: heapExpert, sharingAgain: heapAfterShare, cancel: heapCancel },
+  heapBytes: { start: heapStart, jsonAndCsv: heapExported, open: heapOpen, cancel: heapCancel },
   ownerInvalidated: invalidated,
   note: 'Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.',
 }, null, 2));

@@ -1,4 +1,4 @@
-import { createSharingTextSanitizer, findSensitiveDataLeaks, sanitizeDiagnosisText } from '../../diagnosis/shared/maskedExport';
+import { findSensitiveDataLeaks, sanitizeDiagnosisText } from '../../diagnosis/shared/maskedExport';
 import {
   selectTraceDiagnoses,
   type TraceAnalysisResult,
@@ -156,10 +156,8 @@ function clean(value: string): string {
 }
 
 /** 只遍历既有白名单 DTO，不读取 sourceText、args 或完整 Trace 事件。 */
-export function serializeTraceSharingExport(payload: TraceExportPayload): string {
-  const sanitize = createSharingTextSanitizer();
+export function serializeTraceJsonExport(payload: TraceExportPayload): string {
   const urlNodes = new WeakSet<object>();
-  const projectedUrls = new WeakSet<object>();
   const identityFields = new WeakMap<object, ReadonlySet<string>>();
   const referenceLists = new WeakSet<object>();
   const register = (record: object, keys: string[], lists: readonly string[][]) => {
@@ -189,30 +187,13 @@ export function serializeTraceSharingExport(payload: TraceExportPayload): string
   }
   for (const item of payload.referencedEvidence) register(item, ['evidenceId'], []);
   return JSON.stringify(payload, function (this: unknown, key: string, value: unknown): unknown {
-    if (value && typeof value === 'object' && urlNodes.has(value)
-      && 'origin' in value && typeof value.origin === 'string'
-      && 'pathname' in value && typeof value.pathname === 'string') {
-      let projected = {
-        origin: value.origin === '' ? '' : '[address invalid or uncertain]',
-        pathname: value.pathname === '' ? '' : '[path masked]',
-      };
-      try {
-        const origin = new URL(value.origin);
-        if (origin.origin === value.origin && value.pathname.startsWith('/')
-          && !value.pathname.startsWith('//') && !/[\s\\]/.test(value.origin + value.pathname)) {
-          const alias = new URL(sanitize(value.origin + value.pathname, true));
-          projected = { origin: alias.origin, pathname: alias.pathname };
-        }
-      } catch { /* 不补造未知 origin，保持 {origin, pathname} 字符串结构。 */ }
-      projectedUrls.add(projected);
-      return projected;
-    }
     if (this && typeof this === 'object') {
-      if (projectedUrls.has(this) && (key === 'origin' || key === 'pathname')) return value;
+      // 地址已由 builder 按既有 origin/pathname 契约投影；序列化不再改写事实。
+      if (urlNodes.has(this) && (key === 'origin' || key === 'pathname')) return value;
       // 身份不是自由文本；只保护已有 DTO 的 ID 和引用数组，避免破坏 join 关系。
       if (identityFields.get(this)?.has(key) || referenceLists.has(this)) return value;
     }
-    return typeof value === 'string' ? sanitize(value) : value;
+    return typeof value === 'string' ? clean(value) : value;
   }, 2);
 }
 

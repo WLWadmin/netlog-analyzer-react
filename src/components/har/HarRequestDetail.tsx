@@ -310,9 +310,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
     openExportPreview({
       filename: 'har-issue-summary.txt',
       mime: 'text/plain;charset=utf-8',
-      sharingText: buildHarClusterCopyText(issueCluster),
-      buildExpertText: () => buildHarClusterCopyText(issueCluster, true),
-      expertFields: '既有问题组标题和关键证据文本；沿用原 URL/Header 脱敏',
+      text: buildHarClusterCopyText(issueCluster),
     });
   };
   const loadBody = useMemo(() => {
@@ -795,7 +793,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
             onClick={async () => {
               try {
                 await copyText(safeSummary);
-                message.success('已复制安全请求摘要');
+                message.success('已复制请求摘要');
               } catch {
                 message.error('复制失败，请手动复制');
               }
@@ -807,11 +805,9 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
             openExportPreview({
               filename: 'har-request-summary.txt',
               mime: 'text/plain;charset=utf-8',
-              sharingText: safeSummary,
-              buildExpertText: () => buildHarRequestCopyText(entry, true),
-              expertFields: '原摘要中的域名、路径、Remote Address、x-tt-logid；仍不含 query/hash、Header 或正文',
+              text: safeSummary,
             });
-          }}>本地专家摘要</Button>
+          }}>导出请求摘要</Button>
           {exportPreview}
           <pre
             style={{
