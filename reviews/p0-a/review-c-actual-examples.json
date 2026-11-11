@@ -1,0 +1,161 @@
+{
+  "status": "ACTUAL_SYNTHETIC_BUILDERS",
+  "reviewedBeforeHead": "e76030e4ae88e7bfb7ab0db08456f5e128560692",
+  "note": "After code identity is the containing commit. Synthetic examples only; no real sample acceptance.",
+  "exampleTimeZone": "Asia/Shanghai",
+  "netlogBefore": {
+    "proxySettings": "[expert only]",
+    "effectiveProxy": "[expert only]",
+    "originalProxy": "[expert only]"
+  },
+  "goBefore": {
+    "id": "entry-1",
+    "headers": "[expert only]",
+    "body": "[expert only]",
+    "bodyRaw": "[expert only]"
+  },
+  "actualNetlog": {
+    "schema": "netlog-analyzer-sharing",
+    "version": 1,
+    "profile": "safe-sharing",
+    "kind": "netlog",
+    "data": {
+      "exportTime": "2026-11-11T00:00:00.000Z",
+      "overview": {
+        "totalEvents": 1,
+        "uniqueSources": 1,
+        "peakConcurrency": 0,
+        "urlRequestCount": 0,
+        "errorCount": 0,
+        "warningCount": 0,
+        "slowRequestCount": 0
+      },
+      "proxyInfo": {
+        "hasProxy": false,
+        "proxyType": null,
+        "redactions": {
+          "proxySettings": {
+            "state": "null"
+          },
+          "effectiveProxy": {
+            "state": "missing",
+            "reason": "absent-property"
+          },
+          "originalProxy": {
+            "state": "redacted",
+            "valueType": "object",
+            "emptiness": "uninspected"
+          }
+        },
+        "pacUrl": null,
+        "proxyList": [],
+        "proxyFallback": null,
+        "isVPN": false,
+        "vpnHints": []
+      },
+      "requests": [],
+      "errors": []
+    }
+  },
+  "actualGo": {
+    "schema": "netlog-analyzer-sharing",
+    "version": 1,
+    "profile": "safe-sharing",
+    "kind": "go",
+    "data": {
+      "exportTime": "2026-11-11T00:00:00.000Z",
+      "total": 1,
+      "entries": [
+        {
+          "id": "entry-2",
+          "timestamp": "2026-11-11 00:00:01",
+          "timestampMs": 1794326401000,
+          "worker": "[worker masked]",
+          "level": "Info",
+          "method": "GET",
+          "url": "https://host-1.invalid/resource-1",
+          "domain": "host-1.invalid",
+          "path": "[path masked]",
+          "status": "Success",
+          "statusCode": 200,
+          "duration": 0,
+          "durationText": "+0ms",
+          "friendlyName": "b",
+          "redactions": {
+            "headers": {
+              "state": "redacted",
+              "valueType": "object",
+              "emptiness": "uninspected"
+            },
+            "body": {
+              "state": "missing",
+              "reason": "undefined-value"
+            },
+            "bodyRaw": {
+              "state": "redacted",
+              "valueType": "string",
+              "emptiness": "empty"
+            }
+          },
+          "rawLine": "[expert only]"
+        }
+      ],
+      "identity": {
+        "scope": "analysis-local",
+        "crossFileUnique": false
+      }
+    }
+  },
+  "expertNetlog": {
+    "exportTime": "2026-11-11T00:00:00.000Z",
+    "overview": {
+      "totalEvents": 1,
+      "uniqueSources": 1,
+      "peakConcurrency": 0,
+      "urlRequestCount": 0,
+      "errorCount": 0,
+      "warningCount": 0,
+      "slowRequestCount": 0
+    },
+    "proxyInfo": {
+      "hasProxy": false,
+      "proxyType": null,
+      "proxySettings": null,
+      "originalProxy": {
+        "private": "SYNTHETIC_PRIVATE"
+      },
+      "pacUrl": null,
+      "proxyList": [],
+      "proxyFallback": null,
+      "isVPN": false,
+      "vpnHints": []
+    },
+    "requests": [],
+    "errors": []
+  },
+  "expertGo": {
+    "exportTime": "2026-11-11T00:00:00.000Z",
+    "total": 1,
+    "entries": [
+      {
+        "id": "entry-2",
+        "timestamp": "2026-11-11 00:00:01",
+        "timestampMs": 1794326401000,
+        "worker": "w1",
+        "level": "Info",
+        "method": "GET",
+        "url": "https://example.test/b",
+        "domain": "example.test",
+        "path": "/b",
+        "status": "Success",
+        "statusCode": 200,
+        "duration": 0,
+        "durationText": "+0ms",
+        "friendlyName": "b",
+        "headers": {},
+        "bodyRaw": "",
+        "rawLine": "[w1] Info 2026-11-11 00:00:01 Got Success 200 GET:https://example.test/b | body -> | +0ms"
+      }
+    ]
+  }
+}

@@ -3,7 +3,28 @@ import {
   maskEvidenceValue,
   maskUrl,
   sanitizeDiagnosisText,
+  generateMaskedReport,
 } from './maskedExport';
+import type { DiagnosticCard } from './types';
+
+it('restores the established diagnostic report without an extra address projection', () => {
+  const privateText = 'https://private.example.test/account?token=FAKE_VALUE';
+  const card: DiagnosticCard = {
+    id: 'card-1', source: 'netlog', category: 'network-change', severity: 'warning',
+    confidence: 'low', title: privateText, conclusion: privateText,
+    scope: { type: 'global', summary: privateText },
+    evidence: [{ label: privateText, value: privateText, source: 'netlog', detail: privateText, fieldPath: privateText }],
+    actions: [{ role: 'it', title: privateText, detail: privateText, command: `curl "${privateText}"`, expectedResult: privateText }],
+    limitations: [privateText],
+    confidenceFactors: [{ label: privateText, detail: privateText, impact: 'neutral' }],
+  };
+  const before = JSON.stringify(card);
+  const report = generateMaskedReport([card]);
+  expect(report).toContain(privateText);
+  expect(report).toContain(maskEvidenceValue(privateText));
+  expect(report).not.toContain('host-1.invalid');
+  expect(JSON.stringify(card)).toBe(before);
+});
 
 describe('shared sensitive data scanner', () => {
   it('detects fake query, authorization, cookie, body, source, args and local paths', () => {

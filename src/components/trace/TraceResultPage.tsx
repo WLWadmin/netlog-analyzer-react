@@ -9,10 +9,10 @@ import {
   NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { TraceAnalysisResult } from '../../diagnosis/trace';
-import { buildTraceJsonExport, buildTraceMarkdownReport } from '../../parsers/trace/exportTraceReport';
+import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceJsonExport } from '../../parsers/trace/exportTraceReport';
 import { useNavigation } from '../../contexts/NavigationContext';
 import type { TraceTab } from '../../utils/hashRouting';
-import { downloadTextFile } from '../../utils/downloadTextFile';
+import { useExportPreview } from '../shared/useExportPreview';
 import type { TraceWorkbenchClient } from '../../workbench/client';
 import { isTraceWorkbenchEnabled } from '../../workbench/featureFlag';
 import { AnalysisDisclaimer } from '../shared/AnalysisDisclaimer';
@@ -53,16 +53,18 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
 }) => {
   const { navigateTo } = useNavigation();
   const [exportError, setExportError] = useState('');
+  const { openExportPreview, exportPreview } = useExportPreview(result);
   const diagnosisViewModel = useMemo(() => buildTraceDiagnosisViewModel(result), [result]);
 
   const exportMarkdown = () => {
     setExportError('');
     try {
-      downloadTextFile(
-        `chromium-trace-analysis-${Date.now()}.md`,
-        buildTraceMarkdownReport(result),
-        'text/markdown;charset=utf-8',
-      );
+      const report = buildTraceMarkdownReport(result);
+      openExportPreview({
+        filename: `chromium-trace-analysis-${Date.now()}.md`,
+        mime: 'text/markdown;charset=utf-8',
+        text: report,
+      });
     } catch {
       setExportError('Markdown 导出失败，请重试。');
     }
@@ -71,11 +73,12 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
   const exportJson = () => {
     setExportError('');
     try {
-      downloadTextFile(
-        `chromium-trace-analysis-${Date.now()}.json`,
-        JSON.stringify(buildTraceJsonExport(result), null, 2),
-        'application/json;charset=utf-8',
-      );
+      const payload = buildTraceJsonExport(result);
+      openExportPreview({
+        filename: `chromium-trace-analysis-${Date.now()}.json`,
+        mime: 'application/json;charset=utf-8',
+        text: serializeTraceJsonExport(payload),
+      });
     } catch {
       setExportError('JSON 导出失败，请重试。');
     }
@@ -128,6 +131,7 @@ const TraceResultPage: React.FC<TraceResultPageProps> = ({
           </div>
         </header>
 
+        {exportPreview}
         {exportError && <div className="trace-export-error" role="alert">{exportError}</div>}
 
         {activeTab === 'conclusion' && (

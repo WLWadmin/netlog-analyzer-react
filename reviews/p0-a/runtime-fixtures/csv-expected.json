@@ -1,0 +1,51 @@
+{
+  "columns": 12,
+  "cases": [
+    {
+      "value": "=1+1",
+      "protected": true
+    },
+    {
+      "value": "+1+1",
+      "protected": true
+    },
+    {
+      "value": "-1+1",
+      "protected": true
+    },
+    {
+      "value": "@SUM(1)",
+      "protected": true
+    },
+    {
+      "value": " \t=1+1",
+      "protected": true
+    },
+    {
+      "value": "\ttext",
+      "protected": true
+    },
+    {
+      "value": "\rtext",
+      "protected": true
+    },
+    {
+      "value": "\ntext",
+      "protected": true
+    },
+    {
+      "value": "中文,\"quoted\"\nnext",
+      "protected": false
+    },
+    {
+      "value": "plain",
+      "protected": false
+    }
+  ],
+  "expectedNumericCells": [
+    "0",
+    "0",
+    "-106"
+  ],
+  "note": "Synthetic expert CSV is used to preserve each formula-prefix input while retaining formula protection."
+}

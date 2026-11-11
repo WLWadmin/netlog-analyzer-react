@@ -16,7 +16,8 @@ import { LOG_RAW_INITIAL_COUNT, LOG_RAW_LOAD_STEP, SEARCH_DEBOUNCE_MS } from '..
 import useLoadMore from '../../hooks/useLoadMore';
 import HighlightedText from './HighlightedText';
 import LogRawContextModal from './LogRawContextModal';
-import { exportLogEntriesAsJson, exportLogEntriesAsText } from './exportLogEntries';
+import { buildLogEntriesJson, buildLogEntriesText } from './exportLogEntries';
+import { useExportPreview } from '../shared/useExportPreview';
 import Toolbar from '../shared/Toolbar';
 import TruncatedText from '../shared/TruncatedText';
 
@@ -96,6 +97,17 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
       return true;
     }).map(({ entry }) => entry);
   }, [indexedEntries, debouncedSearchText, statusFilter, domainFilter, levelFilter, timeRange]);
+  const { openExportPreview, exportPreview } = useExportPreview(filteredEntries);
+  const prepareExport = (format: 'json' | 'txt') => {
+    const generatedAt = new Date();
+    openExportPreview({
+      filename: `log-filtered-${Date.now()}.${format}`,
+      mime: format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8',
+      text: format === 'json'
+        ? buildLogEntriesJson(filteredEntries, generatedAt)
+        : buildLogEntriesText(filteredEntries),
+    });
+  };
 
   const { visibleItems: visibleEntries, hasMore, loadMore, remainingCount } = useLoadMore<LogEntry>({
     items: filteredEntries,
@@ -130,7 +142,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button
             size="small"
-            onClick={() => exportLogEntriesAsText(filteredEntries, 'log-filtered')}
+            onClick={() => prepareExport('txt')}
             disabled={filteredEntries.length === 0}
           >
             导出 TXT
@@ -138,7 +150,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
           <Button
             size="small"
             type="primary"
-            onClick={() => exportLogEntriesAsJson(filteredEntries, 'log-filtered')}
+            onClick={() => prepareExport('json')}
             disabled={filteredEntries.length === 0}
           >
             导出 JSON
@@ -146,6 +158,7 @@ const LogRawList: React.FC<LogRawListProps> = ({ entries }) => {
         </div>
       }
     >
+      {exportPreview}
       {/* 筛选栏 */}
       <Toolbar style={{ marginBottom: 16 }}>
         <Input

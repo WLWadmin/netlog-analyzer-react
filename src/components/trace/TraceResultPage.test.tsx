@@ -8,7 +8,16 @@ import { downloadTextFile } from '../../utils/downloadTextFile';
 import type { TraceTab } from '../../utils/hashRouting';
 import TraceResultPage from './TraceResultPage';
 
+jest.mock('antd', () => ({
+  Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,
+  Modal: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => <div role="dialog">{children}{footer}</div>,
+  Checkbox: ({ children, checked, onChange }: { children: React.ReactNode; checked: boolean; onChange: React.ChangeEventHandler<HTMLInputElement> }) =>
+    <label><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>,
+  message: { success: jest.fn(), error: jest.fn() },
+}));
+
 jest.mock('../../parsers/trace/exportTraceReport', () => ({
+  ...jest.requireActual('../../parsers/trace/exportTraceReport'),
   buildTraceMarkdownReport: jest.fn(),
   buildTraceJsonExport: jest.fn(),
 }));
@@ -111,12 +120,17 @@ describe('TraceResultPage', () => {
   });
 
   it('exports Markdown and JSON from the current result', async () => {
-    const jsonExport = { schemaVersion: 1, quality: { level: 'partial' } };
+    // 序列化器按真实 DTO 的已知节点登记例外；不能用缺失事实列表的对象冒充 DTO。
+    const jsonExport = jest.requireActual<typeof import('../../parsers/trace/exportTraceReport')>(
+      '../../parsers/trace/exportTraceReport',
+    ).buildTraceJsonExport(result);
     mockBuildTraceMarkdownReport.mockReturnValue('# Trace report');
     mockBuildTraceJsonExport.mockReturnValue(jsonExport);
     render(<TraceResultPage result={result} />);
 
     await userEvent.click(screen.getByRole('button', { name: '导出 Markdown' }));
+    expect(mockDownloadTextFile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     expect(mockBuildTraceMarkdownReport).toHaveBeenCalledWith(result);
     expect(mockDownloadTextFile).toHaveBeenCalledWith(
       expect.stringMatching(/\.md$/),
@@ -125,6 +139,7 @@ describe('TraceResultPage', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: '导出 JSON' }));
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     expect(mockBuildTraceJsonExport).toHaveBeenCalledWith(result);
     expect(mockDownloadTextFile).toHaveBeenCalledWith(
       expect.stringMatching(/\.json$/),

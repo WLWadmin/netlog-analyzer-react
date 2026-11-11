@@ -1,0 +1,243 @@
+{
+  "codeHead": "d45fd3a1a088fa12af1adf8dc15e0b874a1851ea",
+  "scope": "Node React JSDOM synthetic DTO; not a real browser or large-file test",
+  "samplesPerCount": 3,
+  "execution": "six sequential subprocesses; initial concurrent probes discarded",
+  "summaries": [
+    {
+      "count": 10000,
+      "jsonChars": 3358641,
+      "csvChars": 917901,
+      "previewChars": 32768,
+      "sharingBuildMedianMs": 44.9,
+      "sharingBuildRangeMs": [
+        36.9,
+        47.72
+      ],
+      "openMedianMs": 4.99,
+      "expertSwitchMedianMs": 8.45,
+      "cancelMedianMs": 1.22,
+      "heapStartMedianBytes": 58363856,
+      "observedHeapMaxBytes": 68177448,
+      "ownerInvalidatedAll": true
+    },
+    {
+      "count": 50000,
+      "jsonChars": 16834242,
+      "csvChars": 4633501,
+      "previewChars": 32768,
+      "sharingBuildMedianMs": 172.54,
+      "sharingBuildRangeMs": [
+        165.07,
+        243.78
+      ],
+      "openMedianMs": 4.82,
+      "expertSwitchMedianMs": 24.77,
+      "cancelMedianMs": 1.25,
+      "heapStartMedianBytes": 69886032,
+      "observedHeapMaxBytes": 110902936,
+      "ownerInvalidatedAll": true
+    }
+  ],
+  "observations": [
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 10000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 3358641,
+      "csvChars": 917901,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 47.72,
+        "csvBuild": 62.15,
+        "open": 4.9,
+        "expertBuild": 5.01,
+        "expertSwitch": 9.53,
+        "sharingSwitch": 1.25,
+        "cancel": 2.22,
+        "ownerReset": 0.46
+      },
+      "heapBytes": {
+        "start": 58373488,
+        "sharingAndCsv": 62965152,
+        "open": 64133808,
+        "expert": 67755736,
+        "sharingAgain": 68081960,
+        "cancel": 67957104
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 1
+    },
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 10000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 3358641,
+      "csvChars": 917901,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 44.9,
+        "csvBuild": 44.22,
+        "open": 4.99,
+        "expertBuild": 4.58,
+        "expertSwitch": 8.45,
+        "sharingSwitch": 1.66,
+        "cancel": 1.16,
+        "ownerReset": 0.29
+      },
+      "heapBytes": {
+        "start": 58362472,
+        "sharingAndCsv": 62962832,
+        "open": 64130104,
+        "expert": 67761744,
+        "sharingAgain": 67904136,
+        "cancel": 68175216
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 2
+    },
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 10000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 3358641,
+      "csvChars": 917901,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 36.9,
+        "csvBuild": 37.29,
+        "open": 5.24,
+        "expertBuild": 4.45,
+        "expertSwitch": 8.22,
+        "sharingSwitch": 1.08,
+        "cancel": 1.22,
+        "ownerReset": 0.31
+      },
+      "heapBytes": {
+        "start": 58363856,
+        "sharingAndCsv": 62962232,
+        "open": 64131168,
+        "expert": 67761016,
+        "sharingAgain": 67812472,
+        "cancel": 68177448
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 3
+    },
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 50000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 16834242,
+      "csvChars": 4633501,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 243.78,
+        "csvBuild": 195,
+        "open": 4.86,
+        "expertBuild": 20.62,
+        "expertSwitch": 24.77,
+        "sharingSwitch": 1.19,
+        "cancel": 1.8,
+        "ownerReset": 0.32
+      },
+      "heapBytes": {
+        "start": 69883384,
+        "sharingAndCsv": 92636032,
+        "open": 93814544,
+        "expert": 110638056,
+        "sharingAgain": 110902936,
+        "cancel": 110841832
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 1
+    },
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 50000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 16834242,
+      "csvChars": 4633501,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 165.07,
+        "csvBuild": 176.65,
+        "open": 4.73,
+        "expertBuild": 20.25,
+        "expertSwitch": 24.18,
+        "sharingSwitch": 1.28,
+        "cancel": 1.25,
+        "ownerReset": 0.3
+      },
+      "heapBytes": {
+        "start": 69887896,
+        "sharingAndCsv": 92637624,
+        "open": 93806968,
+        "expert": 110601584,
+        "sharingAgain": 110650704,
+        "cancel": 110812648
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 2
+    },
+    {
+      "benchmark": "synthetic-export-react-jsdom",
+      "mode": "working-tree",
+      "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+      "count": 50000,
+      "node": "v24.13.0",
+      "gc": true,
+      "jsonChars": 16834242,
+      "csvChars": 4633501,
+      "previewChars": 32768,
+      "ms": {
+        "sharingBuild": 172.54,
+        "csvBuild": 180.47,
+        "open": 4.82,
+        "expertBuild": 20.97,
+        "expertSwitch": 24.99,
+        "sharingSwitch": 2.01,
+        "cancel": 1.25,
+        "ownerReset": 0.54
+      },
+      "heapBytes": {
+        "start": 69886032,
+        "sharingAndCsv": 92636944,
+        "open": 93806240,
+        "expert": 110632416,
+        "sharingAgain": 110787296,
+        "cancel": 110795312
+      },
+      "ownerInvalidated": true,
+      "note": "Node/JSDOM single-run observations, not Edge layout, Blob download, or real 500/800MB performance.",
+      "repeat": 3
+    }
+  ],
+  "acceptanceThreshold": "No approved browser latency/heap threshold was found in P0-A evidence; no invented PASS budget",
+  "limitations": [
+    "No 500/800MB input",
+    "No browser long-task or render measurement",
+    "GC-assisted process heap snapshots are not Edge peak/RSS",
+    "Complete strings and expert cache remain resident; no reclamation guarantee"
+  ]
+}

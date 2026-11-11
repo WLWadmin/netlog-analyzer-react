@@ -19,6 +19,7 @@ import { decodeHarResponseBody, sanitizeHarHtmlForPreview, type DecodedHarBody }
 import type { HarResponseBodyPayload } from '../../workers/protocols';
 import { buildHarIssueClusters, getHarEvidenceLevelLabel, getHarRoleLabel } from '../../diagnosis/shared/harIssueClusters';
 import { buildHarClusterCopyText } from './buildHarClusterCopyText';
+import { useExportPreview } from '../shared/useExportPreview';
 import {
   buildHarRequestEvidenceConclusion,
   getHarRequestAnomalyHints,
@@ -303,6 +304,15 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
   const outgoingRedirect = useMemo(() => redirectLinks.find(link => link.fromRequestId === entry.id), [redirectLinks, entry.id]);
   const incomingRedirect = useMemo(() => redirectLinks.find(link => link.toRequestId === entry.id), [redirectLinks, entry.id]);
   const safeSummary = useMemo(() => buildHarRequestCopyText(entry), [entry]);
+  const { openExportPreview, exportPreview } = useExportPreview(entry);
+  const prepareClusterCopy = () => {
+    if (!issueCluster) return;
+    openExportPreview({
+      filename: 'har-issue-summary.txt',
+      mime: 'text/plain;charset=utf-8',
+      text: buildHarClusterCopyText(issueCluster),
+    });
+  };
   const loadBody = useMemo(() => {
     return async () => {
       const requestVersion = ++bodyRequestVersion.current;
@@ -774,7 +784,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
         {sectionTitle('安全请求摘要')}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            默认摘要会移除 query/hash，不包含请求体、Cookie、Authorization 或完整 Header。
+            默认摘要使用地址别名，不包含请求体、Cookie、Authorization、完整 Header 或追踪标识。
           </div>
           <Button
             size="small"
@@ -783,7 +793,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
             onClick={async () => {
               try {
                 await copyText(safeSummary);
-                message.success('已复制安全请求摘要');
+                message.success('已复制请求摘要');
               } catch {
                 message.error('复制失败，请手动复制');
               }
@@ -791,6 +801,14 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
           >
             复制请求摘要
           </Button>
+          <Button size="small" style={{ alignSelf: 'flex-start' }} onClick={() => {
+            openExportPreview({
+              filename: 'har-request-summary.txt',
+              mime: 'text/plain;charset=utf-8',
+              text: safeSummary,
+            });
+          }}>导出请求摘要</Button>
+          {exportPreview}
           <pre
             style={{
               margin: 0,
@@ -923,7 +941,7 @@ const HarRequestDetail: React.FC<HarRequestDetailProps> = ({ entry, allEntries =
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
               <strong style={{ color: 'var(--text-primary)' }}>{issueCluster.title}</strong>
-              <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(buildHarClusterCopyText(issueCluster))}>复制问题组摘要</Button>
+              <Button size="small" icon={<CopyOutlined />} onClick={prepareClusterCopy}>复制问题组摘要</Button>
             </div>
             <div>证据等级：{getHarEvidenceLevelLabel(issueCluster.evidenceLevel)} · 同组 {issueCluster.affectedRequestCount} 个请求 · {issueCluster.affectedDomainCount} 个域名</div>
             <div>归组依据：{issueCluster.groupingReason}</div>

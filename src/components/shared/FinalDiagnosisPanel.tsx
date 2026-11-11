@@ -19,6 +19,7 @@ import type {
   RootCauseCluster,
 } from '../../diagnosis/shared';
 import { sanitizeDiagnosisText } from '../../diagnosis/shared';
+import { useExportPreview } from './useExportPreview';
 import { formatAffectedRequestCount } from '../../diagnosis/shared/impactScope';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
@@ -169,6 +170,7 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
   const [troubleshootingRecordText, setTroubleshootingRecordText] = useState('尚未执行恢复操作。');
   const [showCopyFallback, setShowCopyFallback] = useState(false);
+  const { openExportPreview, exportPreview } = useExportPreview(finalSummary);
 
   const copyableText = useMemo(
     () => finalSummary ? buildCopyText(finalSummary, troubleshootingRecordText) : '',
@@ -232,8 +234,14 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
           <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={handleCopy}>
             复制给 IT / 客服
           </Button>
+          <Button size="small" onClick={() => openExportPreview({
+            filename: 'diagnosis-handoff.txt',
+            mime: 'text/plain;charset=utf-8',
+            text: copyableText,
+          })}>导出交接摘要</Button>
         </div>
       </div>
+      {exportPreview}
 
       {showCopyFallback && (
         <div className="final-diagnosis-copy-fallback">

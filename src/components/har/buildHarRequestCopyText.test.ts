@@ -53,6 +53,19 @@ function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
 }
 
 describe('buildHarRequestCopyText', () => {
+  it('marks a runtime missing HAR address explicitly', () => {
+    const value = entry();
+    Object.defineProperty(value, 'url', { value: undefined });
+    expect(buildHarRequestCopyText(value).split('\n')[1]).toBe('URL: 未记录');
+  });
+
+  it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
+    'keeps HAR non-absolute URL semantics for %s', url => {
+      const line = buildHarRequestCopyText(entry({ url })).split('\n')[1];
+      expect(line).toBe(`URL: ${sanitizeHarUrl(url)}`);
+    },
+  );
+
   it('removes query, body, cookie and authorization values from the summary', () => {
     const text = buildHarRequestCopyText(entry());
 
@@ -68,9 +81,18 @@ describe('buildHarRequestCopyText', () => {
     expect(text).not.toContain('SECRET_SET_COOKIE');
     expect(text).not.toContain('SECRET_REQUEST_BODY');
     expect(text).not.toContain('SECRET_RESPONSE_BODY');
+    expect(text).toContain('203.0.113.10');
+    expect(text).toContain('x-tt-logid: log-1');
   });
 
   it('sanitizes malformed URLs without leaking query or hash', () => {
     expect(sanitizeHarUrl('not-a-url/path?secret=1#hash')).toBe('not-a-url/path');
   });
+
+  it.each(['https:///example.test/a', 'https:example.test/a', 'https:\\\\example.test\\a'])(
+    'does not repair a malformed recorded address into a valid URL: %s', url => {
+      expect(sanitizeHarUrl(url)).toBe(url);
+      expect(buildHarRequestCopyText(entry({ url })).split('\n')[1]).toBe(`URL: ${url}`);
+    },
+  );
 });

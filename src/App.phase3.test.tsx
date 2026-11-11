@@ -1,4 +1,5 @@
 import React from 'react';
+import '@testing-library/jest-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
@@ -7,6 +8,9 @@ import { importNetlogDatasetInWorker, isWorkerSupported, largeNetlogTimeout, rel
 import { exportReport } from './parsers/netlog/diagnosis';
 import { message } from 'antd';
 import { cancelActiveTraceWorkerTask } from './workers/traceWorkerRegistry';
+import { downloadTextFile } from './utils/downloadTextFile';
+
+jest.mock('./utils/downloadTextFile', () => ({ downloadTextFile: jest.fn() }));
 
 jest.mock('antd', () => {
   const Layout = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
@@ -24,6 +28,10 @@ jest.mock('antd', () => {
       </>
     ),
     FloatButton: () => null,
+    Modal: ({ children, open, footer }: { children: React.ReactNode; open: boolean; footer: React.ReactNode }) =>
+      open ? <div role="dialog">{children}{footer}</div> : null,
+    Checkbox: ({ children, checked, onChange }: { children: React.ReactNode; checked: boolean; onChange: React.ChangeEventHandler<HTMLInputElement> }) =>
+      <label><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>,
     message: {
       success: jest.fn(),
       error: jest.fn(),
@@ -318,6 +326,7 @@ describe('App Phase 3 upload behavior', () => {
     exportReportMock.mockClear();
     exportReportMock.mockReturnValue('# mock report');
     cancelActiveTraceWorkerTaskMock.mockClear();
+    (downloadTextFile as jest.Mock).mockClear();
     URL.createObjectURL = jest.fn(() => 'blob:mock');
     URL.revokeObjectURL = jest.fn();
   });
@@ -957,5 +966,71 @@ describe('App Phase 3 upload behavior', () => {
         }),
       ],
     }));
+  });
+
+  async function loadExportFixture() {
+    parseUploadedInputMock.mockResolvedValue({
+      kind: 'netlog',
+      events: [],
+      result: {
+        totalEvents: 0, uniqueSources: 1, peakConcurrency: 1,
+        urlRequests: [{
+          id: 7, url: 'https://private.example.test/account?token=FAKE_EXPORT_VALUE',
+          method: 'GET', status: 'line,"quoted"\nnext', statusCode: 0,
+          duration: 0, error: -101, timeline: { dns: { start: 0, end: 0, duration: 0 } },
+        }],
+        proxyInfo: { proxySettings: { password: 'FAKE_PROXY_VALUE' } },
+        errors: [{ severity: 'error', category: 'network', message: 'Failure',
+          detail: '/Users/synthetic-user/private.txt', time: 0 }],
+        warnings: [], info: [], slowRequests: [],
+      },
+    });
+    render(<App />);
+    await userEvent.click(screen.getByText('上传 NetLog'));
+    await screen.findByText('ConclusionActionTab');
+  }
+
+  it('默认 JSON 导出保留原地址、代理和错误详情及旧结构', async () => {
+    await loadExportFixture();
+    await userEvent.click(screen.getByText('JSON 数据'));
+    expect(downloadTextFile).not.toHaveBeenCalled();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    const preview = screen.getByRole('textbox', { name: '导出内容' });
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
+    const text = (downloadTextFile as jest.Mock).mock.calls[0][1];
+    expect(text).toBe(preview.getAttribute('value') ?? (preview as HTMLTextAreaElement).value);
+    expect(text.includes('FAKE_EXPORT_VALUE')).toBe(true);
+    expect(text.includes('FAKE_PROXY_VALUE')).toBe(true);
+    expect(text.includes('private.example.test')).toBe(true);
+    expect(text.includes('/Users/')).toBe(true);
+    expect(Object.keys(JSON.parse(text))).toEqual(['exportTime', 'overview', 'proxyInfo', 'requests', 'errors']);
+  });
+
+  it('CSV 保留零和负错误码，并转义引号和换行', async () => {
+    await loadExportFixture();
+    await userEvent.click(screen.getByText('CSV 请求列表'));
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
+    const text = (downloadTextFile as jest.Mock).mock.calls[0][1];
+    expect(text.includes('"line,""quoted""\nnext"')).toBe(true);
+    expect(text.includes('"0","0","-101","0"')).toBe(true);
+  });
+
+  it('JSON 原字段默认可见；取消不下载且重置清除预览', async () => {
+    await loadExportFixture();
+    await userEvent.click(screen.getByText('JSON 数据'));
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
+    const text = (downloadTextFile as jest.Mock).mock.calls[0][1];
+    expect(text.includes('FAKE_EXPORT_VALUE')).toBe(true);
+    expect(text.includes('FAKE_PROXY_VALUE')).toBe(true);
+    expect(text.includes('/Users/synthetic-user/private.txt')).toBe(true);
+    expect(JSON.parse(text)).not.toHaveProperty('schema');
+    await userEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(downloadTextFile).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByText('JSON 数据'));
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.getByRole('textbox', { name: '导出内容' })).toBeInTheDocument();
+    await userEvent.click(screen.getByText('重新上传'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

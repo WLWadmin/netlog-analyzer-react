@@ -155,6 +155,48 @@ function clean(value: string): string {
   return findSensitiveDataLeaks(sanitized).length === 0 ? sanitized : '[redacted]';
 }
 
+/** 只遍历既有白名单 DTO，不读取 sourceText、args 或完整 Trace 事件。 */
+export function serializeTraceJsonExport(payload: TraceExportPayload): string {
+  const urlNodes = new WeakSet<object>();
+  const identityFields = new WeakMap<object, ReadonlySet<string>>();
+  const referenceLists = new WeakSet<object>();
+  const register = (record: object, keys: string[], lists: readonly string[][]) => {
+    identityFields.set(record, new Set(keys));
+    lists.forEach(list => referenceLists.add(list));
+  };
+  // 只登记 schema 中已知的节点与字段；未来同名属性不会自动获得放行权限。
+  for (const item of [payload.primaryDiagnosis, ...payload.secondaryDiagnoses]) {
+    if (item) register(item, ['id', 'ruleId'], [item.evidenceIds, item.factIds]);
+  }
+  for (const item of payload.milestones) register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  for (const item of payload.boundedRequests) {
+    register(item, ['id', 'requestId', 'navigationKey'], [item.evidenceIds]);
+    if (item.url) urlNodes.add(item.url);
+  }
+  for (const item of payload.boundedTasks.tasks) register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  for (const item of payload.boundedTasks.cpuHotspots) {
+    register(item, ['id', 'profileId', 'navigationKey'], [item.evidenceIds, item.taskIds]);
+    if (item.script) urlNodes.add(item.script);
+  }
+  for (const item of [...payload.boundedRendering.frames, ...payload.boundedRendering.events]) {
+    register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  }
+  for (const item of payload.boundedRendering.reflow) register(item, ['id', 'navigationKey', 'taskId'], [item.evidenceIds]);
+  for (const item of payload.boundedInteractions) {
+    register(item, ['id', 'navigationKey'], [item.evidenceIds, item.taskIds, item.renderingEventIds, item.frameIds]);
+  }
+  for (const item of payload.referencedEvidence) register(item, ['evidenceId'], []);
+  return JSON.stringify(payload, function (this: unknown, key: string, value: unknown): unknown {
+    if (this && typeof this === 'object') {
+      // 地址已由 builder 按既有 origin/pathname 契约投影；序列化不再改写事实。
+      if (urlNodes.has(this) && (key === 'origin' || key === 'pathname')) return value;
+      // 身份不是自由文本；只保护已有 DTO 的 ID 和引用数组，避免破坏 join 关系。
+      if (identityFields.get(this)?.has(key) || referenceLists.has(this)) return value;
+    }
+    return typeof value === 'string' ? clean(value) : value;
+  }, 2);
+}
+
 function cleanList(values: readonly string[]): string[] {
   return values.map(clean);
 }

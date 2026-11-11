@@ -1,0 +1,46 @@
+{
+  "benchmark": "synthetic-export-react-jsdom",
+  "baselineSha": "0d1581aff49ee143e7cd3185152c591264129ca5",
+  "candidate": "source files in the commit carrying this evidence",
+  "node": "v24.13.0",
+  "gc": true,
+  "samplesPerCase": 1,
+  "environment": "Node + React 19 + JSDOM; no browser, layout engine, clipboard or system download",
+  "observations": [
+    {
+      "mode": "reviewed-baseline", "count": 10000,
+      "jsonChars": 3058369, "csvChars": 917901, "previewChars": 3058369,
+      "ms": { "sharingBuild": 40.1, "csvBuild": 37.01, "open": 5.35, "expertBuild": 5.3, "expertSwitch": 9.7, "sharingSwitch": 1.65, "cancel": 1.68, "ownerReset": 0.3 },
+      "heapBytes": { "start": 58011920, "sharingAndCsv": 62279008, "open": 63415304, "expert": 67035272, "sharingAgain": 67156816, "cancel": 67225160 },
+      "ownerInvalidated": true
+    },
+    {
+      "mode": "reviewed-baseline", "count": 50000,
+      "jsonChars": 15333970, "csvChars": 4633501, "previewChars": 15333970,
+      "ms": { "sharingBuild": 167.42, "csvBuild": 175.37, "open": 7.45, "expertBuild": 23.3, "expertSwitch": 32, "sharingSwitch": 4.8, "cancel": 2.88, "ownerReset": 0.61 },
+      "heapBytes": { "start": 69530264, "sharingAndCsv": 90749480, "open": 91885960, "expert": 108646752, "sharingAgain": 108859440, "cancel": 108890816 },
+      "ownerInvalidated": true
+    },
+    {
+      "mode": "working-tree", "count": 10000,
+      "jsonChars": 3058369, "csvChars": 917901, "previewChars": 32768,
+      "ms": { "sharingBuild": 43.05, "csvBuild": 39.53, "open": 5.31, "expertBuild": 4.76, "expertSwitch": 8.38, "sharingSwitch": 1.14, "cancel": 1.23, "ownerReset": 0.38 },
+      "heapBytes": { "start": 58175904, "sharingAndCsv": 62479304, "open": 63646904, "expert": 67265184, "sharingAgain": 67322064, "cancel": 67454232 },
+      "ownerInvalidated": true
+    },
+    {
+      "mode": "working-tree", "count": 50000,
+      "jsonChars": 15333970, "csvChars": 4633501, "previewChars": 32768,
+      "ms": { "sharingBuild": 169.94, "csvBuild": 172.1, "open": 4.79, "expertBuild": 21.22, "expertSwitch": 25.2, "sharingSwitch": 1.28, "cancel": 1.2, "ownerReset": 0.3 },
+      "heapBytes": { "start": 69698248, "sharingAndCsv": 90951312, "open": 92119408, "expert": 108933064, "sharingAgain": 108990480, "cancel": 109146560 },
+      "ownerInvalidated": true
+    }
+  ],
+  "limitations": [
+    "Single-run observations vary; no statistical performance guarantee.",
+    "Bounded DOM preview does not eliminate synchronous full-string construction or the expert cache.",
+    "Heap includes the retained synthetic input, sharing JSON, CSV, React/JSDOM and expert snapshot; cancellation does not prove immediate reclamation.",
+    "Real 500/800MB performance, Edge layout and Blob download: not-run.",
+    "Local Node 24 differs from CI Node 20."
+  ]
+}
