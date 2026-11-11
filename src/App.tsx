@@ -876,6 +876,8 @@ const AppContent: React.FC = () => {
       mime: 'application/json;charset=utf-8',
       sharingText: buildNetlogJsonExport(result, false, generatedAt),
       buildExpertText: () => buildNetlogJsonExport(result, true, generatedAt),
+      sharingLabel: '安全分享 JSON v1',
+      expertLabel: '专家兼容 JSON（旧结构）',
       expertFields: '原 URL、代理配置及凭据、完整错误详情',
     });
   };

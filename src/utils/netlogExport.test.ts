@@ -24,22 +24,23 @@ describe('NetLog export boundary', () => {
     const result = fixture();
     Object.defineProperty(result.urlRequests[0], 'url', { value: undefined });
     Object.defineProperty(result.proxyInfo, 'pacUrl', { value: undefined });
-    const shared = JSON.parse(buildNetlogJsonExport(result));
+    const shared = JSON.parse(buildNetlogJsonExport(result)).data;
     expect(Object.prototype.hasOwnProperty.call(shared.requests[0], 'url')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(shared.proxyInfo, 'pacUrl')).toBe(false);
     expect(buildNetlogCsvExport(result).split('\r\n')[1].startsWith('"",')).toBe(true);
   });
 
   it.each([null, {}, ['synthetic'], 'synthetic', 0, false])(
-    'documents pending open-proxy type changes and preserves original expert value %p', settings => {
+    'replaces opaque value slots with explicit state and preserves expert value %p', settings => {
       const result = fixture();
       result.proxyInfo.proxySettings = settings;
       result.proxyInfo.effectiveProxy = settings;
       result.proxyInfo.originalProxy = settings;
-      const safe = JSON.parse(buildNetlogJsonExport(result));
+      const safe = JSON.parse(buildNetlogJsonExport(result)).data;
       const expert = JSON.parse(buildNetlogJsonExport(result, true));
       for (const key of ['proxySettings', 'effectiveProxy', 'originalProxy']) {
-        expect(safe.proxyInfo[key]).toBe('[expert only]');
+        expect(safe.proxyInfo).not.toHaveProperty(key);
+        expect(safe.proxyInfo.redactions[key].state).toBe(settings === null ? 'null' : 'redacted');
         expect(expert.proxyInfo[key]).toEqual(settings);
       }
     },
@@ -50,7 +51,7 @@ describe('NetLog export boundary', () => {
       const result = fixture();
       result.urlRequests[0].url = url;
       result.proxyInfo.pacUrl = url;
-      const shared = JSON.parse(buildNetlogJsonExport(result));
+      const shared = JSON.parse(buildNetlogJsonExport(result)).data;
       expect(shared.requests[0].url.startsWith('https://')).toBe(false);
       expect(shared.proxyInfo.pacUrl.startsWith('https://')).toBe(false);
       expect(buildNetlogCsvExport(result).includes('https://')).toBe(false);
@@ -73,7 +74,7 @@ describe('NetLog export boundary', () => {
       expect(safe.includes(value)).toBe(false);
     }
     // 既有启发式 scanner 把 ISO 日期当电话号码；检查所有非受控文本字段。
-    const scanPayload = JSON.parse(safe);
+    const scanPayload = JSON.parse(safe).data;
     expect(Number.isNaN(Date.parse(scanPayload.exportTime))).toBe(false);
     delete scanPayload.exportTime;
     expect(findSensitiveDataLeaks(JSON.stringify(scanPayload))).toEqual([]);

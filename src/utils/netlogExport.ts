@@ -1,5 +1,6 @@
 import type { AnalysisResult, PhaseInfo, RequestTimeline } from '../parsers/netlog';
 import { createSharingTextSanitizer } from '../diagnosis/shared/maskedExport';
+import { inspectSharingField } from './sharingFieldState';
 
 function projectPhase(phase?: PhaseInfo) {
   return phase && { start: phase.start, end: phase.end, duration: phase.duration };
@@ -35,10 +36,12 @@ export function buildNetlogJsonExport(result: AnalysisResult, expert = false, ge
     proxyInfo: expert ? proxy : proxy && {
       hasProxy: proxy.hasProxy,
       proxyType: proxy.proxyType === null ? null : text(proxy.proxyType ?? ''),
-      // 这些对象可以含任意凭据，分享投影不读取/序列化它们。
-      proxySettings: '[expert only]',
-      effectiveProxy: '[expert only]',
-      originalProxy: '[expert only]',
+      // v1 明示状态并移除旧值槽位，避免字符串伪装为原 object/null。
+      redactions: {
+        proxySettings: inspectSharingField(proxy, 'proxySettings'),
+        effectiveProxy: inspectSharingField(proxy, 'effectiveProxy'),
+        originalProxy: inspectSharingField(proxy, 'originalProxy'),
+      },
       pacUrl: proxy.pacUrl == null ? proxy.pacUrl : sanitize(proxy.pacUrl, true),
       proxyList: proxy.proxyList?.map(() => '[expert only]'),
       proxyFallback: proxy.proxyFallback == null ? proxy.proxyFallback : '[expert only]',
@@ -63,7 +66,9 @@ export function buildNetlogJsonExport(result: AnalysisResult, expert = false, ge
       time: error.time,
     })),
   };
-  return JSON.stringify(data, null, 2);
+  return JSON.stringify(expert ? data : {
+    schema: 'netlog-analyzer-sharing', version: 1, profile: 'safe-sharing', kind: 'netlog', data,
+  }, null, 2);
 }
 
 /** 文本防公式执行，数值保持数值语义（包括负错误码和 0）。 */

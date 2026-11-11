@@ -8,6 +8,8 @@ interface ExportPreviewJob {
   sharingText: string;
   buildExpertText?: () => string;
   expertFields?: string;
+  sharingLabel?: string;
+  expertLabel?: string;
 }
 
 interface PreviewState {
@@ -42,6 +44,7 @@ export function useExportPreview(owner: unknown) {
     const next: PreviewState = { owner, job: {
       filename: job.filename, mime: job.mime, sharingText: job.sharingText,
       buildExpertText: job.buildExpertText, expertFields: job.expertFields,
+      sharingLabel: job.sharingLabel, expertLabel: job.expertLabel,
     }, text: job.sharingText, expert: false };
     activePreview.current = next;
     setPreview(next);
@@ -86,6 +89,8 @@ export function useExportPreview(owner: unknown) {
         message.success('文件已下载');
       }}>下载文件</Button>,
     ]}>
+      {current.job.sharingLabel ? <p>当前格式：{current.expert
+        ? current.job.expertLabel : current.job.sharingLabel}</p> : null}
       <p>{current.expert
         ? '本地专家导出：包含下列原始字段，请仅交给获准接收这些信息的人。'
         : '默认分享：地址使用单报告别名，凭据、原始正文与开放配置不纳入分享。分享前请复核。'}</p>

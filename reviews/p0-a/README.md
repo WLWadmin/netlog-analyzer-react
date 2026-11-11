@@ -2,9 +2,9 @@
 
 本分支仅实施 P0-A，交由技术顾问 Review；不合并、不部署、不启动其他 P0 单元。
 
-REVIEW-C 最新交付为[最小兼容修订方案](review-c-proposal.md)、[拟议 schema](review-c-sharing-v1.schema.json)、[JSON 对照](review-c-examples.json)和[可复现测试设计](review-c-test-design.md)。本轮仅补设计/证据，不改生产代码；新版本契约未经批准，C-02/C-03 旧方案已拒绝，合并/发布仍 blocked。
+REVIEW-C 当前交付为 [限定实现与验证](review-c-implementation.md)、[获批 schema](review-c-sharing-v1.schema.json)、[真实 builder 合成对照](review-c-actual-examples.json)和[可复验脚本](verify-sharing-v1.cjs)。D-C-V1、D-C-META 已明确批准并实施；此前被拒绝的字符串/顺序别名方案已替换，不据此批准旧兼容损失。默认分享 JSON v1 与旧默认布局不兼容，专家兼容 JSON 保留旧结构；等待独立技术复核，PR 继续 Draft。
 
-**PR #3 独立 Review 整改：整体 blocked。** 最新 A～E 结论、实际测试和性能见 [review-remediation.md](review-remediation.md)，完整 JSON 字段差异见 [json-compatibility.md](json-compatibility.md)。负责人明确未批准 C-01～C-03；默认 JSON 的兼容损失不能仅凭 D04-A 或专家替代入口放行。以下首轮实现记录保留为历史，不能替代这次复核。
+以下首轮实现记录及 A～E 的 [review-remediation.md](review-remediation.md)、旧 [json-compatibility.md](json-compatibility.md)保留为历史。当前状态由限定实现记录覆盖；独立 Review、真实样本/大文件验收尚未完成，合并/发布仍 blocked。
 
 ## 授权与基线
 

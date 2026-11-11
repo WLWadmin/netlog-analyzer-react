@@ -1,6 +1,6 @@
 # REVIEW-C · JSON 字段兼容与审批
 
-最新负责人意见与替代方案见 [review-c-proposal.md](review-c-proposal.md)：C-02 筛选重编号、C-03 字符串/缺失伪装已明确拒绝；C-01 未获批准。下面记录已审核生产行为，不是可发布方案。拟议安全分享 v1 尚未实现，等待新契约批准；原 ID 本地生成，没有实际隐私风险证据。
+**历史差异表：** 下面记录已审核并被拒绝/未获批准的旧生产行为，已由后续实现替换。负责人批准 D-C-V1、D-C-META 后，当前默认分享采用显式 v1 envelope 与字段状态、保留 Go 原 ID；专家 JSON 保持旧结构。当前兼容差异、迁移与验证见 [review-c-implementation.md](review-c-implementation.md)，实际对照见 [review-c-actual-examples.json](review-c-actual-examples.json)。此前拒绝意见仍适用于三项旧方案，不能被解释为授权旧字符串/重编号行为。
 
 对照基线：master `5d6f3f1da4931eeff13fb028d069862e8cb86530` 中 App JSON 和 Go JSON 出口；被审查实现：`0d1581aff49ee143e7cd3185152c591264129ca5`。下表来自实际 DTO 和类型，不把 D04-A 当作破坏性格式变更授权。默认分享与专家导出均使用原字段名，没有新建替代格式。
 

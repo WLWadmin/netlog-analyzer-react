@@ -1,5 +1,7 @@
 # Draft PR #3 · REVIEW-A～E 定向整改
 
+本文为前轮审查历史。D-C-V1 / D-C-META 后续获负责人批准，限定实现和最新验证见 [review-c-implementation.md](review-c-implementation.md)；旧 C-01～C-03 方案已被替换。A、B、D 保留，未在本轮重新实现；合并/发布仍 blocked，PR #3 保持 Draft 等待独立复核。
+
 被审查 HEAD：`0d1581aff49ee143e7cd3185152c591264129ca5`。本修订以承载本文的提交为候选标识，继续使用 `fix/export-sharing-safety` 和 [Draft PR #3](https://github.com/WLWadmin/netlog-analyzer-react/pull/3)。仅 P0-A；无新的 PR、Ready、合并或部署。
 
 **整体状态：blocked。A、D 的代码与回归通过；B 完成有限预览和合成评估；C 三项兼容损失未获批准，禁止合并及发布。E 本地验证通过，真实大文件、Excel 和 Edge 验收仍未完成。**

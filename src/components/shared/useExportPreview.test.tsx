@@ -26,6 +26,7 @@ it('preview/copy/download share one snapshot, expert is opt-in and cached, new o
     return <><button onClick={() => openExportPreview({
       filename: 'test.txt', mime: 'text/plain;charset=utf-8', sharingText: 'safe snapshot',
       buildExpertText: buildExpert, expertFields: 'local text',
+      sharingLabel: '安全分享 JSON v1', expertLabel: '专家兼容 JSON（旧结构）',
     })}>准备</button>{exportPreview}</>;
   }
   const { rerender } = render(<Harness owner="one" />);
@@ -33,12 +34,14 @@ it('preview/copy/download share one snapshot, expert is opt-in and cached, new o
   expect(buildExpert).not.toHaveBeenCalled();
   expect(downloadTextFile).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox')).toHaveValue('safe snapshot');
+  expect(screen.getByText('当前格式：安全分享 JSON v1')).toBeInTheDocument();
   await userEvent.click(screen.getByText('复制内容'));
   await userEvent.click(screen.getByText('下载文件'));
   expect(writeText).toHaveBeenCalledWith('safe snapshot');
   expect(downloadTextFile).toHaveBeenLastCalledWith('test.txt', 'safe snapshot', 'text/plain;charset=utf-8');
   await userEvent.click(screen.getByRole('checkbox'));
   expect(screen.getByRole('textbox')).toHaveValue('FAKE_LOCAL_EXPERT');
+  expect(screen.getByText('当前格式：专家兼容 JSON（旧结构）')).toBeInTheDocument();
   await userEvent.click(screen.getByText('复制内容'));
   await userEvent.click(screen.getByText('下载文件'));
   expect(writeText).toHaveBeenLastCalledWith('FAKE_LOCAL_EXPERT');

@@ -994,6 +994,7 @@ describe('App Phase 3 upload behavior', () => {
     await loadExportFixture();
     await userEvent.click(screen.getByText('JSON 数据'));
     expect(downloadTextFile).not.toHaveBeenCalled();
+    expect(screen.getByText('当前格式：安全分享 JSON v1')).toBeInTheDocument();
     const preview = screen.getByRole('textbox', { name: '导出内容' });
     await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     const text = (downloadTextFile as jest.Mock).mock.calls[0][1];
@@ -1002,6 +1003,7 @@ describe('App Phase 3 upload behavior', () => {
     expect(text.includes('FAKE_PROXY_VALUE')).toBe(false);
     expect(text.includes('private.example.test')).toBe(false);
     expect(text.includes('/Users/')).toBe(false);
+    expect(JSON.parse(text)).toMatchObject({ schema: 'netlog-analyzer-sharing', version: 1, kind: 'netlog' });
   });
 
   it('CSV 保留零和负错误码，并转义引号和换行', async () => {
@@ -1017,15 +1019,18 @@ describe('App Phase 3 upload behavior', () => {
     await loadExportFixture();
     await userEvent.click(screen.getByText('JSON 数据'));
     await userEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByText('当前格式：专家兼容 JSON（旧结构）')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     const text = (downloadTextFile as jest.Mock).mock.calls[0][1];
     expect(text.includes('FAKE_EXPORT_VALUE')).toBe(true);
     expect(text.includes('FAKE_PROXY_VALUE')).toBe(true);
     expect(text.includes('/Users/synthetic-user/private.txt')).toBe(true);
+    expect(JSON.parse(text)).not.toHaveProperty('schema');
     await userEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(downloadTextFile).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByText('JSON 数据'));
     expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByText('当前格式：安全分享 JSON v1')).toBeInTheDocument();
     await userEvent.click(screen.getByText('重新上传'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });

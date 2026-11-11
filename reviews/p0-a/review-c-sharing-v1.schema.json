@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:netlog-analyzer:proposed-sharing-json:v1",
-  "title": "Proposed safe sharing JSON v1 — pending owner approval",
+  "title": "Safe sharing JSON v1 — owner-approved D-C-V1 contract",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "version", "profile", "kind", "data"],

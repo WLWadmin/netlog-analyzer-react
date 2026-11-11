@@ -24,7 +24,7 @@ it('sharing JSON/TXT do not access opaque fields and retain all selected entries
   const entries = Array(120).fill(value);
   const json = buildLogEntriesJson(entries);
   const text = buildLogEntriesText(entries);
-  expect(JSON.parse(json).entries).toHaveLength(120);
+  expect(JSON.parse(json).data.entries).toHaveLength(120);
   expect(text.split('\n')).toHaveLength(120);
   for (const output of [json, text]) {
     expect(output.includes('FAKE_')).toBe(false);
@@ -43,7 +43,7 @@ it('explicit expert JSON keeps the original DTO and TXT keeps raw lines exactly'
 it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
   'Go JSON/TXT never invent a known host from %s', url => {
     const value = { ...entry(), url };
-    expect(JSON.parse(buildLogEntriesJson([value])).entries[0].url.startsWith('https://')).toBe(false);
+    expect(JSON.parse(buildLogEntriesJson([value])).data.entries[0].url.startsWith('https://')).toBe(false);
     expect(buildLogEntriesText([value]).includes('https://')).toBe(false);
     expect(JSON.parse(buildLogEntriesJson([value], true)).entries[0].url).toBe(url);
   },
@@ -52,23 +52,25 @@ it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
 it('keeps a missing Go JSON URL absent and marks its TXT absence', () => {
   const value = entry();
   Object.defineProperty(value, 'url', { value: undefined });
-  expect(Object.prototype.hasOwnProperty.call(JSON.parse(buildLogEntriesJson([value])).entries[0], 'url')).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(JSON.parse(buildLogEntriesJson([value])).data.entries[0], 'url')).toBe(false);
   expect(buildLogEntriesText([value])).toContain('[address missing]');
 });
 
 it.each([undefined, null, {}, ['synthetic'], 0, false, 'synthetic'])(
-  'documents the pending default body type/missing contract, while expert preserves %p', body => {
+  'preserves explicit body metadata and original expert value %p', body => {
     const value = { ...entry(), body, bodyRaw: undefined };
-    const safe = JSON.parse(buildLogEntriesJson([value])).entries[0];
+    const safe = JSON.parse(buildLogEntriesJson([value])).data.entries[0];
     const expert = JSON.parse(buildLogEntriesJson([value], true)).entries[0];
-    expect(typeof safe.headers).toBe('string');
+    expect(safe.redactions.headers).toEqual({ state: 'redacted', valueType: 'object', emptiness: 'uninspected' });
     expect(expert.headers).toEqual(value.headers);
-    expect(safe.body).toBe('[expert only]');
-    expect(safe.bodyRaw).toBe('[expert only]');
+    expect(safe).not.toHaveProperty('body');
+    expect(safe).not.toHaveProperty('bodyRaw');
+    expect(safe.redactions.body.state).toBe(body === undefined ? 'missing' : body === null ? 'null' : 'redacted');
+    expect(safe.redactions.bodyRaw).toEqual({ state: 'missing', reason: 'undefined-value' });
     expect(expert.body).toEqual(body);
     expect(Object.prototype.hasOwnProperty.call(expert, 'body')).toBe(body !== undefined);
     expect(Object.prototype.hasOwnProperty.call(expert, 'bodyRaw')).toBe(false);
-    expect(safe.id).toBe('entry-1');
+    expect(safe.id).toBe(value.id);
     expect(expert.id).toBe(value.id);
   },
 );

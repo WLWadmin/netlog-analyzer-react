@@ -1,6 +1,6 @@
 # REVIEW-C 最小兼容修订方案
 
-基线：`e76030e4ae88e7bfb7ab0db08456f5e128560692`，[Draft PR #3](https://github.com/WLWadmin/netlog-analyzer-react/pull/3)。本轮交付设计、JSON Schema、对照样例和复现设计；**未修改生产代码，拟议分享 DTO 尚未实现或批准，不能发布。**
+基线：`e76030e4ae88e7bfb7ab0db08456f5e128560692`，[Draft PR #3](https://github.com/WLWadmin/netlog-analyzer-react/pull/3)。本文保留设计阶段历史；负责人随后明确批准 D-C-V1、D-C-META，并授权限定实现、测试、提交、推送与同一 Draft PR 更新。**当前实现、实际 JSON 和验证以 [review-c-implementation.md](review-c-implementation.md) 为准；不授权 Ready、合并或部署。** 以下“拟议/待批准/未实现”描述均为批准前历史，不代表当前状态。
 
 负责人已拒绝 C-02 的筛选重编号和 C-03 的固定字符串方案；C-01 当前代理字符串方案未获批准。这三项旧行为保留在审查基线中用于复现，均不作为可发布契约。A、B、D 不重新实现，真实大文件继续 not-run。
 
@@ -72,7 +72,7 @@ metadata 不设 value 字段；JSON Schema 排除私有内容、未知键和错�
 
 [review-c-examples.json](review-c-examples.json) 的 currentShareFragment/expertFragment 已用当前生产 builder 对合成输入生成并核对；proposedNetlog/proposedGo 是待实现的预期 JSON。示例明确展示 null、删除属性和 body=undefined/空 bodyRaw 的差异；完整 Body 状态矩阵含 12 类输入。当前专家原类型和可选字段保留，拟议专家输出不变。
 
-完整 Go 样例按 Asia/Shanghai 记录现有时间数值；没有时区的日志时间沿用原 parser 行为。时间文本也保留当前分享投影（包含既有日期脱敏结果），不借本轮修改其他字段的脱敏规则。
+设计阶段 Go 样例按 Asia/Shanghai 记录现有时间数值；没有时区的日志时间沿用原 parser 行为。随后负责人明确要求时间保真测试：当前实现对完整受控时间语法保留原文本，不再把横线日期误作电话；未知文本仍脱敏，不重算 timestampMs 或时区。实际样例见 [review-c-actual-examples.json](review-c-actual-examples.json)。
 
 | 组 | 当前已拒绝或未获批行为 | 拟议修订 | 仍需批准 |
 |---|---|---|---|
