@@ -1,0 +1,64 @@
+{
+  "checked_at_utc": "2026-11-11T06:24:50.597694+00:00",
+  "status": "passed",
+  "method": "agent-local-reproduction",
+  "independent_external_review": "not-run",
+  "checks": [
+    {
+      "check": "311-ID/schema/classification/CSV/source-paths",
+      "status": "passed",
+      "classifications": {
+        "user-facing": 52,
+        "compatibility-contract": 28,
+        "expert-facing": 197,
+        "internal-capability": 9,
+        "experimental": 25
+      },
+      "change_types": {
+        "原样保留": 31,
+        "内部兼容": 34,
+        "菜单重组": 229,
+        "增强": 9,
+        "错误修复": 8
+      },
+      "id_set_sha256": "bd5e351b64e584eef0260f078d436280bf9bf4bca06a52eb0c69f47bbe86dfd0"
+    },
+    {
+      "check": "P0-F01-F07/ten-field-contracts/feature-references",
+      "status": "passed",
+      "units": 7,
+      "references": 55
+    },
+    {
+      "check": "local-links/assets/anchors/HTML-matrix-equality",
+      "status": "passed",
+      "links": 88
+    },
+    {
+      "check": "matrix-and-prototype-dom",
+      "status": "passed",
+      "checks": 68,
+      "method": "offline-jsdom",
+      "browser": "not-run",
+      "network": "not-used"
+    },
+    {
+      "check": "production-baseline/whitespace/docs-ignore",
+      "status": "passed",
+      "head": "5d6f3f1da4931eeff13fb028d069862e8cb86530",
+      "production_changes": "NONE"
+    },
+    {
+      "check": "public-delivery/file-allowlist/sensitive-patterns/whitespace",
+      "status": "passed",
+      "files": 28,
+      "payload_sha256": "87254276e9de9e92ba8454fdbc39934f7d979d3bfb670e6bc5b8ab4a0cfaec67",
+      "boundary": "Synthetic prototype; heuristic scan plus scoped artifact review, not a universal secret detector."
+    }
+  ],
+  "production_tests": "not-run",
+  "real_samples": "not-run",
+  "runtime_c1_parity": "not-run",
+  "edge_browser": "not-run",
+  "edge_safe_automation_path": "blocked"
+}
