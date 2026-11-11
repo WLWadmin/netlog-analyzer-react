@@ -1,4 +1,4 @@
-import { findSensitiveDataLeaks, sanitizeDiagnosisText } from '../../diagnosis/shared/maskedExport';
+import { createSharingTextSanitizer, findSensitiveDataLeaks, sanitizeDiagnosisText } from '../../diagnosis/shared/maskedExport';
 import {
   selectTraceDiagnoses,
   type TraceAnalysisResult,
@@ -153,6 +153,22 @@ export interface TraceExportPayload {
 function clean(value: string): string {
   const sanitized = sanitizeDiagnosisText(value);
   return findSensitiveDataLeaks(sanitized).length === 0 ? sanitized : '[redacted]';
+}
+
+/** 只遍历既有白名单 DTO，不读取 sourceText、args 或完整 Trace 事件。 */
+export function serializeTraceSharingExport(payload: TraceExportPayload): string {
+  const sanitize = createSharingTextSanitizer();
+  return JSON.stringify(payload, (key: string, value: unknown): unknown => {
+    if ((key === 'url' || key === 'script') && value && typeof value === 'object'
+      && 'origin' in value && typeof value.origin === 'string'
+      && 'pathname' in value && typeof value.pathname === 'string') {
+      const alias = new URL(sanitize(value.origin + value.pathname, true));
+      return { origin: alias.origin, pathname: alias.pathname };
+    }
+    // origin/pathname 已由上方合并投影，避免重复别名或泄漏原路径。
+    if (key === 'origin' || key === 'pathname') return value;
+    return typeof value === 'string' ? sanitize(value) : value;
+  }, 2);
 }
 
 function cleanList(values: readonly string[]): string[] {

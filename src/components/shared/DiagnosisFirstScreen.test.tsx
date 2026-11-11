@@ -22,6 +22,9 @@ jest.mock('antd', () => {
     Button: ({ children, onClick, disabled }: { children?: React.ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button>,
     Alert: ({ message, description }: { message?: React.ReactNode; description?: React.ReactNode }) => <div>{message}{description}</div>,
     Collapse,
+    Modal: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => <div role="dialog">{children}{footer}</div>,
+    Checkbox: ({ children, checked, onChange }: { children: React.ReactNode; checked: boolean; onChange: React.ChangeEventHandler<HTMLInputElement> }) =>
+      <label><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>,
     message: { warning: jest.fn(), success: jest.fn(), error: jest.fn(), info: jest.fn() },
   };
 });
@@ -207,6 +210,12 @@ describe('Diagnosis first screen components', () => {
       expect((fallback as HTMLTextAreaElement).value).toContain('缺少关联 source：补采同次 NetLog');
       expect((fallback as HTMLTextAreaElement).value).toContain('用户已尝试：');
       expect((fallback as HTMLTextAreaElement).value).not.toContain('FAKE_TOKEN_VALUE');
+      expect((fallback as HTMLTextAreaElement).value).not.toContain('example.test');
+      fireEvent.click(screen.getByRole('button', { name: '本地专家交接' }));
+      fireEvent.click(screen.getByRole('checkbox'));
+      const expertPreview = screen.getByRole('textbox', { name: '导出内容' }) as HTMLTextAreaElement;
+      expect(expertPreview.value).toContain('example.test');
+      expect(expertPreview.value).not.toContain('FAKE_TOKEN_VALUE');
     } finally {
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: previousClipboard });
     }

@@ -19,6 +19,8 @@ import type {
   RootCauseCluster,
 } from '../../diagnosis/shared';
 import { sanitizeDiagnosisText } from '../../diagnosis/shared';
+import { createSharingTextSanitizer } from '../../diagnosis/shared/maskedExport';
+import { useExportPreview } from './useExportPreview';
 import { formatAffectedRequestCount } from '../../diagnosis/shared/impactScope';
 import DiagnosisCoveragePanel from './DiagnosisCoveragePanel';
 import IncidentEpisodeList from './IncidentEpisodeList';
@@ -109,7 +111,7 @@ function conclusionRequestIds(
   ]));
 }
 
-function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string): string {
+function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecordText: string, expert = false): string {
   const lines: string[] = [
     `诊断模式：${modeLabelMap[finalSummary.mode]}`,
     `摘要：${finalSummary.executiveSummary}`,
@@ -150,7 +152,8 @@ function buildCopyText(finalSummary: FinalDiagnosisSummary, troubleshootingRecor
     });
   }
 
-  return sanitizeDiagnosisText(lines.join('\n'));
+  const text = lines.join('\n');
+  return expert ? sanitizeDiagnosisText(text) : createSharingTextSanitizer()(text);
 }
 
 const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
@@ -169,6 +172,7 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
   const [expandedConclusionIds, setExpandedConclusionIds] = useState<string[]>([]);
   const [troubleshootingRecordText, setTroubleshootingRecordText] = useState('尚未执行恢复操作。');
   const [showCopyFallback, setShowCopyFallback] = useState(false);
+  const { openExportPreview, exportPreview } = useExportPreview(finalSummary);
 
   const copyableText = useMemo(
     () => finalSummary ? buildCopyText(finalSummary, troubleshootingRecordText) : '',
@@ -232,8 +236,16 @@ const FinalDiagnosisPanel: React.FC<FinalDiagnosisPanelProps> = ({
           <Button size="small" style={{ borderRadius: 999 }} icon={<FileTextOutlined />} onClick={handleCopy}>
             复制给 IT / 客服
           </Button>
+          <Button size="small" onClick={() => openExportPreview({
+            filename: 'diagnosis-handoff.txt',
+            mime: 'text/plain;charset=utf-8',
+            sharingText: copyableText,
+            buildExpertText: () => buildCopyText(finalSummary, troubleshootingRecordText, true),
+            expertFields: '既有摘要中的地址、证据和尝试记录；沿用原凭据/query/路径脱敏',
+          })}>本地专家交接</Button>
         </div>
       </div>
+      {exportPreview}
 
       {showCopyFallback && (
         <div className="final-diagnosis-copy-fallback">

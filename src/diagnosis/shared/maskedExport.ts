@@ -209,10 +209,79 @@ export function sanitizeDiagnosisText(value: string): string {
 }
 
 /**
+ * 单报告内的分享别名。字典只存活于一次投影，不导出反向映射；
+ * 不改变用于本地展示的 maskUrl/maskEvidenceValue 兼容语义。
+ */
+export function createSharingTextSanitizer(): (value: string, address?: boolean) => string {
+  const hosts = new Map<string, string>();
+  const resources = new Map<string, string>();
+  const hostAlias = (host: string) => {
+    const key = host.toLowerCase();
+    let alias = hosts.get(key);
+    if (!alias) {
+      alias = `host-${hosts.size + 1}.invalid`;
+      hosts.set(key, alias);
+    }
+    return alias;
+  };
+  const resourceAlias = (raw: string) => {
+    let resource = resources.get(raw);
+    if (!resource) {
+      resource = `resource-${resources.size + 1}`;
+      resources.set(raw, resource);
+    }
+    return resource;
+  };
+  return (value, address = false) => {
+    if (address) {
+      let host = 'unknown-address';
+      try { host = new URL(value).hostname || 'local-file'; } catch { /* 未解析地址仍保留独立别名 */ }
+      return `https://${hostAlias(host)}/${resourceAlias(value)}`;
+    }
+    const timestamps: string[] = [];
+    const aliases: string[] = [];
+    const protectAlias = (alias: string) => {
+      aliases.push(alias);
+      return `[export address ${aliases.length}]`;
+    };
+    // 已记录的 ISO 时刻不是电话号码；只保护严格格式，其余数字仍走既有脱敏。
+    let text = value.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g, timestamp => {
+      timestamps.push(timestamp);
+      return `[export timestamp ${timestamps.length}]`;
+    });
+    text = text.replace(
+      /\b(?:https?|wss?|ftp|file):\/\/[^\s"'<>`*，。；)]+/gi,
+      raw => {
+        try {
+          const url = new URL(raw);
+          return protectAlias(`https://${hostAlias(url.hostname || 'local-file')}/${resourceAlias(raw)}`);
+        } catch {
+          return '[URL masked]';
+        }
+      },
+    );
+    text = text.replace(/\b[^\s:/@]+:[^\s/@]+@/g, '[credentials masked]@');
+    text = text.replace(/\/[^\s"'<>`，。；]*[?#][^\s"'<>`，。；]+/g, '[relative URL masked]');
+    text = sanitizeDiagnosisText(text);
+    // URL 之外的主机/端点同样属于分享边界；数字错误码及时间不参与别名。
+    text = text.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, host => protectAlias(hostAlias(host)));
+    text = text.replace(/\[[0-9a-f:]*:[0-9a-f:]+\]|(?:[0-9a-f]{0,4}:){1,7}:[0-9a-f:]*|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}/gi,
+      host => protectAlias(hostAlias(host)));
+    text = text.replace(/\b(?:[a-z0-9_-]+\.)+[a-z][a-z0-9-]*\b/gi, hostAlias);
+    return text.split('\n').map(line => findSensitiveDataLeaks(line).length
+      ? '[expert only: unstructured sensitive text]' : line).join('\n')
+      .replace(/\[export timestamp (\d+)\]/g, (match, index: string) => timestamps[Number(index) - 1] ?? match)
+      .replace(/\[export address (\d+)\]/g, (match, index: string) => aliases[Number(index) - 1] ?? match);
+  };
+}
+
+/**
  * 生成脱敏后的诊断摘要文本（用于导出）
  */
-export function generateMaskedReport(cards: DiagnosticCard[]): string {
+export function generateMaskedReport(cards: DiagnosticCard[], sharing = true): string {
   const lines: string[] = [];
+  // 分享在整份报告上一次投影，避免先改写 query 导致同一 URL 被分成两个别名。
+  const evidenceText = sharing ? (value: string) => value : maskEvidenceValue;
 
   lines.push('# 网络诊断报告');
   lines.push(`> 生成时间：${new Date().toLocaleString()}`);
@@ -246,9 +315,9 @@ export function generateMaskedReport(cards: DiagnosticCard[]): string {
     if (card.evidence.length > 0) {
       lines.push('### 证据链');
       card.evidence.forEach(ev => {
-        lines.push(`- **${ev.label}**：${maskEvidenceValue(ev.value)}`);
+        lines.push(`- **${ev.label}**：${evidenceText(ev.value)}`);
         if (ev.detail) {
-          lines.push(`  - 详情：${maskEvidenceValue(ev.detail)}`);
+          lines.push(`  - 详情：${evidenceText(ev.detail)}`);
         }
         if (ev.fieldPath) {
           lines.push(`  - 字段路径：${ev.fieldPath}`);
@@ -261,7 +330,7 @@ export function generateMaskedReport(cards: DiagnosticCard[]): string {
       lines.push('### 置信度依据');
       card.confidenceFactors.forEach(factor => {
         const impact = factor.impact === 'positive' ? '正向证据' : factor.impact === 'negative' ? '限制因素' : '参考信息';
-        lines.push(`- **${factor.label}**（${impact}）：${maskEvidenceValue(factor.detail)}`);
+        lines.push(`- **${factor.label}**（${impact}）：${evidenceText(factor.detail)}`);
       });
       lines.push('');
     }
@@ -295,7 +364,8 @@ export function generateMaskedReport(cards: DiagnosticCard[]): string {
     lines.push('');
   });
 
-  return lines.join('\n');
+  const report = lines.join('\n');
+  return sharing ? createSharingTextSanitizer()(report) : report;
 }
 
 function roleLabel(role: string): string {

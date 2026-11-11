@@ -8,7 +8,16 @@ import { downloadTextFile } from '../../utils/downloadTextFile';
 import type { TraceTab } from '../../utils/hashRouting';
 import TraceResultPage from './TraceResultPage';
 
+jest.mock('antd', () => ({
+  Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,
+  Modal: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => <div role="dialog">{children}{footer}</div>,
+  Checkbox: ({ children, checked, onChange }: { children: React.ReactNode; checked: boolean; onChange: React.ChangeEventHandler<HTMLInputElement> }) =>
+    <label><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>,
+  message: { success: jest.fn(), error: jest.fn() },
+}));
+
 jest.mock('../../parsers/trace/exportTraceReport', () => ({
+  ...jest.requireActual('../../parsers/trace/exportTraceReport'),
   buildTraceMarkdownReport: jest.fn(),
   buildTraceJsonExport: jest.fn(),
 }));
@@ -117,6 +126,8 @@ describe('TraceResultPage', () => {
     render(<TraceResultPage result={result} />);
 
     await userEvent.click(screen.getByRole('button', { name: '导出 Markdown' }));
+    expect(mockDownloadTextFile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     expect(mockBuildTraceMarkdownReport).toHaveBeenCalledWith(result);
     expect(mockDownloadTextFile).toHaveBeenCalledWith(
       expect.stringMatching(/\.md$/),
@@ -125,6 +136,7 @@ describe('TraceResultPage', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: '导出 JSON' }));
+    await userEvent.click(screen.getByRole('button', { name: '下载文件' }));
     expect(mockBuildTraceJsonExport).toHaveBeenCalledWith(result);
     expect(mockDownloadTextFile).toHaveBeenCalledWith(
       expect.stringMatching(/\.json$/),

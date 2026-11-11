@@ -1,103 +1,28 @@
-import React, { useState } from 'react';
-import { Button, Modal, message, Typography } from 'antd';
-import { ExportOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
+import React from 'react';
+import { Button } from 'antd';
+import { ExportOutlined } from '@ant-design/icons';
 import type { DiagnosisSummary } from '../../diagnosis/shared/types';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
-import { downloadTextFile } from '../../utils/downloadTextFile';
-
-const { Paragraph } = Typography;
+import { useExportPreview } from './useExportPreview';
 
 interface ExportSummaryButtonProps {
   summary: DiagnosisSummary;
 }
 
 const ExportSummaryButton: React.FC<ExportSummaryButtonProps> = ({ summary }) => {
-  const [modalVisible, setModalVisible] = useState(false);
-  const [reportText, setReportText] = useState('');
-
-  const handleGenerate = () => {
-    const report = generateMaskedReport(summary.cards);
-    setReportText(report);
-    setModalVisible(true);
-  };
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(reportText);
-      message.success('脱敏报告已复制到剪贴板');
-    } catch {
-      message.error('复制失败，请手动选择复制');
-    }
-  };
-
-  const handleDownload = () => {
-    downloadTextFile(
-      `network-diagnosis-report-${new Date().toISOString().slice(0, 10)}.md`,
-      reportText,
-      'text/markdown;charset=utf-8',
-    );
-    message.success('报告已下载');
-  };
-
+  const { openExportPreview, exportPreview } = useExportPreview(summary);
   return (
     <>
-      <Button
-        icon={<ExportOutlined />}
-        onClick={handleGenerate}
-        style={{ fontSize: 13 }}
-      >
-        生成协作摘要
-      </Button>
-
-      <Modal
-        title="专家协作摘要（已脱敏）"
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        width={720}
-        footer={[
-          <Button key="close" onClick={() => setModalVisible(false)}>
-            关闭
-          </Button>,
-          <Button
-            key="copy"
-            icon={<CopyOutlined />}
-            onClick={handleCopy}
-          >
-            复制报告
-          </Button>,
-          <Button
-            key="download"
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleDownload}
-          >
-            下载 Markdown
-          </Button>,
-        ]}
-      >
-        <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
-          以下报告已自动脱敏：Cookie、Authorization、Token、URL 敏感参数、可能包含个人信息的 Header。
-          分享前仍建议人工复核。
-        </div>
-        <Paragraph>
-          <pre
-            style={{
-              maxHeight: 480,
-              overflow: 'auto',
-              background: '#1e293b',
-              color: '#e2e8f0',
-              padding: 16,
-              borderRadius: 8,
-              fontSize: 12,
-              lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {reportText}
-          </pre>
-        </Paragraph>
-      </Modal>
+      <Button icon={<ExportOutlined />} style={{ fontSize: 13 }} onClick={() => {
+        openExportPreview({
+          filename: `network-diagnosis-report-${new Date().toISOString().slice(0, 10)}.md`,
+          mime: 'text/markdown;charset=utf-8',
+          sharingText: generateMaskedReport(summary.cards),
+          buildExpertText: () => generateMaskedReport(summary.cards, false),
+          expertFields: '原诊断标题、结论、命令、地址与限制文本；沿用原证据脱敏',
+        });
+      }}>生成协作摘要</Button>
+      {exportPreview}
     </>
   );
 };

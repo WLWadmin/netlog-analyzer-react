@@ -3,7 +3,30 @@ import {
   maskEvidenceValue,
   maskUrl,
   sanitizeDiagnosisText,
+  generateMaskedReport,
 } from './maskedExport';
+import type { DiagnosticCard } from './types';
+
+it('covers every free-text section in sharing summaries and preserves the old expert report', () => {
+  const privateText = 'https://private.example.test/account?token=FAKE_VALUE';
+  const card: DiagnosticCard = {
+    id: 'card-1', source: 'netlog', category: 'network-change', severity: 'warning',
+    confidence: 'low', title: privateText, conclusion: privateText,
+    scope: { type: 'global', summary: privateText },
+    evidence: [{ label: privateText, value: privateText, source: 'netlog', detail: privateText, fieldPath: privateText }],
+    actions: [{ role: 'it', title: privateText, detail: privateText, command: `curl "${privateText}"`, expectedResult: privateText }],
+    limitations: [privateText],
+    confidenceFactors: [{ label: privateText, detail: privateText, impact: 'neutral' }],
+  };
+  const before = JSON.stringify(card);
+  const sharing = generateMaskedReport([card]);
+  expect(sharing.includes('FAKE_VALUE')).toBe(false);
+  expect(sharing.includes('private.example.test')).toBe(false);
+  expect(sharing.match(/https:\/\/host-1.invalid\/resource-1/g)?.length).toBeGreaterThan(8);
+  expect(findSensitiveDataLeaks(sharing)).toEqual([]);
+  expect(generateMaskedReport([card], false).includes(privateText)).toBe(true);
+  expect(JSON.stringify(card)).toBe(before);
+});
 
 describe('shared sensitive data scanner', () => {
   it('detects fake query, authorization, cookie, body, source, args and local paths', () => {

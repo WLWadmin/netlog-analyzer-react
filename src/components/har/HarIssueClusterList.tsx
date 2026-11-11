@@ -3,8 +3,8 @@ import { Button, Tag } from 'antd';
 import { ArrowRightOutlined, CopyOutlined } from '@ant-design/icons';
 import { formatHarTime } from '../../harParser';
 import { getHarEvidenceLevelLabel, getHarRoleLabel, type HarIssueCluster } from '../../diagnosis/shared/harIssueClusters';
-import { copyText } from '../../utils/copyText';
 import { buildHarClusterCopyText } from './buildHarClusterCopyText';
+import { useExportPreview } from '../shared/useExportPreview';
 
 interface HarIssueClusterListProps {
   clusters: HarIssueCluster[];
@@ -18,6 +18,7 @@ const severityColor = {
 };
 
 const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onOpenCluster }) => {
+  const { openExportPreview, exportPreview } = useExportPreview(clusters);
   if (!clusters.length) {
     return (
       <div style={{ padding: 16, border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)' }}>
@@ -28,6 +29,7 @@ const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onO
 
   return (
     <>
+      {exportPreview}
       <style>{`
         .har-issue-cluster-row {
           display: grid;
@@ -74,7 +76,13 @@ const HarIssueClusterList: React.FC<HarIssueClusterListProps> = ({ clusters, onO
             {cluster.maxDurationMs ? formatHarTime(cluster.maxDurationMs) : '-'} · {cluster.roleHints.map(getHarRoleLabel).join('/')}
           </span>
           <div className="har-issue-cluster-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(buildHarClusterCopyText(cluster))}>复制摘要</Button>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => openExportPreview({
+              filename: 'har-issue-summary.txt',
+              mime: 'text/plain;charset=utf-8',
+              sharingText: buildHarClusterCopyText(cluster),
+              buildExpertText: () => buildHarClusterCopyText(cluster, true),
+              expertFields: '既有问题组标题和关键证据文本；沿用原 URL/Header 脱敏',
+            })}>复制摘要</Button>
             <Button size="small" type="primary" icon={<ArrowRightOutlined />} onClick={() => onOpenCluster(cluster)}>查看请求</Button>
           </div>
           </div>

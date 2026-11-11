@@ -73,7 +73,9 @@ import { LoadingOverlay } from './components/shared/LoadingOverlay';
 import { AnalysisDisclaimer } from './components/shared/AnalysisDisclaimer';
 import ResultWorkbenchShell, { type ResultWorkbenchNavItem } from './components/shared/ResultWorkbenchShell';
 import { buildAppHash, parseAppHash, resolveTraceTab, TRACE_TABS, type FileType } from './utils/hashRouting';
-import { downloadTextFile } from './utils/downloadTextFile';
+import { buildNetlogJsonExport, buildNetlogCsvExport } from './utils/netlogExport';
+import { createSharingTextSanitizer } from './diagnosis/shared/maskedExport';
+import { useExportPreview } from './components/shared/useExportPreview';
 import type { IpRoutingConclusion } from './diagnosis/ipEvidence';
 import './appShell.css';
 
@@ -143,6 +145,7 @@ const AppContent: React.FC = () => {
   const [hasData, setHasData] = useState(false);
   const [events, setEvents] = useState<ParsedEvent[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const { openExportPreview, exportPreview } = useExportPreview(result);
   const [harResult, setHarResult] = useState<HarAnalysisResult | null>(null);
   const [harFileSize, setHarFileSize] = useState<number | undefined>();
   const [logResult, setLogResult] = useState<LogAnalysisResult | null>(null);
@@ -852,12 +855,14 @@ const AppContent: React.FC = () => {
     try {
       const { exportReport } = await import('./parsers/netlog/diagnosis');
       const report = exportReport(result, { ipRoutingConclusions });
-      downloadTextFile(
-        `netlog-analysis-report-${Date.now()}.md`,
-        report,
-        'text/markdown;charset=utf-8',
-      );
-      message.success('报告已导出');
+      if (resultRef.current !== result) return;
+      openExportPreview({
+        filename: `netlog-analysis-report-${Date.now()}.md`,
+        mime: 'text/markdown;charset=utf-8',
+        sharingText: createSharingTextSanitizer()(report),
+        buildExpertText: () => report,
+        expertFields: '原报告中的 URL、域名、IP、路径和诊断文本（沿用既有字段）',
+      });
     } catch {
       message.error('报告模块暂时无法加载，分析数据已保留，请重试导出。');
     }
@@ -865,54 +870,25 @@ const AppContent: React.FC = () => {
 
   const handleExportJSON = () => {
     if (!result) return;
-    const data = {
-      exportTime: new Date().toISOString(),
-      overview: {
-        totalEvents: result.totalEvents,
-        uniqueSources: result.uniqueSources,
-        peakConcurrency: result.peakConcurrency,
-        urlRequestCount: result.urlRequests.length,
-        errorCount: result.errors.length,
-        warningCount: result.warnings.length,
-        slowRequestCount: result.slowRequests.length,
-      },
-      proxyInfo: result.proxyInfo,
-      requests: result.urlRequests.map(r => ({
-        url: r.url,
-        method: r.method,
-        status: r.status,
-        statusCode: r.statusCode,
-        duration: r.duration,
-        error: r.error,
-        timeline: r.timeline,
-      })),
-      errors: result.errors.map(e => ({ severity: e.severity, category: e.category, message: e.message, detail: e.detail, time: e.time })),
-    };
-    downloadTextFile(
-      `netlog-analysis-${Date.now()}.json`,
-      JSON.stringify(data, null, 2),
-      'application/json;charset=utf-8',
-    );
-    message.success('JSON 数据已导出');
+    const generatedAt = new Date();
+    openExportPreview({
+      filename: `netlog-analysis-${Date.now()}.json`,
+      mime: 'application/json;charset=utf-8',
+      sharingText: buildNetlogJsonExport(result, false, generatedAt),
+      buildExpertText: () => buildNetlogJsonExport(result, true, generatedAt),
+      expertFields: '原 URL、代理配置及凭据、完整错误详情',
+    });
   };
 
   const handleExportCSV = () => {
     if (!result) return;
-    const headers = ['URL', 'Method', 'Status', 'StatusCode', 'Duration(ms)', 'Error', 'DNS(ms)', 'Connect(ms)', 'SSL(ms)', 'Send(ms)', 'Wait(ms)', 'Download(ms)'];
-    const rows = result.urlRequests.map(r => [
-      r.url, r.method, r.status, r.statusCode || '', r.duration || '',
-      r.error || '',
-      r.timeline.dns?.duration || '', r.timeline.connect?.duration || '',
-      r.timeline.ssl?.duration || '', r.timeline.send?.duration || '',
-      r.timeline.wait?.duration || '', r.timeline.download?.duration || '',
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
-    downloadTextFile(
-      `netlog-requests-${Date.now()}.csv`,
-      '\uFEFF' + csv,
-      'text/csv;charset=utf-8',
-    );
-    message.success('CSV 请求列表已导出');
+    openExportPreview({
+      filename: `netlog-requests-${Date.now()}.csv`,
+      mime: 'text/csv;charset=utf-8',
+      sharingText: buildNetlogCsvExport(result),
+      buildExpertText: () => buildNetlogCsvExport(result, true),
+      expertFields: '原 URL（含查询参数）与请求文本；CSV 公式保护始终开启',
+    });
   };
 
   const handleExportExpertEvidence = async () => {
@@ -958,17 +934,15 @@ const AppContent: React.FC = () => {
         prerenderState: states?.[11],
       });
 
-      downloadTextFile(
-        `netlog-expert-evidence-${Date.now()}.md`,
-        report,
-        'text/markdown;charset=utf-8',
-      );
-
-      if (datasetReady) {
-        message.success('专家证据包已导出');
-      } else {
-        message.warning('Dataset 尚未就绪，已导出 summary-only 证据包');
-      }
+      if (resultRef.current !== result) return;
+      openExportPreview({
+        filename: `netlog-expert-evidence-${Date.now()}.md`,
+        mime: 'text/markdown;charset=utf-8',
+        sharingText: createSharingTextSanitizer()(report),
+        buildExpertText: () => report,
+        expertFields: '既有证据索引中的地址和状态文本；原有脱敏、Top 样例范围保持',
+      });
+      if (!datasetReady) message.warning('Dataset 尚未就绪，预览为 summary-only 证据包');
     } catch (error) {
       message.error(`专家证据包导出失败：${safeErrorMessage(error)}`);
     } finally {
@@ -1093,6 +1067,7 @@ const AppContent: React.FC = () => {
     <ErrorBoundary onReset={handleReset}>
       <LoadingOverlay visible={loading} phase={loadingText} message="请稍候，正在提取事件、统计指标和诊断信息" />
       <Layout className="app-shell">
+      {exportPreview}
       <Header className="app-header">
         <div className="app-header-title">
           <div className="app-header-mark" aria-hidden="true">

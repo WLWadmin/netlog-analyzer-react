@@ -56,7 +56,7 @@ describe('buildHarRequestCopyText', () => {
   it('removes query, body, cookie and authorization values from the summary', () => {
     const text = buildHarRequestCopyText(entry());
 
-    expect(text).toContain('URL: https://example.com/api');
+    expect(text).toContain('URL: https://host-1.invalid/resource-1');
     expect(text).toContain('Status: 浏览器未拿到 HTTP 响应');
     expect(text).toContain('DNS: 未记录');
     expect(text).toContain('Queueing: 0 ms');
@@ -68,6 +68,13 @@ describe('buildHarRequestCopyText', () => {
     expect(text).not.toContain('SECRET_SET_COOKIE');
     expect(text).not.toContain('SECRET_REQUEST_BODY');
     expect(text).not.toContain('SECRET_RESPONSE_BODY');
+    expect(text).not.toContain('203.0.113.10');
+    expect(text).not.toContain('log-1');
+    const expert = buildHarRequestCopyText(entry(), true);
+    expect(expert).toContain('https://example.com/api');
+    expect(expert).toContain('203.0.113.10');
+    expect(expert).toContain('x-tt-logid: log-1');
+    expect(expert).not.toContain('SECRET_RESPONSE_BODY');
   });
 
   it('sanitizes malformed URLs without leaking query or hash', () => {

@@ -1,6 +1,6 @@
 import { findSensitiveDataLeaks } from '../../diagnosis/shared/maskedExport';
 import type { TraceAnalysisResult, TraceDiagnosis } from '../../diagnosis/trace';
-import { buildTraceJsonExport, buildTraceMarkdownReport } from './exportTraceReport';
+import { buildTraceJsonExport, buildTraceMarkdownReport, serializeTraceSharingExport } from './exportTraceReport';
 
 function diagnosis(overrides: Partial<TraceDiagnosis> = {}): TraceDiagnosis {
   return {
@@ -124,6 +124,22 @@ function addField(target: object, key: string, value: unknown): void {
   Object.defineProperty(target, key, { value, enumerable: true, configurable: true });
 }
 
+it('sharing Trace JSON aliases addresses and paths without changing original whitelist, IDs or values', () => {
+  const input = result();
+  const before = JSON.stringify(input);
+  const payload = buildTraceJsonExport(input);
+  const safe = serializeTraceSharingExport(payload);
+  const parsed = JSON.parse(safe);
+  expect(safe.includes('example.test')).toBe(false);
+  expect(safe.includes('/api/items')).toBe(false);
+  expect(parsed.schemaVersion).toBe(payload.schemaVersion);
+  expect(parsed.boundedRequests[0].id).toBe(payload.boundedRequests[0].id);
+  expect(parsed.boundedRequests[0].durationMs).toBe(payload.boundedRequests[0].durationMs);
+  expect(parsed.boundedRequests[0].evidenceIds).toEqual(payload.boundedRequests[0].evidenceIds);
+  expect(payload.boundedRequests[0].url).toEqual({ origin: 'https://example.test', pathname: '/api/items' });
+  expect(JSON.stringify(input)).toBe(before);
+  expect(findSensitiveDataLeaks(safe)).toEqual([]);
+});
 const MALICIOUS_VALUES = {
   query: 'LEAK_QUERY_VALUE',
   fragment: 'LEAK_FRAGMENT_VALUE',

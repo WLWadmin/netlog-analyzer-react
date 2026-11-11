@@ -3,6 +3,15 @@ import userEvent from '@testing-library/user-event';
 import type { TraceAnalysisResult } from '../../diagnosis/trace';
 import TraceResultPage from './TraceResultPage';
 
+// 此套验证事实视图，导出交互由 TraceResultPage.test.tsx 和共享预览测试覆盖。
+jest.mock('antd', () => ({
+  Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,
+  Modal: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => <div role="dialog">{children}{footer}</div>,
+  Checkbox: ({ children, checked, onChange }: { children: React.ReactNode; checked: boolean; onChange: React.ChangeEventHandler<HTMLInputElement> }) =>
+    <label><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>,
+  message: { success: jest.fn(), error: jest.fn() },
+}));
+
 const zero = { total: 0, returned: 0, truncated: false };
 const result: TraceAnalysisResult = {
   intake: {

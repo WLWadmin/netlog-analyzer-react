@@ -1,5 +1,6 @@
 import { formatHarTime } from '../../harParser';
 import { getHarEvidenceLevelLabel, getHarRoleLabel, type HarIssueCluster } from '../../diagnosis/shared/harIssueClusters';
+import { createSharingTextSanitizer } from '../../diagnosis/shared/maskedExport';
 
 function sanitizeEvidenceText(value: string): string {
   return value
@@ -7,7 +8,7 @@ function sanitizeEvidenceText(value: string): string {
     .replace(/(authorization|cookie|set-cookie|token|body)=?[^；\n\s]*/gi, '$1=<redacted>');
 }
 
-export function buildHarClusterCopyText(cluster: HarIssueCluster): string {
+export function buildHarClusterCopyText(cluster: HarIssueCluster, expert = false): string {
   const lines = [
     'HAR 问题摘要',
     `现象：${cluster.title}`,
@@ -20,5 +21,6 @@ export function buildHarClusterCopyText(cluster: HarIssueCluster): string {
     `需要补证：${cluster.requiresNetLog ? '建议补充同次 NetLog' : '暂不强制补充 NetLog'}`,
     `证据边界：${cluster.requiresNetLog ? 'HAR 只能说明请求现象，不能确认底层网络栈根因。' : 'HAR 记录的是请求现象，不代表责任归属。'}`,
   ].filter(Boolean);
-  return lines.join('\n');
+  const text = lines.join('\n');
+  return expert ? text : createSharingTextSanitizer()(text);
 }

@@ -33,7 +33,7 @@ import { useNavigation } from '../../contexts/NavigationContext';
 import { getCommandsForCategory } from '../../diagnosis/shared/commandLibrary';
 import { generateMaskedReport } from '../../diagnosis/shared/maskedExport';
 import { buildEvidenceNavigationTargets } from '../../diagnosis/shared/evidenceNavigation';
-import { downloadTextFile } from '../../utils/downloadTextFile';
+import { useExportPreview } from './useExportPreview';
 
 interface DiagnosticCardProps {
   card: DiagnosticCardType;
@@ -129,6 +129,7 @@ const evidenceSourceClassMap = {
 };
 
 const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index }) => {
+  const { openExportPreview, exportPreview } = useExportPreview(card);
   const [expandedEvidence, setExpandedEvidence] = useState(false);
   const [expandedActions, setExpandedActions] = useState(false);
   const { navigateTo } = useNavigation();
@@ -140,11 +141,13 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
   // 导出当前卡片脱敏摘要
   const handleExportCard = () => {
     const report = generateMaskedReport([card]);
-    downloadTextFile(
-      `诊断-${card.category}-${Date.now()}.md`,
-      report,
-      'text/markdown;charset=utf-8',
-    );
+    openExportPreview({
+      filename: `诊断-${card.category}-${Date.now()}.md`,
+      mime: 'text/markdown;charset=utf-8',
+      sharingText: report,
+      buildExpertText: () => generateMaskedReport([card], false),
+      expertFields: '原诊断标题、结论、命令、地址与限制文本；沿用原证据脱敏',
+    });
   };
 
   /**
@@ -447,6 +450,7 @@ const DiagnosticCardComponent: React.FC<DiagnosticCardProps> = ({ card, index })
 
       {/* 排查命令库 */}
       <CardCommandSection card={card} />
+      {exportPreview}
     </Card>
   );
 };
