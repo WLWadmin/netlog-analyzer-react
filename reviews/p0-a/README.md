@@ -2,6 +2,8 @@
 
 本分支仅实施 P0-A，交由技术顾问 Review；不合并、不部署、不启动其他 P0 单元。
 
+REVIEW-C 最新交付为[最小兼容修订方案](review-c-proposal.md)、[拟议 schema](review-c-sharing-v1.schema.json)、[JSON 对照](review-c-examples.json)和[可复现测试设计](review-c-test-design.md)。本轮仅补设计/证据，不改生产代码；新版本契约未经批准，C-02/C-03 旧方案已拒绝，合并/发布仍 blocked。
+
 **PR #3 独立 Review 整改：整体 blocked。** 最新 A～E 结论、实际测试和性能见 [review-remediation.md](review-remediation.md)，完整 JSON 字段差异见 [json-compatibility.md](json-compatibility.md)。负责人明确未批准 C-01～C-03；默认 JSON 的兼容损失不能仅凭 D04-A 或专家替代入口放行。以下首轮实现记录保留为历史，不能替代这次复核。
 
 ## 授权与基线

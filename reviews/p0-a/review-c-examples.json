@@ -1,0 +1,71 @@
+{
+  "status": "PROPOSED_NOT_IMPLEMENTED",
+  "reviewedHead": "e76030e4ae88e7bfb7ab0db08456f5e128560692",
+  "exampleTimeZone": "Asia/Shanghai",
+  "note": "Synthetic input and current JSON fragments; proposed envelopes are expected outputs, not production results.",
+  "netlogComparison": {
+    "inputFragment": { "proxySettings": null, "originalProxy": { "private": "SYNTHETIC_PRIVATE" } },
+    "inputEffectiveProxy": "own property deleted",
+    "currentShareFragment": { "proxySettings": "[expert only]", "effectiveProxy": "[expert only]", "originalProxy": "[expert only]" },
+    "expertFragment": { "proxySettings": null, "originalProxy": { "private": "SYNTHETIC_PRIVATE" } }
+  },
+  "goComparison": {
+    "inputFragment": { "id": "entry-2", "headers": {}, "bodyRaw": "" },
+    "inputBody": "own property value undefined",
+    "currentShareFragment": { "id": "entry-1", "headers": "[expert only]", "body": "[expert only]", "bodyRaw": "[expert only]" },
+    "expertFragment": { "id": "entry-2", "headers": {}, "bodyRaw": "" }
+  },
+  "proposedNetlog": {
+    "schema": "netlog-analyzer-sharing", "version": 1, "profile": "safe-sharing", "kind": "netlog",
+    "data": {
+      "exportTime": "2026-11-11T00:00:00.000Z",
+      "overview": {
+        "totalEvents": 1, "uniqueSources": 1, "peakConcurrency": 0, "urlRequestCount": 0,
+        "errorCount": 0, "warningCount": 0, "slowRequestCount": 0
+      },
+      "proxyInfo": {
+        "hasProxy": false, "proxyType": null, "pacUrl": null, "proxyList": [],
+        "proxyFallback": null, "isVPN": false, "vpnHints": [],
+        "redactions": {
+          "proxySettings": { "state": "null" },
+          "effectiveProxy": { "state": "missing", "reason": "absent-property" },
+          "originalProxy": { "state": "redacted", "valueType": "object", "emptiness": "uninspected" }
+        }
+      },
+      "requests": [], "errors": []
+    }
+  },
+  "proposedGo": {
+    "schema": "netlog-analyzer-sharing", "version": 1, "profile": "safe-sharing", "kind": "go",
+    "data": {
+      "exportTime": "2026-11-11T00:00:00.000Z", "total": 1,
+      "identity": { "scope": "analysis-local", "crossFileUnique": false },
+      "entries": [{
+        "id": "entry-2", "timestamp": "[phone masked]:00:01", "timestampMs": 1794326401000,
+        "worker": "[worker masked]", "level": "Info", "method": "GET",
+        "url": "https://host-1.invalid/resource-1", "domain": "host-1.invalid", "path": "[path masked]",
+        "status": "Success", "statusCode": 200, "duration": 0, "durationText": "+0ms",
+        "friendlyName": "b", "rawLine": "[expert only]",
+        "redactions": {
+          "headers": { "state": "redacted", "valueType": "object", "emptiness": "uninspected" },
+          "body": { "state": "missing", "reason": "undefined-value" },
+          "bodyRaw": { "state": "redacted", "valueType": "string", "emptiness": "empty" }
+        }
+      }]
+    }
+  },
+  "bodyStateCases": [
+    { "case": "absent-property", "expected": { "state": "missing", "reason": "absent-property" } },
+    { "case": "undefined-value", "expected": { "state": "missing", "reason": "undefined-value" } },
+    { "case": "null", "inputValue": null, "expected": { "state": "null" } },
+    { "case": "empty-string", "inputValue": "", "expected": { "state": "redacted", "valueType": "string", "emptiness": "empty" } },
+    { "case": "string", "inputValue": "SYNTHETIC_PRIVATE", "expected": { "state": "redacted", "valueType": "string", "emptiness": "nonempty" } },
+    { "case": "zero", "inputValue": 0, "expected": { "state": "redacted", "valueType": "number" } },
+    { "case": "false", "inputValue": false, "expected": { "state": "redacted", "valueType": "boolean" } },
+    { "case": "empty-object", "inputValue": {}, "expected": { "state": "redacted", "valueType": "object", "emptiness": "uninspected" } },
+    { "case": "object", "inputValue": { "private": "SYNTHETIC_PRIVATE" }, "expected": { "state": "redacted", "valueType": "object", "emptiness": "uninspected" } },
+    { "case": "empty-array", "inputValue": [], "expected": { "state": "redacted", "valueType": "array", "emptiness": "uninspected" } },
+    { "case": "array", "inputValue": ["SYNTHETIC_PRIVATE"], "expected": { "state": "redacted", "valueType": "array", "emptiness": "uninspected" } },
+    { "case": "getter", "expected": { "state": "uninspected", "reason": "accessor-not-read" } }
+  ]
+}
