@@ -38,7 +38,7 @@ export function buildLogEntriesText(entries: LogEntry[], expert = false) {
   if (expert) return entries.map(e => e.rawLine).join('\n');
   const sanitize = createSharingTextSanitizer();
   return entries.map((e, index) =>
-    `entry-${index + 1} ${sanitize(e.timestamp)} ${e.level} ${sanitize(e.method)} ${sanitize(e.url, true)} ${e.status} ${e.statusCode ?? ''} ${e.duration}ms [raw line: expert only]`
+    `entry-${index + 1} ${sanitize(e.timestamp)} ${e.level} ${sanitize(e.method)} ${sanitize(e.url, true) ?? '[address missing]'} ${e.status} ${e.statusCode ?? ''} ${e.duration}ms [raw line: expert only]`
   ).join('\n');
 }
 

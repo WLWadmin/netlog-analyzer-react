@@ -62,7 +62,7 @@ function formatServerTiming(entry: HarRequestEntry): string {
 
 export function buildHarRequestCopyText(entry: HarRequestEntry, expert = false): string {
   const sanitize = createSharingTextSanitizer();
-  const sharedUrl = expert ? '' : sanitize(entry.url, true);
+  const sharedUrl = expert ? '' : sanitize(entry.url, true) ?? '[address missing]';
   const issue = getHarRequestIssue(entry);
   const role = issue.roleHint ? ROLE_LABELS[issue.roleHint] : '无需优先转交';
   const timingLines = TIMING_ROWS.map(row => `  ${row.label}: ${formatTiming(entry, row.key)}`);

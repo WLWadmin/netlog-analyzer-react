@@ -212,7 +212,7 @@ export function sanitizeDiagnosisText(value: string): string {
  * 单报告内的分享别名。字典只存活于一次投影，不导出反向映射；
  * 不改变用于本地展示的 maskUrl/maskEvidenceValue 兼容语义。
  */
-export function createSharingTextSanitizer(): (value: string, address?: boolean) => string {
+export function createSharingTextSanitizer() {
   const hosts = new Map<string, string>();
   const resources = new Map<string, string>();
   const hostAlias = (host: string) => {
@@ -232,11 +232,32 @@ export function createSharingTextSanitizer(): (value: string, address?: boolean)
     }
     return resource;
   };
-  return (value, address = false) => {
+  function sanitize(value: string, address?: boolean): string;
+  function sanitize(value: undefined, address: true): undefined;
+  function sanitize(value: null, address: true): null;
+  function sanitize(value: string | null | undefined, address = false): string | null | undefined {
+    if (value == null) return value;
     if (address) {
-      let host = 'unknown-address';
-      try { host = new URL(value).hostname || 'local-file'; } catch { /* 未解析地址仍保留独立别名 */ }
-      return `https://${hostAlias(host)}/${resourceAlias(value)}`;
+      if (value === '') return '';
+      if (!value.trim()) return '[address empty]';
+      if (/^(?:unknown|unavailable|未记录|未知|-|null|undefined)$/i.test(value.trim())) return '[address unknown]';
+      // URL() 会修复缺斜线、反斜线和空白；分享边界不能把修复结果当作已采集地址。
+      if (/[\s\\]/.test(value)) return '[address invalid or uncertain]';
+      if (/^(?:https?|wss?|ftp|file):\/\//i.test(value)) {
+        try {
+          const parsed = new URL(value);
+          if (parsed.protocol === 'file:') return `[local address: ${resourceAlias(value)}]`;
+          if (parsed.hostname && /^(?:https?|wss?|ftp):\/\/[^/?#]/i.test(value)) {
+            return `${parsed.protocol}//${hostAlias(parsed.hostname)}/${resourceAlias(value)}`;
+          }
+        } catch { /* 原始地址不可解析：保留不确定性，不分配主机别名。 */ }
+        return '[address invalid or uncertain]';
+      }
+      // 相对引用没有已知 origin；即使形如 //host/path 也不能补造协议。
+      if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && !/[[\]<>]/.test(value)) {
+        return `[relative address: ${resourceAlias(value)}]`;
+      }
+      return '[address invalid or uncertain]';
     }
     const timestamps: string[] = [];
     const aliases: string[] = [];
@@ -252,12 +273,7 @@ export function createSharingTextSanitizer(): (value: string, address?: boolean)
     text = text.replace(
       /\b(?:https?|wss?|ftp|file):\/\/[^\s"'<>`*，。；)]+/gi,
       raw => {
-        try {
-          const url = new URL(raw);
-          return protectAlias(`https://${hostAlias(url.hostname || 'local-file')}/${resourceAlias(raw)}`);
-        } catch {
-          return '[URL masked]';
-        }
+        return protectAlias(sanitize(raw, true));
       },
     );
     text = text.replace(/\b[^\s:/@]+:[^\s/@]+@/g, '[credentials masked]@');
@@ -272,7 +288,8 @@ export function createSharingTextSanitizer(): (value: string, address?: boolean)
       ? '[expert only: unstructured sensitive text]' : line).join('\n')
       .replace(/\[export timestamp (\d+)\]/g, (match, index: string) => timestamps[Number(index) - 1] ?? match)
       .replace(/\[export address (\d+)\]/g, (match, index: string) => aliases[Number(index) - 1] ?? match);
-  };
+  }
+  return sanitize;
 }
 
 /**

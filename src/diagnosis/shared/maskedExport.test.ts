@@ -4,8 +4,38 @@ import {
   maskUrl,
   sanitizeDiagnosisText,
   generateMaskedReport,
+  createSharingTextSanitizer,
 } from './maskedExport';
 import type { DiagnosticCard } from './types';
+
+describe('sharing address semantics', () => {
+  it.each([
+    ['https://example.test/a?token=FAKE_VALUE', 'https://host-1.invalid/resource-1'],
+    ['http://example.test/a', 'http://host-1.invalid/resource-1'],
+    ['/private/path?token=FAKE_VALUE', '[relative address: resource-1]'],
+    ['../private/path', '[relative address: resource-1]'],
+    ['asset.js', '[relative address: resource-1]'],
+    ['//example.test/private', '[relative address: resource-1]'],
+    ['', ''],
+    ['   ', '[address empty]'],
+    ['unknown', '[address unknown]'],
+    ['https://[broken?token=FAKE_VALUE', '[address invalid or uncertain]'],
+    ['possibly https://example.test/a', '[address invalid or uncertain]'],
+    ['https://example.test/a [uncertain]', '[address invalid or uncertain]'],
+    ['https:\\\\example.test\\a', '[address invalid or uncertain]'],
+    ['https:///example.test/a', '[address invalid or uncertain]'],
+    ['https:example.test/a', '[address invalid or uncertain]'],
+    ['file:///private/example.txt', '[local address: resource-1]'],
+  ])('retains the recorded address category for %s', (raw, expected) => {
+    expect(createSharingTextSanitizer()(raw, true)).toBe(expected);
+  });
+
+  it('does not assign an address to a missing or null value at a runtime boundary', () => {
+    const sanitize = createSharingTextSanitizer();
+    expect(sanitize(undefined, true)).toBeUndefined();
+    expect(sanitize(null, true)).toBeNull();
+  });
+});
 
 it('covers every free-text section in sharing summaries and preserves the old expert report', () => {
   const privateText = 'https://private.example.test/account?token=FAKE_VALUE';

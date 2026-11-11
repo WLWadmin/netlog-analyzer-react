@@ -120,7 +120,10 @@ describe('TraceResultPage', () => {
   });
 
   it('exports Markdown and JSON from the current result', async () => {
-    const jsonExport = { schemaVersion: 1, quality: { level: 'partial' } };
+    // 序列化器按真实 DTO 的已知节点登记例外；不能用缺失事实列表的对象冒充 DTO。
+    const jsonExport = jest.requireActual<typeof import('../../parsers/trace/exportTraceReport')>(
+      '../../parsers/trace/exportTraceReport',
+    ).buildTraceJsonExport(result);
     mockBuildTraceMarkdownReport.mockReturnValue('# Trace report');
     mockBuildTraceJsonExport.mockReturnValue(jsonExport);
     render(<TraceResultPage result={result} />);

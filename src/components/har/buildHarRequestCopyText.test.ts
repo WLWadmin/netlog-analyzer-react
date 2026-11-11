@@ -53,6 +53,19 @@ function entry(overrides: Partial<HarRequestEntry> = {}): HarRequestEntry {
 }
 
 describe('buildHarRequestCopyText', () => {
+  it('marks a runtime missing HAR address explicitly', () => {
+    const value = entry();
+    Object.defineProperty(value, 'url', { value: undefined });
+    expect(buildHarRequestCopyText(value).split('\n')[1]).toBe('URL: [address missing]');
+  });
+
+  it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
+    'keeps HAR non-absolute URL semantics for %s', url => {
+      const line = buildHarRequestCopyText(entry({ url })).split('\n')[1];
+      expect(line.startsWith('URL: https://')).toBe(false);
+    },
+  );
+
   it('removes query, body, cookie and authorization values from the summary', () => {
     const text = buildHarRequestCopyText(entry());
 

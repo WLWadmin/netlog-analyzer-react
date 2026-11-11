@@ -20,6 +20,44 @@ function fixture() {
 }
 
 describe('NetLog export boundary', () => {
+  it('keeps absent addresses absent rather than fabricating URL/PAC facts', () => {
+    const result = fixture();
+    Object.defineProperty(result.urlRequests[0], 'url', { value: undefined });
+    Object.defineProperty(result.proxyInfo, 'pacUrl', { value: undefined });
+    const shared = JSON.parse(buildNetlogJsonExport(result));
+    expect(Object.prototype.hasOwnProperty.call(shared.requests[0], 'url')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(shared.proxyInfo, 'pacUrl')).toBe(false);
+    expect(buildNetlogCsvExport(result).split('\r\n')[1].startsWith('"",')).toBe(true);
+  });
+
+  it.each([null, {}, ['synthetic'], 'synthetic', 0, false])(
+    'documents pending open-proxy type changes and preserves original expert value %p', settings => {
+      const result = fixture();
+      result.proxyInfo.proxySettings = settings;
+      result.proxyInfo.effectiveProxy = settings;
+      result.proxyInfo.originalProxy = settings;
+      const safe = JSON.parse(buildNetlogJsonExport(result));
+      const expert = JSON.parse(buildNetlogJsonExport(result, true));
+      for (const key of ['proxySettings', 'effectiveProxy', 'originalProxy']) {
+        expect(safe.proxyInfo[key]).toBe('[expert only]');
+        expect(expert.proxyInfo[key]).toEqual(settings);
+      }
+    },
+  );
+
+  it.each(['', '/relative/private', 'unknown', 'https://[broken'])(
+    'JSON and CSV never invent a host for recorded non-absolute address %s', url => {
+      const result = fixture();
+      result.urlRequests[0].url = url;
+      result.proxyInfo.pacUrl = url;
+      const shared = JSON.parse(buildNetlogJsonExport(result));
+      expect(shared.requests[0].url.startsWith('https://')).toBe(false);
+      expect(shared.proxyInfo.pacUrl.startsWith('https://')).toBe(false);
+      expect(buildNetlogCsvExport(result).includes('https://')).toBe(false);
+      expect(JSON.parse(buildNetlogJsonExport(result, true)).requests[0].url).toBe(url);
+    },
+  );
+
   it('uses a whitelist without reading raw event/dataset/proxy objects or mutating local input', () => {
     const result = fixture();
     const before = JSON.stringify(result);
@@ -93,7 +131,7 @@ describe('NetLog export boundary', () => {
     expect(sanitize('private.example.test')).toBe('host-1.invalid');
     expect(sanitize('https://other.example.test/a')).toBe('https://host-2.invalid/resource-2');
     expect(sanitize('2026-11-11T00:00:00.000Z')).toBe('2026-11-11T00:00:00.000Z');
-    expect(sanitize('/private/account', true)).toContain('/resource-3');
+    expect(sanitize('/private/account', true)).toBe('[relative address: resource-3]');
     expect(sanitize('/private/account', true)).not.toContain('/private/account');
     for (const raw of ['user:FAKE_VALUE@proxy.example.test:80', '[2001:db8::1]', '2001:db8::2',
       '203.0.113.1', '/Users/example/private.txt', '/relative/path?debug=FAKE_VALUE',

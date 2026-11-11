@@ -158,15 +158,60 @@ function clean(value: string): string {
 /** 只遍历既有白名单 DTO，不读取 sourceText、args 或完整 Trace 事件。 */
 export function serializeTraceSharingExport(payload: TraceExportPayload): string {
   const sanitize = createSharingTextSanitizer();
-  return JSON.stringify(payload, (key: string, value: unknown): unknown => {
-    if ((key === 'url' || key === 'script') && value && typeof value === 'object'
+  const urlNodes = new WeakSet<object>();
+  const projectedUrls = new WeakSet<object>();
+  const identityFields = new WeakMap<object, ReadonlySet<string>>();
+  const referenceLists = new WeakSet<object>();
+  const register = (record: object, keys: string[], lists: readonly string[][]) => {
+    identityFields.set(record, new Set(keys));
+    lists.forEach(list => referenceLists.add(list));
+  };
+  // 只登记 schema 中已知的节点与字段；未来同名属性不会自动获得放行权限。
+  for (const item of [payload.primaryDiagnosis, ...payload.secondaryDiagnoses]) {
+    if (item) register(item, ['id', 'ruleId'], [item.evidenceIds, item.factIds]);
+  }
+  for (const item of payload.milestones) register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  for (const item of payload.boundedRequests) {
+    register(item, ['id', 'requestId', 'navigationKey'], [item.evidenceIds]);
+    if (item.url) urlNodes.add(item.url);
+  }
+  for (const item of payload.boundedTasks.tasks) register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  for (const item of payload.boundedTasks.cpuHotspots) {
+    register(item, ['id', 'profileId', 'navigationKey'], [item.evidenceIds, item.taskIds]);
+    if (item.script) urlNodes.add(item.script);
+  }
+  for (const item of [...payload.boundedRendering.frames, ...payload.boundedRendering.events]) {
+    register(item, ['id', 'navigationKey'], [item.evidenceIds]);
+  }
+  for (const item of payload.boundedRendering.reflow) register(item, ['id', 'navigationKey', 'taskId'], [item.evidenceIds]);
+  for (const item of payload.boundedInteractions) {
+    register(item, ['id', 'navigationKey'], [item.evidenceIds, item.taskIds, item.renderingEventIds, item.frameIds]);
+  }
+  for (const item of payload.referencedEvidence) register(item, ['evidenceId'], []);
+  return JSON.stringify(payload, function (this: unknown, key: string, value: unknown): unknown {
+    if (value && typeof value === 'object' && urlNodes.has(value)
       && 'origin' in value && typeof value.origin === 'string'
       && 'pathname' in value && typeof value.pathname === 'string') {
-      const alias = new URL(sanitize(value.origin + value.pathname, true));
-      return { origin: alias.origin, pathname: alias.pathname };
+      let projected = {
+        origin: value.origin === '' ? '' : '[address invalid or uncertain]',
+        pathname: value.pathname === '' ? '' : '[path masked]',
+      };
+      try {
+        const origin = new URL(value.origin);
+        if (origin.origin === value.origin && value.pathname.startsWith('/')
+          && !value.pathname.startsWith('//') && !/[\s\\]/.test(value.origin + value.pathname)) {
+          const alias = new URL(sanitize(value.origin + value.pathname, true));
+          projected = { origin: alias.origin, pathname: alias.pathname };
+        }
+      } catch { /* 不补造未知 origin，保持 {origin, pathname} 字符串结构。 */ }
+      projectedUrls.add(projected);
+      return projected;
     }
-    // origin/pathname 已由上方合并投影，避免重复别名或泄漏原路径。
-    if (key === 'origin' || key === 'pathname') return value;
+    if (this && typeof this === 'object') {
+      if (projectedUrls.has(this) && (key === 'origin' || key === 'pathname')) return value;
+      // 身份不是自由文本；只保护已有 DTO 的 ID 和引用数组，避免破坏 join 关系。
+      if (identityFields.get(this)?.has(key) || referenceLists.has(this)) return value;
+    }
     return typeof value === 'string' ? sanitize(value) : value;
   }, 2);
 }
